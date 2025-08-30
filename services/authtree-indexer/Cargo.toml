@@ -1,0 +1,20 @@
+[package]
+name = "authtree-indexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+common = { path = "../../crates/common" }
+alloy = { version = "1.0.22", features = ["full"] }
+dotenvy = "0.15"
+url = "2"
+hex = "0.4"
+anyhow = { workspace = true }
+futures-util = "0.3"
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "macros", "json"] }
+

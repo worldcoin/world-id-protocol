@@ -1,14 +1,4 @@
-pub fn greeting(name: &str) -> String {
-    format!("Hello, {name}!")
-}
+pub mod authenticator_registry;
+mod authenticator;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn greeting_formats_name() {
-        assert_eq!(greeting("World"), "Hello, World!");
-    }
-}
-
+pub use authenticator::Authenticator;

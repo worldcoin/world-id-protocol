@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/common",
-    "services/service-a",
+    "services/authtree-indexer",
     "services/service-b",
 ]
 resolver = "2"
