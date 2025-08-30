@@ -8,7 +8,7 @@ help:
 	@echo "  rust-test    - cargo test --workspace"
 	@echo "  rust-fmt     - cargo fmt --all"
 	@echo "  rust-clippy  - cargo clippy --workspace --all-targets -D warnings"
-	@echo "  run-a        - run service-a (PORT 3000 by default)"
+	@echo "  run-indexer  - run authtree-indexer"
 	@echo "  run-b        - run service-b (PORT 4000 by default)"
 	@echo "  sol-build    - forge build (in contracts/)"
 	@echo "  sol-test     - forge test (in contracts/)"
@@ -26,8 +26,8 @@ rust-fmt:
 rust-clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
 
-run-a:
-	cargo run -p service-a
+run-indexer:
+	cargo run -p authtree-indexer
 
 run-b:
 	cargo run -p service-b
@@ -41,3 +41,6 @@ sol-test:
 sol-fmt:
 	cd contracts && forge fmt
 
+test:
+	$(MAKE) rust-test
+	$(MAKE) sol-test
