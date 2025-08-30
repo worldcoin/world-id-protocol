@@ -18,3 +18,5 @@ anyhow = { workspace = true }
 futures-util = "0.3"
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "macros", "json"] }
 
+[dev-dependencies]
+regex = "1.11.2"
