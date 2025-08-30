@@ -1,0 +1,6 @@
+[build]
+target-dir = "target"
+
+[env]
+RUST_LOG = "info"
+

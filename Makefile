@@ -1,0 +1,43 @@
+SHELL := /bin/bash
+
+.PHONY: help rust-build rust-test rust-fmt rust-clippy run-a run-b sol-build sol-test sol-fmt
+
+help:
+	@echo "Targets:"
+	@echo "  rust-build   - cargo build --workspace"
+	@echo "  rust-test    - cargo test --workspace"
+	@echo "  rust-fmt     - cargo fmt --all"
+	@echo "  rust-clippy  - cargo clippy --workspace --all-targets -D warnings"
+	@echo "  run-a        - run service-a (PORT 3000 by default)"
+	@echo "  run-b        - run service-b (PORT 4000 by default)"
+	@echo "  sol-build    - forge build (in contracts/)"
+	@echo "  sol-test     - forge test (in contracts/)"
+	@echo "  sol-fmt      - forge fmt (in contracts/)"
+
+rust-build:
+	cargo build --workspace
+
+rust-test:
+	cargo test --workspace
+
+rust-fmt:
+	cargo fmt --all
+
+rust-clippy:
+	cargo clippy --workspace --all-targets -- -D warnings
+
+run-a:
+	cargo run -p service-a
+
+run-b:
+	cargo run -p service-b
+
+sol-build:
+	cd contracts && forge build
+
+sol-test:
+	cd contracts && forge test -vvv
+
+sol-fmt:
+	cd contracts && forge fmt
+

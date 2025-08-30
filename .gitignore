@@ -1,0 +1,17 @@
+# Rust
+target/
+**/target/
+
+# Foundry (forge)
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+
+# Node (if used later)
+node_modules/
+
+# Misc
+.env
+.DS_Store
+
