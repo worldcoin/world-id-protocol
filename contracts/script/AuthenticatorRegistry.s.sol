@@ -16,5 +16,7 @@ contract CounterScript is Script {
         authenticatorRegistry = new AuthenticatorRegistry(DEFAULT_RECOVERY_ADDRESS);
 
         vm.stopBroadcast();
+
+        console.log("AuthenticatorRegistry deployed to:", address(authenticatorRegistry));
     }
 }
