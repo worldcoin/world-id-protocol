@@ -1,8 +1,10 @@
 use alloy::{
-    dyn_abi::Eip712Domain, primitives::{Address, Signature, U256}, signers::Signer, sol
+    dyn_abi::Eip712Domain,
+    primitives::{address, Address, Signature, U256},
+    signers::Signer,
+    sol,
 };
-use alloy::sol_types::eip712_domain;
-use alloy::sol_types::SolStruct;
+use alloy::sol_types::{eip712_domain, SolStruct};
 
 sol! {
     struct UpdateAuthenticator {
@@ -35,13 +37,11 @@ sol! {
     }
 }
 
-static CHAIN_ID: u64 = 1;
-static VERIFYING_CONTRACT: Address = Address::ZERO;
 static EIP712_DOMAIN: Eip712Domain = eip712_domain!(
     name: "AuthenticatorRegistry",
     version: "1.0",
-    chain_id: CHAIN_ID,
-    verifying_contract: VERIFYING_CONTRACT,
+    chain_id: 1,
+    verifying_contract: address!("0x0000000000000000000000000000000000000000"),
 );
 
 /// Signs UpdateAuthenticator using Alloy signer.
@@ -114,3 +114,10 @@ pub async fn sign_recover_account<S: Signer + Sync>(
     let digest = msg.eip712_signing_hash(&EIP712_DOMAIN);
     Ok(signer.sign_hash(&digest).await?)
 }
+
+sol!(
+    #[allow(missing_docs)]
+    #[sol(rpc, ignore_unlinked)]
+    AuthenticatorRegistry,
+    "../../contracts/out/AuthenticatorRegistry.sol/AuthenticatorRegistry.json"
+);

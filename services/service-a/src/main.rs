@@ -36,7 +36,7 @@ async fn health() -> impl IntoResponse {
 }
 
 async fn hello(Path(name): Path<String>) -> impl IntoResponse {
-    let msg = common::greeting(&name);
+    let msg = "Hello, World!";
     Json(serde_json::json!({ "message": msg }))
 }
 

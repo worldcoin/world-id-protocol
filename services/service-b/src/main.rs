@@ -44,7 +44,7 @@ async fn sum(Query(params): Query<SumParams>) -> impl IntoResponse {
         "a": params.a,
         "b": params.b,
         "sum": params.a + params.b,
-        "message": common::greeting("from service-b"),
+        "message": "xxx",
     }))
 }
 
