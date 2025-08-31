@@ -2,7 +2,7 @@
 
 This repo is a minimal monorepo scaffolding that contains:
 
-- Multiple Rust services (`service-a`, `service-b`)
+- Multiple Rust services (`service-a`, `registry-gateway`)
 - A shared Rust library crate (`common`)
 - A Foundry (forge) Solidity project (`contracts`)
 
@@ -13,7 +13,7 @@ crates/
   common/            # shared Rust library
 services/
   service-a/         # axum web service
-  service-b/         # axum web service
+  registry-gateway/  # AuthenticatorRegistry HTTP gateway (Axum + Alloy)
 contracts/           # Foundry project (forge)
 ```
 
@@ -31,7 +31,7 @@ Use the provided Makefile targets:
 - `make rust-fmt`: Format Rust code
 - `make rust-clippy`: Lint with clippy (fails on warnings)
 - `make run-a`: Run `service-a` (default at 127.0.0.1:3000)
-- `make run-b`: Run `service-b` (default at 127.0.0.1:4000)
+- `make run-gateway`: Run `registry-gateway` (default at 127.0.0.1:4000)
 - `make sol-build`: Build contracts with forge
 - `make sol-test`: Test contracts with forge
 - `make sol-fmt`: Format Solidity code
@@ -45,10 +45,15 @@ Both services are simple `axum` servers:
   - `GET /hello/:name` → `{ "message": "Hello, <name>!" }` (uses `common::greeting`)
   - Port via `SERVICE_A_PORT` or `PORT` (default 3000)
 
-- `service-b`
+- `registry-gateway`
   - `GET /health` → `{ "status": "ok" }`
-  - `GET /sum?a=<i64>&b=<i64>` → `{ a, b, sum, message }`
-  - Port via `SERVICE_B_PORT` or `PORT` (default 4000)
+  - AuthenticatorRegistry APIs (selected):
+    - `POST /create-account` (batched → `createManyAccounts`)
+    - `POST /update-authenticator`
+    - `POST /insert-authenticator`
+    - `POST /remove-authenticator`
+    - `POST /recover-account`
+  - Env: `RPC_URL`, `WALLET_KEY`, `REGISTRY_ADDRESS`, optional `RG_BATCH_MS`, `RG_PORT`/`PORT`
 
 ## Solidity contracts
 
@@ -69,4 +74,3 @@ forge fmt
 - Add Dockerfiles and/or docker-compose for services
 - Extend `common` crate for shared types, config, and error handling
 - Wire services together or add DB/queues as needed
-

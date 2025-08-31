@@ -3,7 +3,11 @@ use std::{env, fs, path::PathBuf};
 fn main() {
     // Path to the root of the repo
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let repo_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
 
     // Source ABI produced by Foundry
     let src = repo_root
@@ -22,4 +26,3 @@ fn main() {
     fs::create_dir_all(&out_dir).unwrap();
     fs::copy(&src, &dst).expect("failed to copy AuthenticatorRegistry ABI");
 }
-

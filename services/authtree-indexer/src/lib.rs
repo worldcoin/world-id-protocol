@@ -49,16 +49,31 @@ pub fn load_config_from_env() -> IndexerConfig {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or_else(|| address!("0x0000000000000000000000000000000000000000"));
-    let db_url = std::env::var("DATABASE_URL").or_else(|_| std::env::var("PG_URL")).expect("DATABASE_URL/PG_URL");
-    let start_block: u64 = std::env::var("START_BLOCK").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let batch_size: u64 = std::env::var("BATCH_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(5_000);
+    let db_url = std::env::var("DATABASE_URL")
+        .or_else(|_| std::env::var("PG_URL"))
+        .expect("DATABASE_URL/PG_URL");
+    let start_block: u64 = std::env::var("START_BLOCK")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let batch_size: u64 = std::env::var("BATCH_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5_000);
     let ws_url = std::env::var("WS_URL").ok();
-    IndexerConfig { rpc_url, ws_url, registry_address, db_url, start_block, batch_size }
+    IndexerConfig {
+        rpc_url,
+        ws_url,
+        registry_address,
+        db_url,
+        start_block,
+        batch_size,
+    }
 }
 
 pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
-    let provider = ProviderBuilder::new()
-        .connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
+    let provider =
+        ProviderBuilder::new().connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
 
     let pool = make_db_pool(&cfg.db_url).await?;
     init_db(&pool).await?;
@@ -68,7 +83,15 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
 
     // Backfill until head
     loop {
-        if let Err(err) = backfill(&provider, &pool, cfg.registry_address, &mut from, cfg.batch_size).await {
+        if let Err(err) = backfill(
+            &provider,
+            &pool,
+            cfg.registry_address,
+            &mut from,
+            cfg.batch_size,
+        )
+        .await
+        {
             tracing::error!(?err, "backfill error; retrying after delay");
             tokio::time::sleep(Duration::from_secs(5)).await;
         } else {
@@ -85,7 +108,10 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
 }
 
 pub async fn make_db_pool(db_url: &str) -> anyhow::Result<PgPool> {
-    let pool = PgPoolOptions::new().max_connections(10).connect(db_url).await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(db_url)
+        .await?;
     Ok(pool)
 }
 
@@ -123,8 +149,12 @@ pub async fn backfill<P: Provider>(
 ) -> anyhow::Result<()> {
     // Determine current head
     let head: u64 = provider.get_block_number().await?.into();
-    if *from_block == 0 { *from_block = 1; }
-    if *from_block > head { return Ok(()); }
+    if *from_block == 0 {
+        *from_block = 1;
+    }
+    if *from_block > head {
+        return Ok(());
+    }
 
     let to_block = (*from_block + batch_size - 1).min(head);
 
@@ -138,7 +168,12 @@ pub async fn backfill<P: Provider>(
 
     let logs = provider.get_logs(&filter).await?;
     if !logs.is_empty() {
-        tracing::info!(count = logs.len(), from = *from_block, to = to_block, "processing AccountCreated logs");
+        tracing::info!(
+            count = logs.len(),
+            from = *from_block,
+            to = to_block,
+            "processing AccountCreated logs"
+        );
     }
     for lg in logs {
         let decoded = decode_account_created(&lg)?;
@@ -149,7 +184,9 @@ pub async fn backfill<P: Provider>(
     Ok(())
 }
 
-pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<DecodedAccountCreated> {
+pub fn decode_account_created(
+    lg: &alloy::rpc::types::Log,
+) -> anyhow::Result<DecodedAccountCreated> {
     use alloy::primitives::Log as PLog;
     // Convert RPC log to primitives Log and use typed decoder
     let prim = PLog::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
@@ -178,7 +215,10 @@ pub async fn insert_account(pool: &PgPool, ev: &DecodedAccountCreated) -> anyhow
     let account_index = ev.account_index_hex.clone();
     let recovery_address = ev.recovery_address_bytes.clone();
     let auth_addrs_json = serde_json::Value::Array(
-        ev.authenticator_addresses_hex.iter().map(|s| serde_json::Value::String(s.clone())).collect()
+        ev.authenticator_addresses_hex
+            .iter()
+            .map(|s| serde_json::Value::String(s.clone()))
+            .collect(),
     );
     let offchain = ev.offchain_signer_commitment_hex.clone();
 
@@ -197,7 +237,12 @@ pub async fn insert_account(pool: &PgPool, ev: &DecodedAccountCreated) -> anyhow
     Ok(())
 }
 
-pub async fn stream_logs(ws_url: &str, pool: &PgPool, registry: Address, start_from: u64) -> anyhow::Result<()> {
+pub async fn stream_logs(
+    ws_url: &str,
+    pool: &PgPool,
+    registry: Address,
+    start_from: u64,
+) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
@@ -210,10 +255,10 @@ pub async fn stream_logs(ws_url: &str, pool: &PgPool, registry: Address, start_f
     while let Some(log) = stream.next().await {
         if let Ok(decoded) = decode_account_created(&log) {
             insert_account(pool, &decoded).await?;
-            if let Some(bn) = log.block_number { save_checkpoint(pool, bn).await?; }
+            if let Some(bn) = log.block_number {
+                save_checkpoint(pool, bn).await?;
+            }
         }
     }
     Ok(())
 }
-
-
