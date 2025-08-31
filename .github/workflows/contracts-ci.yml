@@ -31,5 +31,5 @@ jobs:
       - name: Run tests
         run: forge test -vvv
 
-      - name: Run snapshot
-        run: forge snapshot
+      - name: Check formatting
+        run: forge fmt --check
