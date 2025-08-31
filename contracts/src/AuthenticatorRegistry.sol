@@ -6,7 +6,6 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import {console} from "forge-std/console.sol";
 
 contract AuthenticatorRegistry is EIP712, Ownable2Step {
     using LeanIMT for LeanIMTData;
@@ -79,10 +78,14 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     string public constant RECOVER_ACCOUNT_TYPEDEF =
         "RecoverAccount(uint256 accountIndex, address newAuthenticatorAddress, uint256 newOffchainSignerCommitment, uint256 nonce)";
 
-    bytes32 public constant UPDATE_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(UPDATE_AUTHENTICATOR_TYPEDEF));
-    bytes32 public constant INSERT_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(INSERT_AUTHENTICATOR_TYPEDEF));
-    bytes32 public constant REMOVE_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(REMOVE_AUTHENTICATOR_TYPEDEF));
-    bytes32 public constant RECOVER_ACCOUNT_TYPEHASH = keccak256(abi.encodePacked(RECOVER_ACCOUNT_TYPEDEF));
+    bytes32 public constant UPDATE_AUTHENTICATOR_TYPEHASH =
+        keccak256(abi.encodePacked(UPDATE_AUTHENTICATOR_TYPEDEF));
+    bytes32 public constant INSERT_AUTHENTICATOR_TYPEHASH =
+        keccak256(abi.encodePacked(INSERT_AUTHENTICATOR_TYPEDEF));
+    bytes32 public constant REMOVE_AUTHENTICATOR_TYPEHASH =
+        keccak256(abi.encodePacked(REMOVE_AUTHENTICATOR_TYPEDEF));
+    bytes32 public constant RECOVER_ACCOUNT_TYPEHASH =
+        keccak256(abi.encodePacked(RECOVER_ACCOUNT_TYPEDEF));
 
     string public constant EIP712_NAME = "AuthenticatorRegistry";
     string public constant EIP712_VERSION = "1.0";
@@ -91,7 +94,9 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor(address _defaultRecoveryAddress) EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
+    constructor(
+        address _defaultRecoveryAddress
+    ) EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
         defaultRecoveryAddress = _defaultRecoveryAddress;
     }
 
@@ -105,7 +110,11 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
      * @param size The size of the tree.
      * @param sideNodes The side nodes of the tree.
      */
-    function initTree(uint256 depth, uint256 size, uint256[] calldata sideNodes) external {
+    function initTree(
+        uint256 depth,
+        uint256 size,
+        uint256[] calldata sideNodes
+    ) external {
         nextAccountIndex = size + 1;
         LeanIMT.initialize(tree, depth, size, sideNodes);
         _recordCurrentRoot();
@@ -159,13 +168,24 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
      * @param signature The signature.
      * @return The account index.
      */
-    function recoverAccountIndex(bytes32 messageHash, bytes memory signature) internal view returns (uint256) {
-        address signatureRecoveredAddress = ECDSA.recover(messageHash, signature);
+    function recoverAccountIndex(
+        bytes32 messageHash,
+        bytes memory signature
+    ) internal view returns (uint256) {
+        address signatureRecoveredAddress = ECDSA.recover(
+            messageHash,
+            signature
+        );
         require(signatureRecoveredAddress != address(0), "Invalid signature");
-        uint256 accountIndexPacked = authenticatorAddressToPackedAccountIndex[signatureRecoveredAddress];
+        uint256 accountIndexPacked = authenticatorAddressToPackedAccountIndex[
+            signatureRecoveredAddress
+        ];
         require(accountIndexPacked != 0, "Account does not exist");
         uint256 accountIndex = uint256(uint128(accountIndexPacked));
-        require(accountIndexPacked >> 128 == accountRecoveryCounter[accountIndex], "Invalid account recovery counter");
+        require(
+            accountIndexPacked >> 128 == accountRecoveryCounter[accountIndex],
+            "Invalid account recovery counter"
+        );
         return accountIndex;
     }
 
@@ -180,25 +200,41 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         address[] calldata authenticatorAddresses,
         uint256 offchainSignerCommitment
     ) external {
-        require(authenticatorAddresses.length > 0, "authenticatorAddresses length must be greater than 0");
+        require(
+            authenticatorAddresses.length > 0,
+            "authenticatorAddresses length must be greater than 0"
+        );
 
         if (recoveryAddress != address(0)) {
             accountIndexToRecoveryAddress[nextAccountIndex] = recoveryAddress;
         }
 
         for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
-            require(authenticatorAddresses[i] != address(0), "Authenticator cannot be the zero address");
             require(
-                authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i]] == 0, "Authenticator already exists"
+                authenticatorAddresses[i] != address(0),
+                "Authenticator cannot be the zero address"
             );
-            authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i]] = nextAccountIndex;
+            require(
+                authenticatorAddressToPackedAccountIndex[
+                    authenticatorAddresses[i]
+                ] == 0,
+                "Authenticator already exists"
+            );
+            authenticatorAddressToPackedAccountIndex[
+                authenticatorAddresses[i]
+            ] = nextAccountIndex;
         }
 
         // Update tree
         tree.insert(offchainSignerCommitment);
         _recordCurrentRoot();
 
-        emit AccountCreated(nextAccountIndex, recoveryAddress, authenticatorAddresses, offchainSignerCommitment);
+        emit AccountCreated(
+            nextAccountIndex,
+            recoveryAddress,
+            authenticatorAddresses,
+            offchainSignerCommitment
+        );
 
         nextAccountIndex++;
     }
@@ -225,19 +261,34 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         );
 
         for (uint256 i = 0; i < recoveryAddresses.length; i++) {
-            require(authenticatorAddresses[i].length > 0, "Authenticator addresses length must be greater than 0");
-            accountIndexToRecoveryAddress[nextAccountIndex] = recoveryAddresses[i];
+            require(
+                authenticatorAddresses[i].length > 0,
+                "Authenticator addresses length must be greater than 0"
+            );
+            accountIndexToRecoveryAddress[nextAccountIndex] = recoveryAddresses[
+                i
+            ];
             for (uint256 j = 0; j < authenticatorAddresses[i].length; j++) {
-                require(authenticatorAddresses[i][j] != address(0), "Authenticator cannot be the zero address");
                 require(
-                    authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i][j]] == 0,
+                    authenticatorAddresses[i][j] != address(0),
+                    "Authenticator cannot be the zero address"
+                );
+                require(
+                    authenticatorAddressToPackedAccountIndex[
+                        authenticatorAddresses[i][j]
+                    ] == 0,
                     "Authenticator already exists"
                 );
-                authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i][j]] = nextAccountIndex;
+                authenticatorAddressToPackedAccountIndex[
+                    authenticatorAddresses[i][j]
+                ] = nextAccountIndex;
             }
 
             emit AccountCreated(
-                nextAccountIndex, recoveryAddresses[i], authenticatorAddresses[i], offchainSignerCommitments[i]
+                nextAccountIndex,
+                recoveryAddresses[i],
+                authenticatorAddresses[i],
+                offchainSignerCommitments[i]
             );
 
             nextAccountIndex++;
@@ -267,12 +318,24 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external {
-        require(authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress] != 0, "Authenticator does not exist");
-        require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(
-            oldAuthenticatorAddress != newAuthenticatorAddress, "Old and new authenticator addresses cannot be the same"
+            authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress] !=
+                0,
+            "Authenticator does not exist"
         );
-        require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
+        require(
+            authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] ==
+                0,
+            "Authenticator already exists"
+        );
+        require(
+            oldAuthenticatorAddress != newAuthenticatorAddress,
+            "Old and new authenticator addresses cannot be the same"
+        );
+        require(
+            newAuthenticatorAddress != address(0),
+            "New authenticator address cannot be the zero address"
+        );
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -287,22 +350,39 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
             )
         );
 
-        require(accountIndex == recoverAccountIndex(messageHash, signature), "Invalid account index");
+        require(
+            accountIndex == recoverAccountIndex(messageHash, signature),
+            "Invalid account index"
+        );
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
         require(
-            uint256(uint128(authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress])) == accountIndex,
+            uint256(
+                uint128(
+                    authenticatorAddressToPackedAccountIndex[
+                        oldAuthenticatorAddress
+                    ]
+                )
+            ) == accountIndex,
             "Authenticator does not belong to account"
         );
 
         // Delete old authenticator
-        delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
+        delete authenticatorAddressToPackedAccountIndex[
+            oldAuthenticatorAddress
+        ];
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            (accountRecoveryCounter[accountIndex] << 128) | accountIndex;
+            (accountRecoveryCounter[accountIndex] << 128) |
+            accountIndex;
 
         // Update tree
-        tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        tree.update(
+            accountIndex - 1,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment,
+            siblingNodes
+        );
         emit AccountUpdated(
             accountIndex,
             oldAuthenticatorAddress,
@@ -329,8 +409,15 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external {
-        require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
-        require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
+        require(
+            newAuthenticatorAddress != address(0),
+            "New authenticator address cannot be the zero address"
+        );
+        require(
+            authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] ==
+                0,
+            "Authenticator already exists"
+        );
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -344,17 +431,29 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
             )
         );
 
-        require(accountIndex == recoverAccountIndex(messageHash, signature), "Invalid account index");
+        require(
+            accountIndex == recoverAccountIndex(messageHash, signature),
+            "Invalid account index"
+        );
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            (accountRecoveryCounter[accountIndex] << 128) | accountIndex;
+            (accountRecoveryCounter[accountIndex] << 128) |
+            accountIndex;
 
         // Update tree
-        tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        tree.update(
+            accountIndex - 1,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment,
+            siblingNodes
+        );
         emit AuthenticatorInserted(
-            accountIndex, newAuthenticatorAddress, oldOffchainSignerCommitment, newOffchainSignerCommitment
+            accountIndex,
+            newAuthenticatorAddress,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment
         );
         _recordCurrentRoot();
     }
@@ -376,7 +475,10 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external {
-        require(authenticatorAddressToPackedAccountIndex[authenticatorAddress] != 0, "Authenticator does not exist");
+        require(
+            authenticatorAddressToPackedAccountIndex[authenticatorAddress] != 0,
+            "Authenticator does not exist"
+        );
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -390,10 +492,19 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
             )
         );
 
-        require(accountIndex == recoverAccountIndex(messageHash, signature), "Invalid account index");
+        require(
+            accountIndex == recoverAccountIndex(messageHash, signature),
+            "Invalid account index"
+        );
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
         require(
-            uint256(uint128(authenticatorAddressToPackedAccountIndex[authenticatorAddress])) == accountIndex,
+            uint256(
+                uint128(
+                    authenticatorAddressToPackedAccountIndex[
+                        authenticatorAddress
+                    ]
+                )
+            ) == accountIndex,
             "Authenticator does not belong to account"
         );
 
@@ -401,9 +512,17 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         delete authenticatorAddressToPackedAccountIndex[authenticatorAddress];
 
         // Update tree
-        tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        tree.update(
+            accountIndex - 1,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment,
+            siblingNodes
+        );
         emit AuthenticatorRemoved(
-            accountIndex, authenticatorAddress, oldOffchainSignerCommitment, newOffchainSignerCommitment
+            accountIndex,
+            authenticatorAddress,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment
         );
         _recordCurrentRoot();
     }
@@ -433,30 +552,54 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
-                    RECOVER_ACCOUNT_TYPEHASH, accountIndex, newAuthenticatorAddress, newOffchainSignerCommitment, nonce
+                    RECOVER_ACCOUNT_TYPEHASH,
+                    accountIndex,
+                    newAuthenticatorAddress,
+                    newOffchainSignerCommitment,
+                    nonce
                 )
             )
         );
 
-        address signatureRecoveredAddress = ECDSA.recover(messageHash, signature);
+        address signatureRecoveredAddress = ECDSA.recover(
+            messageHash,
+            signature
+        );
         require(signatureRecoveredAddress != address(0), "Invalid signature");
         require(
-            signatureRecoveredAddress == accountIndexToRecoveryAddress[accountIndex]
-                || signatureRecoveredAddress == defaultRecoveryAddress,
+            signatureRecoveredAddress ==
+                accountIndexToRecoveryAddress[accountIndex] ||
+                signatureRecoveredAddress == defaultRecoveryAddress,
             "Invalid signature"
         );
-        require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
-        require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
+        require(
+            authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] ==
+                0,
+            "Authenticator already exists"
+        );
+        require(
+            newAuthenticatorAddress != address(0),
+            "New authenticator address cannot be the zero address"
+        );
 
         accountRecoveryCounter[accountIndex]++;
 
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            (accountRecoveryCounter[accountIndex] << 128) | accountIndex;
+            (accountRecoveryCounter[accountIndex] << 128) |
+            accountIndex;
 
         // Update tree
-        tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        tree.update(
+            accountIndex - 1,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment,
+            siblingNodes
+        );
         emit AccountRecovered(
-            accountIndex, newAuthenticatorAddress, oldOffchainSignerCommitment, newOffchainSignerCommitment
+            accountIndex,
+            newAuthenticatorAddress,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment
         );
         _recordCurrentRoot();
     }

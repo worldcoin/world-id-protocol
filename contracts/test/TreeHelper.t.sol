@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {TreeHelper} from "../src/TreeHelper.sol";
-import {console} from "forge-std/console.sol";
 import {Skyscraper} from "../src/hash/Skyscraper.sol";
 
 contract TreeHelperTest is Test {
