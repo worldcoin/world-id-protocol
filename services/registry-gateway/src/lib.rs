@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, time::Duration};
 
 use alloy::network::EthereumWallet;
+use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::{
     primitives::{Address, Bytes, U256},
@@ -17,7 +18,7 @@ use axum::{
 use common::authenticator_registry::AuthenticatorRegistry;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tower_http::trace::TraceLayer;
 
 // Public configuration and handle for embedding the gateway as a library.
@@ -28,6 +29,8 @@ pub struct GatewayConfig {
     pub wallet_key: String,
     pub batch_ms: u64,
     pub listen_addr: SocketAddr,
+    // Optional address of Multicall3 to enable write-batching; if None we fall back to sequential txs.
+    pub multicall3: Option<Address>,
 }
 
 #[derive(Debug)]
@@ -56,11 +59,45 @@ struct AppState {
     rpc_url: String,
     wallet_key: String,
     batcher: CreateBatcherHandle,
+    ops_batcher: OpsBatcherHandle,
+    multicall3: Option<Address>,
+    send_lock: std::sync::Arc<Mutex<()>>,
+    nonce_mgr: std::sync::Arc<NonceManager>,
 }
 
 #[derive(Clone)]
 struct CreateBatcherHandle {
     tx: mpsc::Sender<CreateReqEnvelope>,
+}
+
+#[derive(Clone)]
+struct OpsBatcherHandle {
+    tx: mpsc::Sender<OpEnvelope>,
+}
+
+// Centralized Nonce Manager shared by all batchers.
+struct NonceManager {
+    addr: Address,
+    next: Mutex<Option<u64>>, // next nonce to use; None => fetch from chain (pending) on first use
+}
+
+impl NonceManager {
+    fn new(addr: Address) -> Self { Self { addr, next: Mutex::new(None) } }
+
+    async fn next_nonce<P>(&self, provider: &P) -> anyhow::Result<u64>
+    where
+        P: alloy::providers::Provider + Clone,
+    {
+        // Always consult chain pending nonce to stay in sync with external senders.
+        let onchain = provider.get_transaction_count(self.addr).await?;
+        let mut guard = self.next.lock().await;
+        let current = match *guard {
+            Some(n) => std::cmp::max(n, onchain),
+            None => onchain,
+        };
+        *guard = Some(current + 1);
+        Ok(current)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +162,18 @@ struct RecoverAccountRequest {
 
 static DEFAULT_BATCH_MS: Lazy<u64> = Lazy::new(|| 1000);
 
+// Minimal Multicall3 ABI for write aggregation.
+// We use aggregate3 (no value) so all calls must be non-payable.
+alloy::sol! {
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    contract Multicall3 {
+        struct Call3 { address target; bool allowFailure; bytes callData; }
+        struct Result { bool success; bytes returnData; }
+        function aggregate3(Call3[] calldata calls) payable returns (Result[] memory returnData);
+    }
+}
+
 fn build_provider(
     rpc_url: &str,
     wallet_key: &str,
@@ -187,7 +236,15 @@ fn build_app(
     rpc_url: String,
     wallet_key: String,
     batch_ms: u64,
+    multicall3: Option<Address>,
 ) -> Router {
+    let send_lock = std::sync::Arc::new(Mutex::new(()));
+    let wallet_addr = {
+        use alloy::signers::local::PrivateKeySigner;
+        let signer: PrivateKeySigner = wallet_key.parse().expect("invalid wallet key");
+        signer.address()
+    };
+    let nonce_mgr = std::sync::Arc::new(NonceManager::new(wallet_addr));
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
@@ -196,14 +253,35 @@ fn build_app(
         registry_addr,
         Duration::from_millis(batch_ms),
         rx,
+        send_lock.clone(),
+        nonce_mgr.clone(),
     );
     tokio::spawn(runner.run());
+
+    // ops batcher (insert/remove/recover/update)
+    let (otx, orx) = mpsc::channel(2048);
+    let ops_batcher = OpsBatcherHandle { tx: otx };
+    let ops_runner = OpsBatcherRunner::new(
+        rpc_url.clone(),
+        wallet_key.clone(),
+        registry_addr,
+        multicall3,
+        Duration::from_millis(batch_ms),
+        orx,
+        send_lock.clone(),
+        nonce_mgr.clone(),
+    );
+    tokio::spawn(ops_runner.run());
 
     let state = AppState {
         registry_addr,
         rpc_url,
         wallet_key,
         batcher,
+        ops_batcher,
+        multicall3,
+        send_lock,
+        nonce_mgr,
     };
 
     Router::new()
@@ -216,17 +294,20 @@ fn build_app(
         .route("/remove-authenticator", post(remove_authenticator))
         .route("/recover-account", post(recover_account))
         // admin / utility
-        .route("/init-tree", post(init_tree))
-        .route("/set-root-validity-window", post(set_root_validity_window))
         .route("/is-valid-root", get(is_valid_root))
-        .route("/next-account-index", get(next_account_index))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }
 
 // Public API: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
-    let app = build_app(cfg.registry_addr, cfg.rpc_url, cfg.wallet_key, cfg.batch_ms);
+    let app = build_app(
+        cfg.registry_addr,
+        cfg.rpc_url,
+        cfg.wallet_key,
+        cfg.batch_ms,
+        cfg.multicall3,
+    );
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
     let addr = listener.local_addr()?;
@@ -264,7 +345,8 @@ pub async fn run_from_env() -> anyhow::Result<()> {
         .unwrap_or(4000);
     let listen_addr = SocketAddr::from(([127, 0, 0, 1], port));
 
-    let app = build_app(registry_addr, rpc_url, wallet_key, batch_ms);
+    let multicall3 = std::env::var("MULTICALL3_ADDRESS").ok().and_then(|s| s.parse().ok());
+    let app = build_app(registry_addr, rpc_url, wallet_key, batch_ms, multicall3);
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -288,6 +370,8 @@ struct CreateBatcherRunner {
     wallet_key: String,
     registry: Address,
     window: Duration,
+    send_lock: std::sync::Arc<Mutex<()>>,
+    nonce_mgr: std::sync::Arc<NonceManager>,
 }
 
 impl CreateBatcherRunner {
@@ -297,6 +381,8 @@ impl CreateBatcherRunner {
         registry: Address,
         window: Duration,
         rx: mpsc::Receiver<CreateReqEnvelope>,
+        send_lock: std::sync::Arc<Mutex<()>>,
+        nonce_mgr: std::sync::Arc<NonceManager>,
     ) -> Self {
         Self {
             rx,
@@ -304,6 +390,8 @@ impl CreateBatcherRunner {
             wallet_key,
             registry,
             window,
+            send_lock,
+            nonce_mgr,
         }
     }
     async fn run(mut self) {
@@ -368,10 +456,35 @@ impl CreateBatcherRunner {
                 }
             };
 
-            let contract = AuthenticatorRegistry::new(self.registry, provider);
+            let contract = AuthenticatorRegistry::new(self.registry, provider.clone());
             let call = contract.createManyAccounts(recovery_addresses, auths, commits);
             // Send the transaction
-            let tx_res = call.send().await;
+            // Serialize and set explicit nonce to avoid races.
+            let _guard = self.send_lock.lock().await;
+            let nonce = match self.nonce_mgr.next_nonce(&provider).await {
+                Ok(n) => n,
+                Err(e) => {
+                    for env in batch {
+                        let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));
+                    }
+                    continue;
+                }
+            };
+            let mut tx_res = call.clone().nonce(nonce).send().await;
+            if let Err(e) = &tx_res {
+                let msg = e.to_string();
+                if msg.to_lowercase().contains("nonce too low") {
+                    // Re-sync and retry once
+                    let nonce = match self.nonce_mgr.next_nonce(&provider).await {
+                        Ok(n) => n,
+                        Err(e) => {
+                            for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string()))); }
+                            continue;
+                        }
+                    };
+                    tx_res = call.clone().nonce(nonce).send().await;
+                }
+            }
             match tx_res {
                 Ok(pend) => {
                     let hash = format!("0x{:x}", pend.tx_hash());
@@ -384,6 +497,297 @@ impl CreateBatcherRunner {
                         let _ = env.resp.send(Err(anyhow::anyhow!(err.to_string())));
                     }
                 }
+            }
+        }
+    }
+}
+
+// ------------- ops (write) batcher using Multicall3 when available -------------
+
+#[derive(Debug)]
+enum OpKind {
+    Update {
+        account_index: U256,
+        old_authenticator_address: Address,
+        new_authenticator_address: Address,
+        old_commit: U256,
+        new_commit: U256,
+        signature: Bytes,
+        sibling_nodes: Vec<U256>,
+        nonce: U256,
+    },
+    Insert {
+        account_index: U256,
+        new_authenticator_address: Address,
+        old_commit: U256,
+        new_commit: U256,
+        signature: Bytes,
+        sibling_nodes: Vec<U256>,
+        nonce: U256,
+    },
+    Remove {
+        account_index: U256,
+        authenticator_address: Address,
+        old_commit: U256,
+        new_commit: U256,
+        signature: Bytes,
+        sibling_nodes: Vec<U256>,
+        nonce: U256,
+    },
+    Recover {
+        account_index: U256,
+        new_authenticator_address: Address,
+        old_commit: U256,
+        new_commit: U256,
+        signature: Bytes,
+        sibling_nodes: Vec<U256>,
+        nonce: U256,
+    },
+}
+
+#[derive(Debug)]
+struct OpEnvelope {
+    kind: OpKind,
+    resp: oneshot::Sender<anyhow::Result<String>>, // tx hash hex
+}
+
+struct OpsBatcherRunner {
+    rx: mpsc::Receiver<OpEnvelope>,
+    rpc_url: String,
+    wallet_key: String,
+    registry: Address,
+    multicall3: Option<Address>,
+    window: Duration,
+    send_lock: std::sync::Arc<Mutex<()>>,
+    nonce_mgr: std::sync::Arc<NonceManager>,
+}
+
+impl OpsBatcherRunner {
+    fn new(
+        rpc_url: String,
+        wallet_key: String,
+        registry: Address,
+        multicall3: Option<Address>,
+        window: Duration,
+        rx: mpsc::Receiver<OpEnvelope>,
+        send_lock: std::sync::Arc<Mutex<()>>,
+        nonce_mgr: std::sync::Arc<NonceManager>,
+    ) -> Self {
+        Self { rx, rpc_url, wallet_key, registry, multicall3, window, send_lock, nonce_mgr }
+    }
+
+    async fn run(mut self) {
+        loop {
+            let Some(first) = self.rx.recv().await else {
+                tracing::info!("ops batcher channel closed");
+                return;
+            };
+            let mut batch = vec![first];
+            let deadline = tokio::time::Instant::now() + self.window;
+            while tokio::time::timeout_at(deadline, async {
+                let next = self.rx.try_recv().ok();
+                if let Some(req) = next { batch.push(req); true } else { tokio::time::sleep(Duration::from_millis(10)).await; true }
+            }).await.is_ok() {}
+
+            let provider = match build_provider(&self.rpc_url, &self.wallet_key) {
+                Ok(p) => p,
+                Err(err) => {
+                    for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(format!("provider error: {}", err)))); }
+                    continue;
+                }
+            };
+            let contract = AuthenticatorRegistry::new(self.registry, provider.clone());
+
+            // Try Multicall3 if configured: atomically execute the batch in a single tx.
+            if let Some(mc_addr) = self.multicall3 {
+                // Ensure the Multicall3 address is a contract; otherwise an EOA would "succeed"
+                // without executing any batched calls. If no code is present, fall back to sequential.
+                let has_code = match provider.get_code_at(mc_addr).await {
+                    Ok(code) => code.len() > 0,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to fetch code at Multicall3 address; falling back to sequential");
+                        false
+                    }
+                };
+                if has_code {
+                let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
+                for env in &batch {
+                    let data: alloy::primitives::Bytes = match &env.kind {
+                        OpKind::Update { account_index, old_authenticator_address, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
+                            contract
+                                .updateAuthenticator(
+                                    *account_index,
+                                    *old_authenticator_address,
+                                    *new_authenticator_address,
+                                    *old_commit,
+                                    *new_commit,
+                                    signature.clone(),
+                                    sibling_nodes.clone(),
+                                    *nonce,
+                                )
+                                .calldata().clone()
+                        }
+                        OpKind::Insert { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
+                            contract
+                                .insertAuthenticator(
+                                    *account_index,
+                                    *new_authenticator_address,
+                                    *old_commit,
+                                    *new_commit,
+                                    signature.clone(),
+                                    sibling_nodes.clone(),
+                                    *nonce,
+                                )
+                                .calldata().clone()
+                        }
+                        OpKind::Remove { account_index, authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
+                            contract
+                                .removeAuthenticator(
+                                    *account_index,
+                                    *authenticator_address,
+                                    *old_commit,
+                                    *new_commit,
+                                    signature.clone(),
+                                    sibling_nodes.clone(),
+                                    *nonce,
+                                )
+                                .calldata().clone()
+                        }
+                        OpKind::Recover { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
+                            contract
+                                .recoverAccount(
+                                    *account_index,
+                                    *new_authenticator_address,
+                                    *old_commit,
+                                    *new_commit,
+                                    signature.clone(),
+                                    sibling_nodes.clone(),
+                                    *nonce,
+                                )
+                                .calldata().clone()
+                        }
+                    };
+                    calls.push(Multicall3::Call3 { target: self.registry, allowFailure: false, callData: data });
+                }
+
+                let mc = Multicall3::new(mc_addr, provider.clone());
+                let mut tx = mc.aggregate3(calls.clone());
+                // Serialize sending and set an explicit nonce.
+                let _guard = self.send_lock.lock().await;
+                let nonce = match self.nonce_mgr.next_nonce(&provider).await {
+                    Ok(n) => n,
+                    Err(e) => {
+                        for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string()))); }
+                        continue;
+                    }
+                };
+                tx = tx.nonce(nonce);
+                let mut res = tx.send().await;
+                if let Err(e) = &res {
+                    if e.to_string().to_lowercase().contains("nonce too low") {
+                        let nonce = match self.nonce_mgr.next_nonce(&provider).await { Ok(n)=>n, Err(e)=>{ for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));} continue; } };
+                        res = mc.aggregate3(calls.clone()).nonce(nonce).send().await;
+                    }
+                }
+                match res {
+                    Ok(pend) => {
+                        let hash = format!("0x{:x}", pend.tx_hash());
+                        for env in batch { let _ = env.resp.send(Ok(hash.clone())); }
+                        continue;
+                    }
+                    Err(e) => {
+                        // fall back to sequential below
+                        tracing::warn!(error = %e, "multicall3 send failed; falling back to sequential");
+                    }
+                }
+                } else {
+                    tracing::warn!("multicall3 address has no contract code; falling back to sequential");
+                }
+            }
+
+            // Fallback: send sequential txs (still batched by time window)
+            let mut last_hash: Option<String> = None;
+            let mut error: Option<anyhow::Error> = None;
+            // Serialize the whole send loop under the same lock to preserve nonce ordering.
+            let _guard = self.send_lock.lock().await;
+            for env in &batch {
+                let res = match &env.kind {
+                    OpKind::Update { account_index, old_authenticator_address, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                        contract
+                        .updateAuthenticator(*account_index, *old_authenticator_address, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
+                        .nonce(n)
+                        .send()
+                        .await
+                    }
+                    OpKind::Insert { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                        contract
+                        .insertAuthenticator(*account_index, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
+                        .nonce(n)
+                        .send()
+                        .await
+                    }
+                    OpKind::Remove { account_index, authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                        contract
+                        .removeAuthenticator(*account_index, *authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
+                        .nonce(n)
+                        .send()
+                        .await
+                    }
+                    OpKind::Recover { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                        contract
+                        .recoverAccount(*account_index, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
+                        .nonce(n)
+                        .send()
+                        .await
+                    }
+                };
+                // Retry once on nonce-too-low by grabbing a fresh chain-synced nonce
+                let res = match res {
+                    Err(e) if e.to_string().to_lowercase().contains("nonce too low") => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                        match &env.kind {
+                            OpKind::Update { account_index, old_authenticator_address, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => contract
+                                .updateAuthenticator(*account_index, *old_authenticator_address, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
+                                .nonce(n)
+                                .send()
+                                .await,
+                            OpKind::Insert { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => contract
+                                .insertAuthenticator(*account_index, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
+                                .nonce(n)
+                                .send()
+                                .await,
+                            OpKind::Remove { account_index, authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => contract
+                                .removeAuthenticator(*account_index, *authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
+                                .nonce(n)
+                                .send()
+                                .await,
+                            OpKind::Recover { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => contract
+                                .recoverAccount(*account_index, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
+                                .nonce(n)
+                                .send()
+                                .await,
+                        }
+                    }
+                    other => other,
+                };
+                match res {
+                    Ok(p) => {
+                        last_hash = Some(format!("0x{:x}", p.tx_hash()));
+                    }
+                    Err(e) => {
+                        error = Some(anyhow::anyhow!(e.to_string()));
+                        break;
+                    }
+                }
+            }
+            if let Some(err) = error {
+                for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(err.to_string()))); }
+            } else if let Some(hash) = last_hash {
+                for env in batch { let _ = env.resp.send(Ok(hash.clone())); }
             }
         }
     }
@@ -458,202 +862,163 @@ async fn update_authenticator(
     State(state): State<AppState>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let old_authenticator_address = req_address("old_authenticator_address", &req.old_authenticator_address)?;
-    let new_authenticator_address = req_address("new_authenticator_address", &req.new_authenticator_address)?;
-    let account_index = req_u256("account_index", &req.account_index)?;
-    let old_commit = req_u256("old_offchain_signer_commitment", &req.old_offchain_signer_commitment)?;
-    let new_commit = req_u256("new_offchain_signer_commitment", &req.new_offchain_signer_commitment)?;
-    let sibling_nodes = req_u256_vec("sibling_nodes", &req.sibling_nodes)?;
-    let signature = req_bytes("signature", &req.signature)?;
-    let nonce = req_u256("nonce", &req.nonce)?;
-
-    let provider = build_provider(&state.rpc_url, &state.wallet_key)
-        .map_err(|e| ApiError::internal(format!("provider: {e}")))?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, provider);
-    let p = contract
-        .updateAuthenticator(
-            account_index,
-            old_authenticator_address,
-            new_authenticator_address,
-            old_commit,
-            new_commit,
-            signature,
-            sibling_nodes,
-            nonce,
-        )
-        .send()
+    let env = OpEnvelope {
+        kind: OpKind::Update {
+            account_index: req_u256("account_index", &req.account_index)?,
+            old_authenticator_address: req_address(
+                "old_authenticator_address",
+                &req.old_authenticator_address,
+            )?,
+            new_authenticator_address: req_address(
+                "new_authenticator_address",
+                &req.new_authenticator_address,
+            )?,
+            old_commit: req_u256(
+                "old_offchain_signer_commitment",
+                &req.old_offchain_signer_commitment,
+            )?,
+            new_commit: req_u256(
+                "new_offchain_signer_commitment",
+                &req.new_offchain_signer_commitment,
+            )?,
+            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
+            signature: req_bytes("signature", &req.signature)?,
+            nonce: req_u256("nonce", &req.nonce)?,
+        },
+        resp: oneshot::channel().0, // placeholder, replaced below
+    };
+    let (tx, rx) = oneshot::channel();
+    let env = OpEnvelope { resp: tx, ..env };
+    state
+        .ops_batcher
+        .tx
+        .send(env)
         .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((
-        StatusCode::OK,
-        Json(TxResponse {
-            tx_hash: format!("0x{:x}", p.tx_hash()),
-        }),
-    ))
+        .map_err(|_| ApiError::Internal("ops batcher unavailable".into()))?;
+    let res = tokio::time::timeout(Duration::from_secs(30), rx)
+        .await
+        .map_err(|_| ApiError::Internal("ops batch timeout".into()))?;
+    let inner = res.map_err(|_| ApiError::Internal("ops batch canceled".into()))?;
+    let hash = inner.map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(TxResponse { tx_hash: hash })))
 }
 
 async fn insert_authenticator(
     State(state): State<AppState>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let new_authenticator_address = req_address("new_authenticator_address", &req.new_authenticator_address)?;
-    let account_index = req_u256("account_index", &req.account_index)?;
-    let old_commit = req_u256("old_offchain_signer_commitment", &req.old_offchain_signer_commitment)?;
-    let new_commit = req_u256("new_offchain_signer_commitment", &req.new_offchain_signer_commitment)?;
-    let sibling_nodes = req_u256_vec("sibling_nodes", &req.sibling_nodes)?;
-    let signature = req_bytes("signature", &req.signature)?;
-    let nonce = req_u256("nonce", &req.nonce)?;
-
-    let provider = build_provider(&state.rpc_url, &state.wallet_key)
-        .map_err(|e| ApiError::internal(format!("provider: {e}")))?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, provider);
-    let p = contract
-        .insertAuthenticator(
-            account_index,
-            new_authenticator_address,
-            old_commit,
-            new_commit,
-            signature,
-            sibling_nodes,
-            nonce,
-        )
-        .send()
+    tracing::info!("xxxx xxxx");
+    let (tx, rx) = oneshot::channel();
+    let env = OpEnvelope {
+        kind: OpKind::Insert {
+            account_index: req_u256("account_index", &req.account_index)?,
+            new_authenticator_address: req_address(
+                "new_authenticator_address",
+                &req.new_authenticator_address,
+            )?,
+            old_commit: req_u256(
+                "old_offchain_signer_commitment",
+                &req.old_offchain_signer_commitment,
+            )?,
+            new_commit: req_u256(
+                "new_offchain_signer_commitment",
+                &req.new_offchain_signer_commitment,
+            )?,
+            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
+            signature: req_bytes("signature", &req.signature)?,
+            nonce: req_u256("nonce", &req.nonce)?,
+        },
+        resp: tx,
+    };
+    state
+        .ops_batcher
+        .tx
+        .send(env)
         .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((
-        StatusCode::OK,
-        Json(TxResponse {
-            tx_hash: format!("0x{:x}", p.tx_hash()),
-        }),
-    ))
+        .map_err(|_| ApiError::Internal("ops batcher unavailable".into()))?;
+    let res = tokio::time::timeout(Duration::from_secs(30), rx)
+        .await
+        .map_err(|_| ApiError::Internal("ops batch timeout".into()))?;
+    let inner = res.map_err(|_| ApiError::Internal("ops batch canceled".into()))?;
+    let hash = inner.map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(TxResponse { tx_hash: hash })))
 }
 
 async fn remove_authenticator(
     State(state): State<AppState>,
     Json(req): Json<RemoveAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let authenticator_address = req_address("authenticator_address", &req.authenticator_address)?;
-    let account_index = req_u256("account_index", &req.account_index)?;
-    let old_commit = req_u256("old_offchain_signer_commitment", &req.old_offchain_signer_commitment)?;
-    let new_commit = req_u256("new_offchain_signer_commitment", &req.new_offchain_signer_commitment)?;
-    let sibling_nodes = req_u256_vec("sibling_nodes", &req.sibling_nodes)?;
-    let signature = req_bytes("signature", &req.signature)?;
-    let nonce = req_u256("nonce", &req.nonce)?;
-
-    let provider = build_provider(&state.rpc_url, &state.wallet_key)
-        .map_err(|e| ApiError::internal(format!("provider: {e}")))?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, provider);
-    let p = contract
-        .removeAuthenticator(
-            account_index,
-            authenticator_address,
-            old_commit,
-            new_commit,
-            signature,
-            sibling_nodes,
-            nonce,
-        )
-        .send()
+    let (tx, rx) = oneshot::channel();
+    let env = OpEnvelope {
+        kind: OpKind::Remove {
+            account_index: req_u256("account_index", &req.account_index)?,
+            authenticator_address: req_address("authenticator_address", &req.authenticator_address)?,
+            old_commit: req_u256(
+                "old_offchain_signer_commitment",
+                &req.old_offchain_signer_commitment,
+            )?,
+            new_commit: req_u256(
+                "new_offchain_signer_commitment",
+                &req.new_offchain_signer_commitment,
+            )?,
+            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
+            signature: req_bytes("signature", &req.signature)?,
+            nonce: req_u256("nonce", &req.nonce)?,
+        },
+        resp: tx,
+    };
+    state
+        .ops_batcher
+        .tx
+        .send(env)
         .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((
-        StatusCode::OK,
-        Json(TxResponse {
-            tx_hash: format!("0x{:x}", p.tx_hash()),
-        }),
-    ))
+        .map_err(|_| ApiError::Internal("ops batcher unavailable".into()))?;
+    let res = tokio::time::timeout(Duration::from_secs(30), rx)
+        .await
+        .map_err(|_| ApiError::Internal("ops batch timeout".into()))?;
+    let inner = res.map_err(|_| ApiError::Internal("ops batch canceled".into()))?;
+    let hash = inner.map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(TxResponse { tx_hash: hash })))
 }
 
 async fn recover_account(
     State(state): State<AppState>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let new_authenticator_address = req_address("new_authenticator_address", &req.new_authenticator_address)?;
-    let account_index = req_u256("account_index", &req.account_index)?;
-    let old_commit = req_u256("old_offchain_signer_commitment", &req.old_offchain_signer_commitment)?;
-    let new_commit = req_u256("new_offchain_signer_commitment", &req.new_offchain_signer_commitment)?;
-    let sibling_nodes = req_u256_vec("sibling_nodes", &req.sibling_nodes)?;
-    let signature = req_bytes("signature", &req.signature)?;
-    let nonce = req_u256("nonce", &req.nonce)?;
-
-    let provider = build_provider(&state.rpc_url, &state.wallet_key)
-        .map_err(|e| ApiError::internal(format!("provider: {e}")))?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, provider);
-    let p = contract
-        .recoverAccount(
-            account_index,
-            new_authenticator_address,
-            old_commit,
-            new_commit,
-            signature,
-            sibling_nodes,
-            nonce,
-        )
-        .send()
+    let (tx, rx) = oneshot::channel();
+    let env = OpEnvelope {
+        kind: OpKind::Recover {
+            account_index: req_u256("account_index", &req.account_index)?,
+            new_authenticator_address: req_address(
+                "new_authenticator_address",
+                &req.new_authenticator_address,
+            )?,
+            old_commit: req_u256(
+                "old_offchain_signer_commitment",
+                &req.old_offchain_signer_commitment,
+            )?,
+            new_commit: req_u256(
+                "new_offchain_signer_commitment",
+                &req.new_offchain_signer_commitment,
+            )?,
+            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
+            signature: req_bytes("signature", &req.signature)?,
+            nonce: req_u256("nonce", &req.nonce)?,
+        },
+        resp: tx,
+    };
+    state
+        .ops_batcher
+        .tx
+        .send(env)
         .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((
-        StatusCode::OK,
-        Json(TxResponse {
-            tx_hash: format!("0x{:x}", p.tx_hash()),
-        }),
-    ))
-}
-
-#[derive(Debug, Deserialize)]
-struct InitTreeRequest {
-    depth: String,
-    size: String,
-    side_nodes: Vec<String>,
-}
-
-async fn init_tree(
-    State(state): State<AppState>,
-    Json(req): Json<InitTreeRequest>,
-) -> ApiResult<impl IntoResponse> {
-    let depth = req_u256("depth", &req.depth)?;
-    let size = req_u256("size", &req.size)?;
-    let side_nodes = req_u256_vec("side_nodes", &req.side_nodes)?;
-    let provider = build_provider(&state.rpc_url, &state.wallet_key)
-        .map_err(|e| ApiError::internal(format!("provider: {e}")))?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, provider);
-    let p = contract
-        .initTree(depth, size, side_nodes)
-        .send()
+        .map_err(|_| ApiError::Internal("ops batcher unavailable".into()))?;
+    let res = tokio::time::timeout(Duration::from_secs(30), rx)
         .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((
-        StatusCode::OK,
-        Json(TxResponse {
-            tx_hash: format!("0x{:x}", p.tx_hash()),
-        }),
-    ))
-}
-
-#[derive(Debug, Deserialize)]
-struct RootValidityWindowRequest {
-    new_window: String,
-}
-
-async fn set_root_validity_window(
-    State(state): State<AppState>,
-    Json(req): Json<RootValidityWindowRequest>,
-) -> ApiResult<impl IntoResponse> {
-    let new_window = req_u256("new_window", &req.new_window)?;
-    let provider = build_provider(&state.rpc_url, &state.wallet_key)
-        .map_err(|e| ApiError::internal(format!("provider: {e}")))?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, provider);
-    let p = contract
-        .setRootValidityWindow(new_window)
-        .send()
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((
-        StatusCode::OK,
-        Json(TxResponse {
-            tx_hash: format!("0x{:x}", p.tx_hash()),
-        }),
-    ))
+        .map_err(|_| ApiError::Internal("ops batch timeout".into()))?;
+    let inner = res.map_err(|_| ApiError::Internal("ops batch canceled".into()))?;
+    let hash = inner.map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(TxResponse { tx_hash: hash })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -675,19 +1040,4 @@ async fn is_valid_root(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
-}
-
-async fn next_account_index(State(state): State<AppState>) -> ApiResult<impl IntoResponse> {
-    let provider = build_provider(&state.rpc_url, &state.wallet_key)
-        .map_err(|e| ApiError::internal(format!("provider: {e}")))?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, provider);
-    let v = contract
-        .nextAccountIndex()
-        .call()
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((
-        StatusCode::OK,
-        Json(serde_json::json!({"nextAccountIndex": format!("0x{:x}", v)})),
-    ))
 }

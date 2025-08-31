@@ -58,6 +58,35 @@ fn deploy_registry() -> String {
     addr
 }
 
+fn deploy_multicall3() -> String {
+    let mut cmd = Command::new("forge");
+    cmd.current_dir("../../contracts")
+        .arg("script")
+        .arg("script/Multicall3.s.sol:CounterScript")
+        .arg("--fork-url")
+        .arg(ANVIL_HTTP_URL)
+        .arg("--broadcast")
+        .arg("--mnemonics")
+        .arg(ANVIL_MNEMONIC)
+        .arg("--mnemonic-indexes")
+        .arg("0")
+        .arg("-vvvv");
+    let output = cmd.output().expect("failed to run forge script (Multicall3)");
+    assert!(
+        output.status.success(),
+        "forge script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let re = Regex::new(r"Multicall3 deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
+    let addr = re
+        .captures(&stdout)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .expect("failed to parse Multicall3 deployed address from script output");
+    addr
+}
+
 fn derive_wallet_key() -> String {
     let output = Command::new("cast")
         .arg("wallet")
@@ -106,8 +135,9 @@ async fn e2e_gateway_full_flow() {
     let mut anvil = start_anvil();
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    // Deploy registry
+    // Deploy registry and Multicall3
     let registry = deploy_registry();
+    let multicall = deploy_multicall3();
 
     // Derive wallet key and address
     let wallet_key = derive_wallet_key();
@@ -121,6 +151,7 @@ async fn e2e_gateway_full_flow() {
         wallet_key: wallet_key.clone(),
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+        multicall3: Some(multicall.parse().unwrap()),
     };
     let gw = spawn_gateway(cfg).await.expect("spawn gateway");
 
@@ -144,7 +175,7 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .expect("direct createManyAccounts");
-    println!("direct createManyAccounts tx: 0x{:x}", direct.tx_hash());
+    
     // Wait until createManyAccounts is reflected on-chain
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
