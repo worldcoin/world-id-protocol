@@ -18,9 +18,7 @@ library TreeHelper {
         return node;
     }
 
-    function allNodes(
-        uint256[] memory leaves
-    ) internal pure returns (uint256[][] memory) {
+    function allNodes(uint256[] memory leaves) internal pure returns (uint256[][] memory) {
         uint256 depth = 0;
         while (2 ** depth < leaves.length) {
             depth++;
@@ -36,20 +34,14 @@ library TreeHelper {
 
         for (uint256 i = 1; i < depth; i++) {
             for (uint256 j = 0; j < nodes[i].length; j++) {
-                nodes[i][j] = hash(
-                    nodes[i - 1][j * 2],
-                    nodes[i - 1][j * 2 + 1]
-                );
+                nodes[i][j] = hash(nodes[i - 1][j * 2], nodes[i - 1][j * 2 + 1]);
             }
         }
 
         return nodes;
     }
 
-    function inclusionProof(
-        uint256[] memory leaves,
-        uint256 leafIndex
-    ) internal pure returns (uint256[] memory) {
+    function inclusionProof(uint256[] memory leaves, uint256 leafIndex) internal pure returns (uint256[] memory) {
         uint256[][] memory nodes = allNodes(leaves);
         uint256 maxDepth = nodes.length;
         uint256[] memory proof = new uint256[](maxDepth);
@@ -68,10 +60,7 @@ library TreeHelper {
     /// @param leaves The leaves of the tree in insertion order.
     /// @param leafIndex The index of the leaf to prove.
     /// @return proof The sibling nodes from leaf level upwards (variable length).
-    function leanInclusionProof(
-        uint256[] memory leaves,
-        uint256 leafIndex
-    ) internal pure returns (uint256[] memory) {
+    function leanInclusionProof(uint256[] memory leaves, uint256 leafIndex) internal pure returns (uint256[] memory) {
         uint256 n = leaves.length;
         require(n > 0, "LeanIMT: no leaves to insert");
 
@@ -102,9 +91,7 @@ library TreeHelper {
             uint256 ni = 0;
             for (uint256 j = 0; j < lenLevel; j += 2) {
                 uint256 left = level[j];
-                uint256 parent = (j + 1 < lenLevel)
-                    ? hash(left, level[j + 1])
-                    : left;
+                uint256 parent = (j + 1 < lenLevel) ? hash(left, level[j + 1]) : left;
                 next[ni++] = parent;
             }
 

@@ -15,12 +15,10 @@ contract LeanIMTBench {
         InternalLeanIMT._insertMany(t, leaves);
     }
 
-    function benchUpdate(
-        uint256 index,
-        uint256 oldLeaf,
-        uint256 newLeaf,
-        uint256[] calldata proof
-    ) external returns (uint256 gasUsed) {
+    function benchUpdate(uint256 index, uint256 oldLeaf, uint256 newLeaf, uint256[] calldata proof)
+        external
+        returns (uint256 gasUsed)
+    {
         uint256 startGas = gasleft();
         InternalLeanIMT._update(t, index, oldLeaf, newLeaf, proof);
         gasUsed = startGas - gasleft();
@@ -107,9 +105,6 @@ contract LeanIMTTest is Test {
             leaves[i] = 1337;
             totalGas += g;
         }
-        console.log(
-            "Gas used per update (internal, 2^12): %s",
-            totalGas / nUpdates
-        );
+        console.log("Gas used per update (internal, 2^12): %s", totalGas / nUpdates);
     }
 }

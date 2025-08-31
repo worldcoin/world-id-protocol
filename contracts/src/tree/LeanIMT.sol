@@ -6,17 +6,11 @@ import {InternalLeanIMT, LeanIMTData} from "./InternalLeanIMT.sol";
 library LeanIMT {
     using InternalLeanIMT for *;
 
-    function insert(
-        LeanIMTData storage self,
-        uint256 leaf
-    ) public returns (uint256) {
+    function insert(LeanIMTData storage self, uint256 leaf) public returns (uint256) {
         return InternalLeanIMT._insert(self, leaf);
     }
 
-    function insertMany(
-        LeanIMTData storage self,
-        uint256[] calldata leaves
-    ) public returns (uint256) {
+    function insertMany(LeanIMTData storage self, uint256[] calldata leaves) public returns (uint256) {
         return InternalLeanIMT._insertMany(self, leaves);
     }
 
@@ -27,22 +21,13 @@ library LeanIMT {
         uint256 newLeaf,
         uint256[] calldata siblingNodes
     ) public returns (uint256) {
-        return
-            InternalLeanIMT._update(
-                self,
-                index,
-                oldLeaf,
-                newLeaf,
-                siblingNodes
-            );
+        return InternalLeanIMT._update(self, index, oldLeaf, newLeaf, siblingNodes);
     }
 
-    function remove(
-        LeanIMTData storage self,
-        uint256 index,
-        uint256 oldLeaf,
-        uint256[] calldata siblingNodes
-    ) public returns (uint256) {
+    function remove(LeanIMTData storage self, uint256 index, uint256 oldLeaf, uint256[] calldata siblingNodes)
+        public
+        returns (uint256)
+    {
         return InternalLeanIMT._remove(self, index, oldLeaf, siblingNodes);
     }
 
@@ -50,12 +35,7 @@ library LeanIMT {
         return InternalLeanIMT._root(self);
     }
 
-    function initialize(
-        LeanIMTData storage self,
-        uint256 depth,
-        uint256 size,
-        uint256[] calldata sideNodes
-    ) external {
+    function initialize(LeanIMTData storage self, uint256 depth, uint256 size, uint256[] calldata sideNodes) external {
         InternalLeanIMT._initialize(self, depth, size, sideNodes);
     }
 }

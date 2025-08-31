@@ -4,7 +4,8 @@ pragma solidity ^0.8.4;
 import {Skyscraper} from "../hash/Skyscraper.sol";
 import {Poseidon2T2} from "../hash/Poseidon2.sol";
 
-uint256 constant SNARK_SCALAR_FIELD = 21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617;
+uint256 constant SNARK_SCALAR_FIELD =
+    21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617;
 
 struct LeanIMTData {
     // Tracks the current number of leaves in the tree.
@@ -30,12 +31,9 @@ error LeafDoesNotExist();
 /// it is updated based on the number of leaves in the tree. This approach
 /// results in the calculation of significantly fewer hashes, making the tree more efficient.
 library InternalLeanIMT {
-    function _initialize(
-        LeanIMTData storage self,
-        uint256 depth,
-        uint256 size,
-        uint256[] calldata sideNodes
-    ) external {
+    function _initialize(LeanIMTData storage self, uint256 depth, uint256 size, uint256[] calldata sideNodes)
+        external
+    {
         self.depth = depth;
         self.size = size;
         for (uint256 i = 0; i < sideNodes.length; i++) {
@@ -60,10 +58,7 @@ library InternalLeanIMT {
     /// @param self: A storage reference to the 'LeanIMTData' struct.
     /// @param leaf: The value of the new leaf to be inserted into the tree.
     /// @return The new hash of the node after the leaf has been inserted.
-    function _insert(
-        LeanIMTData storage self,
-        uint256 leaf
-    ) internal returns (uint256) {
+    function _insert(LeanIMTData storage self, uint256 leaf) internal returns (uint256) {
         if (leaf >= SNARK_SCALAR_FIELD) {
             revert LeafGreaterThanSnarkScalarField();
         }
@@ -84,7 +79,7 @@ library InternalLeanIMT {
 
         uint256 node = leaf;
 
-        for (uint256 level = 0; level < treeDepth; ) {
+        for (uint256 level = 0; level < treeDepth;) {
             if ((index >> level) & 1 == 1) {
                 node = hash(self.sideNodes[level], node);
             } else {
@@ -109,15 +104,12 @@ library InternalLeanIMT {
     /// @param self: A storage reference to the 'LeanIMTData' struct.
     /// @param leaves: The values of the new leaves to be inserted into the tree.
     /// @return The root after the leaves have been inserted.
-    function _insertMany(
-        LeanIMTData storage self,
-        uint256[] calldata leaves
-    ) internal returns (uint256) {
+    function _insertMany(LeanIMTData storage self, uint256[] calldata leaves) internal returns (uint256) {
         // Cache tree size to optimize gas
         uint256 treeSize = self.size;
 
         // Check that all the new values are correct to be added.
-        for (uint256 i = 0; i < leaves.length; ) {
+        for (uint256 i = 0; i < leaves.length;) {
             if (leaves[i] >= SNARK_SCALAR_FIELD) {
                 revert LeafGreaterThanSnarkScalarField();
             }
@@ -156,35 +148,26 @@ library InternalLeanIMT {
         // The size of the next level.
         uint256 nextLevelSize = ((currentLevelSize - 1) >> 1) + 1;
 
-        for (uint256 level = 0; level < treeDepth; ) {
+        for (uint256 level = 0; level < treeDepth;) {
             // The number of nodes for the new level that will be created,
             // only the new values, not the entire level.
             uint256 numberOfNewNodes = nextLevelSize - nextLevelStartIndex;
-            uint256[] memory nextLevelNewNodes = new uint256[](
-                numberOfNewNodes
-            );
-            for (uint256 i = 0; i < numberOfNewNodes; ) {
+            uint256[] memory nextLevelNewNodes = new uint256[](numberOfNewNodes);
+            for (uint256 i = 0; i < numberOfNewNodes;) {
                 uint256 leftNode;
 
                 // Assign the left node using the saved path or the position in the array.
                 if ((i + nextLevelStartIndex) * 2 < currentLevelStartIndex) {
                     leftNode = self.sideNodes[level];
                 } else {
-                    leftNode = currentLevelNewNodes[
-                        (i + nextLevelStartIndex) * 2 - currentLevelStartIndex
-                    ];
+                    leftNode = currentLevelNewNodes[(i + nextLevelStartIndex) * 2 - currentLevelStartIndex];
                 }
 
                 uint256 rightNode;
 
                 // Assign the right node if the value exists.
                 if ((i + nextLevelStartIndex) * 2 + 1 < currentLevelSize) {
-                    rightNode = currentLevelNewNodes[
-                        (i + nextLevelStartIndex) *
-                            2 +
-                            1 -
-                            currentLevelStartIndex
-                    ];
+                    rightNode = currentLevelNewNodes[(i + nextLevelStartIndex) * 2 + 1 - currentLevelStartIndex];
                 }
 
                 uint256 parentNode;
@@ -212,13 +195,9 @@ library InternalLeanIMT {
             // If it is even and there is only one element, there is no need to save anything because
             // the correct value for this level was already saved before.
             if (currentLevelSize & 1 == 1) {
-                self.sideNodes[level] = currentLevelNewNodes[
-                    currentLevelNewNodes.length - 1
-                ];
+                self.sideNodes[level] = currentLevelNewNodes[currentLevelNewNodes.length - 1];
             } else if (currentLevelNewNodes.length > 1) {
-                self.sideNodes[level] = currentLevelNewNodes[
-                    currentLevelNewNodes.length - 2
-                ];
+                self.sideNodes[level] = currentLevelNewNodes[currentLevelNewNodes.length - 2];
             }
 
             currentLevelStartIndex = nextLevelStartIndex;
@@ -277,7 +256,7 @@ library InternalLeanIMT {
         // Cache tree depth to optimize gas
         uint256 treeDepth = self.depth;
 
-        for (uint256 level = 0; level < treeDepth; ) {
+        for (uint256 level = 0; level < treeDepth;) {
             if ((index >> level) & 1 == 1) {
                 if (siblingNodes[i] >= SNARK_SCALAR_FIELD) {
                     revert LeafGreaterThanSnarkScalarField();
@@ -331,12 +310,10 @@ library InternalLeanIMT {
     /// @param oldLeaf: The value of the leaf to be removed.
     /// @param siblingNodes: An array of sibling nodes required for updating the path to the root after removal.
     /// @return The new root hash of the tree after the leaf has been removed.
-    function _remove(
-        LeanIMTData storage self,
-        uint256 index,
-        uint256 oldLeaf,
-        uint256[] calldata siblingNodes
-    ) internal returns (uint256) {
+    function _remove(LeanIMTData storage self, uint256 index, uint256 oldLeaf, uint256[] calldata siblingNodes)
+        internal
+        returns (uint256)
+    {
         return _update(self, index, oldLeaf, 0, siblingNodes);
     }
 
