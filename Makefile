@@ -15,10 +15,10 @@ help:
 	@echo "  sol-fmt      - forge fmt (in contracts/)"
 
 rust-build:
-	cargo build --workspace
+	cargo build --workspace -q
 
 rust-test:
-	cargo test --workspace
+	cargo test --workspace -q
 
 rust-fmt:
 	cargo fmt --all

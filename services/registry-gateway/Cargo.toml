@@ -3,6 +3,9 @@ name = "registry-gateway"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
 axum = { version = "0.7", features = ["macros", "json"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

@@ -9,6 +9,7 @@ use common::authenticator_registry::{
 };
 use regex::Regex;
 use reqwest::Client;
+use registry_gateway::{spawn_gateway, GatewayConfig};
 
 const ANVIL_PORT: u16 = 8551;
 const ANVIL_HTTP_URL: &str = "http://127.0.0.1:8551";
@@ -75,18 +76,7 @@ fn derive_wallet_key() -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-fn run_gateway(registry_addr: &str, wallet_key: &str) -> std::process::Child {
-    let mut cmd = Command::new("../../target/debug/registry-gateway");
-    cmd.env("RUST_LOG", "registry_gateway=info")
-        .env("RPC_URL", ANVIL_HTTP_URL)
-        .env("REGISTRY_ADDRESS", registry_addr)
-        .env("WALLET_KEY", wallet_key)
-        .env("RG_BATCH_MS", "200")
-        .env("RG_PORT", GW_PORT.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    cmd.spawn().expect("failed to start registry-gateway")
-}
+// gateway is now spawned in-process via library API
 
 async fn wait_http_ready(client: &Client) {
     let base = format!("http://127.0.0.1:{}", GW_PORT);
@@ -124,8 +114,15 @@ async fn e2e_gateway_full_flow() {
     let signer: alloy::signers::local::PrivateKeySigner = wallet_key.parse().unwrap();
     let wallet_addr: Address = signer.address();
 
-    // Start gateway
-    let mut gw = run_gateway(&registry, &wallet_key);
+    // Start gateway (in-process via lib)
+    let cfg = GatewayConfig {
+        registry_addr: registry.parse().unwrap(),
+        rpc_url: ANVIL_HTTP_URL.to_string(),
+        wallet_key: wallet_key.clone(),
+        batch_ms: 200,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+    };
+    let gw = spawn_gateway(cfg).await.expect("spawn gateway");
 
     // HTTP client
     let client = Client::builder().build().unwrap();
@@ -405,6 +402,6 @@ async fn e2e_gateway_full_flow() {
     }
 
     // Cleanup
-    let _ = gw.kill();
+    let _ = gw.shutdown().await;
     let _ = anvil.kill();
 }
