@@ -17,7 +17,6 @@ const ANVIL_MNEMONIC: &str = "test test test test test test test test test test 
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-const MULTICALL3_ADDR: &str = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
 fn deploy_registry(rpc_url: &str) -> String {
     // TODO: improve this and use alloy's deploy (linking needs to be figured out)
@@ -41,7 +40,6 @@ fn deploy_registry(rpc_url: &str) -> String {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    println!("forge script output: {}", stdout);
     let re = Regex::new(r"AuthenticatorRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
     let addr = re
         .captures(&stdout)
@@ -82,7 +80,6 @@ async fn e2e_gateway_full_flow() {
         wallet_key: GW_PRIVATE_KEY.to_string(),
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
-        multicall3: Some(MULTICALL3_ADDR.parse().unwrap()),
     };
     let gw = spawn_gateway(cfg).await.expect("spawn gateway");
 
