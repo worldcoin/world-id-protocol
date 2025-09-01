@@ -1,9 +1,12 @@
 SHELL := /bin/bash
 
-.PHONY: help rust-build rust-test rust-fmt rust-clippy run-indexer run-gateway sol-build sol-test sol-fmt test
+.PHONY: help build fmt lint rust-build rust-test rust-fmt rust-clippy run-indexer run-gateway sol-build sol-test sol-fmt test
 
 help:
 	@echo "Targets:"
+	@echo "  build        - build Rust workspace and Solidity contracts"
+	@echo "  fmt          - format Rust and Solidity code"
+	@echo "  lint         - run Rust clippy (fails on warnings)"
 	@echo "  rust-build   - cargo build --workspace"
 	@echo "  rust-test    - cargo test --workspace"
 	@echo "  rust-fmt     - cargo fmt --all"
@@ -13,6 +16,17 @@ help:
 	@echo "  sol-build    - forge build (in contracts/)"
 	@echo "  sol-test     - forge test (in contracts/)"
 	@echo "  sol-fmt      - forge fmt (in contracts/)"
+
+build:
+	$(MAKE) rust-build
+	$(MAKE) sol-build
+
+fmt:
+	$(MAKE) rust-fmt
+	$(MAKE) sol-fmt
+
+lint:
+	$(MAKE) rust-clippy
 
 rust-build:
 	cargo build --workspace -q
