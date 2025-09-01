@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {Skyscraper} from "./hash/Skyscraper.sol";
 import {Poseidon2T2} from "./hash/Poseidon2.sol";
-import {console} from "forge-std/console.sol";
 
 library TreeHelper {
     function hash(uint256 a, uint256 b) internal pure returns (uint256) {

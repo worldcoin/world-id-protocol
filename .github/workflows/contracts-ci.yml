@@ -1,0 +1,35 @@
+on:
+    push:
+      branches:
+        - main
+    pull_request:
+      paths:
+        - contracts/**/*
+
+permissions:
+  contents: read
+  
+name: Contracts CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run tests
+        run: forge test -vvv
+
+      - name: Check formatting
+        run: forge fmt --check

@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {LeanIMT, LeanIMTData} from "../src/tree/LeanIMT.sol";
 import {InternalLeanIMT} from "../src/tree/InternalLeanIMT.sol";
-import {console} from "forge-std/console.sol";
 import {TreeHelper} from "../src/TreeHelper.sol";
 
 contract LeanIMTBench {

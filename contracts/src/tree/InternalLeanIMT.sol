@@ -3,7 +3,6 @@ pragma solidity ^0.8.4;
 
 import {Skyscraper} from "../hash/Skyscraper.sol";
 import {Poseidon2T2} from "../hash/Poseidon2.sol";
-import {console} from "forge-std/console.sol";
 
 uint256 constant SNARK_SCALAR_FIELD =
     21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617;
@@ -39,14 +38,6 @@ library InternalLeanIMT {
         self.size = size;
         for (uint256 i = 0; i < sideNodes.length; i++) {
             self.sideNodes[i] = sideNodes[i];
-        }
-    }
-
-    function _debugPrint(LeanIMTData storage self) external view {
-        console.log("depth: %s", self.depth);
-        console.log("size: %s", self.size);
-        for (uint256 i = 0; i < self.depth; i++) {
-            console.log("sideNodes[%s]: %s", i, self.sideNodes[i]);
         }
     }
 
