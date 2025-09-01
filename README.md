@@ -1,4 +1,6 @@
-# Monorepo: Rust Services + Library + Solidity Contracts
+# 🚧 WIP: world-id-protocol
+
+> This project is work in progress and unaudited. DO NOT USE IN PRODUCTION.
 
 This repo is a minimal monorepo scaffolding that contains:
 
