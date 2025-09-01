@@ -22,9 +22,11 @@ Optional:
 
 Use the provided Makefile:
 
+- `make help`: Show all available targets with descriptions
 - `make build`: Build Rust workspace and Solidity contracts
 - `make fmt`: Format Rust and Solidity
 - `make lint`: Run Rust clippy (fails on warnings)
+- `make test`: Run both Rust and Solidity tests
 - `make rust-build`: `cargo build --workspace`
 - `make rust-test`: `cargo test --workspace`
 - `make rust-fmt`: `cargo fmt --all`
