@@ -16,4 +16,3 @@ async fn main() -> anyhow::Result<()> {
 
     registry_gateway::run_from_env().await
 }
-

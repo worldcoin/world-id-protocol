@@ -5,6 +5,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {AuthenticatorRegistry} from "../src/AuthenticatorRegistry.sol";
 import {TreeHelper} from "../src/TreeHelper.sol";
 import {LeanIMT} from "../src/tree/LeanIMT.sol";
+import {Multicall3} from "../src/Multicall3.sol";
 
 contract AuthenticatorRegistryTest is Test {
     AuthenticatorRegistry public authenticatorRegistry;
@@ -18,12 +19,14 @@ contract AuthenticatorRegistryTest is Test {
     uint256 public constant AUTH1_PRIVATE_KEY = 0x01;
     uint256 public constant AUTH2_PRIVATE_KEY = 0x02;
     uint256 public constant AUTH3_PRIVATE_KEY = 0x03;
+    Multicall3 public multicall3;
 
     function setUp() public {
         authenticatorRegistry = new AuthenticatorRegistry(DEFAULT_RECOVERY_ADDRESS);
         AUTHENTICATOR_ADDRESS1 = vm.addr(AUTH1_PRIVATE_KEY);
         AUTHENTICATOR_ADDRESS2 = vm.addr(AUTH2_PRIVATE_KEY);
         AUTHENTICATOR_ADDRESS3 = vm.addr(AUTH3_PRIVATE_KEY);
+        multicall3 = new Multicall3();
     }
 
     ////////////////////////////////////////////////////////////
@@ -84,6 +87,27 @@ contract AuthenticatorRegistryTest is Test {
         uint256 endGas = gasleft();
         console.log("Gas used per account:", (startGas - endGas) / numAccounts);
         assertEq(authenticatorRegistry.nextAccountIndex(), size + numAccounts);
+    }
+
+    function test_CreateAccountMulticall() public {
+        uint256 numAccounts = 100;
+        Multicall3.Call3[] memory calls = new Multicall3.Call3[](numAccounts);
+
+        for (uint256 i = 0; i < numAccounts; i++) {
+            address[] memory authenticatorAddresses = new address[](1);
+            authenticatorAddresses[0] = address(uint160(i + 1));
+            calls[i] = Multicall3.Call3({
+                target: address(authenticatorRegistry),
+                allowFailure: false,
+                callData: abi.encodeWithSelector(authenticatorRegistry.createAccount.selector, address(0), authenticatorAddresses, uint256(0))
+            });
+        }
+
+        uint256 startGas = gasleft();
+        multicall3.aggregate3(calls);
+        uint256 endGas = gasleft();
+        console.log("Gas used per account:", (startGas - endGas) / numAccounts);
+        assertEq(authenticatorRegistry.nextAccountIndex(), numAccounts + 1);
     }
 
     function test_UpdateAuthenticatorSuccess() public {

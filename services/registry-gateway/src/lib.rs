@@ -82,7 +82,12 @@ struct NonceManager {
 }
 
 impl NonceManager {
-    fn new(addr: Address) -> Self { Self { addr, next: Mutex::new(None) } }
+    fn new(addr: Address) -> Self {
+        Self {
+            addr,
+            next: Mutex::new(None),
+        }
+    }
 
     async fn next_nonce<P>(&self, provider: &P) -> anyhow::Result<u64>
     where
@@ -203,7 +208,9 @@ impl ApiError {
 }
 
 #[derive(Serialize)]
-struct ErrorBody { error: String }
+struct ErrorBody {
+    error: String,
+}
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -316,9 +323,7 @@ pub async fn spawn_gateway(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> 
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
         let _ = rx.await;
     });
-    let join = tokio::spawn(async move {
-        server.await.map_err(|e| anyhow::anyhow!(e))
-    });
+    let join = tokio::spawn(async move { server.await.map_err(|e| anyhow::anyhow!(e)) });
     Ok(GatewayHandle {
         shutdown: Some(tx),
         join,
@@ -345,7 +350,9 @@ pub async fn run_from_env() -> anyhow::Result<()> {
         .unwrap_or(4000);
     let listen_addr = SocketAddr::from(([127, 0, 0, 1], port));
 
-    let multicall3 = std::env::var("MULTICALL3_ADDRESS").ok().and_then(|s| s.parse().ok());
+    let multicall3 = std::env::var("MULTICALL3_ADDRESS")
+        .ok()
+        .and_then(|s| s.parse().ok());
     let app = build_app(registry_addr, rpc_url, wallet_key, batch_ms, multicall3);
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
     axum::serve(listener, app).await?;
@@ -478,7 +485,9 @@ impl CreateBatcherRunner {
                     let nonce = match self.nonce_mgr.next_nonce(&provider).await {
                         Ok(n) => n,
                         Err(e) => {
-                            for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string()))); }
+                            for env in batch {
+                                let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));
+                            }
                             continue;
                         }
                     };
@@ -573,7 +582,16 @@ impl OpsBatcherRunner {
         send_lock: std::sync::Arc<Mutex<()>>,
         nonce_mgr: std::sync::Arc<NonceManager>,
     ) -> Self {
-        Self { rx, rpc_url, wallet_key, registry, multicall3, window, send_lock, nonce_mgr }
+        Self {
+            rx,
+            rpc_url,
+            wallet_key,
+            registry,
+            multicall3,
+            window,
+            send_lock,
+            nonce_mgr,
+        }
     }
 
     async fn run(mut self) {
@@ -586,13 +604,26 @@ impl OpsBatcherRunner {
             let deadline = tokio::time::Instant::now() + self.window;
             while tokio::time::timeout_at(deadline, async {
                 let next = self.rx.try_recv().ok();
-                if let Some(req) = next { batch.push(req); true } else { tokio::time::sleep(Duration::from_millis(10)).await; true }
-            }).await.is_ok() {}
+                if let Some(req) = next {
+                    batch.push(req);
+                    true
+                } else {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    true
+                }
+            })
+            .await
+            .is_ok()
+            {}
 
             let provider = match build_provider(&self.rpc_url, &self.wallet_key) {
                 Ok(p) => p,
                 Err(err) => {
-                    for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(format!("provider error: {}", err)))); }
+                    for env in batch {
+                        let _ = env
+                            .resp
+                            .send(Err(anyhow::anyhow!(format!("provider error: {}", err))));
+                    }
                     continue;
                 }
             };
@@ -610,11 +641,19 @@ impl OpsBatcherRunner {
                     }
                 };
                 if has_code {
-                let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
-                for env in &batch {
-                    let data: alloy::primitives::Bytes = match &env.kind {
-                        OpKind::Update { account_index, old_authenticator_address, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
-                            contract
+                    let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
+                    for env in &batch {
+                        let data: alloy::primitives::Bytes = match &env.kind {
+                            OpKind::Update {
+                                account_index,
+                                old_authenticator_address,
+                                new_authenticator_address,
+                                old_commit,
+                                new_commit,
+                                signature,
+                                sibling_nodes,
+                                nonce,
+                            } => contract
                                 .updateAuthenticator(
                                     *account_index,
                                     *old_authenticator_address,
@@ -625,10 +664,17 @@ impl OpsBatcherRunner {
                                     sibling_nodes.clone(),
                                     *nonce,
                                 )
-                                .calldata().clone()
-                        }
-                        OpKind::Insert { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
-                            contract
+                                .calldata()
+                                .clone(),
+                            OpKind::Insert {
+                                account_index,
+                                new_authenticator_address,
+                                old_commit,
+                                new_commit,
+                                signature,
+                                sibling_nodes,
+                                nonce,
+                            } => contract
                                 .insertAuthenticator(
                                     *account_index,
                                     *new_authenticator_address,
@@ -638,10 +684,17 @@ impl OpsBatcherRunner {
                                     sibling_nodes.clone(),
                                     *nonce,
                                 )
-                                .calldata().clone()
-                        }
-                        OpKind::Remove { account_index, authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
-                            contract
+                                .calldata()
+                                .clone(),
+                            OpKind::Remove {
+                                account_index,
+                                authenticator_address,
+                                old_commit,
+                                new_commit,
+                                signature,
+                                sibling_nodes,
+                                nonce,
+                            } => contract
                                 .removeAuthenticator(
                                     *account_index,
                                     *authenticator_address,
@@ -651,10 +704,17 @@ impl OpsBatcherRunner {
                                     sibling_nodes.clone(),
                                     *nonce,
                                 )
-                                .calldata().clone()
-                        }
-                        OpKind::Recover { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
-                            contract
+                                .calldata()
+                                .clone(),
+                            OpKind::Recover {
+                                account_index,
+                                new_authenticator_address,
+                                old_commit,
+                                new_commit,
+                                signature,
+                                sibling_nodes,
+                                nonce,
+                            } => contract
                                 .recoverAccount(
                                     *account_index,
                                     *new_authenticator_address,
@@ -664,44 +724,62 @@ impl OpsBatcherRunner {
                                     sibling_nodes.clone(),
                                     *nonce,
                                 )
-                                .calldata().clone()
+                                .calldata()
+                                .clone(),
+                        };
+                        calls.push(Multicall3::Call3 {
+                            target: self.registry,
+                            allowFailure: false,
+                            callData: data,
+                        });
+                    }
+
+                    let mc = Multicall3::new(mc_addr, provider.clone());
+                    let mut tx = mc.aggregate3(calls.clone());
+                    // Serialize sending and set an explicit nonce.
+                    let _guard = self.send_lock.lock().await;
+                    let nonce = match self.nonce_mgr.next_nonce(&provider).await {
+                        Ok(n) => n,
+                        Err(e) => {
+                            for env in batch {
+                                let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));
+                            }
+                            continue;
                         }
                     };
-                    calls.push(Multicall3::Call3 { target: self.registry, allowFailure: false, callData: data });
-                }
-
-                let mc = Multicall3::new(mc_addr, provider.clone());
-                let mut tx = mc.aggregate3(calls.clone());
-                // Serialize sending and set an explicit nonce.
-                let _guard = self.send_lock.lock().await;
-                let nonce = match self.nonce_mgr.next_nonce(&provider).await {
-                    Ok(n) => n,
-                    Err(e) => {
-                        for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string()))); }
-                        continue;
+                    tx = tx.nonce(nonce);
+                    let mut res = tx.send().await;
+                    if let Err(e) = &res {
+                        if e.to_string().to_lowercase().contains("nonce too low") {
+                            let nonce = match self.nonce_mgr.next_nonce(&provider).await {
+                                Ok(n) => n,
+                                Err(e) => {
+                                    for env in batch {
+                                        let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));
+                                    }
+                                    continue;
+                                }
+                            };
+                            res = mc.aggregate3(calls.clone()).nonce(nonce).send().await;
+                        }
                     }
-                };
-                tx = tx.nonce(nonce);
-                let mut res = tx.send().await;
-                if let Err(e) = &res {
-                    if e.to_string().to_lowercase().contains("nonce too low") {
-                        let nonce = match self.nonce_mgr.next_nonce(&provider).await { Ok(n)=>n, Err(e)=>{ for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));} continue; } };
-                        res = mc.aggregate3(calls.clone()).nonce(nonce).send().await;
+                    match res {
+                        Ok(pend) => {
+                            let hash = format!("0x{:x}", pend.tx_hash());
+                            for env in batch {
+                                let _ = env.resp.send(Ok(hash.clone()));
+                            }
+                            continue;
+                        }
+                        Err(e) => {
+                            // fall back to sequential below
+                            tracing::warn!(error = %e, "multicall3 send failed; falling back to sequential");
+                        }
                     }
-                }
-                match res {
-                    Ok(pend) => {
-                        let hash = format!("0x{:x}", pend.tx_hash());
-                        for env in batch { let _ = env.resp.send(Ok(hash.clone())); }
-                        continue;
-                    }
-                    Err(e) => {
-                        // fall back to sequential below
-                        tracing::warn!(error = %e, "multicall3 send failed; falling back to sequential");
-                    }
-                }
                 } else {
-                    tracing::warn!("multicall3 address has no contract code; falling back to sequential");
+                    tracing::warn!(
+                        "multicall3 address has no contract code; falling back to sequential"
+                    );
                 }
             }
 
@@ -712,64 +790,234 @@ impl OpsBatcherRunner {
             let _guard = self.send_lock.lock().await;
             for env in &batch {
                 let res = match &env.kind {
-                    OpKind::Update { account_index, old_authenticator_address, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
-                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                    OpKind::Update {
+                        account_index,
+                        old_authenticator_address,
+                        new_authenticator_address,
+                        old_commit,
+                        new_commit,
+                        signature,
+                        sibling_nodes,
+                        nonce,
+                    } => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await {
+                            Ok(x) => x,
+                            Err(e) => {
+                                error = Some(anyhow::anyhow!(e.to_string()));
+                                break;
+                            }
+                        };
                         contract
-                        .updateAuthenticator(*account_index, *old_authenticator_address, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
-                        .nonce(n)
-                        .send()
-                        .await
+                            .updateAuthenticator(
+                                *account_index,
+                                *old_authenticator_address,
+                                *new_authenticator_address,
+                                *old_commit,
+                                *new_commit,
+                                signature.clone(),
+                                sibling_nodes.clone(),
+                                *nonce,
+                            )
+                            .nonce(n)
+                            .send()
+                            .await
                     }
-                    OpKind::Insert { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
-                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                    OpKind::Insert {
+                        account_index,
+                        new_authenticator_address,
+                        old_commit,
+                        new_commit,
+                        signature,
+                        sibling_nodes,
+                        nonce,
+                    } => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await {
+                            Ok(x) => x,
+                            Err(e) => {
+                                error = Some(anyhow::anyhow!(e.to_string()));
+                                break;
+                            }
+                        };
                         contract
-                        .insertAuthenticator(*account_index, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
-                        .nonce(n)
-                        .send()
-                        .await
+                            .insertAuthenticator(
+                                *account_index,
+                                *new_authenticator_address,
+                                *old_commit,
+                                *new_commit,
+                                signature.clone(),
+                                sibling_nodes.clone(),
+                                *nonce,
+                            )
+                            .nonce(n)
+                            .send()
+                            .await
                     }
-                    OpKind::Remove { account_index, authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
-                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                    OpKind::Remove {
+                        account_index,
+                        authenticator_address,
+                        old_commit,
+                        new_commit,
+                        signature,
+                        sibling_nodes,
+                        nonce,
+                    } => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await {
+                            Ok(x) => x,
+                            Err(e) => {
+                                error = Some(anyhow::anyhow!(e.to_string()));
+                                break;
+                            }
+                        };
                         contract
-                        .removeAuthenticator(*account_index, *authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
-                        .nonce(n)
-                        .send()
-                        .await
+                            .removeAuthenticator(
+                                *account_index,
+                                *authenticator_address,
+                                *old_commit,
+                                *new_commit,
+                                signature.clone(),
+                                sibling_nodes.clone(),
+                                *nonce,
+                            )
+                            .nonce(n)
+                            .send()
+                            .await
                     }
-                    OpKind::Recover { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => {
-                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                    OpKind::Recover {
+                        account_index,
+                        new_authenticator_address,
+                        old_commit,
+                        new_commit,
+                        signature,
+                        sibling_nodes,
+                        nonce,
+                    } => {
+                        let n = match self.nonce_mgr.next_nonce(&provider).await {
+                            Ok(x) => x,
+                            Err(e) => {
+                                error = Some(anyhow::anyhow!(e.to_string()));
+                                break;
+                            }
+                        };
                         contract
-                        .recoverAccount(*account_index, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
-                        .nonce(n)
-                        .send()
-                        .await
+                            .recoverAccount(
+                                *account_index,
+                                *new_authenticator_address,
+                                *old_commit,
+                                *new_commit,
+                                signature.clone(),
+                                sibling_nodes.clone(),
+                                *nonce,
+                            )
+                            .nonce(n)
+                            .send()
+                            .await
                     }
                 };
                 // Retry once on nonce-too-low by grabbing a fresh chain-synced nonce
                 let res = match res {
                     Err(e) if e.to_string().to_lowercase().contains("nonce too low") => {
-                        let n = match self.nonce_mgr.next_nonce(&provider).await { Ok(x)=>x, Err(e)=>{error=Some(anyhow::anyhow!(e.to_string())); break;} };
+                        let n = match self.nonce_mgr.next_nonce(&provider).await {
+                            Ok(x) => x,
+                            Err(e) => {
+                                error = Some(anyhow::anyhow!(e.to_string()));
+                                break;
+                            }
+                        };
                         match &env.kind {
-                            OpKind::Update { account_index, old_authenticator_address, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => contract
-                                .updateAuthenticator(*account_index, *old_authenticator_address, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
-                                .nonce(n)
-                                .send()
-                                .await,
-                            OpKind::Insert { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => contract
-                                .insertAuthenticator(*account_index, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
-                                .nonce(n)
-                                .send()
-                                .await,
-                            OpKind::Remove { account_index, authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => contract
-                                .removeAuthenticator(*account_index, *authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
-                                .nonce(n)
-                                .send()
-                                .await,
-                            OpKind::Recover { account_index, new_authenticator_address, old_commit, new_commit, signature, sibling_nodes, nonce } => contract
-                                .recoverAccount(*account_index, *new_authenticator_address, *old_commit, *new_commit, signature.clone(), sibling_nodes.clone(), *nonce)
-                                .nonce(n)
-                                .send()
-                                .await,
+                            OpKind::Update {
+                                account_index,
+                                old_authenticator_address,
+                                new_authenticator_address,
+                                old_commit,
+                                new_commit,
+                                signature,
+                                sibling_nodes,
+                                nonce,
+                            } => {
+                                contract
+                                    .updateAuthenticator(
+                                        *account_index,
+                                        *old_authenticator_address,
+                                        *new_authenticator_address,
+                                        *old_commit,
+                                        *new_commit,
+                                        signature.clone(),
+                                        sibling_nodes.clone(),
+                                        *nonce,
+                                    )
+                                    .nonce(n)
+                                    .send()
+                                    .await
+                            }
+                            OpKind::Insert {
+                                account_index,
+                                new_authenticator_address,
+                                old_commit,
+                                new_commit,
+                                signature,
+                                sibling_nodes,
+                                nonce,
+                            } => {
+                                contract
+                                    .insertAuthenticator(
+                                        *account_index,
+                                        *new_authenticator_address,
+                                        *old_commit,
+                                        *new_commit,
+                                        signature.clone(),
+                                        sibling_nodes.clone(),
+                                        *nonce,
+                                    )
+                                    .nonce(n)
+                                    .send()
+                                    .await
+                            }
+                            OpKind::Remove {
+                                account_index,
+                                authenticator_address,
+                                old_commit,
+                                new_commit,
+                                signature,
+                                sibling_nodes,
+                                nonce,
+                            } => {
+                                contract
+                                    .removeAuthenticator(
+                                        *account_index,
+                                        *authenticator_address,
+                                        *old_commit,
+                                        *new_commit,
+                                        signature.clone(),
+                                        sibling_nodes.clone(),
+                                        *nonce,
+                                    )
+                                    .nonce(n)
+                                    .send()
+                                    .await
+                            }
+                            OpKind::Recover {
+                                account_index,
+                                new_authenticator_address,
+                                old_commit,
+                                new_commit,
+                                signature,
+                                sibling_nodes,
+                                nonce,
+                            } => {
+                                contract
+                                    .recoverAccount(
+                                        *account_index,
+                                        *new_authenticator_address,
+                                        *old_commit,
+                                        *new_commit,
+                                        signature.clone(),
+                                        sibling_nodes.clone(),
+                                        *nonce,
+                                    )
+                                    .nonce(n)
+                                    .send()
+                                    .await
+                            }
                         }
                     }
                     other => other,
@@ -785,9 +1033,13 @@ impl OpsBatcherRunner {
                 }
             }
             if let Some(err) = error {
-                for env in batch { let _ = env.resp.send(Err(anyhow::anyhow!(err.to_string()))); }
+                for env in batch {
+                    let _ = env.resp.send(Err(anyhow::anyhow!(err.to_string())));
+                }
             } else if let Some(hash) = last_hash {
-                for env in batch { let _ = env.resp.send(Ok(hash.clone())); }
+                for env in batch {
+                    let _ = env.resp.send(Ok(hash.clone()));
+                }
             }
         }
     }
@@ -952,7 +1204,10 @@ async fn remove_authenticator(
     let env = OpEnvelope {
         kind: OpKind::Remove {
             account_index: req_u256("account_index", &req.account_index)?,
-            authenticator_address: req_address("authenticator_address", &req.authenticator_address)?,
+            authenticator_address: req_address(
+                "authenticator_address",
+                &req.authenticator_address,
+            )?,
             old_commit: req_u256(
                 "old_offchain_signer_commitment",
                 &req.old_offchain_signer_commitment,

@@ -1,6 +1,7 @@
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::Duration;
 
+use alloy::node_bindings::Anvil;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
@@ -9,37 +10,23 @@ use common::authenticator_registry::{
     sign_remove_authenticator, sign_update_authenticator, AuthenticatorRegistry,
 };
 use regex::Regex;
-use reqwest::Client;
 use registry_gateway::{spawn_gateway, GatewayConfig};
+use reqwest::Client;
 
-const ANVIL_PORT: u16 = 8551;
-const ANVIL_HTTP_URL: &str = "http://127.0.0.1:8551";
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
+const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
+const MULTICALL3_ADDR: &str = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
-fn start_anvil() -> std::process::Child {
-    let mut cmd = Command::new("anvil");
-    cmd.arg("-p")
-        .arg(ANVIL_PORT.to_string())
-        .arg("--host")
-        .arg("127.0.0.1")
-        .arg("--fork-url")
-        .arg(RPC_FORK_URL)
-        .arg("--mnemonic")
-        .arg(ANVIL_MNEMONIC)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-    cmd.spawn().expect("failed to start anvil")
-}
-
-fn deploy_registry() -> String {
+fn deploy_registry(rpc_url: &str) -> String {
+    // TODO: improve this and use alloy's deploy (linking needs to be figured out)
     let mut cmd = Command::new("forge");
     cmd.current_dir("../../contracts")
         .arg("script")
         .arg("script/AuthenticatorRegistry.s.sol:CounterScript")
         .arg("--rpc-url")
-        .arg(ANVIL_HTTP_URL)
+        .arg(rpc_url)
         .arg("--broadcast")
         .arg("--mnemonics")
         .arg(ANVIL_MNEMONIC)
@@ -53,6 +40,8 @@ fn deploy_registry() -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
+
+    println!("forge script output: {}", stdout);
     let re = Regex::new(r"AuthenticatorRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
     let addr = re
         .captures(&stdout)
@@ -61,26 +50,6 @@ fn deploy_registry() -> String {
         .expect("failed to parse deployed address from script output");
     addr
 }
-
-fn derive_wallet_key() -> String {
-    let output = Command::new("cast")
-        .arg("wallet")
-        .arg("private-key")
-        .arg("--mnemonic")
-        .arg(ANVIL_MNEMONIC)
-        .arg("--mnemonic-index")
-        .arg("0")
-        .output()
-        .expect("cast wallet private-key failed");
-    assert!(
-        output.status.success(),
-        "cast wallet private-key failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-// gateway is now spawned in-process via library API
 
 async fn wait_http_ready(client: &Client) {
     let base = format!("http://127.0.0.1:{}", GW_PORT);
@@ -100,35 +69,20 @@ async fn wait_http_ready(client: &Client) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_gateway_full_flow() {
-    // Kill any existing anvil
-    Command::new("pkill")
-        .arg("anvil")
-        .status()
-        .expect("pkill anvil");
+    let anvil = Anvil::new().fork(RPC_FORK_URL).try_spawn().unwrap();
 
-    // Start anvil
-    let mut anvil = start_anvil();
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let registry = deploy_registry(anvil.endpoint_url().to_string().as_str());
 
-    // Deploy registry and Multicall3
-    let registry = deploy_registry();
-    // let multicall = deploy_multicall3();
-
-    tokio::time::sleep(Duration::from_millis(1000)).await;
-
-    // Derive wallet key and address
-    let wallet_key = derive_wallet_key();
-    let signer: alloy::signers::local::PrivateKeySigner = wallet_key.parse().unwrap();
+    let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
-    // Start gateway (in-process via lib)
     let cfg = GatewayConfig {
         registry_addr: registry.parse().unwrap(),
-        rpc_url: ANVIL_HTTP_URL.to_string(),
-        wallet_key: wallet_key,
+        rpc_url: anvil.endpoint_url().to_string(),
+        wallet_key: GW_PRIVATE_KEY.to_string(),
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
-        multicall3: Some(address!("0xcA11bde05977b3631167028862bE2a173976CA11")),
+        multicall3: Some(MULTICALL3_ADDR.parse().unwrap()),
     };
     let gw = spawn_gateway(cfg).await.expect("spawn gateway");
 
@@ -140,7 +94,7 @@ async fn e2e_gateway_full_flow() {
     // Build Alloy provider for on-chain assertions and chain id
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(ANVIL_HTTP_URL.parse().unwrap());
+        .connect_http(anvil.endpoint_url());
     let contract = AuthenticatorRegistry::new(registry.parse().unwrap(), provider.clone());
 
     // First, create the initial account through the API so tree depth stays 0 for following ops
@@ -160,7 +114,7 @@ async fn e2e_gateway_full_flow() {
         "create-account failed: {:?}",
         resp.text().await.unwrap()
     );
-    
+
     // Wait until createManyAccounts is reflected on-chain
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -169,7 +123,6 @@ async fn e2e_gateway_full_flow() {
             .call()
             .await
             .unwrap();
-        println!("mapping for wallet after create: {}", packed_after);
         if packed_after != U256::ZERO {
             break;
         }
@@ -182,7 +135,7 @@ async fn e2e_gateway_full_flow() {
     // Sanity: build provider and contract for on-chain assertions
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(ANVIL_HTTP_URL.parse().unwrap());
+        .connect_http(anvil.endpoint_url());
     let contract = AuthenticatorRegistry::new(registry.parse().unwrap(), provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
@@ -195,7 +148,7 @@ async fn e2e_gateway_full_flow() {
         "creator wallet not registered as authenticator"
     );
 
-    let chain_id =provider.get_chain_id().await.unwrap();
+    let chain_id = provider.get_chain_id().await.unwrap();
 
     // EIP-712 domain via common helpers
     let domain = ag_domain(chain_id, registry.parse::<Address>().unwrap());
@@ -418,5 +371,4 @@ async fn e2e_gateway_full_flow() {
 
     // Cleanup
     let _ = gw.shutdown().await;
-    let _ = anvil.kill();
 }
