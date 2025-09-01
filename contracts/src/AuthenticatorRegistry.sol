@@ -71,13 +71,13 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     ////////////////////////////////////////////////////////////
 
     string public constant UPDATE_AUTHENTICATOR_TYPEDEF =
-        "UpdateAuthenticator(uint256 accountIndex, address oldAuthenticatorAddress, address newAuthenticatorAddress, uint256 newOffchainSignerCommitment, uint256 nonce)";
+        "UpdateAuthenticator(uint256 accountIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant INSERT_AUTHENTICATOR_TYPEDEF =
-        "InsertAuthenticator(uint256 accountIndex, address newAuthenticatorAddress, uint256 newOffchainSignerCommitment, uint256 nonce)";
+        "InsertAuthenticator(uint256 accountIndex,address newAuthenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant REMOVE_AUTHENTICATOR_TYPEDEF =
-        "RemoveAuthenticator(uint256 accountIndex, address authenticatorAddress, uint256 newOffchainSignerCommitment, uint256 nonce)";
+        "RemoveAuthenticator(uint256 accountIndex,address authenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant RECOVER_ACCOUNT_TYPEDEF =
-        "RecoverAccount(uint256 accountIndex, address newAuthenticatorAddress, uint256 newOffchainSignerCommitment, uint256 nonce)";
+        "RecoverAccount(uint256 accountIndex,address newAuthenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
 
     bytes32 public constant UPDATE_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(UPDATE_AUTHENTICATOR_TYPEDEF));
     bytes32 public constant INSERT_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(INSERT_AUTHENTICATOR_TYPEDEF));

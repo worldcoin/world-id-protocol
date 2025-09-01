@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help rust-build rust-test rust-fmt rust-clippy run-a run-b sol-build sol-test sol-fmt
+.PHONY: help rust-build rust-test rust-fmt rust-clippy run-indexer run-gateway sol-build sol-test sol-fmt test
 
 help:
 	@echo "Targets:"
@@ -9,16 +9,16 @@ help:
 	@echo "  rust-fmt     - cargo fmt --all"
 	@echo "  rust-clippy  - cargo clippy --workspace --all-targets -D warnings"
 	@echo "  run-indexer  - run authtree-indexer"
-	@echo "  run-b        - run service-b (PORT 4000 by default)"
+	@echo "  run-gateway  - run registry-gateway (PORT 4000 by default)"
 	@echo "  sol-build    - forge build (in contracts/)"
 	@echo "  sol-test     - forge test (in contracts/)"
 	@echo "  sol-fmt      - forge fmt (in contracts/)"
 
 rust-build:
-	cargo build --workspace
+	cargo build --workspace -q
 
 rust-test:
-	cargo test --workspace
+	cargo test --workspace -q
 
 rust-fmt:
 	cargo fmt --all
@@ -29,8 +29,8 @@ rust-clippy:
 run-indexer:
 	cargo run -p authtree-indexer
 
-run-b:
-	cargo run -p service-b
+run-gateway:
+	cargo run -p registry-gateway
 
 sol-build:
 	cd contracts && forge build

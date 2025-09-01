@@ -17,7 +17,7 @@ impl Authenticator {
     }
 
     /// Returns a reference to the internal signer.
-    pub fn signer(&self) -> &PrivateKeySigner { &self.signer }
+    pub fn signer(&self) -> &PrivateKeySigner {
+        &self.signer
+    }
 }
-
-
