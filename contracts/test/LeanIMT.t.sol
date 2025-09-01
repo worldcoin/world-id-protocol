@@ -36,7 +36,7 @@ contract LeanIMTTest is Test {
     function _fakeTree(LeanIMTData storage t, uint256 depth) internal {
         uint256[] memory sideNodes = new uint256[](depth);
         sideNodes[depth - 1] = TreeHelper.emptyNode(depth);
-        t.initialize(depth, 1 << ((depth - 1) + 1), sideNodes);
+        t.initialize(depth, 1 << (depth - 1) + 1, sideNodes);
     }
 
     function setUp() public {
