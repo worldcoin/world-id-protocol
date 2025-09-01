@@ -99,7 +99,9 @@ contract AuthenticatorRegistryTest is Test {
             calls[i] = Multicall3.Call3({
                 target: address(authenticatorRegistry),
                 allowFailure: false,
-                callData: abi.encodeWithSelector(authenticatorRegistry.createAccount.selector, address(0), authenticatorAddresses, uint256(0))
+                callData: abi.encodeWithSelector(
+                    authenticatorRegistry.createAccount.selector, address(0), authenticatorAddresses, uint256(0)
+                )
             });
         }
 
