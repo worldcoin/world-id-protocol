@@ -2,6 +2,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use alloy::primitives::{address, Address, U256};
+use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use common::authenticator_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
@@ -23,8 +24,8 @@ fn start_anvil() -> std::process::Child {
         .arg(ANVIL_PORT.to_string())
         .arg("--host")
         .arg("127.0.0.1")
-        // .arg("--fork-url")
-        // .arg(RPC_FORK_URL)
+        .arg("--fork-url")
+        .arg(RPC_FORK_URL)
         .arg("--mnemonic")
         .arg(ANVIL_MNEMONIC)
         .stdout(Stdio::inherit())
@@ -58,35 +59,6 @@ fn deploy_registry() -> String {
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
         .expect("failed to parse deployed address from script output");
-    addr
-}
-
-fn deploy_multicall3() -> String {
-    let mut cmd = Command::new("forge");
-    cmd.current_dir("../../contracts")
-        .arg("script")
-        .arg("script/Multicall3.s.sol:CounterScript")
-        .arg("--rpc-url")
-        .arg(ANVIL_HTTP_URL)
-        .arg("--broadcast")
-        .arg("--mnemonics")
-        .arg(ANVIL_MNEMONIC)
-        .arg("--mnemonic-indexes")
-        .arg("0")
-        .arg("-vvvv");
-    let output = cmd.output().expect("failed to run forge script (Multicall3)");
-    assert!(
-        output.status.success(),
-        "forge script failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let re = Regex::new(r"Multicall3 deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
-    let addr = re
-        .captures(&stdout)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .expect("failed to parse Multicall3 deployed address from script output");
     addr
 }
 
@@ -140,7 +112,7 @@ async fn e2e_gateway_full_flow() {
 
     // Deploy registry and Multicall3
     let registry = deploy_registry();
-    let multicall = deploy_multicall3();
+    // let multicall = deploy_multicall3();
 
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
@@ -153,10 +125,10 @@ async fn e2e_gateway_full_flow() {
     let cfg = GatewayConfig {
         registry_addr: registry.parse().unwrap(),
         rpc_url: ANVIL_HTTP_URL.to_string(),
-        wallet_key: wallet_key.clone(),
+        wallet_key: wallet_key,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
-        multicall3: Some(multicall.parse().unwrap()),
+        multicall3: Some(address!("0xcA11bde05977b3631167028862bE2a173976CA11")),
     };
     let gw = spawn_gateway(cfg).await.expect("spawn gateway");
 
@@ -223,7 +195,7 @@ async fn e2e_gateway_full_flow() {
         "creator wallet not registered as authenticator"
     );
 
-    let chain_id: u64 = 31337;
+    let chain_id =provider.get_chain_id().await.unwrap();
 
     // EIP-712 domain via common helpers
     let domain = ag_domain(chain_id, registry.parse::<Address>().unwrap());
