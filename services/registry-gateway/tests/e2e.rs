@@ -15,6 +15,7 @@ const ANVIL_PORT: u16 = 8551;
 const ANVIL_HTTP_URL: &str = "http://127.0.0.1:8551";
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GW_PORT: u16 = 4101;
+const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
 
 fn start_anvil() -> std::process::Child {
     let mut cmd = Command::new("anvil");
@@ -22,6 +23,8 @@ fn start_anvil() -> std::process::Child {
         .arg(ANVIL_PORT.to_string())
         .arg("--host")
         .arg("127.0.0.1")
+        // .arg("--fork-url")
+        // .arg(RPC_FORK_URL)
         .arg("--mnemonic")
         .arg(ANVIL_MNEMONIC)
         .stdout(Stdio::inherit())
@@ -34,7 +37,7 @@ fn deploy_registry() -> String {
     cmd.current_dir("../../contracts")
         .arg("script")
         .arg("script/AuthenticatorRegistry.s.sol:CounterScript")
-        .arg("--fork-url")
+        .arg("--rpc-url")
         .arg(ANVIL_HTTP_URL)
         .arg("--broadcast")
         .arg("--mnemonics")
@@ -63,7 +66,7 @@ fn deploy_multicall3() -> String {
     cmd.current_dir("../../contracts")
         .arg("script")
         .arg("script/Multicall3.s.sol:CounterScript")
-        .arg("--fork-url")
+        .arg("--rpc-url")
         .arg(ANVIL_HTTP_URL)
         .arg("--broadcast")
         .arg("--mnemonics")
@@ -133,11 +136,13 @@ async fn e2e_gateway_full_flow() {
 
     // Start anvil
     let mut anvil = start_anvil();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Deploy registry and Multicall3
     let registry = deploy_registry();
     let multicall = deploy_multicall3();
+
+    tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Derive wallet key and address
     let wallet_key = derive_wallet_key();
@@ -158,6 +163,7 @@ async fn e2e_gateway_full_flow() {
     // HTTP client
     let client = Client::builder().build().unwrap();
     wait_http_ready(&client).await;
+    let base = format!("http://127.0.0.1:{}", GW_PORT);
 
     // Build Alloy provider for on-chain assertions and chain id
     let provider = alloy::providers::ProviderBuilder::new()
@@ -165,16 +171,23 @@ async fn e2e_gateway_full_flow() {
         .connect_http(ANVIL_HTTP_URL.parse().unwrap());
     let contract = AuthenticatorRegistry::new(registry.parse().unwrap(), provider.clone());
 
-    // First, create the initial account directly on-chain so tree depth stays 0 for following ops
-    let direct = contract
-        .createManyAccounts(
-            vec![wallet_addr],
-            vec![vec![wallet_addr]],
-            vec![U256::from(1)],
-        )
+    // First, create the initial account through the API so tree depth stays 0 for following ops
+    let body_create = serde_json::json!({
+        "recovery_address": format!("0x{:x}", wallet_addr),
+        "authenticator_addresses": [format!("0x{:x}", wallet_addr)],
+        "offchain_signer_commitment": "1",
+    });
+    let resp = client
+        .post(format!("{}/create-account", base))
+        .json(&body_create)
         .send()
         .await
-        .expect("direct createManyAccounts");
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "create-account failed: {:?}",
+        resp.text().await.unwrap()
+    );
     
     // Wait until createManyAccounts is reflected on-chain
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
@@ -211,7 +224,6 @@ async fn e2e_gateway_full_flow() {
     );
 
     let chain_id: u64 = 31337;
-    let base = format!("http://127.0.0.1:{}", GW_PORT);
 
     // EIP-712 domain via common helpers
     let domain = ag_domain(chain_id, registry.parse::<Address>().unwrap());
