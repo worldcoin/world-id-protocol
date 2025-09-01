@@ -5,7 +5,7 @@ use alloy::primitives::address;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::{
     primitives::{Address, Bytes, U256},
-    providers::ProviderBuilder,
+    providers::{DynProvider, Provider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
 use axum::{
@@ -18,12 +18,11 @@ use axum::{
 use common::authenticator_registry::AuthenticatorRegistry;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
-// Public configuration and handle for embedding the gateway as a library.
 #[derive(Clone, Debug)]
 pub struct GatewayConfig {
     pub registry_addr: Address,
@@ -56,8 +55,7 @@ impl GatewayHandle {
 #[derive(Clone)]
 struct AppState {
     registry_addr: Address,
-    rpc_url: String,
-    wallet_key: String,
+    provider: DynProvider,
     batcher: CreateBatcherHandle,
     ops_batcher: OpsBatcherHandle,
 }
@@ -72,43 +70,10 @@ struct OpsBatcherHandle {
     tx: mpsc::Sender<OpEnvelope>,
 }
 
-// Centralized Nonce Manager shared by all batchers.
-struct NonceManager {
-    addr: Address,
-    next: Mutex<Option<u64>>, // next nonce to use; None => fetch from chain (pending) on first use
-}
-
-impl NonceManager {
-    fn new(addr: Address) -> Self {
-        Self {
-            addr,
-            next: Mutex::new(None),
-        }
-    }
-
-    async fn next_nonce<P>(&self, provider: &P) -> anyhow::Result<u64>
-    where
-        P: alloy::providers::Provider + Clone,
-    {
-        // Always consult chain pending nonce to stay in sync with external senders.
-        let onchain = provider.get_transaction_count(self.addr).await?;
-        let mut guard = self.next.lock().await;
-        let current = match *guard {
-            Some(n) => std::cmp::max(n, onchain),
-            None => onchain,
-        };
-        *guard = Some(current + 1);
-        Ok(current)
-    }
-}
-
 #[derive(Debug, Deserialize)]
 struct CreateAccountRequest {
-    // optional recovery address; if omitted or 0x0, contract treats as none
     recovery_address: Option<String>,
-    // list of authenticator addresses (hex)
     authenticator_addresses: Vec<String>,
-    // hex or decimal U256
     offchain_signer_commitment: String,
 }
 
@@ -164,8 +129,6 @@ struct RecoverAccountRequest {
 
 static DEFAULT_BATCH_MS: Lazy<u64> = Lazy::new(|| 1000);
 
-// Minimal Multicall3 ABI for write aggregation.
-// We use aggregate3 (no value) so all calls must be non-payable.
 alloy::sol! {
     #[allow(missing_docs)]
     #[sol(rpc)]
@@ -176,16 +139,12 @@ alloy::sol! {
     }
 }
 
-fn build_provider(
-    rpc_url: &str,
-    wallet_key: &str,
-) -> anyhow::Result<impl alloy::providers::Provider + Clone> {
+fn build_provider(rpc_url: &str, wallet_key: &str) -> anyhow::Result<DynProvider> {
     let wallet = EthereumWallet::from(wallet_key.parse::<PrivateKeySigner>()?);
     let url = Url::parse(rpc_url)?;
-    Ok(ProviderBuilder::new().wallet(wallet).connect_http(url))
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(url);
+    Ok(provider.erased())
 }
-
-// ---------- Error handling helpers ----------
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
@@ -198,9 +157,6 @@ pub enum ApiError {
 impl ApiError {
     fn bad_req(field: &str, msg: impl ToString) -> Self {
         Self::BadRequest(format!("invalid {field}: {}", msg.to_string()))
-    }
-    fn internal(msg: impl ToString) -> Self {
-        Self::Internal(msg.to_string())
     }
 }
 
@@ -234,30 +190,15 @@ fn req_u256_vec(field: &str, v: &[String]) -> ApiResult<Vec<U256>> {
     v.iter().map(|s| req_u256(field, s)).collect()
 }
 
-// Build the application state and router; used by both bin and lib entrypoints.
-fn build_app(
-    registry_addr: Address,
-    rpc_url: String,
-    wallet_key: String,
-    batch_ms: u64,
-) -> Router {
-    let send_lock = std::sync::Arc::new(Mutex::new(()));
-    let wallet_addr = {
-        use alloy::signers::local::PrivateKeySigner;
-        let signer: PrivateKeySigner = wallet_key.parse().expect("invalid wallet key");
-        signer.address()
-    };
-    let nonce_mgr = std::sync::Arc::new(NonceManager::new(wallet_addr));
+fn build_app(registry_addr: Address, rpc_url: String, wallet_key: String, batch_ms: u64) -> Router {
+    let provider = build_provider(&rpc_url, &wallet_key).expect("failed to build provider");
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
-        rpc_url.clone(),
-        wallet_key.clone(),
+        provider.clone(),
         registry_addr,
         Duration::from_millis(batch_ms),
         rx,
-        send_lock.clone(),
-        nonce_mgr.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -265,20 +206,16 @@ fn build_app(
     let (otx, orx) = mpsc::channel(2048);
     let ops_batcher = OpsBatcherHandle { tx: otx };
     let ops_runner = OpsBatcherRunner::new(
-        rpc_url.clone(),
-        wallet_key.clone(),
+        provider.clone(),
         registry_addr,
         Duration::from_millis(batch_ms),
         orx,
-        send_lock.clone(),
-        nonce_mgr.clone(),
     );
     tokio::spawn(ops_runner.run());
 
     let state = AppState {
         registry_addr,
-        rpc_url,
-        wallet_key,
+        provider,
         batcher,
         ops_batcher,
     };
@@ -300,12 +237,7 @@ fn build_app(
 
 // Public API: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
-    let app = build_app(
-        cfg.registry_addr,
-        cfg.rpc_url,
-        cfg.wallet_key,
-        cfg.batch_ms,
-    );
+    let app = build_app(cfg.registry_addr, cfg.rpc_url, cfg.wallet_key, cfg.batch_ms);
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
     let addr = listener.local_addr()?;
@@ -351,8 +283,6 @@ async fn health() -> impl IntoResponse {
     (StatusCode::OK, Json(serde_json::json!({"status":"ok"})))
 }
 
-// ------------- createAccount (batched) -------------
-
 #[derive(Debug)]
 struct CreateReqEnvelope {
     req: CreateAccountRequest,
@@ -361,35 +291,29 @@ struct CreateReqEnvelope {
 
 struct CreateBatcherRunner {
     rx: mpsc::Receiver<CreateReqEnvelope>,
-    rpc_url: String,
-    wallet_key: String,
+    provider: DynProvider,
     registry: Address,
     window: Duration,
-    send_lock: std::sync::Arc<Mutex<()>>,
-    nonce_mgr: std::sync::Arc<NonceManager>,
 }
 
 impl CreateBatcherRunner {
     fn new(
-        rpc_url: String,
-        wallet_key: String,
+        provider: DynProvider,
         registry: Address,
         window: Duration,
         rx: mpsc::Receiver<CreateReqEnvelope>,
-        send_lock: std::sync::Arc<Mutex<()>>,
-        nonce_mgr: std::sync::Arc<NonceManager>,
     ) -> Self {
         Self {
             rx,
-            rpc_url,
-            wallet_key,
+            provider,
             registry,
             window,
-            send_lock,
-            nonce_mgr,
         }
     }
     async fn run(mut self) {
+        let provider = self.provider.clone();
+        let contract = AuthenticatorRegistry::new(self.registry, provider);
+
         loop {
             // pull first item (await), then collect the rest within the window
             let first = self.rx.recv().await;
@@ -438,50 +362,8 @@ impl CreateBatcherRunner {
                 continue;
             }
 
-            // Build provider on demand
-            let provider = match build_provider(&self.rpc_url, &self.wallet_key) {
-                Ok(p) => p,
-                Err(err) => {
-                    for env in batch {
-                        let _ = env
-                            .resp
-                            .send(Err(anyhow::anyhow!(format!("provider error: {}", err))));
-                    }
-                    continue;
-                }
-            };
-
-            let contract = AuthenticatorRegistry::new(self.registry, provider.clone());
             let call = contract.createManyAccounts(recovery_addresses, auths, commits);
-            // Send the transaction
-            // Serialize and set explicit nonce to avoid races.
-            let _guard = self.send_lock.lock().await;
-            let nonce = match self.nonce_mgr.next_nonce(&provider).await {
-                Ok(n) => n,
-                Err(e) => {
-                    for env in batch {
-                        let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));
-                    }
-                    continue;
-                }
-            };
-            let mut tx_res = call.clone().nonce(nonce).send().await;
-            if let Err(e) = &tx_res {
-                let msg = e.to_string();
-                if msg.to_lowercase().contains("nonce too low") {
-                    // Re-sync and retry once
-                    let nonce = match self.nonce_mgr.next_nonce(&provider).await {
-                        Ok(n) => n,
-                        Err(e) => {
-                            for env in batch {
-                                let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));
-                            }
-                            continue;
-                        }
-                    };
-                    tx_res = call.clone().nonce(nonce).send().await;
-                }
-            }
+            let tx_res = call.send().await;
             match tx_res {
                 Ok(pend) => {
                     let hash = format!("0x{:x}", pend.tx_hash());
@@ -498,8 +380,6 @@ impl CreateBatcherRunner {
         }
     }
 }
-
-// ------------- ops (write) batcher using Multicall3 when available -------------
 
 #[derive(Debug)]
 enum OpKind {
@@ -550,36 +430,31 @@ struct OpEnvelope {
 
 struct OpsBatcherRunner {
     rx: mpsc::Receiver<OpEnvelope>,
-    rpc_url: String,
-    wallet_key: String,
+    provider: DynProvider,
     registry: Address,
     window: Duration,
-    send_lock: std::sync::Arc<Mutex<()>>,
-    nonce_mgr: std::sync::Arc<NonceManager>,
 }
 
 impl OpsBatcherRunner {
     fn new(
-        rpc_url: String,
-        wallet_key: String,
+        provider: DynProvider,
         registry: Address,
         window: Duration,
         rx: mpsc::Receiver<OpEnvelope>,
-        send_lock: std::sync::Arc<Mutex<()>>,
-        nonce_mgr: std::sync::Arc<NonceManager>,
     ) -> Self {
         Self {
             rx,
-            rpc_url,
-            wallet_key,
+            provider,
             registry,
             window,
-            send_lock,
-            nonce_mgr,
         }
     }
 
     async fn run(mut self) {
+        let provider = self.provider.clone();
+        let contract = AuthenticatorRegistry::new(self.registry, provider.clone());
+        let mc = Multicall3::new(MULTICALL3_ADDR, provider);
+
         loop {
             let Some(first) = self.rx.recv().await else {
                 tracing::info!("ops batcher channel closed");
@@ -600,19 +475,6 @@ impl OpsBatcherRunner {
             .await
             .is_ok()
             {}
-
-            let provider = match build_provider(&self.rpc_url, &self.wallet_key) {
-                Ok(p) => p,
-                Err(err) => {
-                    for env in batch {
-                        let _ = env
-                            .resp
-                            .send(Err(anyhow::anyhow!(format!("provider error: {}", err))));
-                    }
-                    continue;
-                }
-            };
-            let contract = AuthenticatorRegistry::new(self.registry, provider.clone());
 
             let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
             for env in &batch {
@@ -707,35 +569,7 @@ impl OpsBatcherRunner {
                 });
             }
 
-            let mc = Multicall3::new(MULTICALL3_ADDR, provider.clone());
-            let mut tx = mc.aggregate3(calls.clone());
-            // Serialize sending and set an explicit nonce.
-            let _guard = self.send_lock.lock().await;
-            let nonce = match self.nonce_mgr.next_nonce(&provider).await {
-                Ok(n) => n,
-                Err(e) => {
-                    for env in batch {
-                        let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));
-                    }
-                    continue;
-                }
-            };
-            tx = tx.nonce(nonce);
-            let mut res = tx.send().await;
-            if let Err(e) = &res {
-                if e.to_string().to_lowercase().contains("nonce too low") {
-                    let nonce = match self.nonce_mgr.next_nonce(&provider).await {
-                        Ok(n) => n,
-                        Err(e) => {
-                            for env in batch {
-                                let _ = env.resp.send(Err(anyhow::anyhow!(e.to_string())));
-                            }
-                            continue;
-                        }
-                    };
-                    res = mc.aggregate3(calls.clone()).nonce(nonce).send().await;
-                }
-            }
+            let res = mc.aggregate3(calls).send().await;
             match res {
                 Ok(pend) => {
                     let hash = format!("0x{:x}", pend.tx_hash());
@@ -815,8 +649,6 @@ async fn create_account(
     }
 }
 
-// ------------- single-tx endpoints -------------
-
 async fn update_authenticator(
     State(state): State<AppState>,
     Json(req): Json<UpdateAuthenticatorRequest>,
@@ -866,7 +698,6 @@ async fn insert_authenticator(
     State(state): State<AppState>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    tracing::info!("xxxx xxxx");
     let (tx, rx) = oneshot::channel();
     let env = OpEnvelope {
         kind: OpKind::Insert {
@@ -993,9 +824,7 @@ async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
-    let provider = build_provider(&state.rpc_url, &state.wallet_key)
-        .map_err(|e| ApiError::internal(format!("provider: {e}")))?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, provider);
+    let contract = AuthenticatorRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
         .call()
