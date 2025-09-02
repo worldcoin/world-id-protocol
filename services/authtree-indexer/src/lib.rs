@@ -483,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_poseidon2_merkle_tree() {
-        let tree = MerkleTree::<PoseidonHasher>::new(30, U256::ZERO);
+        let tree = MerkleTree::<PoseidonHasher>::new(10, U256::ZERO);
         let proof = tree.proof(0).unwrap();
         let proof = proof.0.iter().collect::<Vec<_>>();
         let poseidon00 = uint!(
