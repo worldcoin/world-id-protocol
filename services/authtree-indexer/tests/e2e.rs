@@ -11,7 +11,7 @@ const ANVIL_MNEMONIC: &str = "test test test test test test test test test test 
 const DEFAULT_RECOVERY_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
 
 fn start_anvil() -> std::process::Child {
-    // Ensure anvil is available
+    // TODO: improve this and make use of alloy's Anvil provider (like in the other e2e test)
     let mut cmd = Command::new("anvil");
     cmd.arg("-p")
         .arg(ANVIL_PORT.to_string())
@@ -87,6 +87,13 @@ async fn query_count(pool: &PgPool) -> i64 {
     rec.0
 }
 
+async fn reset_db(pool: &PgPool) {
+    sqlx::query("truncate table account_created_events, checkpoints")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_backfill_and_live_sync() {
     // Use externally provided Postgres URL (e.g. via docker-compose or local postgres)
@@ -102,10 +109,20 @@ async fn e2e_backfill_and_live_sync() {
     // Ensure schema exists before any queries
     authtree_indexer::init_db(&pool).await.unwrap();
 
+    // // Killall anvil processes
+    Command::new("pkill")
+        .arg("-f")
+        .arg("anvil")
+        .output()
+        .unwrap();
+
+    // Reset DB
+    reset_db(&pool).await;
+
     // Start anvil
     let mut anvil = start_anvil();
     // Give anvil a moment
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Deploy registry
     let registry_addr = deploy_registry();
@@ -184,15 +201,15 @@ async fn e2e_backfill_and_live_sync() {
     let client = reqwest::Client::builder().build().unwrap();
     let base = format!("http://127.0.0.1:8080");
     let resp = client.get(format!("{}/proof/1", base)).send().await;
-    println!("Proof response: {:?}", resp);
+
+    assert!(resp.is_ok(), "proof request failed");
+    let resp = resp.unwrap();
+    assert!(resp.status().is_success(), "proof request failed");
+
+    tracing::info!("proof response: {:?}", resp.text().await.unwrap());
 
     // Cleanup
     indexer_task.abort();
     let _ = anvil.kill();
-
-    // Empty the DB tables created by the indexer
-    sqlx::query("truncate table account_created_events, checkpoints")
-        .execute(&pool)
-        .await
-        .unwrap();
+    reset_db(&pool).await;
 }

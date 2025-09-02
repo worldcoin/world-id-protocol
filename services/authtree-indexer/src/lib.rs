@@ -6,16 +6,17 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
-use common::authenticator_registry::AuthenticatorRegistry;
-use semaphore_rs_trees::imt::MerkleTree;
-use semaphore_rs_trees::proof::InclusionProof;
-use semaphore_rs_hasher::Hasher;
-use sqlx::{postgres::PgPoolOptions, PgPool, Row};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use common::authenticator_registry::AuthenticatorRegistry;
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
+use semaphore_rs_hasher::Hasher;
+use semaphore_rs_trees::imt::MerkleTree;
+use semaphore_rs_trees::proof::InclusionProof;
+use semaphore_rs_trees::Branch;
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tokio::sync::RwLock;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
@@ -39,9 +40,8 @@ pub struct IndexerConfig {
     pub http_addr: SocketAddr,
 }
 
-static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> = LazyLock::new(|| {
-    Poseidon2::new(&POSEIDON2_BN254_T2_PARAMS)
-});
+static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> =
+    LazyLock::new(|| Poseidon2::new(&POSEIDON2_BN254_T2_PARAMS));
 
 struct PoseidonHasher {}
 
@@ -59,11 +59,12 @@ impl Hasher for PoseidonHasher {
     }
 }
 
+// Big tree is too slow for debug builds, so we use a smaller tree
+const TREE_DEPTH: usize = if cfg!(debug_assertions) { 10 } else { 30 };
+
 // Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
-static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher>>> = LazyLock::new(|| {
-    // Fixed depth 30
-    RwLock::new(MerkleTree::<PoseidonHasher>::new(30, U256::ZERO))
-});
+static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher>>> =
+    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
 
 fn hex_to_u256(hex_str: &str) -> anyhow::Result<U256> {
     let s = hex_str.trim();
@@ -80,7 +81,11 @@ async fn set_leaf_at_index(leaf_index: usize, value: U256) {
     let mut tree = GLOBAL_TREE.write().await;
     if leaf_index >= tree.num_leaves() {
         // Out of range for fixed depth tree
-        tracing::error!(leaf_index, capacity = tree.num_leaves(), "leaf index out of range");
+        tracing::error!(
+            leaf_index,
+            capacity = tree.num_leaves(),
+            "leaf index out of range"
+        );
         return;
     }
     tree.set(leaf_index, value);
@@ -88,11 +93,10 @@ async fn set_leaf_at_index(leaf_index: usize, value: U256) {
 
 async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     // Fetch all existing events (runtime-checked query to avoid sqlx offline prepare)
-    let rows = sqlx::query(
-        "select account_index, offchain_signer_commitment from account_created_events",
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows =
+        sqlx::query("select account_index, offchain_signer_commitment from account_created_events")
+            .fetch_all(pool)
+            .await?;
 
     // Compute max index to size the tree
     let mut max_index: u64 = 0;
@@ -113,11 +117,7 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     }
 
     let mut tree = GLOBAL_TREE.write().await;
-    *tree = MerkleTree::<PoseidonHasher>::new(30, U256::ZERO);
-
-    for (i, v) in leaves {
-        tree.set(i, v);
-    }
+    tree.set_range(0, leaves.into_iter().map(|(_, v)| v));
     tracing::info!(root = %format!("0x{:x}", tree.root()), depth = 30, "tree built from DB");
     Ok(())
 }
@@ -138,22 +138,24 @@ struct ProofResponse {
     account_index: u64,
     leaf_index: u64,
     root: String,
-    proof: Vec<serde_json::Value>,
+    proof: Vec<String>,
 }
 
-fn proof_to_json(proof: &InclusionProof<PoseidonHasher>) -> Vec<serde_json::Value> {
-    use semaphore_rs_trees::proof::Branch;
+fn proof_to_json(proof: &InclusionProof<PoseidonHasher>) -> Vec<String> {
     proof
         .0
         .iter()
         .map(|b| match b {
-            Branch::Left(sib) => serde_json::json!({"left": format!("0x{:x}", sib)}),
-            Branch::Right(sib) => serde_json::json!({"right": format!("0x{:x}", sib)}),
+            Branch::Left(sib) => format!("0x{:x}", sib),
+            Branch::Right(sib) => format!("0x{:x}", sib),
         })
-        .collect()
+        .collect::<Vec<_>>()
 }
 
-async fn http_get_proof(Path(idx_str): Path<String>, State(pool): State<PgPool>) -> impl axum::response::IntoResponse {
+async fn http_get_proof(
+    Path(idx_str): Path<String>,
+    State(pool): State<PgPool>,
+) -> impl axum::response::IntoResponse {
     // Accept decimal or 0x-prefixed hex
     let account_index = if let Ok(v) = idx_str.parse::<u64>() {
         v
@@ -193,7 +195,11 @@ async fn http_get_proof(Path(idx_str): Path<String>, State(pool): State<PgPool>)
             };
             (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
         }
-        None => (axum::http::StatusCode::BAD_REQUEST, "leaf index out of range").into_response(),
+        None => (
+            axum::http::StatusCode::BAD_REQUEST,
+            "leaf index out of range",
+        )
+            .into_response(),
     }
 }
 
@@ -263,7 +269,10 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
 
     let pool = make_db_pool(&cfg.db_url).await?;
     init_db(&pool).await?;
+
+    let start_time = std::time::Instant::now();
     build_tree_from_db(&pool).await?;
+    tracing::info!("building tree from DB took {:?}", start_time.elapsed());
 
     // Start HTTP server
     let http_pool = pool.clone();
@@ -356,11 +365,9 @@ pub async fn backfill<P: Provider>(
 
     let to_block = (*from_block + batch_size - 1).min(head);
 
-    let topic0 = AuthenticatorRegistry::AccountCreated::SIGNATURE_HASH;
-
     let filter = Filter::new()
         .address(registry)
-        .event_signature(topic0)
+        .event_signature(AuthenticatorRegistry::AccountCreated::SIGNATURE_HASH)
         .from_block(*from_block)
         .to_block(to_block);
 
@@ -479,7 +486,9 @@ mod tests {
         let tree = MerkleTree::<PoseidonHasher>::new(30, U256::ZERO);
         let proof = tree.proof(0).unwrap();
         let proof = proof.0.iter().collect::<Vec<_>>();
-        let poseidon00 = uint!(15621590199821056450610068202457788725601603091791048810523422053872049975191_U256);
+        let poseidon00 = uint!(
+            15621590199821056450610068202457788725601603091791048810523422053872049975191_U256
+        );
         assert_eq!(*proof[1], Branch::Left(poseidon00));
     }
 }

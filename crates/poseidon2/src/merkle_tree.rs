@@ -293,7 +293,7 @@ impl<F: PrimeField, const T: usize, const D: u64> Poseidon2<F, T, D> {
 
 #[cfg(test)]
 mod test {
-    use ark_std::rand::{Rng, thread_rng};
+    use ark_std::rand::{thread_rng, Rng};
 
     use super::*;
 

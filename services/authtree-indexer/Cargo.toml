@@ -24,7 +24,7 @@ ark-ff = "0.5.0"
 ark-bn254 = { version = "0.5.0" }
 axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 regex = "1.11.2"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
