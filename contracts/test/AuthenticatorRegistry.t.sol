@@ -4,10 +4,10 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {AuthenticatorRegistry} from "../src/AuthenticatorRegistry.sol";
 import {TreeHelper} from "../src/TreeHelper.sol";
-import {LeanIMT} from "../src/tree/LeanIMT.sol";
-import {Multicall3} from "../src/Multicall3.sol";
+import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
 
 contract AuthenticatorRegistryTest is Test {
+    using BinaryIMT for BinaryIMTData;
     AuthenticatorRegistry public authenticatorRegistry;
 
     address public constant DEFAULT_RECOVERY_ADDRESS = address(0xDEADBEEF);
@@ -19,14 +19,12 @@ contract AuthenticatorRegistryTest is Test {
     uint256 public constant AUTH1_PRIVATE_KEY = 0x01;
     uint256 public constant AUTH2_PRIVATE_KEY = 0x02;
     uint256 public constant AUTH3_PRIVATE_KEY = 0x03;
-    Multicall3 public multicall3;
 
     function setUp() public {
         authenticatorRegistry = new AuthenticatorRegistry(DEFAULT_RECOVERY_ADDRESS);
         AUTHENTICATOR_ADDRESS1 = vm.addr(AUTH1_PRIVATE_KEY);
         AUTHENTICATOR_ADDRESS2 = vm.addr(AUTH2_PRIVATE_KEY);
         AUTHENTICATOR_ADDRESS3 = vm.addr(AUTH3_PRIVATE_KEY);
-        multicall3 = new Multicall3();
     }
 
     ////////////////////////////////////////////////////////////
@@ -40,21 +38,26 @@ contract AuthenticatorRegistryTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function updateAuthenticatorProofAndSignature(uint256 accountIndex, uint256 nonce)
+    function emptyProof() private pure returns (uint256[] memory) {
+        uint256 depth = 30;
+        uint256[] memory proof = new uint256[](depth);
+        for (uint256 i = 0; i < depth; i++) {
+            proof[i] = BinaryIMT.defaultZero(i);
+        }
+        return proof;
+    }
+
+    function updateAuthenticatorProofAndSignature(uint256 accountIndex, uint256 newLeaf, uint256 nonce)
         private
         returns (bytes memory, uint256[] memory)
     {
         bytes memory signature = eip712Sign(
             authenticatorRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
-            abi.encode(accountIndex, AUTHENTICATOR_ADDRESS1, AUTHENTICATOR_ADDRESS2, OFFCHAIN_SIGNER_COMMITMENT, nonce),
+            abi.encode(accountIndex, AUTHENTICATOR_ADDRESS1, AUTHENTICATOR_ADDRESS2, newLeaf, nonce),
             AUTH1_PRIVATE_KEY
         );
 
-        uint256[] memory leaves = new uint256[](1);
-        leaves[0] = OFFCHAIN_SIGNER_COMMITMENT;
-        uint256[] memory proof = TreeHelper.leanInclusionProof(leaves, 0);
-
-        return (signature, proof);
+        return (signature, emptyProof());
     }
 
     ////////////////////////////////////////////////////////////
@@ -62,10 +65,16 @@ contract AuthenticatorRegistryTest is Test {
     ////////////////////////////////////////////////////////////
 
     function test_CreateAccount() public {
-        uint256 size = authenticatorRegistry.nextAccountIndex();
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
+        address[] memory authenticatorAddresses2 = new address[](1);
+        authenticatorAddresses2[0] = AUTHENTICATOR_ADDRESS2;
         authenticatorRegistry.createAccount(address(0), authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        uint256 size = authenticatorRegistry.nextAccountIndex();
+        uint256 startGas = gasleft();
+        authenticatorRegistry.createAccount(address(0), authenticatorAddresses2, OFFCHAIN_SIGNER_COMMITMENT);
+        uint256 endGas = gasleft();
+        console.log("Gas used per create account:", (startGas - endGas));
         assertEq(authenticatorRegistry.nextAccountIndex(), size + 1);
     }
 
@@ -89,29 +98,6 @@ contract AuthenticatorRegistryTest is Test {
         assertEq(authenticatorRegistry.nextAccountIndex(), size + numAccounts);
     }
 
-    function test_CreateAccountMulticall() public {
-        uint256 numAccounts = 100;
-        Multicall3.Call3[] memory calls = new Multicall3.Call3[](numAccounts);
-
-        for (uint256 i = 0; i < numAccounts; i++) {
-            address[] memory authenticatorAddresses = new address[](1);
-            authenticatorAddresses[0] = address(uint160(i + 1));
-            calls[i] = Multicall3.Call3({
-                target: address(authenticatorRegistry),
-                allowFailure: false,
-                callData: abi.encodeWithSelector(
-                    authenticatorRegistry.createAccount.selector, address(0), authenticatorAddresses, uint256(0)
-                )
-            });
-        }
-
-        uint256 startGas = gasleft();
-        multicall3.aggregate3(calls);
-        uint256 endGas = gasleft();
-        console.log("Gas used per account:", (startGas - endGas) / numAccounts);
-        assertEq(authenticatorRegistry.nextAccountIndex(), numAccounts + 1);
-    }
-
     function test_UpdateAuthenticatorSuccess() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
@@ -119,11 +105,12 @@ contract AuthenticatorRegistryTest is Test {
 
         uint256 nonce = 0;
         uint256 accountIndex = 1;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // AUTHENTICATOR_ADDRESS1 is assigned to account 1
         assertEq(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1), accountIndex);
 
-        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, nonce);
+        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
 
         uint256 startGas = gasleft();
         authenticatorRegistry.updateAuthenticator(
@@ -131,7 +118,7 @@ contract AuthenticatorRegistryTest is Test {
             AUTHENTICATOR_ADDRESS1,
             AUTHENTICATOR_ADDRESS2,
             OFFCHAIN_SIGNER_COMMITMENT,
-            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
             signature,
             proof,
             nonce
@@ -152,8 +139,9 @@ contract AuthenticatorRegistryTest is Test {
 
         uint256 nonce = 0;
         uint256 accountIndex = 2;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
-        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, nonce);
+        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
 
         vm.expectRevert("Invalid account index");
 
@@ -162,7 +150,7 @@ contract AuthenticatorRegistryTest is Test {
             AUTHENTICATOR_ADDRESS1,
             AUTHENTICATOR_ADDRESS2,
             OFFCHAIN_SIGNER_COMMITMENT,
-            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
             signature,
             proof,
             nonce
@@ -176,11 +164,12 @@ contract AuthenticatorRegistryTest is Test {
 
         uint256 nonce = 1;
         uint256 accountIndex = 1;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // AUTHENTICATOR_ADDRESS1 is assigned to account 1
         assertEq(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1), accountIndex);
 
-        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, nonce);
+        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
 
         vm.expectRevert("Invalid nonce");
 
@@ -189,7 +178,7 @@ contract AuthenticatorRegistryTest is Test {
             AUTHENTICATOR_ADDRESS1,
             AUTHENTICATOR_ADDRESS2,
             OFFCHAIN_SIGNER_COMMITMENT,
-            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
             signature,
             proof,
             nonce
@@ -203,26 +192,26 @@ contract AuthenticatorRegistryTest is Test {
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         bytes memory signature = eip712Sign(
             authenticatorRegistry.INSERT_AUTHENTICATOR_TYPEHASH(),
-            abi.encode(accountIndex, AUTHENTICATOR_ADDRESS2, OFFCHAIN_SIGNER_COMMITMENT, nonce),
+            abi.encode(accountIndex, AUTHENTICATOR_ADDRESS2, newCommitment, nonce),
             AUTH1_PRIVATE_KEY
         );
 
-        uint256[] memory leaves = new uint256[](1);
-        leaves[0] = OFFCHAIN_SIGNER_COMMITMENT;
-        uint256[] memory proof = TreeHelper.leanInclusionProof(leaves, 0);
-
+        uint256 startGas = gasleft();
         authenticatorRegistry.insertAuthenticator(
             accountIndex,
             AUTHENTICATOR_ADDRESS2,
             OFFCHAIN_SIGNER_COMMITMENT,
-            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
             signature,
-            proof,
+            emptyProof(),
             nonce
         );
+        uint256 endGas = gasleft();
+        console.log("Gas used per insert:", (startGas - endGas));
 
         // Both authenticators should now belong to the same account
         assertEq(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1), accountIndex);
@@ -237,24 +226,21 @@ contract AuthenticatorRegistryTest is Test {
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         bytes memory signature = eip712Sign(
             authenticatorRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
-            abi.encode(accountIndex, AUTHENTICATOR_ADDRESS2, OFFCHAIN_SIGNER_COMMITMENT, nonce),
+            abi.encode(accountIndex, AUTHENTICATOR_ADDRESS2, newCommitment, nonce),
             AUTH1_PRIVATE_KEY
         );
-
-        uint256[] memory leaves = new uint256[](1);
-        leaves[0] = OFFCHAIN_SIGNER_COMMITMENT;
-        uint256[] memory proof = TreeHelper.leanInclusionProof(leaves, 0);
 
         authenticatorRegistry.removeAuthenticator(
             accountIndex,
             AUTHENTICATOR_ADDRESS2,
             OFFCHAIN_SIGNER_COMMITMENT,
-            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
             signature,
-            proof,
+            emptyProof(),
             nonce
         );
 
@@ -276,24 +262,21 @@ contract AuthenticatorRegistryTest is Test {
         uint256 accountIndex = 1;
         uint256 nonce = 0;
         address NEW_AUTHENTICATOR = address(0xBEEF);
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         bytes memory signature = eip712Sign(
             authenticatorRegistry.RECOVER_ACCOUNT_TYPEHASH(),
-            abi.encode(accountIndex, NEW_AUTHENTICATOR, OFFCHAIN_SIGNER_COMMITMENT, nonce),
+            abi.encode(accountIndex, NEW_AUTHENTICATOR, newCommitment, nonce),
             RECOVERY_PRIVATE_KEY
         );
-
-        uint256[] memory leaves = new uint256[](1);
-        leaves[0] = OFFCHAIN_SIGNER_COMMITMENT;
-        uint256[] memory proof = TreeHelper.leanInclusionProof(leaves, 0);
 
         authenticatorRegistry.recoverAccount(
             accountIndex,
             NEW_AUTHENTICATOR,
             OFFCHAIN_SIGNER_COMMITMENT,
-            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
             signature,
-            proof,
+            emptyProof(),
             nonce
         );
 

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {LeanIMT, LeanIMTData} from "./tree/LeanIMT.sol";
+import {BinaryIMT, BinaryIMTData} from "./tree/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 contract AuthenticatorRegistry is EIP712, Ownable2Step {
-    using LeanIMT for LeanIMTData;
+    using BinaryIMT for BinaryIMTData;
 
     ////////////////////////////////////////////////////////////
     //                        Members                         //
@@ -19,7 +19,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     mapping(uint256 => uint256) public signatureNonces;
     mapping(uint256 => uint256) public accountRecoveryCounter;
 
-    LeanIMTData public tree;
+    BinaryIMTData public tree;
     uint256 public nextAccountIndex = 1;
     address public defaultRecoveryAddress;
 
@@ -92,23 +92,12 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
 
     constructor(address _defaultRecoveryAddress) EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
         defaultRecoveryAddress = _defaultRecoveryAddress;
+        tree.initWithDefaultZeroes(30);
     }
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Initializes the tree.
-     * @param depth The depth of the tree.
-     * @param size The size of the tree.
-     * @param sideNodes The side nodes of the tree.
-     */
-    function initTree(uint256 depth, uint256 size, uint256[] calldata sideNodes) external {
-        nextAccountIndex = size + 1;
-        LeanIMT.initialize(tree, depth, size, sideNodes);
-        _recordCurrentRoot();
-    }
 
     /**
      * @dev Returns the domain separator for the EIP712 structs.
@@ -121,7 +110,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
      * @dev Returns the current tree root.
      */
     function currentRoot() external view returns (uint256) {
-        return LeanIMT.root(tree);
+        return tree.root;
     }
 
     /**
@@ -147,7 +136,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
      * @dev Records the current tree root.
      */
     function _recordCurrentRoot() internal {
-        uint256 root = LeanIMT.root(tree);
+        uint256 root = tree.root;
         rootToTimestamp[root] = block.timestamp;
         emit RootRecorded(root, block.timestamp);
     }

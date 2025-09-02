@@ -87,24 +87,4 @@ contract LeanIMTTest is Test {
         console.log("Gas used: %s", (gasStart - gasEnd) / leavesToInsert);
     }
 
-    function test_UpdateTreeLarge() public {
-        uint256 nLeaves = 2 ** 12;
-        uint256[] memory leaves = new uint256[](nLeaves);
-        for (uint256 i = 0; i < nLeaves; i++) {
-            leaves[i] = i;
-        }
-
-        LeanIMTBench bench = new LeanIMTBench();
-        bench.buildTree(leaves);
-
-        uint256 totalGas = 0;
-        uint256 nUpdates = 100;
-        for (uint256 i = 0; i < nUpdates; i++) {
-            uint256[] memory proof = TreeHelper.leanInclusionProof(leaves, i);
-            uint256 g = bench.benchUpdate(i, leaves[i], 1337, proof);
-            leaves[i] = 1337;
-            totalGas += g;
-        }
-        console.log("Gas used per update (internal, 2^12): %s", totalGas / nUpdates);
-    }
 }
