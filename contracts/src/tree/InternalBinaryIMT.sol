@@ -340,12 +340,9 @@ library InternalBinaryIMT {
     /// @param leaf: Leaf to be removed.
     /// @param proofSiblings: Array of the sibling nodes of the proof of membership.
     /// @param index: Index of the leaf.
-    function _remove(
-        BinaryIMTData storage self,
-        uint256 index,
-        uint256 leaf,
-        uint256[] calldata proofSiblings
-    ) internal {
+    function _remove(BinaryIMTData storage self, uint256 index, uint256 leaf, uint256[] calldata proofSiblings)
+        internal
+    {
         _update(self, index, leaf, self.useDefaultZeroes ? Z_0 : self.zeroes[0], proofSiblings);
     }
 
@@ -355,12 +352,11 @@ library InternalBinaryIMT {
     /// @param proofSiblings: Array of the sibling nodes of the proof of membership.
     /// @param index: Index of the leaf.
     /// @return True or false.
-    function _verify(
-        BinaryIMTData storage self,
-        uint256 leaf,
-        uint256[] calldata proofSiblings,
-        uint256 index
-    ) internal view returns (bool) {
+    function _verify(BinaryIMTData storage self, uint256 leaf, uint256[] calldata proofSiblings, uint256 index)
+        internal
+        view
+        returns (bool)
+    {
         uint256 depth = self.depth;
 
         if (leaf >= SNARK_SCALAR_FIELD) {

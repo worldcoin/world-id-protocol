@@ -36,12 +36,7 @@ library BinaryIMT {
         InternalBinaryIMT._update(self, index, leaf, newLeaf, proofSiblings);
     }
 
-    function remove(
-        BinaryIMTData storage self,
-        uint256 index,
-        uint256 leaf,
-        uint256[] calldata proofSiblings
-    ) public {
+    function remove(BinaryIMTData storage self, uint256 index, uint256 leaf, uint256[] calldata proofSiblings) public {
         InternalBinaryIMT._remove(self, index, leaf, proofSiblings);
     }
 }

@@ -8,6 +8,7 @@ import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
 
 contract AuthenticatorRegistryTest is Test {
     using BinaryIMT for BinaryIMTData;
+
     AuthenticatorRegistry public authenticatorRegistry;
 
     address public constant DEFAULT_RECOVERY_ADDRESS = address(0xDEADBEEF);
@@ -110,7 +111,8 @@ contract AuthenticatorRegistryTest is Test {
         // AUTHENTICATOR_ADDRESS1 is assigned to account 1
         assertEq(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1), accountIndex);
 
-        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
+        (bytes memory signature, uint256[] memory proof) =
+            updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
 
         uint256 startGas = gasleft();
         authenticatorRegistry.updateAuthenticator(
@@ -141,7 +143,8 @@ contract AuthenticatorRegistryTest is Test {
         uint256 accountIndex = 2;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
-        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
+        (bytes memory signature, uint256[] memory proof) =
+            updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
 
         vm.expectRevert("Invalid account index");
 
@@ -169,7 +172,8 @@ contract AuthenticatorRegistryTest is Test {
         // AUTHENTICATOR_ADDRESS1 is assigned to account 1
         assertEq(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1), accountIndex);
 
-        (bytes memory signature, uint256[] memory proof) = updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
+        (bytes memory signature, uint256[] memory proof) =
+            updateAuthenticatorProofAndSignature(accountIndex, newCommitment, nonce);
 
         vm.expectRevert("Invalid nonce");
 
@@ -271,13 +275,7 @@ contract AuthenticatorRegistryTest is Test {
         );
 
         authenticatorRegistry.recoverAccount(
-            accountIndex,
-            NEW_AUTHENTICATOR,
-            OFFCHAIN_SIGNER_COMMITMENT,
-            newCommitment,
-            signature,
-            emptyProof(),
-            nonce
+            accountIndex, NEW_AUTHENTICATOR, OFFCHAIN_SIGNER_COMMITMENT, newCommitment, signature, emptyProof(), nonce
         );
 
         // Old authenticator still exists but with lower recovery counter

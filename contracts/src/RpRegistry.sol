@@ -14,19 +14,19 @@ contract RpRegistry is AbstractSignerPubkeyRegistry {
 
     string public constant REMOVE_RP_TYPEDEF = "RemoveRp(uint256 rpId,uint256 nonce)";
     string public constant UPDATE_PUBKEY_TYPEDEF =
-        "UpdatePubkey(uint256 rpId, bytes32 newPubkey, bytes32 oldPubkey, uint256 nonce)";
-    string public constant UPDATE_SIGNER_TYPEDEF = "UpdateSigner(uint256 rpId, address newSigner, uint256 nonce)";
+        "UpdatePubkey(uint256 rpId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)";
+    string public constant UPDATE_SIGNER_TYPEDEF = "UpdateSigner(uint256 rpId,address newSigner,uint256 nonce)";
     string public constant REGISTER_ACTION_TYPEDEF =
-        "RegisterAction(uint256 rpId, uint256 validityDuration, uint256 nonce)";
+        "RegisterAction(uint256 rpId,uint256 validityDuration,uint256 nonce)";
 
     bytes32 public constant REMOVE_RP_TYPEHASH = keccak256(abi.encodePacked(REMOVE_RP_TYPEDEF));
     bytes32 public constant UPDATE_PUBKEY_TYPEHASH = keccak256(abi.encodePacked(UPDATE_PUBKEY_TYPEDEF));
     bytes32 public constant UPDATE_SIGNER_TYPEHASH = keccak256(abi.encodePacked(UPDATE_SIGNER_TYPEDEF));
     bytes32 public constant REGISTER_ACTION_TYPEHASH = keccak256(abi.encodePacked(REGISTER_ACTION_TYPEDEF));
 
-    event RpRegistered(uint256 indexed rpId, bytes32 pubkey, address signer);
-    event RpRemoved(uint256 indexed rpId, bytes32 pubkey, address signer);
-    event PubkeyUpdated(uint256 indexed rpId, bytes32 oldPubkey, bytes32 newPubkey, address signer);
+    event RpRegistered(uint256 indexed rpId, Pubkey pubkey, address signer);
+    event RpRemoved(uint256 indexed rpId, Pubkey pubkey, address signer);
+    event PubkeyUpdated(uint256 indexed rpId, Pubkey oldPubkey, Pubkey newPubkey, address signer);
     event SignerUpdated(uint256 indexed rpId, address oldSigner, address newSigner);
     event ActionRegistered(uint256 indexed rpId, uint256 actionId, uint256 validityDuration);
 
@@ -63,7 +63,7 @@ contract RpRegistry is AbstractSignerPubkeyRegistry {
         return actionValidity[actionIdPacked] > block.timestamp;
     }
 
-    function rpIdToPubkey(uint256 rpId) public view returns (bytes32) {
+    function rpIdToPubkey(uint256 rpId) public view returns (Pubkey memory) {
         return _idToPubkey[rpId];
     }
 
@@ -87,15 +87,18 @@ contract RpRegistry is AbstractSignerPubkeyRegistry {
         return UPDATE_SIGNER_TYPEHASH;
     }
 
-    function _emitRegistered(uint256 id, bytes32 pubkey, address signer) internal override {
+    function _emitRegistered(uint256 id, Pubkey memory pubkey, address signer) internal override {
         emit RpRegistered(id, pubkey, signer);
     }
 
-    function _emitRemoved(uint256 id, bytes32 pubkey, address signer) internal override {
+    function _emitRemoved(uint256 id, Pubkey memory pubkey, address signer) internal override {
         emit RpRemoved(id, pubkey, signer);
     }
 
-    function _emitPubkeyUpdated(uint256 id, bytes32 oldPubkey, bytes32 newPubkey, address signer) internal override {
+    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
+        internal
+        override
+    {
         emit PubkeyUpdated(id, oldPubkey, newPubkey, signer);
     }
 

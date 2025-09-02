@@ -9,22 +9,22 @@ contract CredentialIssuerRegistry is AbstractSignerPubkeyRegistry {
 
     string public constant REMOVE_ISSUER_TYPEDEF = "RemoveIssuer(uint256 issuerId,uint256 nonce)";
     string public constant UPDATE_PUBKEY_TYPEDEF =
-        "UpdateIssuerPubkey(uint256 issuerId, bytes32 newPubkey, bytes32 oldPubkey, uint256 nonce)";
+        "UpdateIssuerPubkey(uint256 issuerId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)";
     string public constant UPDATE_SIGNER_TYPEDEF =
-        "UpdateIssuerSigner(uint256 issuerId, address newSigner, uint256 nonce)";
+        "UpdateIssuerSigner(uint256 issuerId,address newSigner,uint256 nonce)";
 
     bytes32 public constant REMOVE_ISSUER_TYPEHASH = keccak256(abi.encodePacked(REMOVE_ISSUER_TYPEDEF));
     bytes32 public constant UPDATE_PUBKEY_TYPEHASH = keccak256(abi.encodePacked(UPDATE_PUBKEY_TYPEDEF));
     bytes32 public constant UPDATE_SIGNER_TYPEHASH = keccak256(abi.encodePacked(UPDATE_SIGNER_TYPEDEF));
 
-    event IssuerRegistered(uint256 indexed issuerId, bytes32 pubkey, address signer);
-    event IssuerRemoved(uint256 indexed issuerId, bytes32 pubkey, address signer);
-    event IssuerPubkeyUpdated(uint256 indexed issuerId, bytes32 oldPubkey, bytes32 newPubkey, address signer);
+    event IssuerRegistered(uint256 indexed issuerId, Pubkey pubkey, address signer);
+    event IssuerRemoved(uint256 indexed issuerId, Pubkey pubkey, address signer);
+    event IssuerPubkeyUpdated(uint256 indexed issuerId, Pubkey oldPubkey, Pubkey newPubkey, address signer);
     event IssuerSignerUpdated(uint256 indexed issuerId, address oldSigner, address newSigner);
 
     constructor() AbstractSignerPubkeyRegistry(EIP712_NAME, EIP712_VERSION) {}
 
-    function issuerIdToPubkey(uint256 issuerId) public view returns (bytes32) {
+    function issuerIdToPubkey(uint256 issuerId) public view returns (Pubkey memory) {
         return _idToPubkey[issuerId];
     }
 
@@ -48,15 +48,18 @@ contract CredentialIssuerRegistry is AbstractSignerPubkeyRegistry {
         return UPDATE_SIGNER_TYPEHASH;
     }
 
-    function _emitRegistered(uint256 id, bytes32 pubkey, address signer) internal override {
+    function _emitRegistered(uint256 id, Pubkey memory pubkey, address signer) internal override {
         emit IssuerRegistered(id, pubkey, signer);
     }
 
-    function _emitRemoved(uint256 id, bytes32 pubkey, address signer) internal override {
+    function _emitRemoved(uint256 id, Pubkey memory pubkey, address signer) internal override {
         emit IssuerRemoved(id, pubkey, signer);
     }
 
-    function _emitPubkeyUpdated(uint256 id, bytes32 oldPubkey, bytes32 newPubkey, address signer) internal override {
+    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
+        internal
+        override
+    {
         emit IssuerPubkeyUpdated(id, oldPubkey, newPubkey, signer);
     }
 

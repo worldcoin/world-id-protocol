@@ -4,6 +4,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {RpRegistry} from "./RpRegistry.sol";
 import {CredentialIssuerRegistry} from "./CredentialIssuerRegistry.sol";
 import {AuthenticatorRegistry} from "./AuthenticatorRegistry.sol";
+import {AbstractSignerPubkeyRegistry as A} from "./AbstractSignerPubkeyRegistry.sol";
 
 contract Verifier is Ownable {
     RpRegistry public rpRegistry;
@@ -27,11 +28,11 @@ contract Verifier is Ownable {
     ) external view returns (bool) {
         require(authenticatorRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
 
-        bytes32 rpPubkey = rpRegistry.rpIdToPubkey(rpId);
-        bytes32 credentialIssuerPubkey = credentialIssuerRegistry.issuerIdToPubkey(credentialIssuerId);
+        A.Pubkey memory rpPubkey = rpRegistry.rpIdToPubkey(rpId);
+        A.Pubkey memory credentialIssuerPubkey = credentialIssuerRegistry.issuerIdToPubkey(credentialIssuerId);
 
-        require(rpPubkey != bytes32(0), "RP not registered");
-        require(credentialIssuerPubkey != bytes32(0), "Credential issuer not registered");
+        require(rpPubkey.x != 0 && rpPubkey.y != 0, "RP not registered");
+        require(credentialIssuerPubkey.x != 0 && credentialIssuerPubkey.y != 0, "Credential issuer not registered");
 
         require(rpRegistry.isActionValid(rpId, actionId), "Action not valid");
 

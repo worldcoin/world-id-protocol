@@ -86,5 +86,4 @@ contract LeanIMTTest is Test {
         uint256 gasEnd = gasleft();
         console.log("Gas used: %s", (gasStart - gasEnd) / leavesToInsert);
     }
-
 }

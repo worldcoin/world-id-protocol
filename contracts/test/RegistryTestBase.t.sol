@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
+import {AbstractSignerPubkeyRegistry as A} from "../src/AbstractSignerPubkeyRegistry.sol";
 
 interface RegistryLike {
     function EIP712_NAME() external view returns (string memory);
@@ -45,8 +46,8 @@ abstract contract RegistryTestBase is Test {
         RegistryLike registry,
         uint256 pk,
         uint256 id,
-        bytes32 newPubkey,
-        bytes32 oldPubkey
+        A.Pubkey memory newPubkey,
+        A.Pubkey memory oldPubkey
     ) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(abi.encode(updatePubkeyTypehash, id, newPubkey, oldPubkey, registry.nonceOf(id)));
         bytes32 digest = keccak256(
