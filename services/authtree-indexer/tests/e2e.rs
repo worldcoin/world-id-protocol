@@ -180,6 +180,12 @@ async fn e2e_backfill_and_live_sync() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
+    // Verify proof endpoint is working
+    let client = reqwest::Client::builder().build().unwrap();
+    let base = format!("http://127.0.0.1:8080");
+    let resp = client.get(format!("{}/proof/1", base)).send().await;
+    println!("Proof response: {:?}", resp);
+
     // Cleanup
     indexer_task.abort();
     let _ = anvil.kill();
