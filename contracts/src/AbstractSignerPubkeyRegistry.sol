@@ -12,7 +12,6 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  *      domain-specific events via the `_emit*` hook functions.
  */
 abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
-
     struct Pubkey {
         uint256 x;
         uint256 y;
@@ -77,7 +76,9 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
      * @param newPubkey The new pubkey.
      * @param signer The signer that authorized the change.
      */
-    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer) internal virtual;
+    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
+        internal
+        virtual;
 
     /**
      * @dev Hook for children to emit a domain-specific "signer updated" event.

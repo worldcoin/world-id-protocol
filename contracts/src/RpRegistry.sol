@@ -95,7 +95,10 @@ contract RpRegistry is AbstractSignerPubkeyRegistry {
         emit RpRemoved(id, pubkey, signer);
     }
 
-    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer) internal override {
+    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
+        internal
+        override
+    {
         emit PubkeyUpdated(id, oldPubkey, newPubkey, signer);
     }
 

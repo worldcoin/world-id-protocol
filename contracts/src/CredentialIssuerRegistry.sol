@@ -56,7 +56,10 @@ contract CredentialIssuerRegistry is AbstractSignerPubkeyRegistry {
         emit IssuerRemoved(id, pubkey, signer);
     }
 
-    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer) internal override {
+    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
+        internal
+        override
+    {
         emit IssuerPubkeyUpdated(id, oldPubkey, newPubkey, signer);
     }
 
