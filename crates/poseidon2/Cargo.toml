@@ -1,0 +1,18 @@
+[package]
+name = "poseidon2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ark-bn254 = "0.5.0"
+ark-ff = "0.5.0"
+ark-std = { version = "0.5.0", features = ["getrandom", "std"] }
+num-traits = "0.2.18"
+num-bigint = "0.4.5"
+
+[dev-dependencies]
+criterion = "0.7.0"
+
+[[bench]]
+name = "poseidon2"
+harness = false

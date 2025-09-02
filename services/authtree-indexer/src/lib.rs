@@ -1,12 +1,25 @@
+use std::net::SocketAddr;
+use std::sync::LazyLock;
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
+use ark_bn254::Fr;
+use ark_ff::PrimeField;
 use common::authenticator_registry::AuthenticatorRegistry;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
+use semaphore_rs_hasher::Hasher;
+use semaphore_rs_trees::imt::MerkleTree;
+use semaphore_rs_trees::proof::InclusionProof;
+use semaphore_rs_trees::Branch;
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use axum::extract::{Path, State};
+use axum::response::IntoResponse;
 
 #[derive(Debug, Clone)]
 pub struct DecodedAccountCreated {
@@ -24,6 +37,180 @@ pub struct IndexerConfig {
     pub db_url: String,
     pub start_block: u64,
     pub batch_size: u64,
+    pub http_addr: SocketAddr,
+}
+
+static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> =
+    LazyLock::new(|| Poseidon2::new(&POSEIDON2_BN254_T2_PARAMS));
+
+struct PoseidonHasher {}
+
+impl Hasher for PoseidonHasher {
+    type Hash = U256;
+
+    fn hash_node(left: &Self::Hash, right: &Self::Hash) -> Self::Hash {
+        let left = Fr::from_le_bytes_mod_order(&left.to_le_bytes::<32>()[..]);
+        let right = Fr::from_le_bytes_mod_order(&right.to_le_bytes::<32>()[..]);
+        let mut input = [left, right];
+        let feed_forward = input[0];
+        POSEIDON_HASHER.permutation_in_place(&mut input);
+        input[0] += feed_forward;
+        U256::from_limbs(input[0].into_bigint().0)
+    }
+}
+
+// Big tree is too slow for debug builds, so we use a smaller tree
+const TREE_DEPTH: usize = if cfg!(debug_assertions) { 10 } else { 30 };
+
+// Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
+static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher>>> =
+    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
+
+fn hex_to_u256(hex_str: &str) -> anyhow::Result<U256> {
+    let s = hex_str.trim();
+    Ok(s.parse()?)
+}
+
+fn hex_to_u64(hex_str: &str) -> anyhow::Result<u64> {
+    let s = hex_str.trim();
+    let s = s.strip_prefix("0x").unwrap_or(s);
+    Ok(u64::from_str_radix(s, 16)?)
+}
+
+async fn set_leaf_at_index(leaf_index: usize, value: U256) {
+    let mut tree = GLOBAL_TREE.write().await;
+    if leaf_index >= tree.num_leaves() {
+        // Out of range for fixed depth tree
+        tracing::error!(
+            leaf_index,
+            capacity = tree.num_leaves(),
+            "leaf index out of range"
+        );
+        return;
+    }
+    tree.set(leaf_index, value);
+}
+
+async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
+    // Fetch all existing events (runtime-checked query to avoid sqlx offline prepare)
+    let rows =
+        sqlx::query("select account_index, offchain_signer_commitment from account_created_events")
+            .fetch_all(pool)
+            .await?;
+
+    // Compute max index to size the tree
+    let mut max_index: u64 = 0;
+    let mut leaves: Vec<(usize, U256)> = Vec::with_capacity(rows.len());
+    for r in rows {
+        let account_index: String = r.get("account_index");
+        let offchain: String = r.get("offchain_signer_commitment");
+        let idx_u64 = hex_to_u64(&account_index)?;
+        if idx_u64 == 0 {
+            continue;
+        }
+        let leaf_index = (idx_u64 - 1) as usize;
+        let leaf_val = hex_to_u256(&offchain)?;
+        leaves.push((leaf_index, leaf_val));
+        if idx_u64 > max_index {
+            max_index = idx_u64;
+        }
+    }
+
+    let mut tree = GLOBAL_TREE.write().await;
+    tree.set_range(0, leaves.into_iter().map(|(_, v)| v));
+    tracing::info!(root = %format!("0x{:x}", tree.root()), depth = 30, "tree built from DB");
+    Ok(())
+}
+
+async fn update_tree_with_event(ev: &DecodedAccountCreated) -> anyhow::Result<()> {
+    let idx = hex_to_u64(&ev.account_index_hex)?;
+    if idx == 0 {
+        anyhow::bail!("account index cannot be zero");
+    }
+    let leaf_index = (idx - 1) as usize;
+    let value = hex_to_u256(&ev.offchain_signer_commitment_hex)?;
+    set_leaf_at_index(leaf_index, value).await;
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct ProofResponse {
+    account_index: u64,
+    leaf_index: u64,
+    root: String,
+    proof: Vec<String>,
+}
+
+fn proof_to_json(proof: &InclusionProof<PoseidonHasher>) -> Vec<String> {
+    proof
+        .0
+        .iter()
+        .map(|b| match b {
+            Branch::Left(sib) => format!("0x{:x}", sib),
+            Branch::Right(sib) => format!("0x{:x}", sib),
+        })
+        .collect::<Vec<_>>()
+}
+
+async fn http_get_proof(
+    Path(idx_str): Path<String>,
+    State(pool): State<PgPool>,
+) -> impl axum::response::IntoResponse {
+    // Accept decimal or 0x-prefixed hex
+    let account_index = if let Ok(v) = idx_str.parse::<u64>() {
+        v
+    } else if let Some(stripped) = idx_str.strip_prefix("0x") {
+        u64::from_str_radix(stripped, 16).unwrap_or(0)
+    } else {
+        0
+    };
+    if account_index == 0 {
+        return (axum::http::StatusCode::BAD_REQUEST, "invalid account index").into_response();
+    }
+
+    // Check existence in DB to avoid returning proof for empty leaf
+    let key_hex = format!("0x{:x}", account_index);
+    let exists = sqlx::query_scalar::<_, String>(
+        "select offchain_signer_commitment from account_created_events where account_index = $1",
+    )
+    .bind(&key_hex)
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+    if exists.is_none() {
+        return (axum::http::StatusCode::NOT_FOUND, "account not found").into_response();
+    }
+
+    let leaf_index = (account_index - 1) as usize;
+    let tree = GLOBAL_TREE.read().await;
+    match tree.proof(leaf_index) {
+        Some(proof) => {
+            let root_hex = format!("0x{:x}", tree.root());
+            let resp = ProofResponse {
+                account_index,
+                leaf_index: leaf_index as u64,
+                root: root_hex,
+                proof: proof_to_json(&proof),
+            };
+            (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
+        }
+        None => (
+            axum::http::StatusCode::BAD_REQUEST,
+            "leaf index out of range",
+        )
+            .into_response(),
+    }
+}
+
+async fn start_http_server(addr: SocketAddr, pool: PgPool) -> anyhow::Result<()> {
+    let app = axum::Router::new()
+        .route("/proof/:account_index", axum::routing::get(http_get_proof))
+        .with_state(pool);
+
+    tracing::info!(%addr, "HTTP server listening");
+    axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+    Ok(())
 }
 
 pub async fn run_from_env() -> anyhow::Result<()> {
@@ -61,6 +248,10 @@ pub fn load_config_from_env() -> IndexerConfig {
         .and_then(|s| s.parse().ok())
         .unwrap_or(5_000);
     let ws_url = std::env::var("WS_URL").ok();
+    let http_addr = std::env::var("HTTP_ADDR")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| "0.0.0.0:8080".parse().unwrap());
     IndexerConfig {
         rpc_url,
         ws_url,
@@ -68,6 +259,7 @@ pub fn load_config_from_env() -> IndexerConfig {
         db_url,
         start_block,
         batch_size,
+        http_addr,
     }
 }
 
@@ -77,6 +269,15 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
 
     let pool = make_db_pool(&cfg.db_url).await?;
     init_db(&pool).await?;
+
+    let start_time = std::time::Instant::now();
+    build_tree_from_db(&pool).await?;
+    tracing::info!("building tree from DB took {:?}", start_time.elapsed());
+
+    // Start HTTP server
+    let http_pool = pool.clone();
+    let http_addr = cfg.http_addr;
+    let http_handle = tokio::spawn(async move { start_http_server(http_addr, http_pool).await });
 
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool).await?.unwrap_or(cfg.start_block);
@@ -99,12 +300,18 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
         }
     }
 
-    // After backfill, follow via WS if WS_URL is provided; otherwise end
+    // After backfill, follow via WS if WS_URL is provided; otherwise continue serving HTTP
     if let Some(ws_url) = cfg.ws_url {
         tracing::info!("switching to websocket live follow");
         stream_logs(&ws_url, &pool, cfg.registry_address, from).await?;
+        Ok(())
+    } else {
+        // No WS: keep HTTP server running indefinitely
+        if let Err(e) = http_handle.await {
+            return Err(anyhow::anyhow!(format!("http server task error: {}", e)));
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 pub async fn make_db_pool(db_url: &str) -> anyhow::Result<PgPool> {
@@ -158,11 +365,9 @@ pub async fn backfill<P: Provider>(
 
     let to_block = (*from_block + batch_size - 1).min(head);
 
-    let topic0 = AuthenticatorRegistry::AccountCreated::SIGNATURE_HASH;
-
     let filter = Filter::new()
         .address(registry)
-        .event_signature(topic0)
+        .event_signature(AuthenticatorRegistry::AccountCreated::SIGNATURE_HASH)
         .from_block(*from_block)
         .to_block(to_block);
 
@@ -178,6 +383,9 @@ pub async fn backfill<P: Provider>(
     for lg in logs {
         let decoded = decode_account_created(&lg)?;
         insert_account(pool, &decoded).await?;
+        if let Err(e) = update_tree_with_event(&decoded).await {
+            tracing::error!(?e, "failed to update tree for event");
+        }
     }
     save_checkpoint(pool, to_block).await?;
     *from_block = to_block + 1;
@@ -255,10 +463,32 @@ pub async fn stream_logs(
     while let Some(log) = stream.next().await {
         if let Ok(decoded) = decode_account_created(&log) {
             insert_account(pool, &decoded).await?;
+            if let Err(e) = update_tree_with_event(&decoded).await {
+                tracing::error!(?e, "failed to update tree for live event");
+            }
             if let Some(bn) = log.block_number {
                 save_checkpoint(pool, bn).await?;
             }
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::uint;
+    use semaphore_rs_trees::Branch;
+
+    use super::*;
+
+    #[test]
+    fn test_poseidon2_merkle_tree() {
+        let tree = MerkleTree::<PoseidonHasher>::new(30, U256::ZERO);
+        let proof = tree.proof(0).unwrap();
+        let proof = proof.0.iter().collect::<Vec<_>>();
+        let poseidon00 = uint!(
+            15621590199821056450610068202457788725601603091791048810523422053872049975191_U256
+        );
+        assert_eq!(*proof[1], Branch::Left(poseidon00));
+    }
 }

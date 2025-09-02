@@ -10,6 +10,7 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 common = { path = "../../crates/common" }
+poseidon2 = { path = "../../crates/poseidon2" }
 alloy = { version = "1.0.22", features = ["full"] }
 dotenvy = "0.15"
 url = "2"
@@ -17,6 +18,13 @@ hex = "0.4"
 anyhow = { workspace = true }
 futures-util = "0.3"
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "macros", "json"] }
+semaphore-rs-trees = "0.5.0"
+semaphore-rs-hasher = "0.5.0"
+ark-ff = "0.5.0"
+ark-bn254 = { version = "0.5.0" }
+axum = { version = "0.7", features = ["macros", "json"] }
+http = "1"
 
 [dev-dependencies]
 regex = "1.11.2"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
