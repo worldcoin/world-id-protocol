@@ -1,12 +1,18 @@
+use std::sync::LazyLock;
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use common::authenticator_registry::AuthenticatorRegistry;
+use semaphore_rs_trees::imt::{MerkleTree};
+use semaphore_rs_hasher::Hasher;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
+use ark_bn254::Fr;
+use ark_ff::PrimeField;
 
 #[derive(Debug, Clone)]
 pub struct DecodedAccountCreated {
@@ -25,6 +31,27 @@ pub struct IndexerConfig {
     pub start_block: u64,
     pub batch_size: u64,
 }
+
+static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> = LazyLock::new(|| {
+    Poseidon2::new(&POSEIDON2_BN254_T2_PARAMS)
+});
+
+struct PoseidonHasher {}
+
+impl Hasher for PoseidonHasher {
+    type Hash = U256;
+
+    fn hash_node(left: &Self::Hash, right: &Self::Hash) -> Self::Hash {
+        let left = Fr::from_le_bytes_mod_order(&left.to_le_bytes::<32>()[..]);
+        let right = Fr::from_le_bytes_mod_order(&right.to_le_bytes::<32>()[..]);
+        let mut input = [left, right];
+        let feed_forward = input[0];
+        POSEIDON_HASHER.permutation_in_place(&mut input);
+        input[0] += feed_forward;
+        U256::from_limbs(input[0].into_bigint().0)
+    }
+}
+
 
 pub async fn run_from_env() -> anyhow::Result<()> {
     tracing_subscriber::registry()
@@ -77,6 +104,7 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
 
     let pool = make_db_pool(&cfg.db_url).await?;
     init_db(&pool).await?;
+    let mut tree = MerkleTree::<PoseidonHasher>::new(10, U256::ZERO);
 
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool).await?.unwrap_or(cfg.start_block);
@@ -261,4 +289,21 @@ pub async fn stream_logs(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::uint;
+    use semaphore_rs_trees::Branch;
+
+    use super::*;
+
+    #[test]
+    fn test_poseidon2_merkle_tree() {
+        let tree = MerkleTree::<PoseidonHasher>::new(30, U256::ZERO);
+        let proof = tree.proof(0).unwrap();
+        let proof = proof.0.iter().collect::<Vec<_>>();
+        let poseidon00 = uint!(15621590199821056450610068202457788725601603091791048810523422053872049975191_U256);
+        assert_eq!(*proof[1], Branch::Left(poseidon00));
+    }
 }
