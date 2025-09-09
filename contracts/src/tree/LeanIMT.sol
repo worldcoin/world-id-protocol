@@ -3,6 +3,14 @@ pragma solidity ^0.8.4;
 
 import {InternalLeanIMT, LeanIMTData} from "./InternalLeanIMT.sol";
 
+/**
+ * @title LeanIMT
+ * @notice Public helpers for a Lean Incremental Merkle Tree.
+ * @dev Based on zk-kit LeanIMT. See: https://github.com/zk-kit/zk-kit.solidity/blob/<commit>/packages/lean-imt/contracts/LeanIMT.sol
+ * @dev Reference: https://github.com/zk-kit/zk-kit.solidity/blob/<commit>/packages/lean-imt/contracts/README.md
+ * @dev More on LeanIMT: https://hackmd.io/@vplasencia/S1whLBN16
+ * @custom:security-contact security@world.org
+ */
 library LeanIMT {
     using InternalLeanIMT for *;
 
