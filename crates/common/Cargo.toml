@@ -4,10 +4,17 @@ version = "0.1.0"
 edition = "2021"
 build = "build.rs"
 
+[[bin]]
+name = "authenticator"
+path = "bin/authenticator.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
 alloy = { version = "1.0.22", features = ["full"] }
-
+eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git"}
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+hex = "0.4"
