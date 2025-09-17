@@ -7,7 +7,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-contract AuthenticatorRegistry is EIP712, Ownable2Step {
+contract AccountRegistry is EIP712, Ownable2Step {
     using BinaryIMT for BinaryIMTData;
 
     ////////////////////////////////////////////////////////////
@@ -83,7 +83,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     bytes32 public constant REMOVE_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(REMOVE_AUTHENTICATOR_TYPEDEF));
     bytes32 public constant RECOVER_ACCOUNT_TYPEHASH = keccak256(abi.encodePacked(RECOVER_ACCOUNT_TYPEDEF));
 
-    string public constant EIP712_NAME = "AuthenticatorRegistry";
+    string public constant EIP712_NAME = "AccountRegistry";
     string public constant EIP712_VERSION = "1.0";
 
     ////////////////////////////////////////////////////////////

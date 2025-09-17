@@ -2,10 +2,10 @@
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
-import {AuthenticatorRegistry} from "../src/AuthenticatorRegistry.sol";
+import {AccountRegistry} from "../src/AccountRegistry.sol";
 
 contract CounterScript is Script {
-    AuthenticatorRegistry public authenticatorRegistry;
+    AccountRegistry public accountRegistry;
     address public constant DEFAULT_RECOVERY_ADDRESS = address(0xDEADBEEF);
 
     function setUp() public {}
@@ -13,10 +13,10 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        authenticatorRegistry = new AuthenticatorRegistry(DEFAULT_RECOVERY_ADDRESS);
+        accountRegistry = new AccountRegistry(DEFAULT_RECOVERY_ADDRESS);
 
         vm.stopBroadcast();
 
-        console.log("AuthenticatorRegistry deployed to:", address(authenticatorRegistry));
+        console.log("AccountRegistry deployed to:", address(accountRegistry));
     }
 }
