@@ -17,6 +17,7 @@ sol! {
         uint256 accountIndex;
         address oldAuthenticatorAddress;
         address newAuthenticatorAddress;
+        uint256 pubkeyId;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
@@ -24,6 +25,7 @@ sol! {
     struct InsertAuthenticator {
         uint256 accountIndex;
         address newAuthenticatorAddress;
+        uint256 pubkeyId;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
@@ -31,6 +33,7 @@ sol! {
     struct RemoveAuthenticator {
         uint256 accountIndex;
         address authenticatorAddress;
+        uint256 pubkeyId;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
@@ -60,6 +63,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
     account_index: U256,
     old_authenticator_address: Address,
     new_authenticator_address: Address,
+    pubkey_id: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
@@ -68,6 +72,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
         accountIndex: account_index,
         oldAuthenticatorAddress: old_authenticator_address,
         newAuthenticatorAddress: new_authenticator_address,
+        pubkeyId: pubkey_id,
         newOffchainSignerCommitment: new_offchain_signer_commitment,
         nonce,
     };
@@ -79,6 +84,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
     new_authenticator_address: Address,
+    pubkey_id: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
@@ -86,6 +92,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
     let payload = InsertAuthenticator {
         accountIndex: account_index,
         newAuthenticatorAddress: new_authenticator_address,
+        pubkeyId: pubkey_id,
         newOffchainSignerCommitment: new_offchain_signer_commitment,
         nonce,
     };
@@ -97,6 +104,7 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
     authenticator_address: Address,
+    pubkey_id: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
@@ -104,6 +112,7 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
     let payload = RemoveAuthenticator {
         accountIndex: account_index,
         authenticatorAddress: authenticator_address,
+        pubkeyId: pubkey_id,
         newOffchainSignerCommitment: new_offchain_signer_commitment,
         nonce,
     };

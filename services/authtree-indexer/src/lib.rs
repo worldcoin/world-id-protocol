@@ -9,6 +9,7 @@ use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use common::authenticator_registry::AuthenticatorRegistry;
+use common::ProofResponse;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use semaphore_rs_hasher::Hasher;
 use semaphore_rs_trees::imt::MerkleTree;
@@ -133,23 +134,15 @@ async fn update_tree_with_event(ev: &DecodedAccountCreated) -> anyhow::Result<()
     Ok(())
 }
 
-#[derive(serde::Serialize)]
-struct ProofResponse {
-    account_index: u64,
-    leaf_index: u64,
-    root: String,
-    proof: Vec<String>,
-}
-
-fn proof_to_json(proof: &InclusionProof<PoseidonHasher>) -> Vec<String> {
+fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
     proof
         .0
         .iter()
         .map(|b| match b {
-            Branch::Left(sib) => format!("0x{:x}", sib),
-            Branch::Right(sib) => format!("0x{:x}", sib),
+            Branch::Left(sib) => *sib,
+            Branch::Right(sib) => *sib,
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 async fn http_get_proof(
@@ -186,13 +179,12 @@ async fn http_get_proof(
     let tree = GLOBAL_TREE.read().await;
     match tree.proof(leaf_index) {
         Some(proof) => {
-            let root_hex = format!("0x{:x}", tree.root());
-            let resp = ProofResponse {
+            let resp = ProofResponse::new(
                 account_index,
-                leaf_index: leaf_index as u64,
-                root: root_hex,
-                proof: proof_to_json(&proof),
-            };
+                leaf_index as u64,
+                tree.root(),
+                proof_to_vec(&proof),
+            );
             (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
         }
         None => (
