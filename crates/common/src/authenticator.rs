@@ -153,7 +153,7 @@ impl Authenticator {
                 let pk = self.signer.offchain_signer_pubkey();
                 [pk.pk.x, pk.pk.y]
             } else {
-                [DEFAULT_PUBKEY.pk.x, DEFAULT_PUBKEY.pk.y]
+                [BaseField::ZERO, BaseField::ZERO]
             }
         });
         Ok(pubkeys)
@@ -197,35 +197,6 @@ impl Authenticator {
         BaseField::from_be_bytes_mod_order(b"World ID PK")
     }
 
-    pub fn merkle_root(
-        pks: &[[BaseField; 2]; MAX_PUBKEYS],
-        siblings: &[BaseField; TREE_DEPTH],
-        mut index: u64,
-    ) -> BaseField {
-        // Hash pk
-        let poseidon2_16 = Poseidon2::<_, 16, 5>::default();
-        let mut input = array::from_fn(|_| BaseField::ZERO);
-        input[0] = Self::get_pk_ds();
-        for (i, pk) in pks.iter().enumerate() {
-            input[1 + i * 2] = pk[0];
-            input[1 + i * 2 + 1] = pk[1];
-        }
-        let mut current_hash = poseidon2_16.permutation(&input)[1];
-
-        // Merkle chain
-        let poseidon2_2 = Poseidon2::<_, 2, 5>::default();
-        for s in siblings {
-            if index & 1 == 0 {
-                current_hash = poseidon2_2.permutation(&[current_hash, *s])[0] + current_hash;
-            } else {
-                current_hash = poseidon2_2.permutation(&[*s, current_hash])[0] + s;
-            }
-            index >>= 1;
-        }
-
-        current_hash
-    }
-
     pub async fn generate_proof(
         &mut self,
         rp_id: RpId,
@@ -243,10 +214,6 @@ impl Authenticator {
         let rp_pk = self.fetch_rp_pubkey(U256::from(rp_id.into_inner())).await?;
         let id_commitment_r = BaseField::ZERO;
 
-        let merkkle_root = Self::merkle_root(&pubkeys, &siblings, 0);
-        println!("merkle_root: {:?}", merkkle_root);
-        println!("merkle_root: {:?}", merkle_root);
-
         Ok(oprf_client::nullifier(
             &self.config.nullifier_oracle_urls(),
             oprf_public_key,
@@ -254,7 +221,7 @@ impl Authenticator {
             self.signer.offchain_signer_private_key().clone(),
             pubkeys,
             pubkey_id,
-            merkkle_root,
+            merkle_root,
             tree_index,
             siblings,
             rp_id,
