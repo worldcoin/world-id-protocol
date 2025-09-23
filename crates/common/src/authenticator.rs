@@ -20,7 +20,6 @@ use eyre::Result;
 use groth16::{ConstraintMatrices, ProvingKey};
 use oprf_client::{Affine, BaseField, Projective, ScalarField};
 use oprf_types::{KeyEpoch, MerkleEpoch, RpId};
-use poseidon2::Poseidon2;
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -31,10 +30,6 @@ static MASK_ACCOUNT_INDEX: U256 =
 
 static MAX_PUBKEYS: usize = 7;
 static TREE_DEPTH: usize = 30;
-
-static DEFAULT_PUBKEY: LazyLock<EdDSAPublicKey> = LazyLock::new(|| EdDSAPublicKey {
-    pk: Affine::default(),
-});
 
 static ZKEY_QUERY_BYTES: &[u8] = include_bytes!("../../../OPRFQueryProof.zkey");
 static ZKEY_NULLIFIER_BYTES: &[u8] = include_bytes!("../../../OPRFNullifierProof.zkey");
