@@ -13,15 +13,10 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        authenticatorRegistry = new AuthenticatorRegistry(
-            DEFAULT_RECOVERY_ADDRESS
-        );
+        authenticatorRegistry = new AuthenticatorRegistry(DEFAULT_RECOVERY_ADDRESS);
 
         vm.stopBroadcast();
 
-        console.log(
-            "AuthenticatorRegistry deployed to:",
-            address(authenticatorRegistry)
-        );
+        console.log("AuthenticatorRegistry deployed to:", address(authenticatorRegistry));
     }
 }

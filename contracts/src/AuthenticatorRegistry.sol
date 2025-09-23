@@ -15,6 +15,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     ////////////////////////////////////////////////////////////
 
     mapping(uint256 => address) public accountIndexToRecoveryAddress;
+    // [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
     mapping(address => uint256) public authenticatorAddressToPackedAccountIndex;
     mapping(uint256 => uint256) public signatureNonces;
     mapping(uint256 => uint256) public accountRecoveryCounter;
@@ -70,11 +71,11 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     ////////////////////////////////////////////////////////////
 
     string public constant UPDATE_AUTHENTICATOR_TYPEDEF =
-        "UpdateAuthenticator(uint256 accountIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
+        "UpdateAuthenticator(uint256 accountIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint256 pubkeyId,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant INSERT_AUTHENTICATOR_TYPEDEF =
-        "InsertAuthenticator(uint256 accountIndex,address newAuthenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
+        "InsertAuthenticator(uint256 accountIndex,address newAuthenticatorAddress,uint256 pubkeyId,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant REMOVE_AUTHENTICATOR_TYPEDEF =
-        "RemoveAuthenticator(uint256 accountIndex,address authenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
+        "RemoveAuthenticator(uint256 accountIndex,address authenticatorAddress,uint256 pubkeyId,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant RECOVER_ACCOUNT_TYPEDEF =
         "RecoverAccount(uint256 accountIndex,address newAuthenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
 
@@ -152,9 +153,22 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         require(signatureRecoveredAddress != address(0), "Invalid signature");
         uint256 accountIndexPacked = authenticatorAddressToPackedAccountIndex[signatureRecoveredAddress];
         require(accountIndexPacked != 0, "Account does not exist");
-        uint256 accountIndex = uint256(uint128(accountIndexPacked));
-        require(accountIndexPacked >> 128 == accountRecoveryCounter[accountIndex], "Invalid account recovery counter");
+        uint256 accountIndex = uint256(uint192(accountIndexPacked));
+        require(accountIndexPacked >> 224 == accountRecoveryCounter[accountIndex], "Invalid account recovery counter");
         return accountIndex;
+    }
+
+    function _pack(uint256 accountIndex, uint32 recoveryCounter, uint32 pubkeyId) internal pure returns (uint256) {
+        require(accountIndex >> 192 == 0, "accountIndex overflow");
+        return (uint256(recoveryCounter) << 224) | (uint256(pubkeyId) << 192) | accountIndex;
+    }
+
+    function _pubkeyIdOf(uint256 packed) internal pure returns (uint32) {
+        return uint32(packed >> 192);
+    }
+
+    function pubkeyId(address authenticatorAddress) external view returns (uint256) {
+        return uint256(_pubkeyIdOf(authenticatorAddressToPackedAccountIndex[authenticatorAddress]));
     }
 
     /**
@@ -179,7 +193,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
             require(
                 authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i]] == 0, "Authenticator already exists"
             );
-            authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i]] = nextAccountIndex;
+            authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i]] = _pack(nextAccountIndex, 0, uint32(i));
         }
 
         // Update tree
@@ -221,7 +235,8 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
                     authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i][j]] == 0,
                     "Authenticator already exists"
                 );
-                authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i][j]] = nextAccountIndex;
+                authenticatorAddressToPackedAccountIndex[authenticatorAddresses[i][j]] =
+                    _pack(nextAccountIndex, 0, uint32(j));
             }
 
             emit AccountCreated(
@@ -249,6 +264,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         uint256 accountIndex,
         address oldAuthenticatorAddress,
         address newAuthenticatorAddress,
+        uint256 pubkeyId,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
@@ -262,6 +278,8 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         );
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
 
+        require(uint256(uint32(pubkeyId)) == pubkeyId, "pubkeyId overflow");
+
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -269,18 +287,18 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
                     accountIndex,
                     oldAuthenticatorAddress,
                     newAuthenticatorAddress,
+                    pubkeyId,
                     newOffchainSignerCommitment,
                     nonce
                 )
             )
         );
 
+        uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
         require(accountIndex == recoverAccountIndex(messageHash, signature), "Invalid account index");
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
-        require(
-            uint256(uint128(authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress])) == accountIndex,
-            "Authenticator does not belong to account"
-        );
+        require(uint256(uint192(packedAccountIndex)) == accountIndex, "Authenticator does not belong to account");
+        require(_pubkeyIdOf(packedAccountIndex) == uint32(pubkeyId), "Invalid pubkeyId");
 
         // Delete old authenticator
         delete authenticatorAddressToPackedAccountIndex[
@@ -289,7 +307,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            (accountRecoveryCounter[accountIndex] << 128) | accountIndex;
+            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
@@ -313,6 +331,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     function insertAuthenticator(
         uint256 accountIndex,
         address newAuthenticatorAddress,
+        uint256 pubkeyId,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
@@ -322,12 +341,15 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
 
+        require(uint256(uint32(pubkeyId)) == pubkeyId, "pubkeyId overflow");
+
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
                     INSERT_AUTHENTICATOR_TYPEHASH,
                     accountIndex,
                     newAuthenticatorAddress,
+                    pubkeyId,
                     newOffchainSignerCommitment,
                     nonce
                 )
@@ -339,7 +361,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            (accountRecoveryCounter[accountIndex] << 128) | accountIndex;
+            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
@@ -360,6 +382,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     function removeAuthenticator(
         uint256 accountIndex,
         address authenticatorAddress,
+        uint256 pubkeyId,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
@@ -374,6 +397,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
                     REMOVE_AUTHENTICATOR_TYPEHASH,
                     accountIndex,
                     authenticatorAddress,
+                    pubkeyId,
                     newOffchainSignerCommitment,
                     nonce
                 )
@@ -383,8 +407,12 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         require(accountIndex == recoverAccountIndex(messageHash, signature), "Invalid account index");
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
         require(
-            uint256(uint128(authenticatorAddressToPackedAccountIndex[authenticatorAddress])) == accountIndex,
+            uint256(uint192(authenticatorAddressToPackedAccountIndex[authenticatorAddress])) == accountIndex,
             "Authenticator does not belong to account"
+        );
+        require(
+            _pubkeyIdOf(authenticatorAddressToPackedAccountIndex[authenticatorAddress]) == uint32(pubkeyId),
+            "Invalid pubkeyId"
         );
 
         // Delete authenticator
@@ -441,7 +469,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         accountRecoveryCounter[accountIndex]++;
 
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            (accountRecoveryCounter[accountIndex] << 128) | accountIndex;
+            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
 
         // Update tree
         tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
