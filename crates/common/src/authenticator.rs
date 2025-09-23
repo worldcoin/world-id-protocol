@@ -193,10 +193,6 @@ impl Authenticator {
         Ok(pk)
     }
 
-    fn get_pk_ds() -> BaseField {
-        BaseField::from_be_bytes_mod_order(b"World ID PK")
-    }
-
     pub async fn generate_proof(
         &mut self,
         rp_id: RpId,
