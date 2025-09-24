@@ -6,9 +6,11 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
+ark-bn254 = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
 alloy = { version = "1.0.22", features = ["full"] }
+ciborium = "0.2.2"
 

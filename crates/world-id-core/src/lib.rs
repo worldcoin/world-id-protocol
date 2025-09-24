@@ -12,3 +12,6 @@ mod authenticator;
 pub use authenticator::Authenticator;
 
 pub mod authenticator_registry;
+
+mod credential;
+pub use credential::Credential;

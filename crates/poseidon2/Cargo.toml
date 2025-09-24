@@ -5,7 +5,7 @@ license = "MIT"
 edition.workspace = true
 
 [dependencies]
-ark-bn254 = "0.5.0"
+ark-bn254 = { workspace = true }
 ark-ff = "0.5.0"
 ark-std = { version = "0.5.0", features = ["getrandom", "std"] }
 num-traits = "0.2.18"

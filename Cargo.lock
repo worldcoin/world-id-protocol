@@ -6352,6 +6352,8 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "ark-bn254 0.5.0",
+ "ciborium",
  "serde",
  "thiserror 1.0.69",
  "tracing",
