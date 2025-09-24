@@ -1,3 +1,5 @@
+//! This module allows interactions with the `AuthenticatorRegistry`.
+
 use alloy::sol_types::{eip712_domain, Eip712Domain, SolStruct};
 use alloy::{
     primitives::{Address, Signature, U256},
@@ -6,7 +8,7 @@ use alloy::{
 };
 
 sol!(
-    #[allow(missing_docs)]
+    #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     AuthenticatorRegistry,
     "../../contracts/out/AuthenticatorRegistry.sol/AuthenticatorRegistry.json"
@@ -43,9 +45,10 @@ sol! {
     }
 }
 
-/// Returns the EIP-712 domain used by the AuthenticatorRegistry contract
+/// Returns the EIP-712 domain used by the `AuthenticatorRegistry` contract
 /// for a given `chain_id` and `verifying_contract` address.
-pub fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
+#[must_use]
+pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
     eip712_domain!(
         name: "AuthenticatorRegistry",
         version: "1.0",
@@ -54,7 +57,10 @@ pub fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
     )
 }
 
-/// Signs UpdateAuthenticator using Alloy signer.
+/// Signs `UpdateAuthenticator` contract call.
+///
+/// # Errors
+/// Will error if the signer unexpectedly fails to sign the hash.
 pub async fn sign_update_authenticator<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
@@ -75,6 +81,10 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
+/// Signs `InsertAuthenticator` contract call.
+///
+/// # Errors
+/// Will error if the signer unexpectedly fails to sign the hash.
 pub async fn sign_insert_authenticator<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
@@ -93,6 +103,10 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
+/// Signs `RemoveAuthenticator` contract call.
+///
+/// # Errors
+/// Will error if the signer unexpectedly fails to sign the hash.
 pub async fn sign_remove_authenticator<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
@@ -111,6 +125,10 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
+/// Signs `RecoverAccount` contract call.
+///
+/// # Errors
+/// Will error if the signer unexpectedly fails to sign the hash.
 pub async fn sign_recover_account<S: Signer + Sync>(
     signer: &S,
     account_index: U256,

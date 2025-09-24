@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Format, Clippy & Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: clippy,rustfmt
+
+      - name: Check code formatting
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --all-features
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - 1.86 # MSRV
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run tests
+        run: |
+          cargo test --all --all-features
+
+      - name: Build non-default features
+        run: |
+          cargo build --all --no-default-features
+
+  deny:
+    name: Cargo deny
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          command: check ${{ matrix.checks }}
+          rust-version: stable
+# TODO: add docs check when relevant
+#   docs:
+#     name: Check docs
+#     runs-on: ubuntu-latest
+#     permissions:
+#       contents: read
+#     env:
+#       RUSTDOCFLAGS: -Dwarnings
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: dtolnay/rust-toolchain@nightly
+#       - uses: dtolnay/install@cargo-docs-rs
+#       - run: |
+#           cargo +nightly docs-rs -p world-id

@@ -15,11 +15,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use common::authenticator_registry::AuthenticatorRegistry;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
+use world_id_core::authenticator_registry::AuthenticatorRegistry;
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 

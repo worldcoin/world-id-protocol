@@ -66,6 +66,7 @@ async fn wait_http_ready(client: &Client) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires additional setup"]
 async fn e2e_gateway_full_flow() {
     let anvil = Anvil::new().fork(RPC_FORK_URL).try_spawn().unwrap();
 
