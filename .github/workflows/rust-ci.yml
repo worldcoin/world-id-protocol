@@ -1,9 +1,18 @@
-name: CI
+name: Rust CI
 
 on:
   push:
     branches: [main]
   pull_request:
+    paths:
+      - crates/**/*
+      - services/**/*
+      - Cargo.toml
+      - Cargo.lock
+      - deny.toml
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -23,6 +32,13 @@ jobs:
         with:
           toolchain: stable
           components: clippy,rustfmt
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build contracts
+        run: |
+          make sol-build
 
       - name: Check code formatting
         run: cargo fmt -- --check
@@ -53,6 +69,10 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build contracts
+        run: |
+          make sol-build
 
       - name: Run tests
         run: |
