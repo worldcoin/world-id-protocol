@@ -22,7 +22,6 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
 
     BinaryIMTData public tree;
     uint256 public nextAccountIndex = 1;
-    address public defaultRecoveryAddress;
 
     // Root history tracking
     mapping(uint256 => uint256) public rootToTimestamp;
@@ -51,6 +50,9 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
+    event RecoveryAddressUpdated(
+        uint256 indexed accountIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
+    );
     event AuthenticatorInserted(
         uint256 indexed accountIndex,
         address indexed authenticatorAddress,
@@ -78,11 +80,15 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         "RemoveAuthenticator(uint256 accountIndex,address authenticatorAddress,uint256 pubkeyId,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant RECOVER_ACCOUNT_TYPEDEF =
         "RecoverAccount(uint256 accountIndex,address newAuthenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
+    string public constant UPDATE_RECOVERY_ADDRESS_TYPEDEF =
+        "UpdateRecoveryAddress(uint256 accountIndex,address newRecoveryAddress,uint256 nonce)";
 
     bytes32 public constant UPDATE_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(UPDATE_AUTHENTICATOR_TYPEDEF));
     bytes32 public constant INSERT_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(INSERT_AUTHENTICATOR_TYPEDEF));
     bytes32 public constant REMOVE_AUTHENTICATOR_TYPEHASH = keccak256(abi.encodePacked(REMOVE_AUTHENTICATOR_TYPEDEF));
     bytes32 public constant RECOVER_ACCOUNT_TYPEHASH = keccak256(abi.encodePacked(RECOVER_ACCOUNT_TYPEDEF));
+    bytes32 public constant UPDATE_RECOVERY_ADDRESS_TYPEHASH =
+        keccak256(abi.encodePacked(UPDATE_RECOVERY_ADDRESS_TYPEDEF));
 
     string public constant EIP712_NAME = "AuthenticatorRegistry";
     string public constant EIP712_VERSION = "1.0";
@@ -91,8 +97,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor(address _defaultRecoveryAddress) EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
-        defaultRecoveryAddress = _defaultRecoveryAddress;
+    constructor() EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
         tree.initWithDefaultZeroes(30);
     }
 
@@ -183,10 +188,9 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         uint256 offchainSignerCommitment
     ) external {
         require(authenticatorAddresses.length > 0, "authenticatorAddresses length must be greater than 0");
+        require(recoveryAddress != address(0), "Recovery address cannot be the zero address");
 
-        if (recoveryAddress != address(0)) {
-            accountIndexToRecoveryAddress[nextAccountIndex] = recoveryAddress;
-        }
+        accountIndexToRecoveryAddress[nextAccountIndex] = recoveryAddress;
 
         for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
             require(authenticatorAddresses[i] != address(0), "Authenticator cannot be the zero address");
@@ -228,6 +232,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
 
         for (uint256 i = 0; i < recoveryAddresses.length; i++) {
             require(authenticatorAddresses[i].length > 0, "Authenticator addresses length must be greater than 0");
+            require(recoveryAddresses[i] != address(0), "Recovery address cannot be the zero address");
             accountIndexToRecoveryAddress[nextAccountIndex] = recoveryAddresses[i];
             for (uint256 j = 0; j < authenticatorAddresses[i].length; j++) {
                 require(authenticatorAddresses[i][j] != address(0), "Authenticator cannot be the zero address");
@@ -458,11 +463,9 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
 
         address signatureRecoveredAddress = ECDSA.recover(messageHash, signature);
         require(signatureRecoveredAddress != address(0), "Invalid signature");
-        require(
-            signatureRecoveredAddress == accountIndexToRecoveryAddress[accountIndex]
-                || signatureRecoveredAddress == defaultRecoveryAddress,
-            "Invalid signature"
-        );
+        address recoverySigner = accountIndexToRecoveryAddress[accountIndex];
+        require(recoverySigner != address(0), "Recovery address not set");
+        require(signatureRecoveredAddress == recoverySigner, "Invalid signature");
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
 
@@ -477,5 +480,38 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
             accountIndex, newAuthenticatorAddress, oldOffchainSignerCommitment, newOffchainSignerCommitment
         );
         _recordCurrentRoot();
+    }
+
+    /**
+     * @dev Updates the recovery address for an account.
+     * @param accountIndex The index of the account.
+     * @param newRecoveryAddress The new recovery address.
+     * @param signature The signature authorizing the change.
+     * @param nonce The signature nonce.
+     */
+    function updateRecoveryAddress(
+        uint256 accountIndex,
+        address newRecoveryAddress,
+        bytes memory signature,
+        uint256 nonce
+    ) external {
+        require(accountIndex > 0, "Account index must be greater than 0");
+        require(nextAccountIndex > accountIndex, "Account does not exist");
+
+        bytes32 messageHash = _hashTypedDataV4(
+            keccak256(abi.encode(UPDATE_RECOVERY_ADDRESS_TYPEHASH, accountIndex, newRecoveryAddress, nonce))
+        );
+
+        require(accountIndex == recoverAccountIndex(messageHash, signature), "Invalid account index");
+        require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
+
+        require(newRecoveryAddress != address(0), "Recovery address cannot be the zero address");
+
+        address oldRecoveryAddress = accountIndexToRecoveryAddress[accountIndex];
+        require(oldRecoveryAddress != address(0), "Recovery address not set");
+
+        accountIndexToRecoveryAddress[accountIndex] = newRecoveryAddress;
+
+        emit RecoveryAddressUpdated(accountIndex, oldRecoveryAddress, newRecoveryAddress);
     }
 }

@@ -14,16 +14,16 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
 alloy = { version = "1.0.22", features = ["full"] }
-eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git"}
+eddsa-babyjubjub = { path = "../../../../TaceoLabs/nullifier-oracle-service/eddsa-babyjubjub"}
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 hex = "0.4"
-oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git"}
-oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git"}
-oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git"}
+oprf-client = { path = "../../../../TaceoLabs/nullifier-oracle-service/oprf-client"}
+oprf-types = { path = "../../../../TaceoLabs/nullifier-oracle-service/oprf-types"}
+oprf-core = { path = "../../../../TaceoLabs/nullifier-oracle-service/oprf-core"}
 circom-types = { git = "https://github.com/TaceoLabs/co-snarks.git", default-features = false }
-ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git"}
-poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git"}
+ark-serde-compat = { path = "../../../../TaceoLabs/nullifier-oracle-service/ark-serde-compat"}
+poseidon2 = { path = "../../../../TaceoLabs/nullifier-oracle-service/poseidon2"}
 rand = "0.8.5"
 ark-ec = "0.5.0"
 ark-ff = "0.5.0"

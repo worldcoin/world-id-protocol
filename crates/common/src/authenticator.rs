@@ -18,8 +18,8 @@ use circom_types::{groth16::ZKey, traits::CheckElement};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use eyre::Result;
 use groth16::{ConstraintMatrices, ProvingKey};
-use oprf_client::{Affine, BaseField, Projective, ScalarField};
-use oprf_types::{KeyEpoch, MerkleEpoch, RpId};
+use oprf_client::{Affine, BaseField, NullifierArgs, Projective, ScalarField};
+use oprf_types::{ShareEpoch, MerkleEpoch, RpId};
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -49,7 +49,7 @@ static ZKEY_NULLIFIER: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254
 
 static REGISTRY: OnceLock<Arc<AuthenticatorRegistryInstance<DynProvider>>> = OnceLock::new();
 
-type OPRFPublicKey = (Affine, KeyEpoch);
+type OPRFPublicKey = (Affine, ShareEpoch);
 type UniquenessProof = (Groth16Proof, BaseField);
 type MerkleProof = (BaseField, [BaseField; TREE_DEPTH], MerkleEpoch);
 
@@ -164,28 +164,28 @@ impl Authenticator {
         // TODO: fetch from contract
         Ok((
             (Projective::generator() * ScalarField::from(42)).into_affine(),
-            KeyEpoch::default(),
+            ShareEpoch::default(),
         ))
     }
 
-    fn query_matrices(&self) -> Result<&ConstraintMatrices<Fr>> {
+    fn query_matrices(&self) -> Result<Arc<ConstraintMatrices<Fr>>> {
         let (matrices, _) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(matrices)
+        Ok(Arc::new(matrices.clone()))
     }
 
-    fn query_pk(&self) -> Result<&ProvingKey<Bn254>> {
+    fn query_pk(&self) -> Result<Arc<ProvingKey<Bn254>>> {
         let (_, pk) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(pk)
+        Ok(Arc::new(pk.clone()))
     }
 
-    fn nullifier_matrices(&self) -> Result<&ConstraintMatrices<Fr>> {
+    fn nullifier_matrices(&self) -> Result<Arc<ConstraintMatrices<Fr>>> {
         let (matrices, _) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(matrices)
+        Ok(Arc::new(matrices.clone()))
     }
 
-    fn nullifier_pk(&self) -> eyre::Result<&'static ProvingKey<Bn254>> {
+    fn nullifier_pk(&self) -> eyre::Result<Arc<ProvingKey<Bn254>>> {
         let (_, pk) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(pk)
+        Ok(Arc::new(pk.clone()))
     }
 
     pub async fn generate_proof(
@@ -205,29 +205,33 @@ impl Authenticator {
         let rp_pk = self.fetch_rp_pubkey(U256::from(rp_id.into_inner())).await?;
         let id_commitment_r = BaseField::ZERO;
 
-        Ok(oprf_client::nullifier(
-            &self.config.nullifier_oracle_urls(),
+        let nullifier_args = NullifierArgs {
             oprf_public_key,
-            oprf_key_epoch,
-            self.signer.offchain_signer_private_key().clone(),
-            pubkeys,
-            pubkey_id,
+            key_epoch:oprf_key_epoch,
+            sk: self.signer.offchain_signer_private_key().clone(),
+            pks: pubkeys,
+            pk_index: pubkey_id,
             merkle_root,
-            tree_index,
+            mt_index: tree_index,
             siblings,
             rp_id,
             rp_pk,
-            action_id,
-            message_hash,
+            action: action_id,
+            signal_hash: message_hash,
             merkle_epoch,
             nonce,
-            rp_signature,
+            signature: rp_signature,
             id_commitment_r,
-            DEGREE,
-            self.query_pk()?,
-            self.query_matrices()?,
-            self.nullifier_pk()?,
-            self.nullifier_matrices()?,
+            degree: DEGREE,
+            query_pk: self.query_pk()?,
+            query_matrices: self.query_matrices()?,
+            nullifier_pk: self.nullifier_pk()?,
+            nullifier_matrices: self.nullifier_matrices()?,
+        };
+
+        Ok(oprf_client::nullifier(
+            &self.config.nullifier_oracle_urls(),
+            nullifier_args,
             &mut rng,
         )
         .await?)

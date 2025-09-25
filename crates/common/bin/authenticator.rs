@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
     let action_id = BaseField::rand(&mut rng);
     let message_hash = BaseField::rand(&mut rng);
 
-    let (proof, nullifier) = authenticator.generate_proof(RpId::new(0), action_id, message_hash, dummy_rp_sk.sign(nonce), nonce).await?;
+    let (proof, nullifier) = authenticator.generate_proof(RpId::new(1), action_id, message_hash, dummy_rp_sk.sign(nonce), nonce).await?;
 
     println!("proof: {:?}", proof);
     println!("nullifier: {:?}", nullifier);
