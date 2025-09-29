@@ -24,6 +24,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
 dependencies = [
  "cfg-if",
+ "getrandom 0.3.3",
  "once_cell",
  "version_check",
  "zerocopy",
@@ -369,7 +370,7 @@ dependencies = [
  "paste",
  "proptest",
  "rand 0.9.2",
- "ruint 1.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ruint",
  "rustc-hash",
  "serde",
  "sha3",
@@ -751,7 +752,7 @@ dependencies = [
  "alloy-json-rpc",
  "alloy-primitives",
  "auto_impl",
- "base64",
+ "base64 0.22.1",
  "derive_more",
  "futures",
  "futures-utils-wasm",
@@ -811,7 +812,7 @@ dependencies = [
  "alloy-transport",
  "futures",
  "http 1.3.1",
- "rustls",
+ "rustls 0.23.31",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.26.2",
@@ -1487,12 +1488,12 @@ dependencies = [
  "anyhow",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
- "axum",
+ "axum 0.7.9",
  "dotenvy",
  "futures-util",
  "hex",
  "http 1.3.1",
- "poseidon2 0.1.0",
+ "poseidon2",
  "regex",
  "reqwest",
  "semaphore-rs-hasher",
@@ -2071,6 +2072,12 @@ checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
 
 [[package]]
 name = "base64"
+version = "0.21.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+
+[[package]]
+name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
@@ -2393,7 +2400,7 @@ version = "4.5.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbfd7eae0b0f1a6e63d4b13c9c478de77c2eb546fba158ad50b4203dc24b9f9c"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -2973,7 +2980,7 @@ dependencies = [
  "ark-serde-compat",
  "blake3",
  "num-bigint",
- "poseidon2 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service.git)",
+ "poseidon2",
  "rand 0.8.5",
  "serde",
  "zeroize",
@@ -3734,7 +3741,8 @@ dependencies = [
  "http 1.3.1",
  "hyper 1.7.0",
  "hyper-util",
- "rustls",
+ "rustls 0.23.31",
+ "rustls-native-certs 0.8.1",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.2",
@@ -3764,7 +3772,7 @@ version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d9b05277c7e8da2c93a568989bb6207bef0112e8d17df7a6eda4a3cf143bc5e"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-core",
@@ -4407,6 +4415,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "minimal-lexical"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4480,6 +4494,33 @@ dependencies = [
  "libc",
  "memoffset",
  "pin-utils",
+]
+
+[[package]]
+name = "nodes-telemetry"
+version = "0.1.0"
+source = "git+https://github.com/TaceoLabs/nodes-telemetry.git?rev=06f4f13#06f4f139292ef56852ee7d04b58da8f0688aee87"
+dependencies = [
+ "eyre",
+ "humantime",
+ "metrics",
+ "metrics-exporter-dogstatsd",
+ "metrics-exporter-prometheus 0.17.2",
+ "metrics-exporter-statsd",
+ "secrecy",
+ "telemetry-batteries",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+]
+
+[[package]]
+name = "nom"
+version = "7.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
+dependencies = [
+ "memchr",
+ "minimal-lexical",
 ]
 
 [[package]]
@@ -4595,7 +4636,7 @@ dependencies = [
  "alloy-rlp",
  "cfg-if",
  "proptest",
- "ruint 1.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ruint",
  "serde",
  "smallvec",
 ]
@@ -4768,7 +4809,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.20",
  "uuid",
- "witness",
+ "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git?branch=dev)",
 ]
 
 [[package]]
@@ -4783,7 +4824,7 @@ dependencies = [
  "eddsa-babyjubjub",
  "itertools 0.14.0",
  "num-bigint",
- "poseidon2 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service.git)",
+ "poseidon2",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "serde",
@@ -5063,17 +5104,6 @@ checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
 [[package]]
 name = "poseidon2"
 version = "0.1.0"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "ark-std 0.5.0",
- "num-bigint",
- "num-traits",
-]
-
-[[package]]
-name = "poseidon2"
-version = "0.1.0"
 source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#90f7d82585628c79bd76acf99b327c7a73af4fef"
 dependencies = [
  "ark-bn254 0.5.0",
@@ -5233,8 +5263,8 @@ dependencies = [
  "quinn-proto",
  "quinn-udp",
  "rustc-hash",
- "rustls",
- "socket2",
+ "rustls 0.23.31",
+ "socket2 0.5.10",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
@@ -5253,7 +5283,7 @@ dependencies = [
  "rand 0.9.2",
  "ring",
  "rustc-hash",
- "rustls",
+ "rustls 0.23.31",
  "rustls-pki-types",
  "slab",
  "thiserror 2.0.16",
@@ -5503,7 +5533,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
- "axum",
+ "axum 0.7.9",
  "dotenvy",
  "hex",
  "once_cell",
@@ -5526,7 +5556,7 @@ version = "0.12.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d429f34c8092b2d42c7c93cec323bb4adeb7c67698f70839adec842ec10c7ceb"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-channel",
@@ -5547,7 +5577,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "quinn",
- "rustls",
+ "rustls 0.23.31",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -5633,13 +5663,14 @@ dependencies = [
 
 [[package]]
 name = "ruint"
-version = "1.16.0"
+version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ecb38f82477f20c5c3d62ef52d7c4e536e38ea9b73fb570a20c5cae0e14bcf6"
+checksum = "a68df0380e5c9d20ce49534f292a36a7514ae21350726efe1865bdb1fa91d278"
 dependencies = [
  "alloy-rlp",
  "ark-ff 0.3.0",
  "ark-ff 0.4.2",
+ "ark-ff 0.5.0",
  "bytemuck",
  "bytes",
  "fastrlp 0.3.1",
@@ -5653,35 +5684,8 @@ dependencies = [
  "rand 0.8.5",
  "rand 0.9.2",
  "rlp",
- "ruint-macro 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "valuable",
- "zeroize",
-]
-
-[[package]]
-name = "ruint"
-version = "1.16.0"
-source = "git+https://github.com/recmo/uint.git?rev=92e277f#92e277fd0b0e581d27cdaa2b72a48ac4c5a697a9"
-dependencies = [
- "alloy-rlp",
- "ark-ff 0.3.0",
- "ark-ff 0.4.2",
- "ark-ff 0.5.0",
- "bytes",
- "fastrlp 0.3.1",
- "fastrlp 0.4.0",
- "num-bigint",
- "num-integer",
- "num-traits",
- "parity-scale-codec",
- "primitive-types",
- "proptest",
- "rand 0.8.5",
- "rand 0.9.2",
- "rlp",
- "ruint-macro 1.2.1 (git+https://github.com/recmo/uint.git?rev=92e277f)",
- "serde",
+ "ruint-macro",
+ "serde_core",
  "valuable",
  "zeroize",
 ]
@@ -5691,11 +5695,6 @@ name = "ruint-macro"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48fd7bd8a6377e15ad9d42a8ec25371b94ddc67abe7c8b9127bec79bebaaae18"
-
-[[package]]
-name = "ruint-macro"
-version = "1.2.1"
-source = "git+https://github.com/recmo/uint.git?rev=92e277f#92e277fd0b0e581d27cdaa2b72a48ac4c5a697a9"
 
 [[package]]
 name = "rustc-demangle"
@@ -5748,6 +5747,18 @@ dependencies = [
 
 [[package]]
 name = "rustls"
+version = "0.21.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f56a14d1f48b391359b22f731fd4bd7e43c97f3c50eee276f3aa09c94784d3e"
+dependencies = [
+ "log",
+ "ring",
+ "rustls-webpki 0.101.7",
+ "sct",
+]
+
+[[package]]
+name = "rustls"
 version = "0.23.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0ebcbd2f03de0fc1122ad9bb24b127a5a6cd51d72604a3f3c50ac459762b6cc"
@@ -5757,9 +5768,42 @@ dependencies = [
  "once_cell",
  "ring",
  "rustls-pki-types",
- "rustls-webpki",
+ "rustls-webpki 0.103.4",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rustls-native-certs"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9aace74cb666635c918e9c12bc0d348266037aa8eb599b5cba565709a8dff00"
+dependencies = [
+ "openssl-probe",
+ "rustls-pemfile",
+ "schannel",
+ "security-framework 2.11.1",
+]
+
+[[package]]
+name = "rustls-native-certs"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fcff2dd52b58a8d98a70243663a0d234c4e2b79235637849d15913394a247d3"
+dependencies = [
+ "openssl-probe",
+ "rustls-pki-types",
+ "schannel",
+ "security-framework 3.5.1",
+]
+
+[[package]]
+name = "rustls-pemfile"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c74cae0a4cf6ccbbf5f359f08efdf8ee7e1dc532573bf0db71968cb56b1448c"
+dependencies = [
+ "base64 0.21.7",
 ]
 
 [[package]]
@@ -5770,6 +5814,16 @@ checksum = "229a4a4c221013e7e1f1a043678c5cc39fe5171437c88fb47151a21e6f5b5c79"
 dependencies = [
  "web-time",
  "zeroize",
+]
+
+[[package]]
+name = "rustls-webpki"
+version = "0.101.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765"
+dependencies = [
+ "ring",
+ "untrusted",
 ]
 
 [[package]]
@@ -5855,6 +5909,22 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "scratch"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68f2ec51b097e4c1a75b681a8bec621909b5e91f15bb7b840c4f2f7b01148b2"
+
+[[package]]
+name = "sct"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da046153aa2352493d6cb7da4b6e5c0c057d8a1d0a9aa8560baffdd945acd414"
+dependencies = [
+ "ring",
+ "untrusted",
+]
 
 [[package]]
 name = "sec1"
@@ -5954,7 +6024,7 @@ dependencies = [
  "byteorder",
  "num-bigint",
  "num-traits",
- "ruint 1.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ruint",
  "serde_json",
  "thiserror 1.0.69",
 ]
@@ -6001,7 +6071,7 @@ dependencies = [
  "mmap-rs",
  "once_cell",
  "rayon",
- "ruint 1.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ruint",
  "semaphore-rs-ark-circom",
  "semaphore-rs-hasher",
  "semaphore-rs-storage",
@@ -6110,7 +6180,7 @@ version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2c45cd61fefa9db6f254525d46e392b852e0e61d9a1fd36e5bd183450a556d5"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "chrono",
  "hex",
  "indexmap 1.9.3",
@@ -6262,7 +6332,7 @@ dependencies = [
  "nodes-telemetry",
  "oprf-types",
  "parking_lot",
- "poseidon2 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service.git)",
+ "poseidon2",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rustls 0.23.31",
@@ -6335,7 +6405,7 @@ version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "crc",
  "crossbeam-queue",
@@ -6352,7 +6422,7 @@ dependencies = [
  "memchr",
  "once_cell",
  "percent-encoding",
- "rustls",
+ "rustls 0.23.31",
  "serde",
  "serde_json",
  "sha2",
@@ -6410,7 +6480,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa003f0038df784eb8fecbbac13affe3da23b45194bd57dba231c8f48199c526"
 dependencies = [
  "atoi",
- "base64",
+ "base64 0.22.1",
  "bitflags 2.9.3",
  "byteorder",
  "bytes",
@@ -6452,7 +6522,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db58fcd5a53cf07c184b154801ff91347e4c30d17a3562a635ff028ad5deda46"
 dependencies = [
  "atoi",
- "base64",
+ "base64 0.22.1",
  "bitflags 2.9.3",
  "byteorder",
  "crc",
@@ -6886,7 +6956,7 @@ version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e727b36a1a0e8b74c376ac2211e40c2c8af09fb4013c60d910495810f008e9b"
 dependencies = [
- "rustls",
+ "rustls 0.23.31",
  "tokio",
 ]
 
@@ -6910,7 +6980,7 @@ checksum = "7a9daff607c6d2bf6c16fd681ccb7eecc83e4e2cdc1ca067ffaadfca5de7f084"
 dependencies = [
  "futures-util",
  "log",
- "rustls",
+ "rustls 0.23.31",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.2",
@@ -7192,7 +7262,7 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.2",
- "rustls",
+ "rustls 0.23.31",
  "rustls-pki-types",
  "sha1",
  "thiserror 2.0.16",
@@ -7293,6 +7363,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e70f2a8b45122e719eb623c01822704c4e0907e7e426a05927e1a1cfff5b75d0"
 
 [[package]]
+name = "unicode-width"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a1a07cc7db3810833284e8d372ccdc6da29741639ecc70c9ec107df0fa6154c"
+
+[[package]]
 name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7315,6 +7391,12 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "utf-8"
@@ -7906,14 +7988,79 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "052283831dbae3d879dc7f51f3d92703a316ca49f91540417d38591826127814"
 
 [[package]]
+name = "witness"
+version = "0.2.0"
+source = "git+https://github.com/TaceoLabs/circom-witness-rs.git?branch=dev#9b5432db79d5d632e9c34cfdf139563fbb17cb53"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "byteorder",
+ "cxx",
+ "cxx-build",
+ "eyre",
+ "hex",
+ "num-bigint",
+ "num-traits",
+ "postcard",
+ "rand 0.8.5",
+ "ruint",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "witness"
+version = "0.2.0"
+source = "git+https://github.com/TaceoLabs/circom-witness-rs.git#cca9151dcebbda1c7aa28a63209ae8fa0fc44b72"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "byteorder",
+ "cxx",
+ "cxx-build",
+ "eyre",
+ "hex",
+ "num-bigint",
+ "num-traits",
+ "postcard",
+ "rand 0.8.5",
+ "ruint",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "world-id-core"
 version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serde-compat",
+ "circom-types",
+ "eddsa-babyjubjub",
+ "eyre",
+ "groth16",
+ "hex",
+ "oprf-client",
+ "oprf-core",
+ "oprf-test",
+ "oprf-types",
+ "poseidon2",
+ "rand 0.8.5",
+ "reqwest",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
+ "tracing-subscriber 0.3.20",
+ "uuid",
+ "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git)",
 ]
 
 [[package]]

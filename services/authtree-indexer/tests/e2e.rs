@@ -29,7 +29,7 @@ fn deploy_registry() -> String {
     let mut cmd = Command::new("forge");
     cmd.current_dir("../../contracts")
         .arg("script")
-        .arg("script/AuthenticatorRegistry.s.sol:CounterScript")
+        .arg("script/AccountRegistry.s.sol:CounterScript")
         .arg("--fork-url")
         .arg(ANVIL_HTTP_URL)
         .arg("--broadcast")
@@ -45,7 +45,7 @@ fn deploy_registry() -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let re = Regex::new(r"AuthenticatorRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
+    let re = Regex::new(r"AccountRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
     let addr = re
         .captures(&stdout)
         .and_then(|c| c.get(1))

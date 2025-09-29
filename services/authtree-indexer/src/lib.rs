@@ -8,7 +8,7 @@ use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use world_id_core::authenticator_registry::AuthenticatorRegistry;
+use world_id_core::account_registry::AccountRegistry;
 use world_id_core::ProofResponse;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use semaphore_rs_hasher::Hasher;
@@ -18,8 +18,6 @@ use semaphore_rs_trees::Branch;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use world_id_core::authenticator_registry::AuthenticatorRegistry;
-
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 
@@ -352,7 +350,7 @@ pub async fn backfill<P: Provider>(
 
     let filter = Filter::new()
         .address(registry)
-        .event_signature(AuthenticatorRegistry::AccountCreated::SIGNATURE_HASH)
+        .event_signature(AccountRegistry::AccountCreated::SIGNATURE_HASH)
         .from_block(*from_block)
         .to_block(to_block);
 
@@ -384,7 +382,7 @@ pub fn decode_account_created(
     // Convert RPC log to primitives Log and use typed decoder
     let prim = PLog::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = AuthenticatorRegistry::AccountCreated::decode_log(&prim)?; // returns Log<AccountCreated>
+    let typed = AccountRegistry::AccountCreated::decode_log(&prim)?; // returns Log<AccountCreated>
     let ev = typed.data;
 
     let account_index_hex = format!("0x{:x}", ev.accountIndex);
@@ -441,7 +439,7 @@ pub async fn stream_logs(
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
     let filter = Filter::new()
         .address(registry)
-        .event_signature(AuthenticatorRegistry::AccountCreated::SIGNATURE_HASH)
+        .event_signature(AccountRegistry::AccountCreated::SIGNATURE_HASH)
         .from_block(start_from);
     let sub = provider.subscribe_logs(&filter).await?;
     let mut stream = sub.into_stream();

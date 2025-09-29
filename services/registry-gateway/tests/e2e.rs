@@ -8,9 +8,9 @@ use alloy::signers::local::PrivateKeySigner;
 use regex::Regex;
 use registry_gateway::{spawn_gateway, GatewayConfig};
 use reqwest::Client;
-use world_id_core::authenticator_registry::{
+use world_id_core::account_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator, AuthenticatorRegistry,
+    sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
 };
 
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
@@ -61,7 +61,7 @@ fn deploy_registry(rpc_url: &str) -> String {
     let mut cmd = Command::new("forge");
     cmd.current_dir("../../contracts")
         .arg("script")
-        .arg("script/AuthenticatorRegistry.s.sol:CounterScript")
+        .arg("script/AccountRegistry.s.sol:CounterScript")
         .arg("--rpc-url")
         .arg(rpc_url)
         .arg("--broadcast")
@@ -78,7 +78,7 @@ fn deploy_registry(rpc_url: &str) -> String {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    let re = Regex::new(r"AuthenticatorRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
+    let re = Regex::new(r"AccountRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
     let addr = re
         .captures(&stdout)
         .and_then(|c| c.get(1))
@@ -131,7 +131,7 @@ async fn e2e_gateway_full_flow() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(anvil.endpoint_url());
-    let contract = AuthenticatorRegistry::new(registry.parse().unwrap(), provider.clone());
+    let contract = AccountRegistry::new(registry.parse().unwrap(), provider.clone());
 
     // First, create the initial account through the API so tree depth stays 0 for following ops
     let body_create = serde_json::json!({
@@ -172,7 +172,7 @@ async fn e2e_gateway_full_flow() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(anvil.endpoint_url());
-    let contract = AuthenticatorRegistry::new(registry.parse().unwrap(), provider.clone());
+    let contract = AccountRegistry::new(registry.parse().unwrap(), provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
         .authenticatorAddressToPackedAccountIndex(wallet_addr)

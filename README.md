@@ -4,7 +4,7 @@
 
 Monorepo containing:
 
-- `services/registry-gateway`: HTTP API service to interact with onchain `AuthenticatorRegistry`
+- `services/registry-gateway`: HTTP API service to interact with onchain `AccountRegistry`
 - `services/authtree-indexer`: Indexer for `AccountCreated` events serving inclusion proofs
 - `crates/world-id-core`: The core library of the World ID Protocol
 - `contracts/`: Onchain contracts
@@ -46,7 +46,7 @@ Environment variables:
 
 - `RPC_URL` (required): HTTP RPC endpoint
 - `WALLET_KEY` (required): Hex private key for sending txs
-- `REGISTRY_ADDRESS` (required): `AuthenticatorRegistry` address (0x…)
+- `REGISTRY_ADDRESS` (required): `AccountRegistry` address (0x…)
 - `RG_BATCH_MS` (optional, default 1000): Batch window
 - `RG_PORT` or `PORT` (optional, default 4000): Listen port
 - `RUST_LOG` (optional): e.g. `registry_gateway=debug,axum=info`

@@ -1,15 +1,13 @@
-use std::array;
-use std::os::macos::raw;
 use std::sync::{Arc, OnceLock};
 use std::{io::Cursor, sync::LazyLock};
 
-use crate::authenticator_registry::AuthenticatorRegistry::AuthenticatorRegistryInstance;
+use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
+use crate::account_signer::AuthenticatorSigner;
+use crate::config::Config;
 use crate::ProofResponse;
-use crate::{authenticator_registry::AuthenticatorRegistry, AuthenticatorSigner, Config};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::providers::{DynProvider, Provider};
-use alloy::signers::k256::ecdsa::signature::SignerMut;
 use alloy::signers::k256::ecdsa::SigningKey;
 use alloy::uint;
 use ark_bn254::{Bn254, Fr};
@@ -49,7 +47,7 @@ static ZKEY_NULLIFIER: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254
         Ok(nullifier_zkey.into())
     });
 
-static REGISTRY: OnceLock<Arc<AuthenticatorRegistryInstance<DynProvider>>> = OnceLock::new();
+static REGISTRY: OnceLock<Arc<AccountRegistryInstance<DynProvider>>> = OnceLock::new();
 
 type OPRFPublicKey = (Affine, ShareEpoch);
 type UniquenessProof = (Groth16Proof, BaseField);
@@ -84,10 +82,10 @@ impl Authenticator {
         self.signer.offchain_signer_pubkey()
     }
 
-    pub async fn registry(&self) -> Result<Arc<AuthenticatorRegistryInstance<DynProvider>>> {
+    pub async fn registry(&self) -> Result<Arc<AccountRegistryInstance<DynProvider>>> {
         let provider = ProviderBuilder::new().connect_http(self.config.rpc_url().parse()?);
         let contract =
-            AuthenticatorRegistry::new(*self.config.registry_address(), provider.erased());
+            AccountRegistry::new(*self.config.registry_address(), provider.erased());
         Ok(REGISTRY.get_or_init(|| Arc::new(contract)).clone())
     }
 

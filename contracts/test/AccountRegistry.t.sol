@@ -6,7 +6,7 @@ import {AccountRegistry} from "../src/AccountRegistry.sol";
 import {TreeHelper} from "../src/TreeHelper.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
 
-contract AuthenticatorRegistryTest is Test {
+contract AccountRegistryTest is Test {
     using BinaryIMT for BinaryIMTData;
 
     AccountRegistry public accountRegistry;
@@ -25,7 +25,7 @@ contract AuthenticatorRegistryTest is Test {
 
     function setUp() public {
         recoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY);
-        authenticatorRegistry = new AuthenticatorRegistry();
+        accountRegistry = new AccountRegistry();
         alternateRecoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY_ALT);
         AUTHENTICATOR_ADDRESS1 = vm.addr(AUTH1_PRIVATE_KEY);
         AUTHENTICATOR_ADDRESS2 = vm.addr(AUTH2_PRIVATE_KEY);
@@ -59,7 +59,7 @@ contract AuthenticatorRegistryTest is Test {
         uint256 nonce
     ) private returns (bytes memory, uint256[] memory) {
         bytes memory signature = eip712Sign(
-            authenticatorRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
+            accountRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(accountIndex, AUTHENTICATOR_ADDRESS1, AUTHENTICATOR_ADDRESS2, pubkeyId, newLeaf, nonce),
             AUTH1_PRIVATE_KEY
         );
@@ -73,7 +73,7 @@ contract AuthenticatorRegistryTest is Test {
         uint256 nonce
     ) private returns (bytes memory) {
         return eip712Sign(
-            authenticatorRegistry.UPDATE_RECOVERY_ADDRESS_TYPEHASH(),
+            accountRegistry.UPDATE_RECOVERY_ADDRESS_TYPEHASH(),
             abi.encode(accountIndex, newRecoveryAddress, nonce),
             AUTH1_PRIVATE_KEY
         );
@@ -88,9 +88,9 @@ contract AuthenticatorRegistryTest is Test {
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         address[] memory authenticatorAddresses2 = new address[](1);
         authenticatorAddresses2[0] = AUTHENTICATOR_ADDRESS2;
-        uint256 size = authenticatorRegistry.nextAccountIndex();
+        uint256 size = accountRegistry.nextAccountIndex();
         uint256 startGas = gasleft();
-        authenticatorRegistry.createAccount(recoveryAddress, authenticatorAddresses2, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses2, OFFCHAIN_SIGNER_COMMITMENT);
         uint256 endGas = gasleft();
         console.log("Gas used per create account:", (startGas - endGas));
         assertEq(accountRegistry.nextAccountIndex(), size + 1);
@@ -120,14 +120,14 @@ contract AuthenticatorRegistryTest is Test {
     function test_UpdateAuthenticatorSuccess() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        authenticatorRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 nonce = 0;
         uint256 accountIndex = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // AUTHENTICATOR_ADDRESS1 is assigned to account 1
-        uint256 packed1 = authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1);
+        uint256 packed1 = accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1);
         assertEq(uint192(packed1), accountIndex);
 
         (bytes memory signature, uint256[] memory proof) =
@@ -151,14 +151,14 @@ contract AuthenticatorRegistryTest is Test {
         // AUTHENTICATOR_ADDRESS1 has been removed
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1), 0);
         // AUTHENTICATOR_ADDRESS2 has been added
-        uint256 packed2 = authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2);
+        uint256 packed2 = accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2);
         assertEq(uint192(packed2), 1);
     }
 
     function test_UpdateAuthenticatorInvalidAccountIndex() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        authenticatorRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 nonce = 0;
         uint256 accountIndex = 2;
@@ -185,14 +185,14 @@ contract AuthenticatorRegistryTest is Test {
     function test_UpdateAuthenticatorInvalidNonce() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        authenticatorRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 nonce = 1;
         uint256 accountIndex = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // AUTHENTICATOR_ADDRESS1 is assigned to account 1
-        uint256 packed = authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1);
+        uint256 packed = accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1);
         assertEq(uint192(packed), accountIndex);
 
         (bytes memory signature, uint256[] memory proof) =
@@ -216,14 +216,14 @@ contract AuthenticatorRegistryTest is Test {
     function test_InsertAuthenticatorSuccess() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        authenticatorRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         bytes memory signature = eip712Sign(
-            authenticatorRegistry.INSERT_AUTHENTICATOR_TYPEHASH(),
+            accountRegistry.INSERT_AUTHENTICATOR_TYPEHASH(),
             abi.encode(accountIndex, AUTHENTICATOR_ADDRESS2, uint256(1), newCommitment, nonce),
             AUTH1_PRIVATE_KEY
         );
@@ -244,11 +244,11 @@ contract AuthenticatorRegistryTest is Test {
 
         // Both authenticators should now belong to the same account
         assertEq(
-            uint192(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)),
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)),
             accountIndex
         );
         assertEq(
-            uint192(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2)),
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2)),
             accountIndex
         );
     }
@@ -257,14 +257,14 @@ contract AuthenticatorRegistryTest is Test {
         address[] memory authenticatorAddresses = new address[](2);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         authenticatorAddresses[1] = AUTHENTICATOR_ADDRESS2;
-        authenticatorRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         bytes memory signature = eip712Sign(
-            authenticatorRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
+            accountRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(accountIndex, AUTHENTICATOR_ADDRESS2, uint256(1), newCommitment, nonce),
             AUTH1_PRIVATE_KEY
         );
@@ -281,9 +281,9 @@ contract AuthenticatorRegistryTest is Test {
         );
 
         // AUTHENTICATOR_ADDRESS2 should be removed; AUTHENTICATOR_ADDRESS1 remains
-        assertEq(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2), 0);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2), 0);
         assertEq(
-            uint192(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)),
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)),
             accountIndex
         );
     }
@@ -291,7 +291,7 @@ contract AuthenticatorRegistryTest is Test {
     function test_UpdateRecoveryAddress_SetNewAddress() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        authenticatorRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
@@ -300,16 +300,16 @@ contract AuthenticatorRegistryTest is Test {
         bytes memory signature = updateRecoveryAddressSignature(accountIndex, newRecovery, nonce);
 
         vm.prank(AUTHENTICATOR_ADDRESS1);
-        authenticatorRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
+        accountRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
 
-        assertEq(authenticatorRegistry.accountIndexToRecoveryAddress(accountIndex), newRecovery);
-        assertEq(authenticatorRegistry.signatureNonces(accountIndex), 1);
+        assertEq(accountRegistry.accountIndexToRecoveryAddress(accountIndex), newRecovery);
+        assertEq(accountRegistry.signatureNonces(accountIndex), 1);
     }
 
     function test_UpdateRecoveryAddress_RevertInvalidNonce() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        authenticatorRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 1;
@@ -319,7 +319,7 @@ contract AuthenticatorRegistryTest is Test {
 
         vm.prank(AUTHENTICATOR_ADDRESS1);
         vm.expectRevert("Invalid nonce");
-        authenticatorRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
+        accountRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
     }
 
     function test_RecoverAccountSuccess() public {
@@ -349,15 +349,15 @@ contract AuthenticatorRegistryTest is Test {
 
         // Old authenticator still exists but with lower recovery counter
         assertEq(
-            uint192(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)),
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)),
             uint192(accountIndex)
         );
-        assertEq(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1) >> 224, 0);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1) >> 224, 0);
         // New authenticator added with higher recovery counter
         assertEq(
-            uint192(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR)),
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR)),
             uint192(accountIndex)
         );
-        assertEq(authenticatorRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR) >> 224, 1);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR) >> 224, 1);
     }
 }

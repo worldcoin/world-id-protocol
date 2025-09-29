@@ -10,7 +10,7 @@ use alloy::{
 sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    AuthenticatorRegistry,
+    AccountRegistry,
     "../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
 );
 

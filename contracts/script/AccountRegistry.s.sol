@@ -5,14 +5,14 @@ import {Script, console} from "forge-std/Script.sol";
 import {AccountRegistry} from "../src/AccountRegistry.sol";
 
 contract CounterScript is Script {
-    AuthenticatorRegistry public authenticatorRegistry;
+    AccountRegistry public accountRegistry;
 
     function setUp() public {}
 
     function run() public {
         vm.startBroadcast();
 
-        authenticatorRegistry = new AuthenticatorRegistry();
+        accountRegistry = new AccountRegistry();
 
         vm.stopBroadcast();
 

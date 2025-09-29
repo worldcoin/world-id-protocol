@@ -173,10 +173,6 @@ contract AccountRegistry is EIP712, Ownable2Step {
         return uint32(packed >> 192);
     }
 
-    function pubkeyId(address authenticatorAddress) external view returns (uint256) {
-        return uint256(_pubkeyIdOf(authenticatorAddressToPackedAccountIndex[authenticatorAddress]));
-    }
-
     /**
      * @dev Creates a new account.
      * @param recoveryAddress The address of the recovery signer.

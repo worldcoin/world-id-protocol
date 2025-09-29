@@ -34,7 +34,7 @@ rand = "0.8.5"
 ark-ec = "0.5.0"
 ark-ff = "0.5.0"
 uuid = "1.14.0"
-witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git", branch = "dev" }
+witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git"}
 ark-bn254 = "0.5.0"
 eyre = "0.6.12"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git" }

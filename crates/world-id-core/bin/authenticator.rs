@@ -1,7 +1,7 @@
 use std::array;
 
 use ark_ff::{AdditiveGroup, PrimeField, UniformRand};
-use common::{Authenticator, Config};
+use world_id_core::{Authenticator, config::Config};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use oprf_client::BaseField;
 use oprf_types::RpId;

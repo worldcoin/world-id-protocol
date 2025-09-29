@@ -19,7 +19,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
-use world_id_core::authenticator_registry::AuthenticatorRegistry;
+use world_id_core::account_registry::AccountRegistry;
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
@@ -317,7 +317,7 @@ impl CreateBatcherRunner {
     }
     async fn run(mut self) {
         let provider = self.provider.clone();
-        let contract = AuthenticatorRegistry::new(self.registry, provider);
+        let contract = AccountRegistry::new(self.registry, provider);
 
         loop {
             // pull first item (await), then collect the rest within the window
@@ -460,7 +460,7 @@ impl OpsBatcherRunner {
 
     async fn run(mut self) {
         let provider = self.provider.clone();
-        let contract = AuthenticatorRegistry::new(self.registry, provider.clone());
+        let contract = AccountRegistry::new(self.registry, provider.clone());
         let mc = Multicall3::new(MULTICALL3_ADDR, provider);
 
         loop {
@@ -860,7 +860,7 @@ async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
         .call()
