@@ -8,8 +8,8 @@ use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use common::authenticator_registry::AuthenticatorRegistry;
-use common::ProofResponse;
+use world_id_core::authenticator_registry::AuthenticatorRegistry;
+use world_id_core::ProofResponse;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use semaphore_rs_hasher::Hasher;
 use semaphore_rs_trees::imt::MerkleTree;
@@ -18,6 +18,7 @@ use semaphore_rs_trees::Branch;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use world_id_core::authenticator_registry::AuthenticatorRegistry;
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;

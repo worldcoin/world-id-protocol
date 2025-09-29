@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
-import {AuthenticatorRegistry} from "../src/AuthenticatorRegistry.sol";
+import {AccountRegistry} from "../src/AccountRegistry.sol";
 
 contract CounterScript is Script {
     AuthenticatorRegistry public authenticatorRegistry;
@@ -16,6 +16,6 @@ contract CounterScript is Script {
 
         vm.stopBroadcast();
 
-        console.log("AuthenticatorRegistry deployed to:", address(authenticatorRegistry));
+        console.log("AccountRegistry deployed to:", address(accountRegistry));
     }
 }

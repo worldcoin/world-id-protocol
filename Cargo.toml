@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/common",
+    "crates/world-id-core",
     "services/authtree-indexer",
     "services/registry-gateway",
 ]

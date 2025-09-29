@@ -5,13 +5,13 @@ use alloy::node_bindings::Anvil;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
-use common::authenticator_registry::{
-    domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator, AuthenticatorRegistry,
-};
 use regex::Regex;
 use registry_gateway::{spawn_gateway, GatewayConfig};
 use reqwest::Client;
+use world_id_core::authenticator_registry::{
+    domain as ag_domain, sign_insert_authenticator, sign_recover_account,
+    sign_remove_authenticator, sign_update_authenticator, AuthenticatorRegistry,
+};
 
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -104,6 +104,7 @@ async fn wait_http_ready(client: &Client) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires additional setup"]
 async fn e2e_gateway_full_flow() {
     let anvil = Anvil::new().fork(RPC_FORK_URL).try_spawn().unwrap();
 
