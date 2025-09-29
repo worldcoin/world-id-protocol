@@ -84,4 +84,89 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
         assertTrue(_isEq(registry.issuerIdToPubkey(1), A.Pubkey(0, 0)));
         assertEq(registry.addressToIssuerId(signer), 0);
     }
+
+    function _signRegisterIssuerSchemaId(uint256 sk, uint256 issuerSchemaId, uint256 id, string memory schemaUri)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash =
+            keccak256(abi.encode(registry.REGISTER_ISSUER_SCHEMA_ID_TYPEHASH(), issuerSchemaId, id, schemaUri));
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                _domainSeparator(address(registry), registry.EIP712_NAME(), registry.EIP712_VERSION()),
+                structHash
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signUpdateIssuerSchemaUri(uint256 sk, uint256 issuerSchemaId, string memory schemaUri)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash =
+            keccak256(abi.encode(registry.UPDATE_ISSUER_SCHEMA_URI_TYPEHASH(), issuerSchemaId, schemaUri));
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                _domainSeparator(address(registry), registry.EIP712_NAME(), registry.EIP712_VERSION()),
+                structHash
+            )
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function testRegisterIssuerSchemaIdFlow() public {
+        uint256 signerSk = 0xAAA6;
+        address signer = vm.addr(signerSk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory sig = _signRegisterIssuerSchemaId(signerSk, 2, 1, "https://world.org/schemas/orb.json");
+
+        vm.expectEmit();
+        emit CredentialIssuerRegistry.IssuerSchemaIdRegistered(2, 1, "https://world.org/schemas/orb.json");
+        registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb.json", sig);
+
+        assertEq(registry.issuerSchemaIdToIssuerId(2), 1);
+        assertEq(registry.issuerSchemaIdToSchemaUri(2), "https://world.org/schemas/orb.json");
+    }
+
+    function testUpdateIssuerSchemaUriFlow() public {
+        uint256 signerSk = 0xAAA6;
+        address signer = vm.addr(signerSk);
+        registry.register(_generatePubkey("k"), signer);
+
+        // initial registration
+        bytes memory sig = _signRegisterIssuerSchemaId(signerSk, 2, 1, "https://world.org/schemas/orb.json");
+        registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb.json", sig);
+        assertEq(registry.issuerSchemaIdToSchemaUri(2), "https://world.org/schemas/orb.json");
+
+        // update
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(signerSk, 2, "https://world.org/schemas/orb_v2.json");
+        vm.expectEmit();
+        emit CredentialIssuerRegistry.IssuerSchemaUriUpdated(2, "https://world.org/schemas/orb_v2.json");
+        registry.updateIssuerSchemaUri(2, "https://world.org/schemas/orb_v2.json", updateSig);
+        assertEq(registry.issuerSchemaIdToSchemaUri(2), "https://world.org/schemas/orb_v2.json");
+    }
+
+    function testRegisterIssuerSchemaIdFlowInvalidSignature() public {
+        uint256 signerSk = 0xAAA6;
+        uint256 badSk = 0xAAA7;
+        address signer = vm.addr(signerSk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory sig = _signRegisterIssuerSchemaId(badSk, 2, 1, "https://world.org/schemas/orb.json");
+
+        vm.expectRevert(bytes("Registry: invalid signature"));
+        registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb.json", sig);
+
+        assertEq(registry.issuerSchemaIdToIssuerId(2), 0);
+        assertEq(registry.issuerSchemaIdToSchemaUri(2), "");
+    }
 }
