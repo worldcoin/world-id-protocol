@@ -25,7 +25,8 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
 
     // Root history tracking
     mapping(uint256 => uint256) public rootToTimestamp;
-    uint256 public rootValidityWindow; // seconds; 0 means never expires
+    uint256 public rootValidityWindow;
+    uint256 public rootEpoch;
 
     ////////////////////////////////////////////////////////////
     //                        Events                          //
@@ -65,7 +66,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
-    event RootRecorded(uint256 indexed root, uint256 timestamp);
+    event RootRecorded(uint256 indexed root, uint256 timestamp, uint256 indexed rootEpoch);
     event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
 
     ////////////////////////////////////////////////////////////
@@ -144,7 +145,7 @@ contract AuthenticatorRegistry is EIP712, Ownable2Step {
     function _recordCurrentRoot() internal {
         uint256 root = tree.root;
         rootToTimestamp[root] = block.timestamp;
-        emit RootRecorded(root, block.timestamp);
+        emit RootRecorded(root, block.timestamp, rootEpoch++);
     }
 
     /**
