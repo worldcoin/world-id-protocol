@@ -9,6 +9,8 @@ use crate::{authenticator_registry::AuthenticatorRegistry, AuthenticatorSigner, 
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::providers::{DynProvider, Provider};
+use alloy::signers::k256::ecdsa::signature::SignerMut;
+use alloy::signers::k256::ecdsa::SigningKey;
 use alloy::uint;
 use ark_bn254::{Bn254, Fr};
 use ark_ec::{CurveGroup, PrimeGroup};
@@ -202,38 +204,39 @@ impl Authenticator {
         let pubkey_id = self.pubkey_id().await?.as_limbs()[0];
         let pubkeys = self.fetch_pubkeys().await?;
         let (merkle_root, siblings, merkle_epoch) = self.fetch_inclusion_proof().await?;
-        let rp_pk = self.fetch_rp_pubkey(U256::from(rp_id.into_inner())).await?;
         let id_commitment_r = BaseField::ZERO;
+        let mut rp_signing_key = SigningKey::random(&mut rng);
+        // let signature = rp_signing_key.sign(nonce.to_string().as_bytes());
 
-        let nullifier_args = NullifierArgs {
-            oprf_public_key,
-            key_epoch:oprf_key_epoch,
-            sk: self.signer.offchain_signer_private_key().clone(),
-            pks: pubkeys,
-            pk_index: pubkey_id,
-            merkle_root,
-            mt_index: tree_index,
-            siblings,
-            rp_id,
-            rp_pk,
-            action: action_id,
-            signal_hash: message_hash,
-            merkle_epoch,
-            nonce,
-            signature: rp_signature,
-            id_commitment_r,
-            degree: DEGREE,
-            query_pk: self.query_pk()?,
-            query_matrices: self.query_matrices()?,
-            nullifier_pk: self.nullifier_pk()?,
-            nullifier_matrices: self.nullifier_matrices()?,
-        };
+        // let nullifier_args = NullifierArgs {
+        //     oprf_public_key,
+        //     key_epoch:oprf_key_epoch,
+        //     sk: self.signer.offchain_signer_private_key().clone(),
+        //     pks: pubkeys,
+        //     pk_index: pubkey_id,
+        //     merkle_root,
+        //     mt_index: tree_index,
+        //     siblings,
+        //     rp_id,
+        //     action: action_id,
+        //     signal_hash: message_hash,
+        //     merkle_epoch,
+        //     nonce,
+        //     signature,
+        //     id_commitment_r,
+        //     degree: DEGREE,
+        //     query_pk: self.query_pk()?,
+        //     query_matrices: self.query_matrices()?,
+        //     nullifier_pk: self.nullifier_pk()?,
+        //     nullifier_matrices: self.nullifier_matrices()?,
+        // };
 
-        Ok(oprf_client::nullifier(
-            &self.config.nullifier_oracle_urls(),
-            nullifier_args,
-            &mut rng,
-        )
-        .await?)
+        // Ok(oprf_client::nullifier(
+        //     &self.config.nullifier_oracle_urls(),
+        //     nullifier_args,
+        //     &mut rng,
+        // )
+        // .await?)
+        unimplemented!()
     }
 }
