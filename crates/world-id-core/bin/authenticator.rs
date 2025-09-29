@@ -1,12 +1,12 @@
 use std::array;
 
 use ark_ff::{AdditiveGroup, PrimeField, UniformRand};
-use world_id_core::{Authenticator, config::Config};
 use eddsa_babyjubjub::EdDSAPrivateKey;
+use eyre::Result;
 use oprf_client::BaseField;
 use oprf_types::RpId;
-use eyre::Result;
 use poseidon2::Poseidon2;
+use world_id_core::{config::Config, Authenticator};
 
 const PK_DS: &[u8] = b"World ID PK";
 
@@ -17,8 +17,8 @@ fn get_pk_ds() -> BaseField {
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{
-        EnvFilter,
         fmt::{self},
+        EnvFilter,
     };
 
     let fmt_layer = fmt::layer().with_target(false).with_line_number(false);
@@ -56,7 +56,15 @@ async fn main() -> Result<()> {
     let action_id = BaseField::rand(&mut rng);
     let message_hash = BaseField::rand(&mut rng);
 
-    let (proof, nullifier) = authenticator.generate_proof(RpId::new(1), action_id, message_hash, dummy_rp_sk.sign(nonce), nonce).await?;
+    let (proof, nullifier) = authenticator
+        .generate_proof(
+            RpId::new(1),
+            action_id,
+            message_hash,
+            dummy_rp_sk.sign(nonce),
+            nonce,
+        )
+        .await?;
 
     println!("proof: {:?}", proof);
     println!("nullifier: {:?}", nullifier);

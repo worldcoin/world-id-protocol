@@ -184,12 +184,10 @@ fn req_address(field: &str, s: &str) -> ApiResult<Address> {
     parse_address(s).map_err(|e| ApiError::bad_req(field, e))
 }
 fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
-    s.parse()
-        .map_err(|e| ApiError::bad_req(field, e))
+    s.parse().map_err(|e| ApiError::bad_req(field, e))
 }
 fn req_bytes(field: &str, s: &str) -> ApiResult<Bytes> {
-    s.parse()
-        .map_err(|e| ApiError::bad_req(field, e))
+    s.parse().map_err(|e| ApiError::bad_req(field, e))
 }
 fn req_u256_vec(field: &str, v: &[String]) -> ApiResult<Vec<U256>> {
     v.iter().map(|s| req_u256(field, s)).collect()

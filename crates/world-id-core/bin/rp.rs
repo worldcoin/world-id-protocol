@@ -3,8 +3,8 @@ use eyre::Result;
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{
-        EnvFilter,
         fmt::{self},
+        EnvFilter,
     };
 
     let fmt_layer = fmt::layer().with_target(false).with_line_number(false);

@@ -19,7 +19,7 @@ use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use eyre::Result;
 use groth16::{ConstraintMatrices, ProvingKey};
 use oprf_client::{Affine, BaseField, NullifierArgs, Projective, ScalarField};
-use oprf_types::{ShareEpoch, MerkleEpoch, RpId};
+use oprf_types::{MerkleEpoch, RpId, ShareEpoch};
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -84,8 +84,7 @@ impl Authenticator {
 
     pub async fn registry(&self) -> Result<Arc<AccountRegistryInstance<DynProvider>>> {
         let provider = ProviderBuilder::new().connect_http(self.config.rpc_url().parse()?);
-        let contract =
-            AccountRegistry::new(*self.config.registry_address(), provider.erased());
+        let contract = AccountRegistry::new(*self.config.registry_address(), provider.erased());
         Ok(REGISTRY.get_or_init(|| Arc::new(contract)).clone())
     }
 

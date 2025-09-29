@@ -17,6 +17,11 @@ pub struct ProofResponse {
 
 impl ProofResponse {
     pub fn new(account_index: u64, leaf_index: u64, root: U256, proof: Vec<U256>) -> Self {
-        Self { account_index, leaf_index, root, proof }
+        Self {
+            account_index,
+            leaf_index,
+            root,
+            proof,
+        }
     }
 }
