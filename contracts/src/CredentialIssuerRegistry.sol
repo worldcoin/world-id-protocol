@@ -46,7 +46,7 @@ contract CredentialIssuerRegistry is AbstractSignerPubkeyRegistry {
     event IssuerPubkeyUpdated(uint256 indexed issuerId, Pubkey oldPubkey, Pubkey newPubkey, address signer);
     event IssuerSignerUpdated(uint256 indexed issuerId, address oldSigner, address newSigner);
     event IssuerSchemaIdRegistered(uint256 indexed issuerSchemaId, uint256 indexed issuerId, string schemaUri);
-    event IssuerSchemaUriUpdated(uint256 indexed issuerSchemaId, string schemaUri);
+    event IssuerSchemaUriUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -137,10 +137,11 @@ contract CredentialIssuerRegistry is AbstractSignerPubkeyRegistry {
         bytes32 hash =
             _hashTypedDataV4(keccak256(abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUri)));
         address signer = ECDSA.recover(hash, signature);
-        require(_addressToId[signer] == issuerSchemaIdToIssuerId[issuerSchemaId], "invalid signature");
+        require(_addressToId[signer] == issuerSchemaIdToIssuerId[issuerSchemaId], "Registry: invalid signature");
 
+        string memory oldSchemaUri = issuerSchemaIdToSchemaUri[issuerSchemaId];
         issuerSchemaIdToSchemaUri[issuerSchemaId] = schemaUri;
 
-        emit IssuerSchemaUriUpdated(issuerSchemaId, schemaUri);
+        emit IssuerSchemaUriUpdated(issuerSchemaId, oldSchemaUri, schemaUri);
     }
 }

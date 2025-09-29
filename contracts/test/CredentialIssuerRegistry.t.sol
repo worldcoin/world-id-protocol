@@ -150,7 +150,9 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
         // update
         bytes memory updateSig = _signUpdateIssuerSchemaUri(signerSk, 2, "https://world.org/schemas/orb_v2.json");
         vm.expectEmit();
-        emit CredentialIssuerRegistry.IssuerSchemaUriUpdated(2, "https://world.org/schemas/orb_v2.json");
+        emit CredentialIssuerRegistry.IssuerSchemaUriUpdated(
+            2, "https://world.org/schemas/orb.json", "https://world.org/schemas/orb_v2.json"
+        );
         registry.updateIssuerSchemaUri(2, "https://world.org/schemas/orb_v2.json", updateSig);
         assertEq(registry.issuerSchemaIdToSchemaUri(2), "https://world.org/schemas/orb_v2.json");
     }
@@ -168,5 +170,41 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
 
         assertEq(registry.issuerSchemaIdToIssuerId(2), 0);
         assertEq(registry.issuerSchemaIdToSchemaUri(2), "");
+    }
+
+    function testOnlyIssuerCanUpdateSchemaUri() public {
+        uint256 signerSk = 0xAAA6;
+        uint256 badSk = 0xAAA7;
+        address signer = vm.addr(signerSk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory sig = _signRegisterIssuerSchemaId(signerSk, 2, 1, "https://world.org/schemas/orb.json");
+        registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb.json", sig);
+
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(badSk, 2, "https://world.org/schemas/malicious.json");
+        vm.expectRevert(bytes("Registry: invalid signature"));
+        registry.updateIssuerSchemaUri(2, "https://world.org/schemas/malicious.json", updateSig);
+        assertEq(registry.issuerSchemaIdToSchemaUri(2), "https://world.org/schemas/orb.json");
+    }
+
+    function testCannotRegisterSameSchemaId() public {
+        uint256 signerSk = 0xAAA6;
+        uint256 anotherSk = 0xAAA7;
+        address signer = vm.addr(signerSk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory sig = _signRegisterIssuerSchemaId(signerSk, 2, 1, "https://world.org/schemas/orb.json");
+        vm.expectEmit();
+        emit CredentialIssuerRegistry.IssuerSchemaIdRegistered(2, 1, "https://world.org/schemas/orb.json");
+        registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb.json", sig);
+
+        vm.expectRevert(bytes("Schema ID already registered"));
+        registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb_v4.json", sig);
+
+        bytes memory sig2 = _signRegisterIssuerSchemaId(anotherSk, 2, 1, "https://world.org/schemas/orb_v4.json");
+        vm.expectRevert(bytes("Schema ID already registered"));
+        registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb_v4.json", sig2);
+
+        assertEq(registry.issuerSchemaIdToSchemaUri(2), "https://world.org/schemas/orb.json");
     }
 }
