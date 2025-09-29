@@ -67,11 +67,10 @@ contract AccountRegistryTest is Test {
         return (signature, emptyProof());
     }
 
-    function updateRecoveryAddressSignature(
-        uint256 accountIndex,
-        address newRecoveryAddress,
-        uint256 nonce
-    ) private returns (bytes memory) {
+    function updateRecoveryAddressSignature(uint256 accountIndex, address newRecoveryAddress, uint256 nonce)
+        private
+        returns (bytes memory)
+    {
         return eip712Sign(
             accountRegistry.UPDATE_RECOVERY_ADDRESS_TYPEHASH(),
             abi.encode(accountIndex, newRecoveryAddress, nonce),
@@ -244,12 +243,10 @@ contract AccountRegistryTest is Test {
 
         // Both authenticators should now belong to the same account
         assertEq(
-            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)),
-            accountIndex
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)), accountIndex
         );
         assertEq(
-            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2)),
-            accountIndex
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2)), accountIndex
         );
     }
 
@@ -283,8 +280,7 @@ contract AccountRegistryTest is Test {
         // AUTHENTICATOR_ADDRESS2 should be removed; AUTHENTICATOR_ADDRESS1 remains
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS2), 0);
         assertEq(
-            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)),
-            accountIndex
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1)), accountIndex
         );
     }
 
@@ -355,8 +351,7 @@ contract AccountRegistryTest is Test {
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(AUTHENTICATOR_ADDRESS1) >> 224, 0);
         // New authenticator added with higher recovery counter
         assertEq(
-            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR)),
-            uint192(accountIndex)
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR)), uint192(accountIndex)
         );
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR) >> 224, 1);
     }
