@@ -4,9 +4,9 @@
 
 Monorepo containing:
 
-- `services/registry-gateway`: HTTP API service to interact with onchain `AuthenticatorRegistry` 
+- `services/registry-gateway`: HTTP API service to interact with onchain `AuthenticatorRegistry`
 - `services/authtree-indexer`: Indexer for `AccountCreated` events serving inclusion proofs
-- `crates/common`: Shared Rust library
+- `crates/world-id-core`: The core library of the World ID Protocol
 - `contracts/`: Onchain contracts
 
 ## Prerequisites
@@ -16,6 +16,7 @@ Monorepo containing:
 - Postgres (for the indexer) if you run `authtree-indexer`
 
 Optional:
+
 - `direnv` or `.env` files via `dotenvy` for service env vars
 
 ## Make targets

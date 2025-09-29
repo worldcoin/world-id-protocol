@@ -95,6 +95,7 @@ async fn reset_db(pool: &PgPool) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires additional setup"]
 async fn e2e_backfill_and_live_sync() {
     // Use externally provided Postgres URL (e.g. via docker-compose or local postgres)
     let db_url =
