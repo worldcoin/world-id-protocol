@@ -1,0 +1,11 @@
+{
+    "rpc_url": "http://localhost:8545",
+    "registry_address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "indexer_url": "http://localhost:8080",
+    "gateway_url": "http://localhost:8081",
+    "nullifier_oracle_urls": [
+        "http://127.0.0.1:10000",
+        "http://127.0.0.1:10001",
+        "http://127.0.0.1:10002"
+    ]
+}
