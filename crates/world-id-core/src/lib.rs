@@ -14,4 +14,6 @@ pub use authenticator::Authenticator;
 pub mod authenticator_registry;
 
 mod credential;
-pub use credential::Credential;
+pub use credential::{Claims, Credential};
+
+pub mod primitives;

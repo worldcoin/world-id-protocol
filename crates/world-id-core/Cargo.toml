@@ -6,11 +6,15 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
+alloy = { version = "1.0.36", features = ["contract", "signer-local", "sol-types"], default-features = false }
+ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
-serde = { workspace = true }
-tracing = { workspace = true }
-alloy = { version = "1.0.22", features = ["full"] }
 ciborium = "0.2.2"
+hex = { workspace = true }
+ruint = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
 
