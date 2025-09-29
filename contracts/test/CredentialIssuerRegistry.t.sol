@@ -135,6 +135,8 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
 
         assertEq(registry.issuerSchemaIdToIssuerId(2), 1);
         assertEq(registry.issuerSchemaIdToSchemaUri(2), "https://world.org/schemas/orb.json");
+
+        assertEq(registry.getIssuerSchemaUri(2), "https://world.org/schemas/orb.json");
     }
 
     function testUpdateIssuerSchemaUriFlow() public {
@@ -206,5 +208,16 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
         registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb_v4.json", sig2);
 
         assertEq(registry.issuerSchemaIdToSchemaUri(2), "https://world.org/schemas/orb.json");
+    }
+
+    function testIssuerSchemaIdToPubkey() public {
+        uint256 signerSk = 0xAAA6;
+        address signer = vm.addr(signerSk);
+        A.Pubkey memory pubkey = _generatePubkey("k");
+        registry.register(pubkey, signer);
+
+        bytes memory sig = _signRegisterIssuerSchemaId(signerSk, 2, 1, "https://world.org/schemas/orb.json");
+        registry.registerIssuerSchemaId(2, 1, "https://world.org/schemas/orb.json", sig);
+        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(2), pubkey));
     }
 }

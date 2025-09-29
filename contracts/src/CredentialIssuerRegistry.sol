@@ -102,8 +102,26 @@ contract CredentialIssuerRegistry is AbstractSignerPubkeyRegistry {
     }
 
     /**
-     * @dev Registers an issuerSchemaID.
-     * @param issuerSchemaId The issuer-schema ID. Unique identifier per-issuer, per-schema.
+     * @dev Returns the pubkey authorized to sign for a specific issuerSchemaId.
+     * @param issuerSchemaId The issuer+schema ID.
+     * @return The pubkey for the issuerSchemaId.
+     */
+    function issuerSchemaIdToPubkey(uint256 issuerSchemaId) public view returns (Pubkey memory) {
+        return _idToPubkey[issuerSchemaIdToIssuerId[issuerSchemaId]];
+    }
+
+    /**
+     * @dev Returns the schema URI for a specific issuerSchemaId.
+     * @param issuerSchemaId The issuer+schema ID.
+     * @return The schema URI for the issuerSchemaId.
+     */
+    function getIssuerSchemaUri(uint256 issuerSchemaId) public view returns (string memory) {
+        return issuerSchemaIdToSchemaUri[issuerSchemaId];
+    }
+
+    /**
+     * @dev Registers an issuerSchemaId. An issuerSchemaId is a unique (schema, issuer) identifier.
+     * @param issuerSchemaId The issuer+schema ID to register.
      * @param id The issuer ID.
      * @param schemaUri The schema URI. Generally a globally defined schema URI.
      * @param signature The signature of the issuer.
