@@ -1,7 +1,6 @@
 //! Introduces low level primitives for interacting with the World ID Protocol.
 
-use ark_babyjubjub::Fq;
-use ark_bn254::Fr;
+use ark_babyjubjub::{Fq, Fr};
 pub use ark_ff::AdditiveGroup;
 use ark_ff::{BigInteger, PrimeField};
 use ruint::aliases::U256;
