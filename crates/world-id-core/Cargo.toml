@@ -10,9 +10,11 @@ alloy = { version = "1.0.36", features = ["contract", "signer-local", "sol-types
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
+ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 anyhow = { workspace = true }
 ciborium = "0.2.2"
 hex = { workspace = true }
+poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 ruint = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
