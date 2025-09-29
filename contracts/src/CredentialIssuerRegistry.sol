@@ -122,7 +122,7 @@ contract CredentialIssuerRegistry is AbstractSignerPubkeyRegistry {
     /**
      * @dev Registers an issuerSchemaId. An issuerSchemaId is a unique (schema, issuer) identifier.
      * @param issuerSchemaId The issuer+schema ID to register.
-     * @param id The issuer ID.
+     * @param id The issuer ID. Reflects parameter name in the `register` function.
      * @param schemaUri The schema URI. Generally a globally defined schema URI.
      * @param signature The signature of the issuer.
      */
@@ -145,10 +145,10 @@ contract CredentialIssuerRegistry is AbstractSignerPubkeyRegistry {
     }
 
     /**
-     * @dev Removes an issuer schema ID.
-     * @param issuerSchemaId The issuer-schema ID.
-     * @param schemaUri The new schema URI.
-     * @param signature The signature of the issuer.
+     * @dev Updates the schema URI for a specific issuer schema ID.
+     * @param issuerSchemaId The issuer-schema ID whose schema URI will be updated.
+     * @param schemaUri The new schema URI to set.
+     * @param signature The signature of the issuer authorizing the update.
      */
     function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature) public {
         require(issuerSchemaIdToIssuerId[issuerSchemaId] != 0, "Schema ID not registered");
