@@ -11,28 +11,6 @@ pub enum Version {
     V1 = 1,
 }
 
-impl From<Version> for u8 {
-    fn from(value: Version) -> Self {
-        value as u8
-    }
-}
-
-impl TryFrom<u8> for Version {
-    type Error = VersionError;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(Version::V1),
-            other => Err(VersionError::Unknown(other)),
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum VersionError {
-    #[error("unknown version: {0}")]
-    Unknown(u8),
-}
-
 /// Authenticator request
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticatorRequest {
@@ -49,7 +27,7 @@ pub struct AuthenticatorRequest {
     /// ISO8601 timestamp when request expires
     #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
-    /// Registered RP id (chain-level identifier)
+    /// Registered RP id
     pub rp_id: U256,
     /// App id
     pub app_id: String,
@@ -64,10 +42,10 @@ pub struct AuthenticatorRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CredentialRequest {
-    /// Credential type string
+    /// Credential type
     #[serde(rename = "type")]
     pub credential_type: String,
-    /// Optional signal commitment
+    /// Optional signal
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
 }
@@ -75,7 +53,7 @@ pub struct CredentialRequest {
 /// Authenticator response per docs spec
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticatorResponse {
-    /// Echo request id
+    /// Response id references request id
     pub id: String,
     /// Version corresponding to request version
     pub version: Version,
@@ -88,13 +66,13 @@ pub struct ResponseItem {
     /// Credential type string this item refers to
     #[serde(rename = "type")]
     pub credential_type: String,
-    /// Proof payload when applicable
+    /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<String>,
-    /// Computed nullifier when applicable
+    /// Computed nullifier
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nullifier: Option<String>,
-    /// Session identifier if established
+    /// Session identifier
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     /// Present if credential not provided

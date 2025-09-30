@@ -1,4 +1,4 @@
-//! Request/response models and action encoding used by authenticators and clients.
+//! Request/response models
 
 pub mod action;
 pub mod constraints;
