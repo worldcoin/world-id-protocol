@@ -14,7 +14,7 @@ pub enum CredentialVersion {
 }
 
 /// The base field for the credential.
-pub type BaseField = ark_babyjubjub::Fq;
+pub type BaseField = ark_bn254::Fr;
 
 static MAX_CLAIMS: usize = 16;
 
