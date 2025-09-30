@@ -502,10 +502,9 @@ impl OpsBatcherRunner {
                             *new_authenticator_address,
                             *pubkey_id,
                             *old_commit,
-                            *new_commit,
                             signature.clone(),
                             sibling_nodes.clone(),
-                            *nonce,
+                            *new_commit,
                         )
                         .calldata()
                         .clone(),
@@ -524,10 +523,9 @@ impl OpsBatcherRunner {
                             *new_authenticator_address,
                             *pubkey_id,
                             *old_commit,
-                            *new_commit,
                             signature.clone(),
                             sibling_nodes.clone(),
-                            *nonce,
+                            *new_commit,
                         )
                         .calldata()
                         .clone(),
@@ -546,10 +544,9 @@ impl OpsBatcherRunner {
                             *authenticator_address,
                             *pubkey_id,
                             *old_commit,
-                            *new_commit,
                             signature.clone(),
                             sibling_nodes.clone(),
-                            *nonce,
+                            *new_commit,
                         )
                         .calldata()
                         .clone(),

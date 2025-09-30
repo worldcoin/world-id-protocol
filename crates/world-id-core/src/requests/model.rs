@@ -1,4 +1,5 @@
-use crate::constraints::ConstraintExpr;
+use crate::requests::constraints::ConstraintExpr;
+use alloy::primitives::U256;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -19,8 +20,8 @@ pub struct AuthenticatorRequest {
     /// ISO8601 timestamp when request expires
     #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
-    /// Registered RP id
-    pub rp_id: String,
+    /// Registered RP id (chain-level identifier)
+    pub rp_id: U256,
     /// App id
     pub app_id: String,
     /// Encoded action string (act_...)
@@ -40,7 +41,6 @@ pub struct CredentialRequest {
     /// Optional signal commitment
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
-    // TODO more fields?
 }
 
 /// Authenticator response per docs spec
@@ -185,3 +185,5 @@ pub enum ValidationError {
     #[error("Constraints nesting exceeds maximum allowed depth")]
     ConstraintTooDeep,
 }
+
+

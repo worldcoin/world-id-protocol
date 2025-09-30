@@ -7,6 +7,10 @@ pub mod account_signer;
 pub mod config;
 use alloy::primitives::U256;
 
+// Feature-gated requests module (action/constraints/models) for idkit and walletkit usage
+#[cfg(feature = "requests")]
+pub mod requests;
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ProofResponse {
     account_index: u64,
