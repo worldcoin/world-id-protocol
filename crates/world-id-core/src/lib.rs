@@ -7,6 +7,9 @@ pub mod account_signer;
 pub mod config;
 use alloy::primitives::U256;
 
+mod credential;
+pub use credential::Credential;
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ProofResponse {
     account_index: u64,
