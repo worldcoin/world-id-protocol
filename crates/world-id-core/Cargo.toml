@@ -15,23 +15,18 @@ path = "bin/rp.rs"
 
 [dependencies]
 alloy = { version = "1.0.36", features = ["contract", "signer-local", "sol-types"], default-features = false }
-ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
-ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 anyhow = { workspace = true }
 ciborium = "0.2.2"
 hex = { workspace = true }
-poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 ruint = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-alloy = { version = "1.0.22", features = ["full"] }
 eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-hex = "0.4"
 oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
@@ -41,11 +36,8 @@ ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-servic
 poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 rand = "0.8.5"
 ark-ec = "0.5.0"
-ark-ff = "0.5.0"
 uuid = "1.14.0"
 witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git"}
-ark-bn254 = "0.5.0"
 eyre = "0.6.12"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git" }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-tracing-subscriber = { workspace = true }
