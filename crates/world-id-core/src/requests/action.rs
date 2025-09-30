@@ -1,5 +1,6 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
+use sha2::{Digest, Sha256};
 
 /// Action payload encoded/decoded per authenticator.mdx
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -32,13 +33,13 @@ impl WorldIdAction {
         Ok(action)
     }
 
-    /// Get the raw bytes used for hashing in proofs (base64-decoded JSON bytes)
+    /// Compute SHA-256(expires_at_be_u64 || data)
     pub fn hash_input_bytes(encoded: &str) -> Result<Vec<u8>, ActionDecodeError> {
-        let rest = encoded
-            .strip_prefix("act_")
-            .ok_or(ActionDecodeError::MissingPrefix)?;
-        let bytes = STANDARD.decode(rest).map_err(ActionDecodeError::Base64)?;
-        Ok(bytes)
+        let action = Self::decode(encoded)?;
+        let mut hasher = Sha256::new();
+        hasher.update(action.expires_at.to_be_bytes());
+        hasher.update(&action.data);
+        Ok(hasher.finalize().to_vec())
     }
 }
 
