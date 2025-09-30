@@ -115,7 +115,7 @@ impl Credential {
     pub fn get_cred_ds(&self) -> BaseField {
         match self.version {
             CredentialVersion::V1 => {
-                BaseField::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ+DLBE-v1")
+                BaseField::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ")
             }
         }
     }
