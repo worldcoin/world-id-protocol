@@ -19,7 +19,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
-use world_id_core::authenticator_registry::AuthenticatorRegistry;
+use world_id_core::account_registry::AccountRegistry;
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
@@ -92,6 +92,7 @@ struct UpdateAuthenticatorRequest {
     sibling_nodes: Vec<String>,
     signature: String,
     nonce: String,
+    pubkey_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +104,7 @@ struct InsertAuthenticatorRequest {
     sibling_nodes: Vec<String>,
     signature: String,
     nonce: String,
+    pubkey_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +116,7 @@ struct RemoveAuthenticatorRequest {
     sibling_nodes: Vec<String>,
     signature: String,
     nonce: String,
+    pubkey_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,10 +184,10 @@ fn req_address(field: &str, s: &str) -> ApiResult<Address> {
     parse_address(s).map_err(|e| ApiError::bad_req(field, e))
 }
 fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
-    parse_u256(s).map_err(|e| ApiError::bad_req(field, e))
+    s.parse().map_err(|e| ApiError::bad_req(field, e))
 }
 fn req_bytes(field: &str, s: &str) -> ApiResult<Bytes> {
-    parse_bytes(s).map_err(|e| ApiError::bad_req(field, e))
+    s.parse().map_err(|e| ApiError::bad_req(field, e))
 }
 fn req_u256_vec(field: &str, v: &[String]) -> ApiResult<Vec<U256>> {
     v.iter().map(|s| req_u256(field, s)).collect()
@@ -312,7 +315,7 @@ impl CreateBatcherRunner {
     }
     async fn run(mut self) {
         let provider = self.provider.clone();
-        let contract = AuthenticatorRegistry::new(self.registry, provider);
+        let contract = AccountRegistry::new(self.registry, provider);
 
         loop {
             // pull first item (await), then collect the rest within the window
@@ -392,6 +395,7 @@ enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
+        pubkey_id: U256,
     },
     Insert {
         account_index: U256,
@@ -401,6 +405,7 @@ enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
+        pubkey_id: U256,
     },
     Remove {
         account_index: U256,
@@ -410,6 +415,7 @@ enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
+        pubkey_id: U256,
     },
     Recover {
         account_index: U256,
@@ -452,7 +458,7 @@ impl OpsBatcherRunner {
 
     async fn run(mut self) {
         let provider = self.provider.clone();
-        let contract = AuthenticatorRegistry::new(self.registry, provider.clone());
+        let contract = AccountRegistry::new(self.registry, provider.clone());
         let mc = Multicall3::new(MULTICALL3_ADDR, provider);
 
         loop {
@@ -488,11 +494,13 @@ impl OpsBatcherRunner {
                         signature,
                         sibling_nodes,
                         nonce,
+                        pubkey_id,
                     } => contract
                         .updateAuthenticator(
                             *account_index,
                             *old_authenticator_address,
                             *new_authenticator_address,
+                            *pubkey_id,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -509,10 +517,12 @@ impl OpsBatcherRunner {
                         signature,
                         sibling_nodes,
                         nonce,
+                        pubkey_id,
                     } => contract
                         .insertAuthenticator(
                             *account_index,
                             *new_authenticator_address,
+                            *pubkey_id,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -529,10 +539,12 @@ impl OpsBatcherRunner {
                         signature,
                         sibling_nodes,
                         nonce,
+                        pubkey_id,
                     } => contract
                         .removeAuthenticator(
                             *account_index,
                             *authenticator_address,
+                            *pubkey_id,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -580,6 +592,10 @@ impl OpsBatcherRunner {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "multicall3 send failed");
+                    let err = anyhow::anyhow!(e.to_string());
+                    for env in batch {
+                        let _ = env.resp.send(Err(anyhow::anyhow!(err.to_string())));
+                    }
                 }
             }
         }
@@ -675,6 +691,12 @@ async fn update_authenticator(
             sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
             signature: req_bytes("signature", &req.signature)?,
             nonce: req_u256("nonce", &req.nonce)?,
+            pubkey_id: req
+                .pubkey_id
+                .as_deref()
+                .map(|s| req_u256("pubkey_id", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: oneshot::channel().0, // placeholder, replaced below
     };
@@ -717,6 +739,12 @@ async fn insert_authenticator(
             sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
             signature: req_bytes("signature", &req.signature)?,
             nonce: req_u256("nonce", &req.nonce)?,
+            pubkey_id: req
+                .pubkey_id
+                .as_deref()
+                .map(|s| req_u256("pubkey_id", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: tx,
     };
@@ -757,6 +785,12 @@ async fn remove_authenticator(
             sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
             signature: req_bytes("signature", &req.signature)?,
             nonce: req_u256("nonce", &req.nonce)?,
+            pubkey_id: req
+                .pubkey_id
+                .as_deref()
+                .map(|s| req_u256("pubkey_id", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: tx,
     };
@@ -824,7 +858,7 @@ async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
-    let contract = AuthenticatorRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
         .call()

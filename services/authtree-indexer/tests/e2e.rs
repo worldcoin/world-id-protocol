@@ -8,7 +8,7 @@ const ANVIL_PORT: u16 = 8547;
 const ANVIL_HTTP_URL: &str = "http://127.0.0.1:8547";
 const ANVIL_WS_URL: &str = "ws://127.0.0.1:8547";
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
-const DEFAULT_RECOVERY_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
+const RECOVERY_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
 
 fn start_anvil() -> std::process::Child {
     // TODO: improve this and make use of alloy's Anvil provider (like in the other e2e test)
@@ -29,7 +29,7 @@ fn deploy_registry() -> String {
     let mut cmd = Command::new("forge");
     cmd.current_dir("../../contracts")
         .arg("script")
-        .arg("script/AuthenticatorRegistry.s.sol:CounterScript")
+        .arg("script/AccountRegistry.s.sol:CounterScript")
         .arg("--fork-url")
         .arg(ANVIL_HTTP_URL)
         .arg("--broadcast")
@@ -45,7 +45,7 @@ fn deploy_registry() -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let re = Regex::new(r"AuthenticatorRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
+    let re = Regex::new(r"AccountRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
     let addr = re
         .captures(&stdout)
         .and_then(|c| c.get(1))
@@ -131,13 +131,13 @@ async fn e2e_backfill_and_live_sync() {
     // Pre-insert a couple accounts before starting indexer (backfill test)
     cast_create_account(
         &registry_addr,
-        DEFAULT_RECOVERY_ADDRESS,
+        RECOVERY_ADDRESS,
         "0x0000000000000000000000000000000000000011",
         "1",
     );
     cast_create_account(
         &registry_addr,
-        DEFAULT_RECOVERY_ADDRESS,
+        RECOVERY_ADDRESS,
         "0x0000000000000000000000000000000000000012",
         "2",
     );
@@ -172,13 +172,13 @@ async fn e2e_backfill_and_live_sync() {
     // Live insert more accounts while WS stream is active
     cast_create_account(
         &registry_addr,
-        DEFAULT_RECOVERY_ADDRESS,
+        RECOVERY_ADDRESS,
         "0x0000000000000000000000000000000000000013",
         "3",
     );
     cast_create_account(
         &registry_addr,
-        DEFAULT_RECOVERY_ADDRESS,
+        RECOVERY_ADDRESS,
         "0x0000000000000000000000000000000000000014",
         "4",
     );

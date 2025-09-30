@@ -8,6 +8,8 @@ use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use axum::extract::{Path, State};
+use axum::response::IntoResponse;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use semaphore_rs_hasher::Hasher;
 use semaphore_rs_trees::imt::MerkleTree;
@@ -16,15 +18,13 @@ use semaphore_rs_trees::Branch;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use world_id_core::authenticator_registry::AuthenticatorRegistry;
-
-use axum::extract::{Path, State};
-use axum::response::IntoResponse;
+use world_id_core::account_registry::AccountRegistry;
+use world_id_core::ProofResponse;
 
 #[derive(Debug, Clone)]
 pub struct DecodedAccountCreated {
     pub account_index_hex: String,
-    pub recovery_address_bytes: Vec<u8>,
+    pub recovery_address_bytes: String,
     pub authenticator_addresses_hex: Vec<String>,
     pub offchain_signer_commitment_hex: String,
 }
@@ -32,7 +32,7 @@ pub struct DecodedAccountCreated {
 #[derive(Clone, Debug)]
 pub struct IndexerConfig {
     pub rpc_url: String,
-    pub ws_url: Option<String>,
+    pub ws_url: String,
     pub registry_address: Address,
     pub db_url: String,
     pub start_block: u64,
@@ -133,23 +133,15 @@ async fn update_tree_with_event(ev: &DecodedAccountCreated) -> anyhow::Result<()
     Ok(())
 }
 
-#[derive(serde::Serialize)]
-struct ProofResponse {
-    account_index: u64,
-    leaf_index: u64,
-    root: String,
-    proof: Vec<String>,
-}
-
-fn proof_to_json(proof: &InclusionProof<PoseidonHasher>) -> Vec<String> {
+fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
     proof
         .0
         .iter()
         .map(|b| match b {
-            Branch::Left(sib) => format!("0x{:x}", sib),
-            Branch::Right(sib) => format!("0x{:x}", sib),
+            Branch::Left(sib) => *sib,
+            Branch::Right(sib) => *sib,
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 async fn http_get_proof(
@@ -186,13 +178,12 @@ async fn http_get_proof(
     let tree = GLOBAL_TREE.read().await;
     match tree.proof(leaf_index) {
         Some(proof) => {
-            let root_hex = format!("0x{:x}", tree.root());
-            let resp = ProofResponse {
+            let resp = ProofResponse::new(
                 account_index,
-                leaf_index: leaf_index as u64,
-                root: root_hex,
-                proof: proof_to_json(&proof),
-            };
+                leaf_index as u64,
+                tree.root(),
+                proof_to_vec(&proof),
+            );
             (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
         }
         None => (
@@ -231,14 +222,13 @@ pub async fn run_from_env() -> anyhow::Result<()> {
 
 pub fn load_config_from_env() -> IndexerConfig {
     use alloy::primitives::address;
-    let rpc_url = std::env::var("RPC_URL").expect("RPC_URL is required");
+    let rpc_url = std::env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
     let registry_address = std::env::var("REGISTRY_ADDRESS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or_else(|| address!("0x0000000000000000000000000000000000000000"));
     let db_url = std::env::var("DATABASE_URL")
-        .or_else(|_| std::env::var("PG_URL"))
-        .expect("DATABASE_URL/PG_URL");
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/postgres".to_string());
     let start_block: u64 = std::env::var("START_BLOCK")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -246,8 +236,8 @@ pub fn load_config_from_env() -> IndexerConfig {
     let batch_size: u64 = std::env::var("BATCH_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(5_000);
-    let ws_url = std::env::var("WS_URL").ok();
+        .unwrap_or(64);
+    let ws_url = std::env::var("WS_URL").unwrap_or_else(|_| "ws://localhost:8545".to_string());
     let http_addr = std::env::var("HTTP_ADDR")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -300,18 +290,11 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
         }
     }
 
-    // After backfill, follow via WS if WS_URL is provided; otherwise continue serving HTTP
-    if let Some(ws_url) = cfg.ws_url {
-        tracing::info!("switching to websocket live follow");
-        stream_logs(&ws_url, &pool, cfg.registry_address, from).await?;
-        Ok(())
-    } else {
-        // No WS: keep HTTP server running indefinitely
-        if let Err(e) = http_handle.await {
-            return Err(anyhow::anyhow!(format!("http server task error: {}", e)));
-        }
-        Ok(())
-    }
+    tracing::info!("switching to websocket live follow");
+    stream_logs(&cfg.ws_url, &pool, cfg.registry_address, from).await?;
+
+    http_handle.abort();
+    Ok(())
 }
 
 pub async fn make_db_pool(db_url: &str) -> anyhow::Result<PgPool> {
@@ -367,7 +350,7 @@ pub async fn backfill<P: Provider>(
 
     let filter = Filter::new()
         .address(registry)
-        .event_signature(AuthenticatorRegistry::AccountCreated::SIGNATURE_HASH)
+        .event_signature(AccountRegistry::AccountCreated::SIGNATURE_HASH)
         .from_block(*from_block)
         .to_block(to_block);
 
@@ -399,11 +382,11 @@ pub fn decode_account_created(
     // Convert RPC log to primitives Log and use typed decoder
     let prim = PLog::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = AuthenticatorRegistry::AccountCreated::decode_log(&prim)?; // returns Log<AccountCreated>
+    let typed = AccountRegistry::AccountCreated::decode_log(&prim)?; // returns Log<AccountCreated>
     let ev = typed.data;
 
     let account_index_hex = format!("0x{:x}", ev.accountIndex);
-    let recovery_address_bytes: Vec<u8> = ev.recoveryAddress.0.to_vec();
+    let recovery_address_bytes = format!("0x{:x}", ev.recoveryAddress);
     let authenticator_addresses_hex = ev
         .authenticatorAddresses
         .into_iter()
@@ -456,12 +439,13 @@ pub async fn stream_logs(
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
     let filter = Filter::new()
         .address(registry)
-        .event_signature(AuthenticatorRegistry::AccountCreated::SIGNATURE_HASH)
+        .event_signature(AccountRegistry::AccountCreated::SIGNATURE_HASH)
         .from_block(start_from);
     let sub = provider.subscribe_logs(&filter).await?;
     let mut stream = sub.into_stream();
     while let Some(log) = stream.next().await {
         if let Ok(decoded) = decode_account_created(&log) {
+            tracing::info!(?decoded, "processing live AccountCreated log");
             insert_account(pool, &decoded).await?;
             if let Err(e) = update_tree_with_event(&decoded).await {
                 tracing::error!(?e, "failed to update tree for live event");
