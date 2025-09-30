@@ -11,6 +11,36 @@ pub enum Version {
     V1 = 1,
 }
 
+// conversions for serde via #[serde(try_from = "u8", into = "u8")]
+impl From<Version> for u8 {
+    fn from(value: Version) -> Self {
+        match value {
+            Version::V1 => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VersionParseError(pub u8);
+
+impl std::fmt::Display for VersionParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid version {}", self.0)
+    }
+}
+
+impl std::error::Error for VersionParseError {}
+
+impl TryFrom<u8> for Version {
+    type Error = VersionParseError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Version::V1),
+            other => Err(VersionParseError(other)),
+        }
+    }
+}
+
 /// Authenticator request
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticatorRequest {
