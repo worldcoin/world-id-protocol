@@ -52,3 +52,28 @@ pub enum ActionDecodeError {
     #[error("invalid json: {0}")]
     Json(serde_json::Error),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn action_roundtrip_and_hash_bytes() {
+        let action = WorldIdAction {
+            expires_at: 1_700_000_000,
+            data: b"hello".to_vec(),
+            description: "Test".to_string(),
+        };
+        let enc = action.encode();
+        assert!(enc.starts_with("act_"));
+        let dec = WorldIdAction::decode(&enc).unwrap();
+        assert_eq!(dec, action);
+
+        let bytes = WorldIdAction::hash_input_bytes(&enc).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(action.expires_at.to_be_bytes());
+        hasher.update(&action.data);
+        let expected = hasher.finalize().to_vec();
+        assert_eq!(bytes, expected);
+    }
+}
