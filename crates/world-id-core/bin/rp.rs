@@ -23,10 +23,10 @@ async fn main() -> Result<()> {
     install_tracing();
 
     let chain_url = std::env::var("CHAIN_URL").unwrap_or("http://localhost:6789".to_string());
-    let (rp_id, rp_nullifier_key) = oprf_test::register_rp(&chain_url).await?;
+    // let (rp_id, rp_nullifier_key) = oprf_test::register_rp(&chain_url).await?;
 
-    println!("rp_id: {:?}", rp_id);
-    println!("rp_nullifier_key: {:?}", rp_nullifier_key);
+    // println!("rp_id: {:?}", rp_id);
+    // println!("rp_nullifier_key: {:?}", rp_nullifier_key);
 
     Ok(())
 }
