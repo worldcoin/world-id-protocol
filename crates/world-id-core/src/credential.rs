@@ -114,9 +114,7 @@ impl Credential {
     /// Get the credential domain separator for the given version.
     pub fn get_cred_ds(&self) -> BaseField {
         match self.version {
-            CredentialVersion::V1 => {
-                BaseField::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ")
-            }
+            CredentialVersion::V1 => BaseField::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
         }
     }
 
