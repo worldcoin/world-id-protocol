@@ -9,6 +9,8 @@ use alloy::primitives::U256;
 
 #[cfg(feature = "requests")]
 pub mod requests;
+mod credential;
+pub use credential::Credential;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ProofResponse {
