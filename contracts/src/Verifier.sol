@@ -12,12 +12,10 @@ contract Verifier is Ownable {
     CredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
     AccountRegistry public accountRegistry;
 
-    constructor(address _rpRegistry, address _credentialIssuerRegistry, address _authenticatorRegistry)
-        Ownable(msg.sender)
-    {
+    constructor(address _rpRegistry, address _credentialIssuerRegistry, address _accountRegistry) Ownable(msg.sender) {
         rpRegistry = RpRegistry(_rpRegistry);
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
-        accountRegistry = AccountRegistry(_authenticatorRegistry);
+        accountRegistry = AccountRegistry(_accountRegistry);
     }
 
     event AccountRegistryUpdated(address oldAccountRegistry, address newAccountRegistry);

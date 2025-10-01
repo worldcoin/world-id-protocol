@@ -1,32 +1,239 @@
-//! The main Authenticator instance.
-//!
-//! The Authenticator is the user's entry point to the World ID Protocol.
+use std::sync::{Arc, OnceLock};
+use std::{io::Cursor, sync::LazyLock};
 
-use alloy::signers::local::PrivateKeySigner;
-use anyhow::Result;
+use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
+use crate::account_signer::AuthenticatorSigner;
+use crate::config::Config;
+use crate::ProofResponse;
+use alloy::primitives::{Address, U256};
+use alloy::providers::ProviderBuilder;
+use alloy::providers::{DynProvider, Provider};
+use alloy::signers::k256::ecdsa::SigningKey;
+use alloy::uint;
+use ark_bn254::{Bn254, Fr};
+use ark_ec::{CurveGroup, PrimeGroup};
+use ark_ff::{AdditiveGroup, PrimeField};
+use ark_serde_compat::groth16::Groth16Proof;
+use circom_types::{groth16::ZKey, traits::CheckElement};
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+use eyre::Result;
+use groth16::{ConstraintMatrices, ProvingKey};
+use oprf_client::{Affine, BaseField, NullifierArgs, Projective, ScalarField};
+use oprf_types::{MerkleEpoch, RpId, ShareEpoch};
 
-/// Authenticator holds an internal Alloy signer.
+static MASK_RECOVERY_COUNTER: U256 =
+    uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
+static MASK_PUBKEY_ID: U256 =
+    uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
+static MASK_ACCOUNT_INDEX: U256 =
+    uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
+
+static MAX_PUBKEYS: usize = 7;
+static TREE_DEPTH: usize = 30;
+
+static ZKEY_QUERY_BYTES: &[u8] = include_bytes!("../../../OPRFQueryProof.zkey");
+static ZKEY_NULLIFIER_BYTES: &[u8] = include_bytes!("../../../OPRFNullifierProof.zkey");
+
+static ZKEY_QUERY: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254>)>> =
+    LazyLock::new(|| {
+        let query_zkey = ZKey::from_reader(Cursor::new(ZKEY_QUERY_BYTES), CheckElement::No)?;
+        Ok(query_zkey.into())
+    });
+
+static ZKEY_NULLIFIER: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254>)>> =
+    LazyLock::new(|| {
+        let nullifier_zkey =
+            ZKey::from_reader(Cursor::new(ZKEY_NULLIFIER_BYTES), CheckElement::No)?;
+        Ok(nullifier_zkey.into())
+    });
+
+static REGISTRY: OnceLock<Arc<AccountRegistryInstance<DynProvider>>> = OnceLock::new();
+
+type OPRFPublicKey = (Affine, ShareEpoch);
+type UniquenessProof = (Groth16Proof, BaseField);
+type MerkleProof = (BaseField, [BaseField; TREE_DEPTH], MerkleEpoch);
+
+// TODO: remove
+static DEGREE: usize = 1;
+
 #[derive(Clone, Debug)]
 pub struct Authenticator {
-    signer: PrivateKeySigner,
+    signer: AuthenticatorSigner,
+    config: Config,
+    packed_account_index: Option<U256>,
 }
 
 impl Authenticator {
-    /// Create a new Authenticator from an input seed string.
-    ///
-    /// The seed is interpreted as a hexadecimal private key string (with or without `0x`).
-    ///
-    /// # Errors
-    /// Will error if the provided decimal is not a valid key.
-    pub fn new_from_seed(seed: &str) -> Result<Self> {
-        let signer: PrivateKeySigner = seed.parse()?;
-        Ok(Self { signer })
+    /// Create a new Authenticator from a seed and config.
+    pub async fn new(seed: &[u8], config: Config) -> Result<Self> {
+        let signer = AuthenticatorSigner::from_seed_bytes(seed)?;
+        Ok(Self {
+            packed_account_index: None,
+            signer,
+            config,
+        })
     }
 
-    /// Returns a reference to the internal signer.
-    #[must_use]
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn signer(&self) -> &PrivateKeySigner {
-        &self.signer
+    pub fn onchain_address(&self) -> Address {
+        self.signer.onchain_signer_address()
+    }
+
+    pub fn offchain_pubkey(&self) -> EdDSAPublicKey {
+        self.signer.offchain_signer_pubkey()
+    }
+
+    pub async fn registry(&self) -> Result<Arc<AccountRegistryInstance<DynProvider>>> {
+        let provider = ProviderBuilder::new().connect_http(self.config.rpc_url().parse()?);
+        let contract = AccountRegistry::new(*self.config.registry_address(), provider.erased());
+        Ok(REGISTRY.get_or_init(|| Arc::new(contract)).clone())
+    }
+
+    pub async fn packed_account_index(&mut self) -> Result<U256> {
+        if let Some(packed_account_index) = self.packed_account_index {
+            return Ok(packed_account_index);
+        }
+
+        let registry = self.registry().await?;
+        let raw_index = registry
+            .authenticatorAddressToPackedAccountIndex(self.signer.onchain_signer_address())
+            .call()
+            .await?;
+
+        self.packed_account_index = Some(raw_index);
+        Ok(raw_index)
+    }
+
+    pub async fn account_index(&mut self) -> Result<U256> {
+        let packed_account_index = self.packed_account_index().await?;
+        let tree_index = packed_account_index & MASK_ACCOUNT_INDEX;
+        Ok(tree_index)
+    }
+
+    pub async fn tree_index(&mut self) -> Result<U256> {
+        let account_index = self.account_index().await?;
+        Ok(account_index - U256::from(1))
+    }
+
+    pub async fn recovery_counter(&mut self) -> Result<U256> {
+        let packed_account_index = self.packed_account_index().await?;
+        let recovery_counter = packed_account_index & MASK_RECOVERY_COUNTER;
+        Ok(recovery_counter >> 224)
+    }
+
+    pub async fn pubkey_id(&mut self) -> Result<U256> {
+        let packed_account_index = self.packed_account_index().await?;
+        let pubkey_id = packed_account_index & MASK_PUBKEY_ID;
+        Ok(pubkey_id >> 192)
+    }
+
+    pub async fn fetch_inclusion_proof(&mut self) -> Result<MerkleProof> {
+        let account_index = self.account_index().await?;
+        let url = format!("{}/proof/{}", self.config.indexer_url(), account_index);
+        let response = reqwest::get(url).await?;
+        let proof = response.json::<ProofResponse>().await?;
+        let root = BaseField::from_be_bytes_mod_order(&proof.root.to_be_bytes::<32>());
+        let proof = proof
+            .proof
+            .into_iter()
+            .map(|p| BaseField::from_be_bytes_mod_order(&p.to_be_bytes::<32>()))
+            .collect::<Vec<_>>();
+        Ok((root, proof.try_into().unwrap(), MerkleEpoch::default()))
+    }
+
+    pub async fn fetch_pubkeys(&self) -> Result<[[BaseField; 2]; MAX_PUBKEYS]> {
+        // TODO: actually fetch from registry
+        let pubkeys = std::array::from_fn(|i| {
+            if i == 0 {
+                let pk = self.signer.offchain_signer_pubkey();
+                [pk.pk.x, pk.pk.y]
+            } else {
+                [BaseField::ZERO, BaseField::ZERO]
+            }
+        });
+        Ok(pubkeys)
+    }
+
+    pub async fn fetch_rp_pubkey(&self, rp_id: U256) -> Result<EdDSAPublicKey> {
+        // TODO: fetch from contract
+        let sk = EdDSAPrivateKey::from_bytes([0; 32]);
+        Ok(sk.public())
+    }
+
+    async fn fetch_oprf_public_key(&self) -> Result<OPRFPublicKey> {
+        // TODO: fetch from contract
+        Ok((
+            (Projective::generator() * ScalarField::from(42)).into_affine(),
+            ShareEpoch::default(),
+        ))
+    }
+
+    fn query_matrices(&self) -> Result<Arc<ConstraintMatrices<Fr>>> {
+        let (matrices, _) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
+        Ok(Arc::new(matrices.clone()))
+    }
+
+    fn query_pk(&self) -> Result<Arc<ProvingKey<Bn254>>> {
+        let (_, pk) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
+        Ok(Arc::new(pk.clone()))
+    }
+
+    fn nullifier_matrices(&self) -> Result<Arc<ConstraintMatrices<Fr>>> {
+        let (matrices, _) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
+        Ok(Arc::new(matrices.clone()))
+    }
+
+    fn nullifier_pk(&self) -> eyre::Result<Arc<ProvingKey<Bn254>>> {
+        let (_, pk) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
+        Ok(Arc::new(pk.clone()))
+    }
+
+    pub async fn generate_proof(
+        &mut self,
+        rp_id: RpId,
+        action_id: BaseField,
+        message_hash: BaseField,
+        rp_signature: EdDSASignature,
+        nonce: BaseField,
+    ) -> Result<UniquenessProof> {
+        let mut rng = rand::thread_rng();
+        let (oprf_public_key, oprf_key_epoch) = self.fetch_oprf_public_key().await?;
+        let tree_index = self.tree_index().await?.as_limbs()[0];
+        let pubkey_id = self.pubkey_id().await?.as_limbs()[0];
+        let pubkeys = self.fetch_pubkeys().await?;
+        let (merkle_root, siblings, merkle_epoch) = self.fetch_inclusion_proof().await?;
+        let id_commitment_r = BaseField::ZERO;
+        let mut rp_signing_key = SigningKey::random(&mut rng);
+        // let signature = rp_signing_key.sign(nonce.to_string().as_bytes());
+
+        // let nullifier_args = NullifierArgs {
+        //     oprf_public_key,
+        //     key_epoch:oprf_key_epoch,
+        //     sk: self.signer.offchain_signer_private_key().clone(),
+        //     pks: pubkeys,
+        //     pk_index: pubkey_id,
+        //     merkle_root,
+        //     mt_index: tree_index,
+        //     siblings,
+        //     rp_id,
+        //     action: action_id,
+        //     signal_hash: message_hash,
+        //     merkle_epoch,
+        //     nonce,
+        //     signature,
+        //     id_commitment_r,
+        //     degree: DEGREE,
+        //     query_pk: self.query_pk()?,
+        //     query_matrices: self.query_matrices()?,
+        //     nullifier_pk: self.nullifier_pk()?,
+        //     nullifier_matrices: self.nullifier_matrices()?,
+        // };
+
+        // Ok(oprf_client::nullifier(
+        //     &self.config.nullifier_oracle_urls(),
+        //     nullifier_args,
+        //     &mut rng,
+        // )
+        // .await?)
+        unimplemented!()
     }
 }

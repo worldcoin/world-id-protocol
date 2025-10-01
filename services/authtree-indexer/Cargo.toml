@@ -11,7 +11,7 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 world-id-core = { path = "../../crates/world-id-core" }
-poseidon2 = { path = "../../crates/poseidon2" }
+poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 alloy = { version = "1.0.22", features = ["full"] }
 dotenvy = "0.15"
 url = "2"
@@ -22,7 +22,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "macro
 semaphore-rs-trees = "0.5.0"
 semaphore-rs-hasher = "0.5.0"
 ark-ff = "0.5.0"
-ark-bn254 = { version = "0.5.0" }
+ark-bn254 = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
 
