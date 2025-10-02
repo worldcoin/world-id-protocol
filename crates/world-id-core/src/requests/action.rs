@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 
 /// Action payload encoded/decoded per authenticator.mdx
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct WorldIdAction {
+pub struct Action {
     /// The timestamp when the action will expire (seconds since epoch)
     pub expires_at: u64,
     /// Arbitrary data to be included. Typically, a UTF-8 string encoded to bytes.
