@@ -85,21 +85,15 @@ pub struct ResponseItem {
 }
 
 impl AuthenticatorResponse {
-    /// Determine if constraints are satisfied given an optional constraint expression.
-    pub fn constraints_satisfied(&self, constraints: Option<&ConstraintExpr<'_>>) -> bool {
-        match constraints {
-            None => true,
-            Some(expr) => {
-                // Build a set of provided credential types that are successful (no error)
-                let provided: HashSet<&str> = self
-                    .responses
-                    .iter()
-                    .filter(|item| item.error.is_none())
-                    .map(|item| item.credential_type.as_str())
-                    .collect();
-                expr.evaluate(&|t| provided.contains(t))
-            }
-        }
+    /// Determine if constraints are satisfied given a constraint expression.
+    pub fn constraints_satisfied(&self, constraints: &ConstraintExpr<'_>) -> bool {
+        let provided: HashSet<&str> = self
+            .responses
+            .iter()
+            .filter(|item| item.error.is_none())
+            .map(|item| item.credential_type.as_str())
+            .collect();
+        constraints.evaluate(&|t| provided.contains(t))
     }
 }
 
@@ -110,96 +104,74 @@ impl AuthenticatorRequest {
         &self,
         available: &HashSet<&str>,
     ) -> Option<Vec<&CredentialRequest>> {
-        use std::collections::HashMap;
+        use std::collections::HashSet as Set;
 
-        // Map requested type -> first corresponding request (to preserve request-specified metadata like signal)
-        let mut type_to_req: HashMap<&str, &CredentialRequest> = HashMap::new();
-        for req in &self.requests {
-            let t = req.credential_type.as_str();
-            type_to_req.entry(t).or_insert(req);
+        // Build set of requested types
+        let requested: Set<&str> = self
+            .requests
+            .iter()
+            .map(|r| r.credential_type.as_str())
+            .collect();
+
+        // Predicate: only select if both available and requested
+        let is_selectable = |t: &str| available.contains(t) && requested.contains(t);
+
+        // Recursive selection helpers
+        fn select_node<'a>(
+            node: &ConstraintNode<'a>,
+            pred: &impl Fn(&str) -> bool,
+        ) -> Option<Vec<&'a str>> {
+            match node {
+                ConstraintNode::Type(t) => pred(t.as_ref()).then(|| vec![t.as_ref()]),
+                ConstraintNode::Expr(e) => select_expr(e, pred),
+            }
         }
 
-        let is_available_and_requested =
-            |t: &str| available.contains(t) && type_to_req.contains_key(t);
-
-        // Helper to collect selection respecting expression semantics
         fn select_expr<'a>(
             expr: &ConstraintExpr<'a>,
             pred: &impl Fn(&str) -> bool,
         ) -> Option<Vec<&'a str>> {
             match expr {
                 ConstraintExpr::All { all } => {
-                    let mut acc: Vec<&'a str> = Vec::new();
-                    for node in all {
-                        let sub = select_node(node, pred)?;
+                    let mut seen: Set<&'a str> = Set::new();
+                    let mut out: Vec<&'a str> = Vec::new();
+                    for n in all {
+                        let sub = select_node(n, pred)?;
                         for s in sub {
-                            if !acc.contains(&s) {
-                                acc.push(s);
+                            if seen.insert(s) {
+                                out.push(s);
                             }
                         }
                     }
-                    Some(acc)
+                    Some(out)
                 }
-                ConstraintExpr::Any { any } => {
-                    for node in any {
-                        if let Some(sel) = select_node(node, pred) {
-                            return Some(sel);
-                        }
-                    }
-                    None
-                }
+                ConstraintExpr::Any { any } => any.iter().find_map(|n| select_node(n, pred)),
             }
         }
 
-        fn select_node<'a>(
-            node: &ConstraintNode<'a>,
-            pred: &impl Fn(&str) -> bool,
-        ) -> Option<Vec<&'a str>> {
-            match node {
-                ConstraintNode::Type(t) => {
-                    let s: &str = t.as_ref();
-                    if pred(s) {
-                        Some(vec![s])
-                    } else {
-                        None
-                    }
-                }
-                ConstraintNode::Expr(e) => select_expr(e, pred),
-            }
+        // If no explicit constraints: require all requested be available
+        if self.constraints.is_none() {
+            return if self
+                .requests
+                .iter()
+                .all(|r| available.contains(r.credential_type.as_str()))
+            {
+                Some(self.requests.iter().collect())
+            } else {
+                None
+            };
         }
 
-        // Compute selection according to constraints or lack thereof
-        let selected_types: Vec<&str> = match &self.constraints {
-            None => {
-                // All requested credentials are required; fail if any is unavailable
-                if self
-                    .requests
-                    .iter()
-                    .all(|r| is_available_and_requested(r.credential_type.as_str()))
-                {
-                    self.requests
-                        .iter()
-                        .map(|r| r.credential_type.as_str())
-                        .collect()
-                } else {
-                    return None;
-                }
-            }
-            Some(expr) => select_expr(expr, &is_available_and_requested)?,
-        };
+        // Compute selected types using the constraint expression
+        let selected_types = select_expr(self.constraints.as_ref().unwrap(), &is_selectable)?;
+        let selected_set: Set<&str> = selected_types.into_iter().collect();
 
-        // Map selected types back to the concrete requests, preserving selection order and deduping
-        let mut result: Vec<&CredentialRequest> = Vec::new();
-        for t in selected_types {
-            if let Some(req) = type_to_req.get(t) {
-                if !result
-                    .iter()
-                    .any(|r| r.credential_type == req.credential_type)
-                {
-                    result.push(*req);
-                }
-            }
-        }
+        // Return requests in original order filtered by selected types
+        let result: Vec<&CredentialRequest> = self
+            .requests
+            .iter()
+            .filter(|r| selected_set.contains(r.credential_type.as_str()))
+            .collect();
         Some(result)
     }
     /// Returns true if the request is expired relative to now
@@ -256,7 +228,19 @@ impl AuthenticatorRequest {
 
     /// Parse from JSON
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
+        let v: Self = serde_json::from_str(json)?;
+        // Enforce unique credential types within a single request
+        let mut seen: HashSet<&str> = HashSet::new();
+        for r in &v.requests {
+            let t = r.credential_type.as_str();
+            if !seen.insert(t) {
+                return Err(serde_json::Error::custom(format!(
+                    "duplicate credential type: {}",
+                    r.credential_type
+                )));
+            }
+        }
+        Ok(v)
     }
 
     /// Serialize to pretty JSON
@@ -640,6 +624,27 @@ mod tests {
         let sess = AuthenticatorResponse::from_json(sess_json).unwrap();
         assert_eq!(sess.successful_credentials(), vec!["orb"]);
         assert!(sess.responses[0].session_id.is_some());
+    }
+
+    #[test]
+    fn request_rejects_duplicate_credential_types_on_parse() {
+        let json = r#"{
+  "id": "req_dup",
+  "version": 1,
+  "created_at": "2025-09-03T17:33:12Z",
+  "expires_at": "2025-09-03T17:38:12Z",
+  "rp_id": "1",
+  "app_id": "app_123",
+  "encoded_action": "act_0000000000000000000000000000000000001",
+  "requests": [
+    { "type": "orb" },
+    { "type": "orb" }
+  ]
+}"#;
+
+        let err = AuthenticatorRequest::from_json(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("duplicate credential type"));
     }
 
     #[test]
