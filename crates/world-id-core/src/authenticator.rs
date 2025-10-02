@@ -58,9 +58,9 @@ type MerkleProof = (BaseField, [BaseField; TREE_DEPTH], MerkleEpoch);
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 #[derive(Debug)]
 pub struct Authenticator {
-    signer: AuthenticatorSigner,
     /// General configuration for the Authenticator.
     pub config: Config,
+    signer: AuthenticatorSigner,
     packed_account_index: Option<U256>,
 }
 
