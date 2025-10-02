@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// Logical operator kinds supported
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -12,22 +13,22 @@ pub enum ConstraintKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(untagged)]
-pub enum ConstraintExpr {
-    All { all: Vec<ConstraintNode> },
-    Any { any: Vec<ConstraintNode> },
+pub enum ConstraintExpr<'a> {
+    All { all: Vec<ConstraintNode<'a>> },
+    Any { any: Vec<ConstraintNode<'a>> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(untagged)]
-pub enum ConstraintNode {
+pub enum ConstraintNode<'a> {
     /// Credential type string
-    Type(String),
+    Type(Cow<'a, str>),
     /// Expressions
-    Expr(ConstraintExpr),
+    Expr(ConstraintExpr<'a>),
 }
 
-impl ConstraintExpr {
+impl<'a> ConstraintExpr<'a> {
     /// Evaluate the constraint against a predicate that reports whether a credential type was provided successfully
     pub fn evaluate<F>(&self, has_type: &F) -> bool
     where
@@ -42,7 +43,7 @@ impl ConstraintExpr {
     /// Validate the maximum nesting depth. Depth counts the number of Expr nodes encountered.
     /// A flat list has depth 1. Allow at most 2 (one nested level under root).
     pub fn validate_max_depth(&self, max_depth: usize) -> bool {
-        fn validate_expr(expr: &ConstraintExpr, depth: usize, max_depth: usize) -> bool {
+        fn validate_expr<'a>(expr: &ConstraintExpr<'a>, depth: usize, max_depth: usize) -> bool {
             if depth > max_depth {
                 return false;
             }
@@ -55,7 +56,11 @@ impl ConstraintExpr {
                 }
             }
         }
-        fn validate_node(node: &ConstraintNode, parent_depth: usize, max_depth: usize) -> bool {
+        fn validate_node<'a>(
+            node: &ConstraintNode<'a>,
+            parent_depth: usize,
+            max_depth: usize,
+        ) -> bool {
             match node {
                 ConstraintNode::Type(_) => true,
                 ConstraintNode::Expr(child) => validate_expr(child, parent_depth + 1, max_depth),
@@ -65,7 +70,7 @@ impl ConstraintExpr {
     }
 }
 
-impl ConstraintNode {
+impl<'a> ConstraintNode<'a> {
     fn evaluate<F>(&self, has_type: &F) -> bool
     where
         F: Fn(&str) -> bool,
