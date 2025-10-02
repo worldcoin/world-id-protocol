@@ -1,14 +1,16 @@
+//! This module contains all the base functionality to support Authenticators in World ID.
+//!
+//! An Authenticator is the application layer with which a user interacts with the Protocol.
 use std::sync::{Arc, OnceLock};
 use std::{io::Cursor, sync::LazyLock};
 
 use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
-use crate::account_signer::AuthenticatorSigner;
 use crate::config::Config;
-use crate::ProofResponse;
+use crate::types::InclusionProofResponse;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::providers::{DynProvider, Provider};
-use alloy::signers::k256::ecdsa::SigningKey;
+use alloy::signers::local::PrivateKeySigner;
 use alloy::uint;
 use ark_bn254::{Bn254, Fr};
 use ark_ec::{CurveGroup, PrimeGroup};
@@ -18,7 +20,7 @@ use circom_types::{groth16::ZKey, traits::CheckElement};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use eyre::Result;
 use groth16::{ConstraintMatrices, ProvingKey};
-use oprf_client::{Affine, BaseField, NullifierArgs, Projective, ScalarField};
+use oprf_client::{Affine, BaseField, Projective, ScalarField};
 use oprf_types::{MerkleEpoch, RpId, ShareEpoch};
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -53,19 +55,21 @@ type OPRFPublicKey = (Affine, ShareEpoch);
 type UniquenessProof = (Groth16Proof, BaseField);
 type MerkleProof = (BaseField, [BaseField; TREE_DEPTH], MerkleEpoch);
 
-// TODO: remove
-static DEGREE: usize = 1;
-
-#[derive(Clone, Debug)]
+/// An Authenticator is the base layer with which a user interacts with the Protocol.
+#[derive(Debug)]
 pub struct Authenticator {
     signer: AuthenticatorSigner,
-    config: Config,
+    /// General configuration for the Authenticator.
+    pub config: Config,
     packed_account_index: Option<U256>,
 }
 
 impl Authenticator {
     /// Create a new Authenticator from a seed and config.
-    pub async fn new(seed: &[u8], config: Config) -> Result<Self> {
+    ///
+    /// # Errors
+    /// Will error if the provided seed is not valid.
+    pub fn new(seed: &[u8], config: Config) -> Result<Self> {
         let signer = AuthenticatorSigner::from_seed_bytes(seed)?;
         Ok(Self {
             packed_account_index: None,
@@ -130,7 +134,7 @@ impl Authenticator {
         let account_index = self.account_index().await?;
         let url = format!("{}/proof/{}", self.config.indexer_url(), account_index);
         let response = reqwest::get(url).await?;
-        let proof = response.json::<ProofResponse>().await?;
+        let proof = response.json::<InclusionProofResponse>().await?;
         let root = BaseField::from_be_bytes_mod_order(&proof.root.to_be_bytes::<32>());
         let proof = proof
             .proof
@@ -195,14 +199,14 @@ impl Authenticator {
         rp_signature: EdDSASignature,
         nonce: BaseField,
     ) -> Result<UniquenessProof> {
-        let mut rng = rand::thread_rng();
-        let (oprf_public_key, oprf_key_epoch) = self.fetch_oprf_public_key().await?;
-        let tree_index = self.tree_index().await?.as_limbs()[0];
-        let pubkey_id = self.pubkey_id().await?.as_limbs()[0];
-        let pubkeys = self.fetch_pubkeys().await?;
-        let (merkle_root, siblings, merkle_epoch) = self.fetch_inclusion_proof().await?;
-        let id_commitment_r = BaseField::ZERO;
-        let mut rp_signing_key = SigningKey::random(&mut rng);
+        // let mut rng = rand::thread_rng();
+        // let (oprf_public_key, oprf_key_epoch) = self.fetch_oprf_public_key().await?;
+        // let tree_index = self.tree_index().await?.as_limbs()[0];
+        // let pubkey_id = self.pubkey_id().await?.as_limbs()[0];
+        // let pubkeys = self.fetch_pubkeys().await?;
+        // let (merkle_root, siblings, merkle_epoch) = self.fetch_inclusion_proof().await?;
+        // let id_commitment_r = BaseField::ZERO;
+        // let mut rp_signing_key = SigningKey::random(&mut rng);
         // let signature = rp_signing_key.sign(nonce.to_string().as_bytes());
 
         // let nullifier_args = NullifierArgs {
@@ -235,5 +239,51 @@ impl Authenticator {
         // )
         // .await?)
         unimplemented!()
+    }
+}
+
+/// The inner signer which can sign requests for both on-chain and off-chain operations on behalf of the authenticator.
+///
+/// Both keys are zeroized on drop.
+#[derive(Debug)]
+pub struct AuthenticatorSigner {
+    /// An on-chain SECP256K1 private key.
+    onchain_signer: PrivateKeySigner,
+    /// An off-chain `EdDSA` private key.
+    offchain_signer: EdDSAPrivateKey,
+}
+
+impl AuthenticatorSigner {
+    /// Initializes a new signer from an input seed.
+    pub fn from_seed_bytes(seed: &[u8]) -> Result<Self> {
+        if seed.len() != 32 {
+            return Err(eyre::eyre!("seed must be 32 bytes"));
+        }
+        let bytes: [u8; 32] = seed.try_into()?;
+        let onchain_signer = PrivateKeySigner::from_bytes(&bytes.into())?;
+        let offchain_signer = EdDSAPrivateKey::from_bytes(bytes);
+
+        Ok(Self {
+            onchain_signer,
+            offchain_signer,
+        })
+    }
+
+    /// Returns a reference to the internal signer.
+    pub const fn onchain_signer(&self) -> &PrivateKeySigner {
+        &self.onchain_signer
+    }
+
+    /// Returns a reference to the internal offchain signer.
+    pub const fn offchain_signer_private_key(&self) -> &EdDSAPrivateKey {
+        &self.offchain_signer
+    }
+
+    pub const fn onchain_signer_address(&self) -> Address {
+        self.onchain_signer.address()
+    }
+
+    pub fn offchain_signer_pubkey(&self) -> EdDSAPublicKey {
+        self.offchain_signer.public()
     }
 }
