@@ -7,9 +7,9 @@ pub mod account_signer;
 pub mod config;
 use alloy::primitives::U256;
 
+mod credential;
 #[cfg(feature = "requests")]
 pub mod requests;
-mod credential;
 pub use credential::Credential;
 
 #[derive(serde::Serialize, serde::Deserialize)]
