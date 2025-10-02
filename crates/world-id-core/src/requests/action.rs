@@ -18,11 +18,11 @@ pub struct Action {
     pub description: String,
 }
 
-impl WorldIdAction {
+impl Action {
     /// Encode to `act_`-prefixed base64 JSON representation
     #[must_use]
     pub fn encode(&self) -> String {
-        let json_bytes = serde_json::to_vec(self).expect("WorldIdAction serializes");
+        let json_bytes = serde_json::to_vec(self).expect("Action serializes");
         let b64 = BASE64_URL_SAFE_NO_PAD.encode(&json_bytes);
         format!("act_{}", b64)
     }
@@ -35,8 +35,7 @@ impl WorldIdAction {
         let bytes = BASE64_URL_SAFE_NO_PAD
             .decode(rest)
             .map_err(ActionDecodeError::Base64)?;
-        let action: WorldIdAction =
-            serde_json::from_slice(&bytes).map_err(ActionDecodeError::Json)?;
+        let action: Action = serde_json::from_slice(&bytes).map_err(ActionDecodeError::Json)?;
         Ok(action)
     }
 
@@ -66,17 +65,17 @@ mod tests {
 
     #[test]
     fn action_roundtrip_and_hash_bytes() {
-        let action = WorldIdAction {
+        let action = Action {
             expires_at: 1_700_000_000,
             data: b"hello".to_vec(),
             description: "Test".to_string(),
         };
         let enc = action.encode();
         assert!(enc.starts_with("act_"));
-        let dec = WorldIdAction::decode(&enc).unwrap();
+        let dec = Action::decode(&enc).unwrap();
         assert_eq!(dec, action);
 
-        let bytes = WorldIdAction::hash_input_bytes(&enc).unwrap();
+        let bytes = Action::hash_input_bytes(&enc).unwrap();
         let mut hasher = Sha256::new();
         hasher.update(action.expires_at.to_be_bytes());
         hasher.update(&action.data);
