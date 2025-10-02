@@ -1,5 +1,4 @@
-use base64::engine::general_purpose::STANDARD;
-use base64::prelude::{BASE64_URL_SAFE, BASE64_URL_SAFE_NO_PAD};
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use sha2::{Digest, Sha256};
 

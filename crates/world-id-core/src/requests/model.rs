@@ -1,5 +1,6 @@
 use crate::requests::constraints::{ConstraintExpr, ConstraintNode};
 use alloy::primitives::U256;
+use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::collections::HashSet;
@@ -118,7 +119,7 @@ impl AuthenticatorRequest {
 
         // Recursive selection helpers
         fn select_node<'a>(
-            node: &ConstraintNode<'a>,
+            node: &'a ConstraintNode<'a>,
             pred: &impl Fn(&str) -> bool,
         ) -> Option<Vec<&'a str>> {
             match node {
@@ -128,7 +129,7 @@ impl AuthenticatorRequest {
         }
 
         fn select_expr<'a>(
-            expr: &ConstraintExpr<'a>,
+            expr: &'a ConstraintExpr<'a>,
             pred: &impl Fn(&str) -> bool,
         ) -> Option<Vec<&'a str>> {
             match expr {
@@ -335,7 +336,7 @@ mod tests {
             ],
         };
 
-        assert!(response.constraints_satisfied(Some(&expr)));
+        assert!(response.constraints_satisfied(&expr));
 
         // all: ["orb", "gov-id"] should fail due to gov-id error
         let fail_expr = ConstraintExpr::All {
@@ -344,7 +345,7 @@ mod tests {
                 ConstraintNode::Type("gov-id".into()),
             ],
         };
-        assert!(!response.constraints_satisfied(Some(&fail_expr)));
+        assert!(!response.constraints_satisfied(&fail_expr));
     }
 
     #[test]
