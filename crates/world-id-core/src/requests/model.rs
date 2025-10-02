@@ -1,4 +1,4 @@
-use crate::requests::constraints::ConstraintExpr;
+use crate::requests::constraints::{ConstraintExpr, ConstraintNode};
 use alloy::primitives::U256;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -38,7 +38,7 @@ pub struct AuthenticatorRequest {
     pub requests: Vec<CredentialRequest>,
     /// Constraint expression (all/any) optional
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub constraints: Option<ConstraintExpr>,
+    pub constraints: Option<ConstraintExpr<'static>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,7 +86,7 @@ pub struct ResponseItem {
 
 impl AuthenticatorResponse {
     /// Determine if constraints are satisfied given an optional constraint expression.
-    pub fn constraints_satisfied(&self, constraints: Option<&ConstraintExpr>) -> bool {
+    pub fn constraints_satisfied(&self, constraints: Option<&ConstraintExpr<'_>>) -> bool {
         match constraints {
             None => true,
             Some(expr) => {
@@ -104,6 +104,104 @@ impl AuthenticatorResponse {
 }
 
 impl AuthenticatorRequest {
+    /// Determine which requested credentials to prove given available credentials.
+    /// Returns None if constraints (or lack thereof) cannot be satisfied with the available set.
+    pub fn credentials_to_prove(
+        &self,
+        available: &HashSet<&str>,
+    ) -> Option<Vec<&CredentialRequest>> {
+        use std::collections::HashMap;
+
+        // Map requested type -> first corresponding request (to preserve request-specified metadata like signal)
+        let mut type_to_req: HashMap<&str, &CredentialRequest> = HashMap::new();
+        for req in &self.requests {
+            let t = req.credential_type.as_str();
+            type_to_req.entry(t).or_insert(req);
+        }
+
+        let is_available_and_requested =
+            |t: &str| available.contains(t) && type_to_req.contains_key(t);
+
+        // Helper to collect selection respecting expression semantics
+        fn select_expr<'a>(
+            expr: &ConstraintExpr<'a>,
+            pred: &impl Fn(&str) -> bool,
+        ) -> Option<Vec<&'a str>> {
+            match expr {
+                ConstraintExpr::All { all } => {
+                    let mut acc: Vec<&'a str> = Vec::new();
+                    for node in all {
+                        let sub = select_node(node, pred)?;
+                        for s in sub {
+                            if !acc.contains(&s) {
+                                acc.push(s);
+                            }
+                        }
+                    }
+                    Some(acc)
+                }
+                ConstraintExpr::Any { any } => {
+                    for node in any {
+                        if let Some(sel) = select_node(node, pred) {
+                            return Some(sel);
+                        }
+                    }
+                    None
+                }
+            }
+        }
+
+        fn select_node<'a>(
+            node: &ConstraintNode<'a>,
+            pred: &impl Fn(&str) -> bool,
+        ) -> Option<Vec<&'a str>> {
+            match node {
+                ConstraintNode::Type(t) => {
+                    let s: &str = t.as_ref();
+                    if pred(s) {
+                        Some(vec![s])
+                    } else {
+                        None
+                    }
+                }
+                ConstraintNode::Expr(e) => select_expr(e, pred),
+            }
+        }
+
+        // Compute selection according to constraints or lack thereof
+        let selected_types: Vec<&str> = match &self.constraints {
+            None => {
+                // All requested credentials are required; fail if any is unavailable
+                if self
+                    .requests
+                    .iter()
+                    .all(|r| is_available_and_requested(r.credential_type.as_str()))
+                {
+                    self.requests
+                        .iter()
+                        .map(|r| r.credential_type.as_str())
+                        .collect()
+                } else {
+                    return None;
+                }
+            }
+            Some(expr) => select_expr(expr, &is_available_and_requested)?,
+        };
+
+        // Map selected types back to the concrete requests, preserving selection order and deduping
+        let mut result: Vec<&CredentialRequest> = Vec::new();
+        for t in selected_types {
+            if let Some(req) = type_to_req.get(t) {
+                if !result
+                    .iter()
+                    .any(|r| r.credential_type == req.credential_type)
+                {
+                    result.push(*req);
+                }
+            }
+        }
+        Some(result)
+    }
     /// Returns true if the request is expired relative to now
     #[must_use]
     pub fn is_expired(&self, now: OffsetDateTime) -> bool {
@@ -542,5 +640,97 @@ mod tests {
         let sess = AuthenticatorResponse::from_json(sess_json).unwrap();
         assert_eq!(sess.successful_credentials(), vec!["orb"]);
         assert!(sess.responses[0].session_id.is_some());
+    }
+
+    #[test]
+    fn credentials_to_prove_none_constraints_requires_all_and_drops_if_missing() {
+        let req = AuthenticatorRequest {
+            id: "req".into(),
+            version: Version::V1,
+            created_at: None,
+            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            rp_id: U256::from(1u64),
+            app_id: "app".into(),
+            encoded_action: "act".into(),
+            requests: vec![
+                CredentialRequest {
+                    credential_type: "orb".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "passport".into(),
+                    signal: None,
+                },
+            ],
+            constraints: None,
+        };
+
+        let available_ok: std::collections::HashSet<&str> =
+            ["orb", "passport"].into_iter().collect();
+        let sel_ok = req.credentials_to_prove(&available_ok).unwrap();
+        assert_eq!(sel_ok.len(), 2);
+        assert_eq!(sel_ok[0].credential_type, "orb");
+        assert_eq!(sel_ok[1].credential_type, "passport");
+
+        let available_missing: std::collections::HashSet<&str> = ["orb"].into_iter().collect();
+        assert!(req.credentials_to_prove(&available_missing).is_none());
+    }
+
+    #[test]
+    fn credentials_to_prove_with_constraints_all_and_any() {
+        // requests: orb, passport, national-id
+        let req = AuthenticatorRequest {
+            id: "req".into(),
+            version: Version::V1,
+            created_at: None,
+            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            rp_id: U256::from(1u64),
+            app_id: "app".into(),
+            encoded_action: "act".into(),
+            requests: vec![
+                CredentialRequest {
+                    credential_type: "orb".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "passport".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "national-id".into(),
+                    signal: None,
+                },
+            ],
+            constraints: Some(ConstraintExpr::All {
+                all: vec![
+                    ConstraintNode::Type("orb".into()),
+                    ConstraintNode::Expr(ConstraintExpr::Any {
+                        any: vec![
+                            ConstraintNode::Type("passport".into()),
+                            ConstraintNode::Type("national-id".into()),
+                        ],
+                    }),
+                ],
+            }),
+        };
+
+        // Available has orb + passport → should pick [orb, passport]
+        let available1: std::collections::HashSet<&str> = ["orb", "passport"].into_iter().collect();
+        let sel1 = req.credentials_to_prove(&available1).unwrap();
+        assert_eq!(sel1.len(), 2);
+        assert_eq!(sel1[0].credential_type, "orb");
+        assert_eq!(sel1[1].credential_type, "passport");
+
+        // Available has orb + national-id → should pick [orb, national-id]
+        let available2: std::collections::HashSet<&str> =
+            ["orb", "national-id"].into_iter().collect();
+        let sel2 = req.credentials_to_prove(&available2).unwrap();
+        assert_eq!(sel2.len(), 2);
+        assert_eq!(sel2[0].credential_type, "orb");
+        assert_eq!(sel2[1].credential_type, "national-id");
+
+        // Missing orb → cannot satisfy "all" → None
+        let available3: std::collections::HashSet<&str> = ["passport"].into_iter().collect();
+        assert!(req.credentials_to_prove(&available3).is_none());
     }
 }
