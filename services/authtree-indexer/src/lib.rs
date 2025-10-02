@@ -19,7 +19,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use world_id_core::account_registry::AccountRegistry;
-use world_id_core::ProofResponse;
+use world_id_core::types::InclusionProofResponse;
 
 #[derive(Debug, Clone)]
 pub struct DecodedAccountCreated {
@@ -178,7 +178,7 @@ async fn http_get_proof(
     let tree = GLOBAL_TREE.read().await;
     match tree.proof(leaf_index) {
         Some(proof) => {
-            let resp = ProofResponse::new(
+            let resp = InclusionProofResponse::new(
                 account_index,
                 leaf_index as u64,
                 tree.root(),

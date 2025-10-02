@@ -78,26 +78,43 @@ impl Authenticator {
         })
     }
 
-    pub fn onchain_address(&self) -> Address {
+    /// Returns the k256 public key of the Authenticator signer which is used to verify on-chain operations,
+    /// chiefly with the `AccountRegistry` contract.
+    #[must_use]
+    pub const fn onchain_address(&self) -> Address {
         self.signer.onchain_signer_address()
     }
 
+    /// Returns the `EdDSA` public key of the Authenticator signer which is used to verify off-chain operations. For example,
+    /// the Nullifier Oracle uses it to verify requests for nullifiers.
+    #[must_use]
     pub fn offchain_pubkey(&self) -> EdDSAPublicKey {
         self.signer.offchain_signer_pubkey()
     }
 
-    pub async fn registry(&self) -> Result<Arc<AccountRegistryInstance<DynProvider>>> {
+    /// Returns a reference to the `AccountRegistry` contract instance.
+    ///
+    /// # Errors
+    /// Will error if the RPC URL is not valid.
+    pub fn registry(&self) -> Result<Arc<AccountRegistryInstance<DynProvider>>> {
         let provider = ProviderBuilder::new().connect_http(self.config.rpc_url().parse()?);
         let contract = AccountRegistry::new(*self.config.registry_address(), provider.erased());
         Ok(REGISTRY.get_or_init(|| Arc::new(contract)).clone())
     }
 
+    /// Returns the packed account index for the holder's World ID.
+    ///
+    /// The packed account index is a 256 bit integer which includes the user's account index, their recovery counter,
+    /// and their pubkey id/commitment.
+    ///
+    /// # Errors
+    /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
     pub async fn packed_account_index(&mut self) -> Result<U256> {
         if let Some(packed_account_index) = self.packed_account_index {
             return Ok(packed_account_index);
         }
 
-        let registry = self.registry().await?;
+        let registry = self.registry()?;
         let raw_index = registry
             .authenticatorAddressToPackedAccountIndex(self.signer.onchain_signer_address())
             .call()
@@ -107,29 +124,56 @@ impl Authenticator {
         Ok(raw_index)
     }
 
+    /// Returns the account index for the holder's World ID.
+    ///
+    /// This is the index at the tree where the holder's World ID account is registered.
+    ///
+    /// # Errors
+    /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
     pub async fn account_index(&mut self) -> Result<U256> {
         let packed_account_index = self.packed_account_index().await?;
         let tree_index = packed_account_index & MASK_ACCOUNT_INDEX;
         Ok(tree_index)
     }
 
+    /// Returns the raw index at the tree where the holder's World ID account is registered.
+    ///
+    /// # Errors
+    /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
     pub async fn tree_index(&mut self) -> Result<U256> {
         let account_index = self.account_index().await?;
         Ok(account_index - U256::from(1))
     }
 
+    /// Returns the recovery counter for the holder's World ID.
+    ///
+    /// The recovery counter is used to efficiently invalidate all the old keys when an account is recovered.
+    ///
+    /// # Errors
+    /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
     pub async fn recovery_counter(&mut self) -> Result<U256> {
         let packed_account_index = self.packed_account_index().await?;
         let recovery_counter = packed_account_index & MASK_RECOVERY_COUNTER;
         Ok(recovery_counter >> 224)
     }
 
+    /// Returns the pubkey id (or commitment) for the holder's World ID.
+    ///
+    /// This is a commitment to all the off-chain public keys that are authorized to act on behalf of the holder.
+    ///
+    /// # Errors
+    /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
     pub async fn pubkey_id(&mut self) -> Result<U256> {
         let packed_account_index = self.packed_account_index().await?;
         let pubkey_id = packed_account_index & MASK_PUBKEY_ID;
         Ok(pubkey_id >> 192)
     }
 
+    /// Fetches a Merkle inclusion proof for the holder's World ID given their account index.
+    ///
+    /// # Errors
+    /// - Will error if the provided indexer URL is not valid or if there are HTTP call failures.
+    /// - Will error if the user is not registered on the registry.
     pub async fn fetch_inclusion_proof(&mut self) -> Result<MerkleProof> {
         let account_index = self.account_index().await?;
         let url = format!("{}/proof/{}", self.config.indexer_url(), account_index);
@@ -141,10 +185,20 @@ impl Authenticator {
             .into_iter()
             .map(|p| BaseField::from_be_bytes_mod_order(&p.to_be_bytes::<32>()))
             .collect::<Vec<_>>();
-        Ok((root, proof.try_into().unwrap(), MerkleEpoch::default()))
+        Ok((
+            root,
+            proof
+                .try_into()
+                .map_err(|e| eyre::eyre!("error parsing merkle inclusion proof"))?,
+            MerkleEpoch::default(),
+        ))
     }
 
-    pub async fn fetch_pubkeys(&self) -> Result<[[BaseField; 2]; MAX_PUBKEYS]> {
+    /// Fetches the off-chain public keys for the holder's World ID.
+    ///
+    /// # Errors
+    /// Will error if the user does not have a registered World ID.
+    pub fn fetch_pubkeys(&self) -> Result<[[BaseField; 2]; MAX_PUBKEYS]> {
         // TODO: actually fetch from registry
         let pubkeys = std::array::from_fn(|i| {
             if i == 0 {
@@ -157,47 +211,54 @@ impl Authenticator {
         Ok(pubkeys)
     }
 
-    pub async fn fetch_rp_pubkey(&self, rp_id: U256) -> Result<EdDSAPublicKey> {
-        // TODO: fetch from contract
-        let sk = EdDSAPrivateKey::from_bytes([0; 32]);
-        Ok(sk.public())
-    }
+    // TODO: implement
+    // pub async fn fetch_rp_pubkey(&self, rp_id: U256) -> Result<EdDSAPublicKey> {
+    //     // TODO: fetch from contract
+    //     let sk = EdDSAPrivateKey::from_bytes([0; 32]);
+    //     Ok(sk.public())
+    // }
 
-    async fn fetch_oprf_public_key(&self) -> Result<OPRFPublicKey> {
-        // TODO: fetch from contract
-        Ok((
-            (Projective::generator() * ScalarField::from(42)).into_affine(),
-            ShareEpoch::default(),
-        ))
-    }
+    // async fn fetch_oprf_public_key(&self) -> Result<OPRFPublicKey> {
+    //     // TODO: fetch from contract
+    //     Ok((
+    //         (Projective::generator() * ScalarField::from(42)).into_affine(),
+    //         ShareEpoch::default(),
+    //     ))
+    // }
 
-    fn query_matrices(&self) -> Result<Arc<ConstraintMatrices<Fr>>> {
-        let (matrices, _) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(Arc::new(matrices.clone()))
-    }
+    // fn query_matrices(&self) -> Result<Arc<ConstraintMatrices<Fr>>> {
+    //     let (matrices, _) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
+    //     Ok(Arc::new(matrices.clone()))
+    // }
 
-    fn query_pk(&self) -> Result<Arc<ProvingKey<Bn254>>> {
-        let (_, pk) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(Arc::new(pk.clone()))
-    }
+    // fn query_pk(&self) -> Result<Arc<ProvingKey<Bn254>>> {
+    //     let (_, pk) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
+    //     Ok(Arc::new(pk.clone()))
+    // }
 
-    fn nullifier_matrices(&self) -> Result<Arc<ConstraintMatrices<Fr>>> {
+    fn nullifier_matrices() -> Result<Arc<ConstraintMatrices<Fr>>> {
         let (matrices, _) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
         Ok(Arc::new(matrices.clone()))
     }
 
-    fn nullifier_pk(&self) -> eyre::Result<Arc<ProvingKey<Bn254>>> {
+    fn nullifier_pk() -> Result<Arc<ProvingKey<Bn254>>> {
         let (_, pk) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
         Ok(Arc::new(pk.clone()))
     }
 
-    pub async fn generate_proof(
+    /// Generates a World ID Uniqueness Proof given a provided context.
+    ///
+    /// # Errors
+    /// - Will error if the any of the provided parameters are not valid.
+    /// - Will error if any of the required network requests fail.
+    /// - Will error if the user does not have a registered World ID.
+    pub fn generate_proof(
         &mut self,
-        rp_id: RpId,
-        action_id: BaseField,
-        message_hash: BaseField,
-        rp_signature: EdDSASignature,
-        nonce: BaseField,
+        _rp_id: RpId,
+        _action_id: BaseField,
+        _message_hash: BaseField,
+        _rp_signature: &EdDSASignature,
+        _nonce: BaseField,
     ) -> Result<UniquenessProof> {
         // let mut rng = rand::thread_rng();
         // let (oprf_public_key, oprf_key_epoch) = self.fetch_oprf_public_key().await?;
