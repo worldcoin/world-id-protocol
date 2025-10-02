@@ -10,6 +10,7 @@ pub enum ConstraintKind {
 
 /// Constraint expression tree: either a list of types/expressions under `all` or `any`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum ConstraintExpr {
     All { all: Vec<ConstraintNode> },
@@ -17,6 +18,7 @@ pub enum ConstraintExpr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum ConstraintNode {
     /// Credential type string

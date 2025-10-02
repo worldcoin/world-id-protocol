@@ -1,48 +1,19 @@
 use crate::requests::constraints::ConstraintExpr;
 use alloy::primitives::U256;
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "u8", into = "u8")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 pub enum Version {
     V1 = 1,
 }
 
-// conversions for serde via #[serde(try_from = "u8", into = "u8")]
-impl From<Version> for u8 {
-    fn from(value: Version) -> Self {
-        match value {
-            Version::V1 => 1,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VersionParseError(pub u8);
-
-impl std::fmt::Display for VersionParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "invalid version {}", self.0)
-    }
-}
-
-impl std::error::Error for VersionParseError {}
-
-impl TryFrom<u8> for Version {
-    type Error = VersionParseError;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(Version::V1),
-            other => Err(VersionParseError(other)),
-        }
-    }
-}
-
 /// Authenticator request
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthenticatorRequest {
     /// Unique identifier for this request
     pub id: String,
@@ -71,6 +42,7 @@ pub struct AuthenticatorRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CredentialRequest {
     /// Credential type
     #[serde(rename = "type")]
@@ -82,6 +54,7 @@ pub struct CredentialRequest {
 
 /// Authenticator response per docs spec
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthenticatorResponse {
     /// Response id references request id
     pub id: String,
@@ -92,6 +65,7 @@ pub struct AuthenticatorResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResponseItem {
     /// Credential type string this item refers to
     #[serde(rename = "type")]
@@ -141,8 +115,12 @@ impl AuthenticatorRequest {
         &self,
         response: &AuthenticatorResponse,
     ) -> Result<(), ValidationError> {
+        // Validate id and version match
         if self.id != response.id {
             return Err(ValidationError::RequestIdMismatch);
+        }
+        if self.version != response.version {
+            return Err(ValidationError::VersionMismatch);
         }
 
         // Build set of successful credentials
@@ -215,6 +193,8 @@ impl AuthenticatorResponse {
 pub enum ValidationError {
     #[error("Request ID mismatch")]
     RequestIdMismatch,
+    #[error("Version mismatch")]
+    VersionMismatch,
     #[error("Missing required credential: {0}")]
     MissingCredential(String),
     #[error("Constraints not satisfied")]

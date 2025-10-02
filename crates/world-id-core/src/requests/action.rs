@@ -1,8 +1,14 @@
 use base64::engine::general_purpose::STANDARD;
+use base64::prelude::{BASE64_URL_SAFE, BASE64_URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use sha2::{Digest, Sha256};
 
-/// Action payload encoded/decoded per authenticator.mdx
+/// Actions are defined by relying parties and represent the unit of uniqueness for proofs
+/// (e.g. one-time signup, daily claim, per-season reward). Together with the RP ID,
+/// the Action ID is a public input to nullifier generation, ensuring each user can only
+/// perform the specified action under the intended constraints while remaining anonymous.
+/// Action identifiers are encoded as `act_`-prefixed base64 JSON structures.
+/// TODO - link to public docs when available
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Action {
     /// The timestamp when the action will expire (seconds since epoch)
@@ -18,7 +24,7 @@ impl WorldIdAction {
     #[must_use]
     pub fn encode(&self) -> String {
         let json_bytes = serde_json::to_vec(self).expect("WorldIdAction serializes");
-        let b64 = STANDARD.encode(&json_bytes);
+        let b64 = BASE64_URL_SAFE_NO_PAD.encode(&json_bytes);
         format!("act_{}", b64)
     }
 
@@ -27,7 +33,9 @@ impl WorldIdAction {
         let rest = encoded
             .strip_prefix("act_")
             .ok_or(ActionDecodeError::MissingPrefix)?;
-        let bytes = STANDARD.decode(rest).map_err(ActionDecodeError::Base64)?;
+        let bytes = BASE64_URL_SAFE_NO_PAD
+            .decode(rest)
+            .map_err(ActionDecodeError::Base64)?;
         let action: WorldIdAction =
             serde_json::from_slice(&bytes).map_err(ActionDecodeError::Json)?;
         Ok(action)
