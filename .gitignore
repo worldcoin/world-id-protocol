@@ -15,3 +15,8 @@ node_modules/
 .env
 .DS_Store
 
+# IDE
+.idea
+.vscode
+.claude
+.cursor

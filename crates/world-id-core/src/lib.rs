@@ -17,6 +17,8 @@ pub use authenticator::Authenticator;
 pub mod config;
 
 mod credential;
+#[cfg(feature = "requests")]
+pub mod requests;
 pub use credential::Credential;
 
 /// Generic re-usable types

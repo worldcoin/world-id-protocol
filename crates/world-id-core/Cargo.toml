@@ -22,6 +22,7 @@ ciborium = "0.2.2"
 hex = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true }
+serde_repr = "0.1"
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -41,6 +42,15 @@ uuid = "1.14.0"
 witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git"}
 eyre = "0.6.12"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git" }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+base64 = { version = "0.22", optional = true }
+time = { version = "0.3", features = ["parsing", "formatting", "serde", "macros"], optional = true }
+sha2 = { version = "0.10", optional = true }
+
+[features]
+default = []
+requests = ["dep:base64", "dep:time", "dep:sha2"]
+
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true }
 
 [features]
