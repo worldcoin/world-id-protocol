@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     let config = Config::from_json("config.json").unwrap();
 
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
-    let mut authenticator = Authenticator::new(seed, config).await?;
+    let mut authenticator = Authenticator::new(seed, config)?;
     let mut rng = rand::thread_rng();
 
     println!("auth pubkey: {:?}", authenticator.onchain_address());
@@ -56,15 +56,13 @@ async fn main() -> Result<()> {
     let action_id = BaseField::rand(&mut rng);
     let message_hash = BaseField::rand(&mut rng);
 
-    let (proof, nullifier) = authenticator
-        .generate_proof(
-            RpId::new(1),
-            action_id,
-            message_hash,
-            dummy_rp_sk.sign(nonce),
-            nonce,
-        )
-        .await?;
+    let (proof, nullifier) = authenticator.generate_proof(
+        RpId::new(1),
+        action_id,
+        message_hash,
+        &dummy_rp_sk.sign(nonce),
+        nonce,
+    )?;
 
     println!("proof: {:?}", proof);
     println!("nullifier: {:?}", nullifier);
