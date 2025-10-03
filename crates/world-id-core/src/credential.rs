@@ -32,7 +32,9 @@ pub struct Credential {
     issuer_schema_id: u64,
     /// World ID to which the credential is issued. This ID comes from the `AccountRegistry`.
     account_id: u64,
-    /// Timestamp of first issuance of this credential (unix seconds)
+    /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
+    /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
+    /// this timestamp should stay constant.
     genesis_issued_at: u64,
     /// Expiration timestamp (unix seconds)
     expires_at: u64,
@@ -50,7 +52,8 @@ pub struct Credential {
 }
 
 impl Credential {
-    /// Create a new credential.
+    /// Initializes a new credential.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             version: CredentialVersion::V1,
@@ -63,37 +66,45 @@ impl Credential {
         }
     }
 
-    /// Set the version of the credential.
-    pub fn version(mut self, version: CredentialVersion) -> Self {
+    /// Set the `version` of the credential.
+    #[must_use]
+    pub const fn version(mut self, version: CredentialVersion) -> Self {
         self.version = version;
         self
     }
 
-    /// Set the issuer schema id of the credential.
-    pub fn issuer_schema_id(mut self, issuer_schema_id: u64) -> Self {
+    /// Set the `issuerSchemaId` of the credential.
+    #[must_use]
+    pub const fn issuer_schema_id(mut self, issuer_schema_id: u64) -> Self {
         self.issuer_schema_id = issuer_schema_id;
         self
     }
 
-    /// Set the account id of the credential.
-    pub fn account_id(mut self, account_id: u64) -> Self {
+    /// Set the `accountId` of the credential.
+    #[must_use]
+    pub const fn account_id(mut self, account_id: u64) -> Self {
         self.account_id = account_id;
         self
     }
 
     /// Set the genesis issued at of the credential.
-    pub fn genesis_issued_at(mut self, genesis_issued_at: u64) -> Self {
+    #[must_use]
+    pub const fn genesis_issued_at(mut self, genesis_issued_at: u64) -> Self {
         self.genesis_issued_at = genesis_issued_at;
         self
     }
 
     /// Set the expires at of the credential.
-    pub fn expires_at(mut self, expires_at: u64) -> Self {
+    #[must_use]
+    pub const fn expires_at(mut self, expires_at: u64) -> Self {
         self.expires_at = expires_at;
         self
     }
 
-    /// Set the claim of the credential.
+    /// Set a claim for the credential at an index.
+    ///
+    /// # Errors
+    /// Will error if the index is out of bounds.
     pub fn claim(mut self, index: usize, claim: U256) -> Result<Self, anyhow::Error> {
         if index >= self.claims.len() {
             return Err(anyhow::anyhow!("Index of claim out of bounds"));
@@ -103,6 +114,9 @@ impl Credential {
     }
 
     /// Set the associated data hash of the credential.
+    ///
+    /// # Errors
+    /// Will error if the provided hash cannot be lowered into the field.
     pub fn associated_data_hash(
         mut self,
         associated_data_hash: U256,
@@ -112,23 +126,27 @@ impl Credential {
     }
 
     /// Get the credential domain separator for the given version.
+    #[must_use]
     pub fn get_cred_ds(&self) -> BaseField {
         match self.version {
             CredentialVersion::V1 => BaseField::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
         }
     }
 
-    /// Hash the credential.
+    /// Computes the specifically designed hash of the credential for the given version.
+    ///
+    /// The hash is signed by the issuer to provide authenticity for the credential.
+    ///
+    /// # Errors
+    /// - Will error if there are more claims than the maximum allowed.
+    /// - Will error if the claims cannot be lowered into the field. Should not occur in practice.
     pub fn hash(&self) -> Result<BaseField, anyhow::Error> {
         match self.version {
             CredentialVersion::V1 => {
                 // Hash the claims
                 let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
                 if self.claims.len() > MAX_CLAIMS {
-                    return Err(anyhow::anyhow!(
-                        "There can be at most {} claims",
-                        MAX_CLAIMS
-                    ));
+                    return Err(anyhow::anyhow!("There can be at most {MAX_CLAIMS} claims",));
                 }
                 let mut input = [BaseField::zero(); MAX_CLAIMS];
                 input[..self.claims.len()].copy_from_slice(&self.claims);
@@ -151,5 +169,11 @@ impl Credential {
                 Ok(input[1])
             }
         }
+    }
+}
+
+impl Default for Credential {
+    fn default() -> Self {
+        Self::new()
     }
 }

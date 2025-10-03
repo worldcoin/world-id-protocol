@@ -1,4 +1,4 @@
-//! This module allows interactions with the `AuthenticatorRegistry`.
+//! This module allows interactions with the `AccountRegistry`.
 
 use alloy::sol_types::{eip712_domain, Eip712Domain, SolStruct};
 use alloy::{
@@ -64,6 +64,7 @@ pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain 
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
+#[allow(clippy::too_many_arguments)]
 pub async fn sign_update_authenticator<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
