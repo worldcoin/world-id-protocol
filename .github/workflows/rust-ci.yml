@@ -99,10 +99,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - uses: EmbarkStudios/cargo-deny-action@v1
+      - uses: EmbarkStudios/cargo-deny-action@v2.0.13
         with:
           command: check ${{ matrix.checks }}
-          rust-version: 1.86
 # TODO: add docs check when relevant
 #   docs:
 #     name: Check docs
