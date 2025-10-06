@@ -14,6 +14,7 @@ mod authenticator;
 pub use authenticator::Authenticator;
 
 /// Global configuration to interact with the different components of the Protocol.
+#[cfg(feature = "authenticator")]
 pub mod config;
 
 mod credential;

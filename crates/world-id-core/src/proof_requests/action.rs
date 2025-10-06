@@ -20,14 +20,22 @@ pub struct Action {
 
 impl Action {
     /// Encode to `act_`-prefixed base64 JSON representation
+    ///
+    /// # Panics
+    /// Panics only if serialization of `Action` to JSON fails, which should not occur
+    /// for well-formed values as `Action` derives `Serialize`.
     #[must_use]
     pub fn encode(&self) -> String {
         let json_bytes = serde_json::to_vec(self).expect("Action serializes");
         let b64 = BASE64_URL_SAFE_NO_PAD.encode(&json_bytes);
-        format!("act_{}", b64)
+        format!("act_{b64}")
     }
 
     /// Decode from `act_...` string form
+    ///
+    /// # Errors
+    /// Returns an error if the input is missing the `act_` prefix, contains invalid
+    /// base64, or the decoded bytes are not valid JSON for an `Action`.
     pub fn decode(encoded: &str) -> Result<Self, ActionDecodeError> {
         let rest = encoded
             .strip_prefix("act_")
@@ -35,11 +43,14 @@ impl Action {
         let bytes = BASE64_URL_SAFE_NO_PAD
             .decode(rest)
             .map_err(ActionDecodeError::Base64)?;
-        let action: Action = serde_json::from_slice(&bytes).map_err(ActionDecodeError::Json)?;
+        let action: Self = serde_json::from_slice(&bytes).map_err(ActionDecodeError::Json)?;
         Ok(action)
     }
 
     /// Compute SHA-256(expires_at_be_u64 || data)
+    ///
+    /// # Errors
+    /// Returns an error if `encoded` is not a valid `Action` per [`Action::decode`].
     pub fn hash_input_bytes(encoded: &str) -> Result<Vec<u8>, ActionDecodeError> {
         let action = Self::decode(encoded)?;
         let mut hasher = Sha256::new();
@@ -49,12 +60,16 @@ impl Action {
     }
 }
 
+/// Errors that can occur while decoding an `Action`.
 #[derive(Debug, thiserror::Error)]
 pub enum ActionDecodeError {
+    /// Missing `act_` prefix on the encoded string
     #[error("missing act_ prefix")]
     MissingPrefix,
+    /// Invalid base64 content in the encoded payload
     #[error("invalid base64: {0}")]
     Base64(base64::DecodeError),
+    /// Invalid JSON content inside the decoded payload
     #[error("invalid json: {0}")]
     Json(serde_json::Error),
 }

@@ -1,17 +1,75 @@
 use crate::proof_requests::constraints::{ConstraintExpr, ConstraintNode};
-use alloy::primitives::U256;
+use ruint::aliases::U256;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
+// Helper selection functions for constraint evaluation
+fn select_node<'a, F>(node: &'a ConstraintNode<'a>, pred: &F) -> Option<Vec<&'a str>>
+where
+    F: Fn(&str) -> bool,
+{
+    match node {
+        ConstraintNode::Type(t) => pred(t.as_ref()).then(|| vec![t.as_ref()]),
+        ConstraintNode::Expr(e) => select_expr(e, pred),
+    }
+}
+
+fn select_expr<'a, F>(expr: &'a ConstraintExpr<'a>, pred: &F) -> Option<Vec<&'a str>>
+where
+    F: Fn(&str) -> bool,
+{
+    match expr {
+        ConstraintExpr::All { all } => {
+            let mut seen: std::collections::HashSet<&'a str> = std::collections::HashSet::new();
+            let mut out: Vec<&'a str> = Vec::new();
+            for n in all {
+                let sub = select_node(n, pred)?;
+                for s in sub {
+                    if seen.insert(s) {
+                        out.push(s);
+                    }
+                }
+            }
+            Some(out)
+        }
+        ConstraintExpr::Any { any } => any.iter().find_map(|n| select_node(n, pred)),
+    }
+}
+
+/// Protocol schema version for proof requests and responses.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Version {
+    /// Version 1
     V1 = 1,
 }
 
+impl serde::Serialize for Version {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let v = *self as u8;
+        serializer.serialize_u8(v)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Version {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let v = u8::deserialize(deserializer)?;
+        match v {
+            1 => Ok(Self::V1),
+            _ => Err(serde::de::Error::custom("unsupported version")),
+        }
+    }
+}
+
+/// Authenticator request
 /// Authenticator request
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,13 +93,15 @@ pub struct AuthenticatorRequest {
     pub app_id: String,
     /// Encoded action string (act_...)
     pub encoded_action: String,
-    /// Credential proof_requests
+    /// Credential proof requests
+    #[serde(rename = "proof_requests")]
     pub requests: Vec<CredentialRequest>,
     /// Constraint expression (all/any) optional
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constraints: Option<ConstraintExpr<'static>>,
 }
 
+/// Per-credential request payload
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CredentialRequest {
@@ -54,6 +114,7 @@ pub struct CredentialRequest {
 }
 
 /// Authenticator response per docs spec
+/// Authenticator response per docs spec
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticatorResponse {
@@ -65,6 +126,7 @@ pub struct AuthenticatorResponse {
     pub responses: Vec<ResponseItem>,
 }
 
+/// Per-credential response item
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
@@ -87,6 +149,7 @@ pub struct ResponseItem {
 
 impl AuthenticatorResponse {
     /// Determine if constraints are satisfied given a constraint expression.
+    #[must_use]
     pub fn constraints_satisfied(&self, constraints: &ConstraintExpr<'_>) -> bool {
         let provided: HashSet<&str> = self
             .responses
@@ -101,14 +164,18 @@ impl AuthenticatorResponse {
 impl AuthenticatorRequest {
     /// Determine which requested credentials to prove given available credentials.
     /// Returns None if constraints (or lack thereof) cannot be satisfied with the available set.
+    /// Determine which requested credentials to prove given available credentials.
+    ///
+    /// # Panics
+    /// Panics if constraints are present but invalid according to the type invariants
+    /// (this should not occur as constraints are provided by trusted request issuer).
+    #[must_use]
     pub fn credentials_to_prove(
         &self,
         available: &HashSet<&str>,
     ) -> Option<Vec<&CredentialRequest>> {
-        use std::collections::HashSet as Set;
-
         // Build set of requested types
-        let requested: Set<&str> = self
+        let requested: std::collections::HashSet<&str> = self
             .requests
             .iter()
             .map(|r| r.credential_type.as_str())
@@ -117,38 +184,7 @@ impl AuthenticatorRequest {
         // Predicate: only select if both available and requested
         let is_selectable = |t: &str| available.contains(t) && requested.contains(t);
 
-        // Recursive selection helpers
-        fn select_node<'a>(
-            node: &'a ConstraintNode<'a>,
-            pred: &impl Fn(&str) -> bool,
-        ) -> Option<Vec<&'a str>> {
-            match node {
-                ConstraintNode::Type(t) => pred(t.as_ref()).then(|| vec![t.as_ref()]),
-                ConstraintNode::Expr(e) => select_expr(e, pred),
-            }
-        }
-
-        fn select_expr<'a>(
-            expr: &'a ConstraintExpr<'a>,
-            pred: &impl Fn(&str) -> bool,
-        ) -> Option<Vec<&'a str>> {
-            match expr {
-                ConstraintExpr::All { all } => {
-                    let mut seen: Set<&'a str> = Set::new();
-                    let mut out: Vec<&'a str> = Vec::new();
-                    for n in all {
-                        let sub = select_node(n, pred)?;
-                        for s in sub {
-                            if seen.insert(s) {
-                                out.push(s);
-                            }
-                        }
-                    }
-                    Some(out)
-                }
-                ConstraintExpr::Any { any } => any.iter().find_map(|n| select_node(n, pred)),
-            }
-        }
+        // Recursive selection helpers are defined at module scope: select_node/select_expr
 
         // If no explicit constraints: require all requested be available
         if self.constraints.is_none() {
@@ -165,7 +201,7 @@ impl AuthenticatorRequest {
 
         // Compute selected types using the constraint expression
         let selected_types = select_expr(self.constraints.as_ref().unwrap(), &is_selectable)?;
-        let selected_set: Set<&str> = selected_types.into_iter().collect();
+        let selected_set: std::collections::HashSet<&str> = selected_types.into_iter().collect();
 
         // Return proof_requests in original order filtered by selected types
         let result: Vec<&CredentialRequest> = self
@@ -182,6 +218,11 @@ impl AuthenticatorRequest {
     }
 
     /// Validate that a response satisfies this request: id match and constraints semantics.
+    /// Validate that a response satisfies this request: id match and constraints semantics.
+    ///
+    /// # Errors
+    /// Returns a `ValidationError` if the response does not correspond to this request or
+    /// does not satisfy the declared constraints.
     pub fn validate_response(
         &self,
         response: &AuthenticatorResponse,
@@ -228,6 +269,9 @@ impl AuthenticatorRequest {
     }
 
     /// Parse from JSON
+    ///
+    /// # Errors
+    /// Returns an error if the JSON is invalid or contains duplicate credential types.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let v: Self = serde_json::from_str(json)?;
         // Enforce unique credential types within a single request
@@ -245,6 +289,9 @@ impl AuthenticatorRequest {
     }
 
     /// Serialize to pretty JSON
+    ///
+    /// # Errors
+    /// Returns an error if serialization fails.
     pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
@@ -252,11 +299,17 @@ impl AuthenticatorRequest {
 
 impl AuthenticatorResponse {
     /// Parse from JSON
+    ///
+    /// # Errors
+    /// Returns an error if the JSON does not match the expected response shape.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
     /// Serialize to pretty JSON
+    ///
+    /// # Errors
+    /// Returns an error if serialization fails.
     pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
@@ -272,16 +325,22 @@ impl AuthenticatorResponse {
     }
 }
 
+/// Validation errors when checking a response against a request
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ValidationError {
+    /// The response `id` does not match the request `id`
     #[error("Request ID mismatch")]
     RequestIdMismatch,
+    /// The response `version` does not match the request `version`
     #[error("Version mismatch")]
     VersionMismatch,
+    /// A required credential was not provided
     #[error("Missing required credential: {0}")]
     MissingCredential(String),
+    /// The provided credentials do not satisfy the request constraints
     #[error("Constraints not satisfied")]
     ConstraintNotSatisfied,
+    /// The constraints expression exceeds the supported nesting depth
     #[error("Constraints nesting exceeds maximum allowed depth")]
     ConstraintTooDeep,
 }

@@ -918,7 +918,7 @@ checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 [[package]]
 name = "ark-babyjubjub"
 version = "0.5.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -1276,7 +1276,7 @@ dependencies = [
 [[package]]
 name = "ark-serde-compat"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-babyjubjub",
  "ark-bn254 0.5.0",
@@ -2364,7 +2364,7 @@ dependencies = [
 [[package]]
 name = "circom-types"
 version = "0.9.0"
-source = "git+https://github.com/TaceoLabs/co-snarks.git#3588af1a257a466c74039beaad5f5e078d8cfd23"
+source = "git+https://github.com/TaceoLabs/co-snarks.git#531d08cb3403b78fd3671de49c39dc97f34a4ccc"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -2958,7 +2958,7 @@ dependencies = [
 [[package]]
 name = "eddsa-babyjubjub"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-babyjubjub",
  "ark-ec 0.5.0",
@@ -4795,7 +4795,7 @@ dependencies = [
 [[package]]
 name = "oprf-client"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-babyjubjub",
  "ark-bn254 0.5.0",
@@ -4825,7 +4825,7 @@ dependencies = [
 [[package]]
 name = "oprf-core"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-babyjubjub",
  "ark-ec 0.5.0",
@@ -4846,7 +4846,7 @@ dependencies = [
 [[package]]
 name = "oprf-service"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-babyjubjub",
  "ark-bn254 0.5.0",
@@ -4888,19 +4888,15 @@ dependencies = [
 [[package]]
 name = "oprf-test"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-babyjubjub",
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
  "ark-ff 0.5.0",
- "ark-serde-compat",
  "circom-types",
  "eddsa-babyjubjub",
  "eyre",
  "futures",
  "groth16",
- "k256",
  "oprf-client",
  "oprf-core",
  "oprf-service",
@@ -4910,15 +4906,12 @@ dependencies = [
  "reqwest",
  "smart-contract-mock",
  "tokio",
- "tracing-subscriber 0.3.20",
- "uuid",
- "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git?branch=dev)",
 ]
 
 [[package]]
 name = "oprf-types"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-babyjubjub",
  "ark-serde-compat",
@@ -5124,7 +5117,7 @@ checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
 [[package]]
 name = "poseidon2"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -6338,7 +6331,7 @@ dependencies = [
 [[package]]
 name = "smart-contract-mock"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#fd65f74ca660d93235f35fa425414bdd9d75da5d"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git#42f4c7f9c5ceaa262648929f48f2de17a22cda6c"
 dependencies = [
  "ark-babyjubjub",
  "ark-ec 0.5.0",
