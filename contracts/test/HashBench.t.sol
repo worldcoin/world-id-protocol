@@ -80,6 +80,6 @@ contract LeanIMTTest is Test {
 
     function test_Poseidon2T2EqualsRust() public {
         uint256 result = Poseidon2T2Reference.compress([uint256(0), uint256(0)]);
-        assertEq(result, 15621590199821056450610068202457788725601603091791048810523422053872049975191);
+        assertEq(result, 0x228981b886e5effb2c05a6be7ab4a05fde6bf702a2d039e46c87057dd729ef97);
     }
 }
