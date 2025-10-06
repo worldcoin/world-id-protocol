@@ -15,6 +15,7 @@ path = "bin/rp.rs"
 
 [dependencies]
 alloy = { version = "1.0.36", features = ["contract", "signer-local", "sol-types", "reqwest-rustls-tls"], default-features = false, optional = true }
+ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 anyhow = { workspace = true }

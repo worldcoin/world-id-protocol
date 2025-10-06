@@ -6,6 +6,7 @@ use std::{io::Cursor, sync::LazyLock};
 
 use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::config::Config;
+use crate::credential::BaseField;
 use crate::types::InclusionProofResponse;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
@@ -13,15 +14,15 @@ use alloy::providers::{DynProvider, Provider};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::uint;
 use ark_bn254::{Bn254, Fr};
-use ark_ec::{CurveGroup, PrimeGroup};
 use ark_ff::{AdditiveGroup, PrimeField};
 use ark_serde_compat::groth16::Groth16Proof;
 use circom_types::{groth16::ZKey, traits::CheckElement};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use eyre::Result;
 use groth16::{ConstraintMatrices, ProvingKey};
-use oprf_client::{Affine, BaseField, Projective, ScalarField};
 use oprf_types::{MerkleEpoch, RpId, ShareEpoch};
+
+type Affine = ark_babyjubjub::EdwardsAffine;
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
