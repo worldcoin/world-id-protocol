@@ -41,6 +41,8 @@ contract AccountRegistry is EIP712, Ownable2Step {
     );
     event AccountUpdated(
         uint256 indexed accountIndex,
+        uint256 pubkeyId,
+        uint256 newAuthenticatorPubkey,
         address indexed oldAuthenticatorAddress,
         address indexed newAuthenticatorAddress,
         uint256 oldOffchainSignerCommitment,
@@ -49,6 +51,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
     event AccountRecovered(
         uint256 indexed accountIndex,
         address indexed newAuthenticatorAddress,
+        uint256 indexed newAuthenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
@@ -57,13 +60,17 @@ contract AccountRegistry is EIP712, Ownable2Step {
     );
     event AuthenticatorInserted(
         uint256 indexed accountIndex,
+        uint256 pubkeyId,
         address indexed authenticatorAddress,
+        uint256 indexed newAuthenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
     event AuthenticatorRemoved(
         uint256 indexed accountIndex,
+        uint256 pubkeyId,
         address indexed authenticatorAddress,
+        uint256 indexed authenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
@@ -75,13 +82,13 @@ contract AccountRegistry is EIP712, Ownable2Step {
     ////////////////////////////////////////////////////////////
 
     string public constant UPDATE_AUTHENTICATOR_TYPEDEF =
-        "UpdateAuthenticator(uint256 accountIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint256 pubkeyId,uint256 newOffchainSignerCommitment,uint256 nonce)";
+        "UpdateAuthenticator(uint256 accountIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint256 pubkeyId,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant INSERT_AUTHENTICATOR_TYPEDEF =
-        "InsertAuthenticator(uint256 accountIndex,address newAuthenticatorAddress,uint256 pubkeyId,uint256 newOffchainSignerCommitment,uint256 nonce)";
+        "InsertAuthenticator(uint256 accountIndex,address newAuthenticatorAddress,uint256 pubkeyId,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant REMOVE_AUTHENTICATOR_TYPEDEF =
-        "RemoveAuthenticator(uint256 accountIndex,address authenticatorAddress,uint256 pubkeyId,uint256 newOffchainSignerCommitment,uint256 nonce)";
+        "RemoveAuthenticator(uint256 accountIndex,address authenticatorAddress,uint256 pubkeyId,uint256 authenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant RECOVER_ACCOUNT_TYPEDEF =
-        "RecoverAccount(uint256 accountIndex,address newAuthenticatorAddress,uint256 newOffchainSignerCommitment,uint256 nonce)";
+        "RecoverAccount(uint256 accountIndex,address newAuthenticatorAddress,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)";
     string public constant UPDATE_RECOVERY_ADDRESS_TYPEDEF =
         "UpdateRecoveryAddress(uint256 accountIndex,address newRecoveryAddress,uint256 nonce)";
 
@@ -187,6 +194,10 @@ contract AccountRegistry is EIP712, Ownable2Step {
         uint256 offchainSignerCommitment
     ) external {
         require(authenticatorAddresses.length > 0, "authenticatorAddresses length must be greater than 0");
+        require(
+            authenticatorAddresses.length == authenticatorPubkeys.length,
+            "authenticatorAddresses and authenticatorPubkeys length mismatch"
+        );
         require(recoveryAddress != address(0), "Recovery address cannot be the zero address");
 
         accountIndexToRecoveryAddress[nextAccountIndex] = recoveryAddress;
@@ -233,6 +244,10 @@ contract AccountRegistry is EIP712, Ownable2Step {
         for (uint256 i = 0; i < recoveryAddresses.length; i++) {
             require(authenticatorAddresses[i].length > 0, "Authenticator addresses length must be greater than 0");
             require(recoveryAddresses[i] != address(0), "Recovery address cannot be the zero address");
+            require(
+                authenticatorAddresses[i].length == authenticatorPubkeys[i].length,
+                "authenticator addresses and pubkeys length mismatch"
+            );
             accountIndexToRecoveryAddress[nextAccountIndex] = recoveryAddresses[i];
             for (uint256 j = 0; j < authenticatorAddresses[i].length; j++) {
                 require(authenticatorAddresses[i][j] != address(0), "Authenticator cannot be the zero address");
@@ -270,6 +285,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
         address oldAuthenticatorAddress,
         address newAuthenticatorAddress,
         uint256 pubkeyId,
+        uint256 newAuthenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
@@ -293,6 +309,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
                     oldAuthenticatorAddress,
                     newAuthenticatorAddress,
                     pubkeyId,
+                    newAuthenticatorPubkey,
                     newOffchainSignerCommitment,
                     nonce
                 )
@@ -318,6 +335,8 @@ contract AccountRegistry is EIP712, Ownable2Step {
         tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         emit AccountUpdated(
             accountIndex,
+            pubkeyId,
+            newAuthenticatorPubkey,
             oldAuthenticatorAddress,
             newAuthenticatorAddress,
             oldOffchainSignerCommitment,
@@ -337,6 +356,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
         uint256 accountIndex,
         address newAuthenticatorAddress,
         uint256 pubkeyId,
+        uint256 newAuthenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
@@ -355,6 +375,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
                     accountIndex,
                     newAuthenticatorAddress,
                     pubkeyId,
+                    newAuthenticatorPubkey,
                     newOffchainSignerCommitment,
                     nonce
                 )
@@ -371,7 +392,12 @@ contract AccountRegistry is EIP712, Ownable2Step {
         // Update tree
         tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         emit AuthenticatorInserted(
-            accountIndex, newAuthenticatorAddress, oldOffchainSignerCommitment, newOffchainSignerCommitment
+            accountIndex,
+            pubkeyId,
+            newAuthenticatorAddress,
+            newAuthenticatorPubkey,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment
         );
         _recordCurrentRoot();
     }
@@ -388,6 +414,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
         uint256 accountIndex,
         address authenticatorAddress,
         uint256 pubkeyId,
+        uint256 authenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
@@ -403,6 +430,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
                     accountIndex,
                     authenticatorAddress,
                     pubkeyId,
+                    authenticatorPubkey,
                     newOffchainSignerCommitment,
                     nonce
                 )
@@ -426,7 +454,12 @@ contract AccountRegistry is EIP712, Ownable2Step {
         // Update tree
         tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         emit AuthenticatorRemoved(
-            accountIndex, authenticatorAddress, oldOffchainSignerCommitment, newOffchainSignerCommitment
+            accountIndex,
+            pubkeyId,
+            authenticatorAddress,
+            authenticatorPubkey,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment
         );
         _recordCurrentRoot();
     }
@@ -443,6 +476,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
     function recoverAccount(
         uint256 accountIndex,
         address newAuthenticatorAddress,
+        uint256 newAuthenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
@@ -456,7 +490,12 @@ contract AccountRegistry is EIP712, Ownable2Step {
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
-                    RECOVER_ACCOUNT_TYPEHASH, accountIndex, newAuthenticatorAddress, newOffchainSignerCommitment, nonce
+                    RECOVER_ACCOUNT_TYPEHASH,
+                    accountIndex,
+                    newAuthenticatorAddress,
+                    newAuthenticatorPubkey,
+                    newOffchainSignerCommitment,
+                    nonce
                 )
             )
         );
@@ -477,7 +516,11 @@ contract AccountRegistry is EIP712, Ownable2Step {
         // Update tree
         tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         emit AccountRecovered(
-            accountIndex, newAuthenticatorAddress, oldOffchainSignerCommitment, newOffchainSignerCommitment
+            accountIndex,
+            newAuthenticatorAddress,
+            newAuthenticatorPubkey,
+            oldOffchainSignerCommitment,
+            newOffchainSignerCommitment
         );
         _recordCurrentRoot();
     }

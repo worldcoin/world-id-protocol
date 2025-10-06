@@ -20,6 +20,7 @@ sol! {
         address oldAuthenticatorAddress;
         address newAuthenticatorAddress;
         uint256 pubkeyId;
+        uint256 newAuthenticatorPubkey;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
@@ -28,6 +29,7 @@ sol! {
         uint256 accountIndex;
         address newAuthenticatorAddress;
         uint256 pubkeyId;
+        uint256 newAuthenticatorPubkey;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
@@ -36,6 +38,7 @@ sol! {
         uint256 accountIndex;
         address authenticatorAddress;
         uint256 pubkeyId;
+        uint256 authenticatorPubkey;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
@@ -43,17 +46,18 @@ sol! {
     struct RecoverAccount {
         uint256 accountIndex;
         address newAuthenticatorAddress;
+        uint256 newAuthenticatorPubkey;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
 }
 
-/// Returns the EIP-712 domain used by the `AuthenticatorRegistry` contract
+/// Returns the EIP-712 domain used by the `AccountRegistry` contract
 /// for a given `chain_id` and `verifying_contract` address.
 #[must_use]
 pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
     eip712_domain!(
-        name: "AuthenticatorRegistry",
+        name: "AccountRegistry",
         version: "1.0",
         chain_id: chain_id,
         verifying_contract: verifying_contract,
@@ -71,6 +75,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
     old_authenticator_address: Address,
     new_authenticator_address: Address,
     pubkey_id: U256,
+    new_authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
@@ -80,6 +85,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
         oldAuthenticatorAddress: old_authenticator_address,
         newAuthenticatorAddress: new_authenticator_address,
         pubkeyId: pubkey_id,
+        newAuthenticatorPubkey: new_authenticator_pubkey,
         newOffchainSignerCommitment: new_offchain_signer_commitment,
         nonce,
     };
@@ -91,11 +97,13 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
+#[allow(clippy::too_many_arguments)]
 pub async fn sign_insert_authenticator<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
     new_authenticator_address: Address,
     pubkey_id: U256,
+    new_authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
@@ -104,6 +112,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
         accountIndex: account_index,
         newAuthenticatorAddress: new_authenticator_address,
         pubkeyId: pubkey_id,
+        newAuthenticatorPubkey: new_authenticator_pubkey,
         newOffchainSignerCommitment: new_offchain_signer_commitment,
         nonce,
     };
@@ -115,11 +124,13 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
+#[allow(clippy::too_many_arguments)]
 pub async fn sign_remove_authenticator<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
     authenticator_address: Address,
     pubkey_id: U256,
+    authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
@@ -128,6 +139,7 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
         accountIndex: account_index,
         authenticatorAddress: authenticator_address,
         pubkeyId: pubkey_id,
+        authenticatorPubkey: authenticator_pubkey,
         newOffchainSignerCommitment: new_offchain_signer_commitment,
         nonce,
     };
@@ -143,6 +155,7 @@ pub async fn sign_recover_account<S: Signer + Sync>(
     signer: &S,
     account_index: U256,
     new_authenticator_address: Address,
+    new_authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
@@ -150,6 +163,7 @@ pub async fn sign_recover_account<S: Signer + Sync>(
     let payload = RecoverAccount {
         accountIndex: account_index,
         newAuthenticatorAddress: new_authenticator_address,
+        newAuthenticatorPubkey: new_authenticator_pubkey,
         newOffchainSignerCommitment: new_offchain_signer_commitment,
         nonce,
     };

@@ -93,6 +93,7 @@ struct UpdateAuthenticatorRequest {
     signature: String,
     nonce: String,
     pubkey_id: Option<String>,
+    new_authenticator_pubkey: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,6 +106,7 @@ struct InsertAuthenticatorRequest {
     signature: String,
     nonce: String,
     pubkey_id: Option<String>,
+    new_authenticator_pubkey: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,6 +119,7 @@ struct RemoveAuthenticatorRequest {
     signature: String,
     nonce: String,
     pubkey_id: Option<String>,
+    authenticator_pubkey: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,6 +131,7 @@ struct RecoverAccountRequest {
     sibling_nodes: Vec<String>,
     signature: String,
     nonce: String,
+    new_authenticator_pubkey: Option<String>,
 }
 
 static DEFAULT_BATCH_MS: Lazy<u64> = Lazy::new(|| 1000);
@@ -396,6 +400,7 @@ enum OpKind {
         sibling_nodes: Vec<U256>,
         nonce: U256,
         pubkey_id: U256,
+        new_pubkey: U256,
     },
     Insert {
         account_index: U256,
@@ -406,6 +411,7 @@ enum OpKind {
         sibling_nodes: Vec<U256>,
         nonce: U256,
         pubkey_id: U256,
+        new_pubkey: U256,
     },
     Remove {
         account_index: U256,
@@ -416,6 +422,7 @@ enum OpKind {
         sibling_nodes: Vec<U256>,
         nonce: U256,
         pubkey_id: U256,
+        authenticator_pubkey: U256,
     },
     Recover {
         account_index: U256,
@@ -425,6 +432,7 @@ enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
+        new_pubkey: U256,
     },
 }
 
@@ -495,12 +503,14 @@ impl OpsBatcherRunner {
                         sibling_nodes,
                         nonce,
                         pubkey_id,
+                        new_pubkey,
                     } => contract
                         .updateAuthenticator(
                             *account_index,
                             *old_authenticator_address,
                             *new_authenticator_address,
                             *pubkey_id,
+                            *new_pubkey,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -518,11 +528,13 @@ impl OpsBatcherRunner {
                         sibling_nodes,
                         nonce,
                         pubkey_id,
+                        new_pubkey,
                     } => contract
                         .insertAuthenticator(
                             *account_index,
                             *new_authenticator_address,
                             *pubkey_id,
+                            *new_pubkey,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -540,11 +552,13 @@ impl OpsBatcherRunner {
                         sibling_nodes,
                         nonce,
                         pubkey_id,
+                        authenticator_pubkey,
                     } => contract
                         .removeAuthenticator(
                             *account_index,
                             *authenticator_address,
                             *pubkey_id,
+                            *authenticator_pubkey,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -561,10 +575,12 @@ impl OpsBatcherRunner {
                         signature,
                         sibling_nodes,
                         nonce,
+                        new_pubkey,
                     } => contract
                         .recoverAccount(
                             *account_index,
                             *new_authenticator_address,
+                            *new_pubkey,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -697,6 +713,12 @@ async fn update_authenticator(
                 .map(|s| req_u256("pubkey_id", s))
                 .transpose()?
                 .unwrap_or(U256::from(0u64)),
+            new_pubkey: req
+                .new_authenticator_pubkey
+                .as_deref()
+                .map(|s| req_u256("new_authenticator_pubkey", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: oneshot::channel().0, // placeholder, replaced below
     };
@@ -745,6 +767,12 @@ async fn insert_authenticator(
                 .map(|s| req_u256("pubkey_id", s))
                 .transpose()?
                 .unwrap_or(U256::from(0u64)),
+            new_pubkey: req
+                .new_authenticator_pubkey
+                .as_deref()
+                .map(|s| req_u256("new_authenticator_pubkey", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: tx,
     };
@@ -791,6 +819,12 @@ async fn remove_authenticator(
                 .map(|s| req_u256("pubkey_id", s))
                 .transpose()?
                 .unwrap_or(U256::from(0u64)),
+            authenticator_pubkey: req
+                .authenticator_pubkey
+                .as_deref()
+                .map(|s| req_u256("authenticator_pubkey", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: tx,
     };
@@ -831,6 +865,12 @@ async fn recover_account(
             sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
             signature: req_bytes("signature", &req.signature)?,
             nonce: req_u256("nonce", &req.nonce)?,
+            new_pubkey: req
+                .new_authenticator_pubkey
+                .as_deref()
+                .map(|s| req_u256("new_authenticator_pubkey", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: tx,
     };

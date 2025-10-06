@@ -29,6 +29,55 @@ pub struct AccountCreatedEvent {
     pub offchain_signer_commitment: U256,
 }
 
+#[derive(Debug, Clone)]
+pub struct AccountUpdatedEvent {
+    pub account_index: U256,
+    pub pubkey_id: U256,
+    pub new_authenticator_pubkey: U256,
+    pub old_authenticator_address: Address,
+    pub new_authenticator_address: Address,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatorInsertedEvent {
+    pub account_index: U256,
+    pub pubkey_id: U256,
+    pub authenticator_address: Address,
+    pub new_authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatorRemovedEvent {
+    pub account_index: U256,
+    pub pubkey_id: U256,
+    pub authenticator_address: Address,
+    pub authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountRecoveredEvent {
+    pub account_index: U256,
+    pub new_authenticator_address: Address,
+    pub new_authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub enum RegistryEvent {
+    AccountCreated(AccountCreatedEvent),
+    AccountUpdated(AccountUpdatedEvent),
+    AuthenticatorInserted(AuthenticatorInsertedEvent),
+    AuthenticatorRemoved(AuthenticatorRemovedEvent),
+    AccountRecovered(AccountRecoveredEvent),
+}
+
 #[derive(Clone, Debug)]
 pub struct IndexerConfig {
     pub rpc_url: String,
@@ -105,13 +154,33 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn update_tree_with_event(ev: &AccountCreatedEvent) -> anyhow::Result<()> {
-    if ev.account_index == 0 {
+async fn update_tree_with_commitment(account_index: U256, new_commitment: U256) -> anyhow::Result<()> {
+    if account_index == 0 {
         anyhow::bail!("account index cannot be zero");
     }
-    let leaf_index = ev.account_index.as_limbs()[0] as usize - 1;
-    set_leaf_at_index(leaf_index, ev.offchain_signer_commitment).await;
+    let leaf_index = account_index.as_limbs()[0] as usize - 1;
+    set_leaf_at_index(leaf_index, new_commitment).await;
     Ok(())
+}
+
+async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
+    match ev {
+        RegistryEvent::AccountCreated(e) => {
+            update_tree_with_commitment(e.account_index, e.offchain_signer_commitment).await
+        }
+        RegistryEvent::AccountUpdated(e) => {
+            update_tree_with_commitment(e.account_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AuthenticatorInserted(e) => {
+            update_tree_with_commitment(e.account_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AuthenticatorRemoved(e) => {
+            update_tree_with_commitment(e.account_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AccountRecovered(e) => {
+            update_tree_with_commitment(e.account_index, e.new_offchain_signer_commitment).await
+        }
+    }
 }
 
 fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
@@ -320,9 +389,18 @@ pub async fn backfill<P: Provider>(
 
     let to_block = (*from_block + batch_size - 1).min(head);
 
+    // Listen for all events that change commitment
+    let event_signatures = vec![
+        AccountRegistry::AccountCreated::SIGNATURE_HASH,
+        AccountRegistry::AccountUpdated::SIGNATURE_HASH,
+        AccountRegistry::AuthenticatorInserted::SIGNATURE_HASH,
+        AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
+        AccountRegistry::AccountRecovered::SIGNATURE_HASH,
+    ];
+    
     let filter = Filter::new()
         .address(registry)
-        .event_signature(AccountRegistry::AccountCreated::SIGNATURE_HASH)
+        .event_signature(event_signatures)
         .from_block(*from_block)
         .to_block(to_block);
 
@@ -332,14 +410,28 @@ pub async fn backfill<P: Provider>(
             count = logs.len(),
             from = *from_block,
             to = to_block,
-            "processing AccountCreated logs"
+            "processing registry logs"
         );
     }
     for lg in logs {
-        let decoded = decode_account_created(&lg)?;
-        insert_account(pool, &decoded).await?;
-        if let Err(e) = update_tree_with_event(&decoded).await {
-            tracing::error!(?e, "failed to update tree for event");
+        match decode_registry_event(&lg) {
+            Ok(event) => {
+                tracing::info!(?event, "decoded registry event");
+                let block_number = lg.block_number;
+                let tx_hash = lg.transaction_hash;
+                let log_index = lg.log_index;
+                
+                if let Err(e) = handle_registry_event(pool, &event, block_number, tx_hash, log_index).await {
+                    tracing::error!(?e, ?event, "failed to handle registry event in DB");
+                }
+                
+                if let Err(e) = update_tree_with_event(&event).await {
+                    tracing::error!(?e, ?event, "failed to update tree for event");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(?e, ?lg, "failed to decode registry event");
+            }
         }
     }
 
@@ -351,7 +443,7 @@ pub async fn backfill<P: Provider>(
 pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountCreatedEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = AccountRegistry::AccountCreated::decode_log(&prim)?; // returns Log<AccountCreated>
+    let typed = AccountRegistry::AccountCreated::decode_log(&prim)?;
 
     Ok(AccountCreatedEvent {
         account_index: typed.data.accountIndex,
@@ -360,6 +452,88 @@ pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<Acc
         authenticator_pubkeys: typed.data.authenticatorPubkeys,
         offchain_signer_commitment: typed.data.offchainSignerCommitment,
     })
+}
+
+pub fn decode_account_updated(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountUpdatedEvent> {
+    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
+        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+    let typed = AccountRegistry::AccountUpdated::decode_log(&prim)?;
+
+    Ok(AccountUpdatedEvent {
+        account_index: typed.data.accountIndex,
+        pubkey_id: typed.data.pubkeyId,
+        new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
+        old_authenticator_address: typed.data.oldAuthenticatorAddress,
+        new_authenticator_address: typed.data.newAuthenticatorAddress,
+        old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
+        new_offchain_signer_commitment: typed.data.newOffchainSignerCommitment,
+    })
+}
+
+pub fn decode_authenticator_inserted(lg: &alloy::rpc::types::Log) -> anyhow::Result<AuthenticatorInsertedEvent> {
+    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
+        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+    let typed = AccountRegistry::AuthenticatorInserted::decode_log(&prim)?;
+
+    Ok(AuthenticatorInsertedEvent {
+        account_index: typed.data.accountIndex,
+        pubkey_id: typed.data.pubkeyId,
+        authenticator_address: typed.data.authenticatorAddress,
+        new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
+        old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
+        new_offchain_signer_commitment: typed.data.newOffchainSignerCommitment,
+    })
+}
+
+pub fn decode_authenticator_removed(lg: &alloy::rpc::types::Log) -> anyhow::Result<AuthenticatorRemovedEvent> {
+    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
+        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+    let typed = AccountRegistry::AuthenticatorRemoved::decode_log(&prim)?;
+
+    Ok(AuthenticatorRemovedEvent {
+        account_index: typed.data.accountIndex,
+        pubkey_id: typed.data.pubkeyId,
+        authenticator_address: typed.data.authenticatorAddress,
+        authenticator_pubkey: typed.data.authenticatorPubkey,
+        old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
+        new_offchain_signer_commitment: typed.data.newOffchainSignerCommitment,
+    })
+}
+
+pub fn decode_account_recovered(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountRecoveredEvent> {
+    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
+        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+    let typed = AccountRegistry::AccountRecovered::decode_log(&prim)?;
+
+    Ok(AccountRecoveredEvent {
+        account_index: typed.data.accountIndex,
+        new_authenticator_address: typed.data.newAuthenticatorAddress,
+        new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
+        old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
+        new_offchain_signer_commitment: typed.data.newOffchainSignerCommitment,
+    })
+}
+
+pub fn decode_registry_event(lg: &alloy::rpc::types::Log) -> anyhow::Result<RegistryEvent> {
+    if lg.topics().is_empty() {
+        anyhow::bail!("log has no topics");
+    }
+    
+    let event_sig = lg.topics()[0];
+    
+    if event_sig == AccountRegistry::AccountCreated::SIGNATURE_HASH {
+        Ok(RegistryEvent::AccountCreated(decode_account_created(lg)?))
+    } else if event_sig == AccountRegistry::AccountUpdated::SIGNATURE_HASH {
+        Ok(RegistryEvent::AccountUpdated(decode_account_updated(lg)?))
+    } else if event_sig == AccountRegistry::AuthenticatorInserted::SIGNATURE_HASH {
+        Ok(RegistryEvent::AuthenticatorInserted(decode_authenticator_inserted(lg)?))
+    } else if event_sig == AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH {
+        Ok(RegistryEvent::AuthenticatorRemoved(decode_authenticator_removed(lg)?))
+    } else if event_sig == AccountRegistry::AccountRecovered::SIGNATURE_HASH {
+        Ok(RegistryEvent::AccountRecovered(decode_account_recovered(lg)?))
+    } else {
+        anyhow::bail!("unknown event signature: {:?}", event_sig)
+    }
 }
 
 pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::Result<()> {
@@ -383,6 +557,136 @@ pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::
     Ok(())
 }
 
+pub async fn update_commitment(
+    pool: &PgPool,
+    account_index: U256,
+    new_commitment: U256,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"update account_created_events 
+        set offchain_signer_commitment = $2
+        where account_index = $1"#,
+    )
+    .bind(account_index.to_string())
+    .bind(new_commitment.to_string())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn record_commitment_update(
+    pool: &PgPool,
+    account_index: U256,
+    event_type: &str,
+    new_commitment: U256,
+    block_number: u64,
+    tx_hash: &str,
+    log_index: u64,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"insert into commitment_update_events
+        (account_index, event_type, new_commitment, block_number, tx_hash, log_index)
+        values ($1, $2, $3, $4, $5, $6)
+        on conflict (tx_hash, log_index) do nothing"#,
+    )
+    .bind(account_index.to_string())
+    .bind(event_type)
+    .bind(new_commitment.to_string())
+    .bind(block_number as i64)
+    .bind(tx_hash)
+    .bind(log_index as i64)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn handle_registry_event(
+    pool: &PgPool,
+    event: &RegistryEvent,
+    block_number: Option<u64>,
+    tx_hash: Option<alloy::primitives::B256>,
+    log_index: Option<u64>,
+) -> anyhow::Result<()> {
+    match event {
+        RegistryEvent::AccountCreated(ev) => {
+            insert_account(pool, ev).await?;
+            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+                record_commitment_update(
+                    pool,
+                    ev.account_index,
+                    "created",
+                    ev.offchain_signer_commitment,
+                    bn,
+                    &format!("{:?}", tx),
+                    li,
+                )
+                .await?;
+            }
+        }
+        RegistryEvent::AccountUpdated(ev) => {
+            update_commitment(pool, ev.account_index, ev.new_offchain_signer_commitment).await?;
+            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+                record_commitment_update(
+                    pool,
+                    ev.account_index,
+                    "updated",
+                    ev.new_offchain_signer_commitment,
+                    bn,
+                    &format!("{:?}", tx),
+                    li,
+                )
+                .await?;
+            }
+        }
+        RegistryEvent::AuthenticatorInserted(ev) => {
+            update_commitment(pool, ev.account_index, ev.new_offchain_signer_commitment).await?;
+            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+                record_commitment_update(
+                    pool,
+                    ev.account_index,
+                    "inserted",
+                    ev.new_offchain_signer_commitment,
+                    bn,
+                    &format!("{:?}", tx),
+                    li,
+                )
+                .await?;
+            }
+        }
+        RegistryEvent::AuthenticatorRemoved(ev) => {
+            update_commitment(pool, ev.account_index, ev.new_offchain_signer_commitment).await?;
+            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+                record_commitment_update(
+                    pool,
+                    ev.account_index,
+                    "removed",
+                    ev.new_offchain_signer_commitment,
+                    bn,
+                    &format!("{:?}", tx),
+                    li,
+                )
+                .await?;
+            }
+        }
+        RegistryEvent::AccountRecovered(ev) => {
+            update_commitment(pool, ev.account_index, ev.new_offchain_signer_commitment).await?;
+            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+                record_commitment_update(
+                    pool,
+                    ev.account_index,
+                    "recovered",
+                    ev.new_offchain_signer_commitment,
+                    bn,
+                    &format!("{:?}", tx),
+                    li,
+                )
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn stream_logs(
     ws_url: &str,
     pool: &PgPool,
@@ -392,22 +696,44 @@ pub async fn stream_logs(
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
+    
+    let event_signatures = vec![
+        AccountRegistry::AccountCreated::SIGNATURE_HASH,
+        AccountRegistry::AccountUpdated::SIGNATURE_HASH,
+        AccountRegistry::AuthenticatorInserted::SIGNATURE_HASH,
+        AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
+        AccountRegistry::AccountRecovered::SIGNATURE_HASH,
+    ];
+    
     let filter = Filter::new()
         .address(registry)
-        .event_signature(AccountRegistry::AccountCreated::SIGNATURE_HASH)
+        .event_signature(event_signatures)
         .from_block(start_from);
     let sub = provider.subscribe_logs(&filter).await?;
     let mut stream = sub.into_stream();
     while let Some(log) = stream.next().await {
-        tracing::info!(?log, "processing live AccountCreated log");
-        if let Ok(decoded) = decode_account_created(&log) {
-            tracing::info!(?decoded, "processing live AccountCreated log");
-            insert_account(pool, &decoded).await?;
-            if let Err(e) = update_tree_with_event(&decoded).await {
-                tracing::error!(?e, "failed to update tree for live event");
+        tracing::info!(?log, "processing live registry log");
+        match decode_registry_event(&log) {
+            Ok(event) => {
+                tracing::info!(?event, "decoded live registry event");
+                let block_number = log.block_number;
+                let tx_hash = log.transaction_hash;
+                let log_index = log.log_index;
+                
+                if let Err(e) = handle_registry_event(pool, &event, block_number, tx_hash, log_index).await {
+                    tracing::error!(?e, ?event, "failed to handle registry event in DB");
+                }
+                
+                if let Err(e) = update_tree_with_event(&event).await {
+                    tracing::error!(?e, ?event, "failed to update tree for live event");
+                }
+                
+                if let Some(bn) = log.block_number {
+                    save_checkpoint(pool, bn).await?;
+                }
             }
-            if let Some(bn) = log.block_number {
-                save_checkpoint(pool, bn).await?;
+            Err(e) => {
+                tracing::warn!(?e, ?log, "failed to decode live registry event");
             }
         }
     }
