@@ -36,6 +36,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
         uint256 indexed accountIndex,
         address indexed recoveryAddress,
         address[] authenticatorAddresses,
+        uint256[] authenticatorPubkeys,
         uint256 offchainSignerCommitment
     );
     event AccountUpdated(
@@ -182,6 +183,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
     function createAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
+        uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
     ) external {
         require(authenticatorAddresses.length > 0, "authenticatorAddresses length must be greater than 0");
@@ -201,7 +203,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
         tree.insert(offchainSignerCommitment);
         _recordCurrentRoot();
 
-        emit AccountCreated(nextAccountIndex, recoveryAddress, authenticatorAddresses, offchainSignerCommitment);
+        emit AccountCreated(nextAccountIndex, recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment);
 
         nextAccountIndex++;
     }
@@ -215,6 +217,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
     function createManyAccounts(
         address[] calldata recoveryAddresses,
         address[][] calldata authenticatorAddresses,
+        uint256[][] calldata authenticatorPubkeys,
         uint256[] calldata offchainSignerCommitments
     ) external {
         require(recoveryAddresses.length > 0, "Length must be greater than 0");
@@ -242,7 +245,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
             }
 
             emit AccountCreated(
-                nextAccountIndex, recoveryAddresses[i], authenticatorAddresses[i], offchainSignerCommitments[i]
+                nextAccountIndex, recoveryAddresses[i], authenticatorAddresses[i], authenticatorPubkeys[i], offchainSignerCommitments[i]
             );
 
             nextAccountIndex++;

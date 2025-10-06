@@ -2,12 +2,11 @@ use std::net::SocketAddr;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, Log, U256};
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
-use ark_ff::PrimeField;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
@@ -15,18 +14,19 @@ use semaphore_rs_hasher::Hasher;
 use semaphore_rs_trees::imt::MerkleTree;
 use semaphore_rs_trees::proof::InclusionProof;
 use semaphore_rs_trees::Branch;
-use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::InclusionProofResponse;
 
 #[derive(Debug, Clone)]
-pub struct DecodedAccountCreated {
-    pub account_index_hex: String,
-    pub recovery_address_bytes: String,
-    pub authenticator_addresses_hex: Vec<String>,
-    pub offchain_signer_commitment_hex: String,
+pub struct AccountCreatedEvent {
+    pub account_index: U256,
+    pub recovery_address: Address,
+    pub authenticator_addresses: Vec<Address>,
+    pub authenticator_pubkeys: Vec<U256>,
+    pub offchain_signer_commitment: U256,
 }
 
 #[derive(Clone, Debug)]
@@ -49,13 +49,13 @@ impl Hasher for PoseidonHasher {
     type Hash = U256;
 
     fn hash_node(left: &Self::Hash, right: &Self::Hash) -> Self::Hash {
-        let left = Fr::from_le_bytes_mod_order(&left.to_le_bytes::<32>()[..]);
-        let right = Fr::from_le_bytes_mod_order(&right.to_le_bytes::<32>()[..]);
+        let left: Fr = left.try_into().unwrap();
+        let right: Fr = right.try_into().unwrap();
         let mut input = [left, right];
         let feed_forward = input[0];
         POSEIDON_HASHER.permutation_in_place(&mut input);
         input[0] += feed_forward;
-        U256::from_limbs(input[0].into_bigint().0)
+        input[0].into()
     }
 }
 
@@ -65,17 +65,6 @@ const TREE_DEPTH: usize = if cfg!(debug_assertions) { 10 } else { 30 };
 // Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
 static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher>>> =
     LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
-
-fn hex_to_u256(hex_str: &str) -> anyhow::Result<U256> {
-    let s = hex_str.trim();
-    Ok(s.parse()?)
-}
-
-fn hex_to_u64(hex_str: &str) -> anyhow::Result<u64> {
-    let s = hex_str.trim();
-    let s = s.strip_prefix("0x").unwrap_or(s);
-    Ok(u64::from_str_radix(s, 16)?)
-}
 
 async fn set_leaf_at_index(leaf_index: usize, value: U256) {
     let mut tree = GLOBAL_TREE.write().await;
@@ -92,28 +81,22 @@ async fn set_leaf_at_index(leaf_index: usize, value: U256) {
 }
 
 async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
-    // Fetch all existing events (runtime-checked query to avoid sqlx offline prepare)
     let rows =
-        sqlx::query("select account_index, offchain_signer_commitment from account_created_events")
+        sqlx::query("select account_index, offchain_signer_commitment from account_created_events order by account_index asc")
             .fetch_all(pool)
             .await?;
 
-    // Compute max index to size the tree
-    let mut max_index: u64 = 0;
     let mut leaves: Vec<(usize, U256)> = Vec::with_capacity(rows.len());
     for r in rows {
         let account_index: String = r.get("account_index");
         let offchain: String = r.get("offchain_signer_commitment");
-        let idx_u64 = hex_to_u64(&account_index)?;
-        if idx_u64 == 0 {
+        let account_index: U256 = account_index.parse::<U256>()?;
+        if account_index == U256::ZERO {
             continue;
         }
-        let leaf_index = (idx_u64 - 1) as usize;
-        let leaf_val = hex_to_u256(&offchain)?;
+        let leaf_index = account_index.as_limbs()[0] as usize - 1;
+        let leaf_val = offchain.parse::<U256>()?;
         leaves.push((leaf_index, leaf_val));
-        if idx_u64 > max_index {
-            max_index = idx_u64;
-        }
     }
 
     let mut tree = GLOBAL_TREE.write().await;
@@ -122,14 +105,12 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn update_tree_with_event(ev: &DecodedAccountCreated) -> anyhow::Result<()> {
-    let idx = hex_to_u64(&ev.account_index_hex)?;
-    if idx == 0 {
+async fn update_tree_with_event(ev: &AccountCreatedEvent) -> anyhow::Result<()> {
+    if ev.account_index == 0 {
         anyhow::bail!("account index cannot be zero");
     }
-    let leaf_index = (idx - 1) as usize;
-    let value = hex_to_u256(&ev.offchain_signer_commitment_hex)?;
-    set_leaf_at_index(leaf_index, value).await;
+    let leaf_index = ev.account_index.as_limbs()[0] as usize - 1;
+    set_leaf_at_index(leaf_index, ev.offchain_signer_commitment).await;
     Ok(())
 }
 
@@ -148,24 +129,15 @@ async fn http_get_proof(
     Path(idx_str): Path<String>,
     State(pool): State<PgPool>,
 ) -> impl axum::response::IntoResponse {
-    // Accept decimal or 0x-prefixed hex
-    let account_index = if let Ok(v) = idx_str.parse::<u64>() {
-        v
-    } else if let Some(stripped) = idx_str.strip_prefix("0x") {
-        u64::from_str_radix(stripped, 16).unwrap_or(0)
-    } else {
-        0
-    };
+    let account_index: U256 = idx_str.parse().unwrap();
     if account_index == 0 {
         return (axum::http::StatusCode::BAD_REQUEST, "invalid account index").into_response();
     }
 
-    // Check existence in DB to avoid returning proof for empty leaf
-    let key_hex = format!("0x{:x}", account_index);
     let exists = sqlx::query_scalar::<_, String>(
         "select offchain_signer_commitment from account_created_events where account_index = $1",
     )
-    .bind(&key_hex)
+    .bind(&account_index.to_string())
     .fetch_optional(&pool)
     .await
     .ok()
@@ -174,12 +146,12 @@ async fn http_get_proof(
         return (axum::http::StatusCode::NOT_FOUND, "account not found").into_response();
     }
 
-    let leaf_index = (account_index - 1) as usize;
+    let leaf_index = account_index.as_limbs()[0] as usize - 1;
     let tree = GLOBAL_TREE.read().await;
     match tree.proof(leaf_index) {
         Some(proof) => {
             let resp = InclusionProofResponse::new(
-                account_index,
+                account_index.as_limbs()[0],
                 leaf_index as u64,
                 tree.root(),
                 proof_to_vec(&proof),
@@ -370,59 +342,42 @@ pub async fn backfill<P: Provider>(
             tracing::error!(?e, "failed to update tree for event");
         }
     }
+
     save_checkpoint(pool, to_block).await?;
     *from_block = to_block + 1;
     Ok(())
 }
 
-pub fn decode_account_created(
-    lg: &alloy::rpc::types::Log,
-) -> anyhow::Result<DecodedAccountCreated> {
-    use alloy::primitives::Log as PLog;
-    // Convert RPC log to primitives Log and use typed decoder
-    let prim = PLog::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
+pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountCreatedEvent> {
+    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
     let typed = AccountRegistry::AccountCreated::decode_log(&prim)?; // returns Log<AccountCreated>
-    let ev = typed.data;
 
-    let account_index_hex = format!("0x{:x}", ev.accountIndex);
-    let recovery_address_bytes = format!("0x{:x}", ev.recoveryAddress);
-    let authenticator_addresses_hex = ev
-        .authenticatorAddresses
-        .into_iter()
-        .map(|a| format!("0x{:x}", a))
-        .collect();
-    let offchain_signer_commitment_hex = format!("0x{:x}", ev.offchainSignerCommitment);
-
-    Ok(DecodedAccountCreated {
-        account_index_hex,
-        recovery_address_bytes,
-        authenticator_addresses_hex,
-        offchain_signer_commitment_hex,
+    Ok(AccountCreatedEvent {
+        account_index: typed.data.accountIndex,
+        recovery_address: typed.data.recoveryAddress,
+        authenticator_addresses: typed.data.authenticatorAddresses,
+        authenticator_pubkeys: typed.data.authenticatorPubkeys,
+        offchain_signer_commitment: typed.data.offchainSignerCommitment,
     })
 }
 
-pub async fn insert_account(pool: &PgPool, ev: &DecodedAccountCreated) -> anyhow::Result<()> {
-    let account_index = ev.account_index_hex.clone();
-    let recovery_address = ev.recovery_address_bytes.clone();
-    let auth_addrs_json = serde_json::Value::Array(
-        ev.authenticator_addresses_hex
-            .iter()
-            .map(|s| serde_json::Value::String(s.clone()))
-            .collect(),
-    );
-    let offchain = ev.offchain_signer_commitment_hex.clone();
-
+pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::Result<()> {
     sqlx::query(
         r#"insert into account_created_events
         (account_index, recovery_address, authenticator_addresses, offchain_signer_commitment)
         values ($1, $2, $3, $4)
         on conflict (account_index) do nothing"#,
     )
-    .bind(account_index)
-    .bind(recovery_address)
-    .bind(auth_addrs_json)
-    .bind(offchain)
+    .bind(ev.account_index.to_string())
+    .bind(ev.recovery_address.to_string())
+    .bind(Json(
+        ev.authenticator_addresses
+            .iter()
+            .map(|a| a.to_string())
+            .collect::<Vec<_>>(),
+    ))
+    .bind(ev.offchain_signer_commitment.to_string())
     .execute(pool)
     .await?;
     Ok(())
@@ -444,6 +399,7 @@ pub async fn stream_logs(
     let sub = provider.subscribe_logs(&filter).await?;
     let mut stream = sub.into_stream();
     while let Some(log) = stream.next().await {
+        tracing::info!(?log, "processing live AccountCreated log");
         if let Ok(decoded) = decode_account_created(&log) {
             tracing::info!(?decoded, "processing live AccountCreated log");
             insert_account(pool, &decoded).await?;

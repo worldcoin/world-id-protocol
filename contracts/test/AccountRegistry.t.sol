@@ -85,11 +85,10 @@ contract AccountRegistryTest is Test {
     function test_CreateAccount() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        address[] memory authenticatorAddresses2 = new address[](1);
-        authenticatorAddresses2[0] = AUTHENTICATOR_ADDRESS2;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
         uint256 size = accountRegistry.nextAccountIndex();
         uint256 startGas = gasleft();
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses2, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
         uint256 endGas = gasleft();
         console.log("Gas used per create account:", (startGas - endGas));
         assertEq(accountRegistry.nextAccountIndex(), size + 1);
@@ -100,17 +99,20 @@ contract AccountRegistryTest is Test {
         uint256 numAccounts = 100;
         address[] memory recoveryAddresses = new address[](numAccounts);
         address[][] memory authenticatorAddresses = new address[][](numAccounts);
+        uint256[][] memory authenticatorPubkeys = new uint256[][](numAccounts);
         uint256[] memory offchainSignerCommitments = new uint256[](numAccounts);
 
         for (uint256 i = 0; i < numAccounts; i++) {
             recoveryAddresses[i] = address(uint160(0x1000 + i));
             authenticatorAddresses[i] = new address[](1);
             authenticatorAddresses[i][0] = address(uint160(i + 1));
+            authenticatorPubkeys[i] = new uint256[](1);
+            authenticatorPubkeys[i][0] = 0;
             offchainSignerCommitments[i] = OFFCHAIN_SIGNER_COMMITMENT;
         }
 
         uint256 startGas = gasleft();
-        accountRegistry.createManyAccounts(recoveryAddresses, authenticatorAddresses, offchainSignerCommitments);
+        accountRegistry.createManyAccounts(recoveryAddresses, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitments);
         uint256 endGas = gasleft();
         console.log("Gas used per account:", (startGas - endGas) / numAccounts);
         assertEq(accountRegistry.nextAccountIndex(), size + numAccounts);
@@ -119,7 +121,7 @@ contract AccountRegistryTest is Test {
     function test_UpdateAuthenticatorSuccess() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, new uint256[](1), OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 nonce = 0;
         uint256 accountIndex = 1;
@@ -157,7 +159,7 @@ contract AccountRegistryTest is Test {
     function test_UpdateAuthenticatorInvalidAccountIndex() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, new uint256[](1), OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 nonce = 0;
         uint256 accountIndex = 2;
@@ -184,7 +186,7 @@ contract AccountRegistryTest is Test {
     function test_UpdateAuthenticatorInvalidNonce() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, new uint256[](1), OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 nonce = 1;
         uint256 accountIndex = 1;
@@ -215,7 +217,7 @@ contract AccountRegistryTest is Test {
     function test_InsertAuthenticatorSuccess() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, new uint256[](1), OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
@@ -254,7 +256,7 @@ contract AccountRegistryTest is Test {
         address[] memory authenticatorAddresses = new address[](2);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         authenticatorAddresses[1] = AUTHENTICATOR_ADDRESS2;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, new uint256[](1), OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
@@ -287,7 +289,7 @@ contract AccountRegistryTest is Test {
     function test_UpdateRecoveryAddress_SetNewAddress() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, new uint256[](1), OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
@@ -305,7 +307,7 @@ contract AccountRegistryTest is Test {
     function test_UpdateRecoveryAddress_RevertInvalidNonce() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, new uint256[](1), OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 1;
@@ -326,7 +328,7 @@ contract AccountRegistryTest is Test {
         address[] memory authenticatorAddresses = new address[](2);
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         authenticatorAddresses[1] = AUTHENTICATOR_ADDRESS2;
-        accountRegistry.createAccount(recoverySigner, authenticatorAddresses, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(recoverySigner, authenticatorAddresses, new uint256[](1), OFFCHAIN_SIGNER_COMMITMENT);
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;

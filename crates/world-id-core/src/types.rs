@@ -1,4 +1,10 @@
+use alloy::signers::k256::ecdsa::Signature;
+use oprf_types::{crypto::RpNullifierKey, RpId};
 use ruint::aliases::U256;
+use serde;
+
+/// The base field for the credential.
+pub type BaseField = ark_bn254::Fr;
 
 /// The response from an inclusion proof request.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -24,4 +30,25 @@ impl InclusionProofResponse {
             proof,
         }
     }
+}
+
+/// The request to register an action for an RP.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct RpRequest {
+    /// The ID of the RP.
+    pub rp_id: String,
+    /// The nullifier key of the RP.
+    pub rp_nullifier_key: RpNullifierKey,
+    /// The signature of the RP.
+    pub signature: Signature,
+    /// The current timestamp.
+    pub current_time_stamp: u64,
+    /// The action ID.
+    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
+    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
+    pub action_id: BaseField,
+    /// The nonce.
+    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
+    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
+    pub nonce: BaseField,
 }

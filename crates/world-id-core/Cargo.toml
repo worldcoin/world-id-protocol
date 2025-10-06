@@ -13,11 +13,17 @@ path = "bin/authenticator.rs"
 name = "rp"
 path = "bin/rp.rs"
 
+[[bin]]
+name = "issuer"
+path = "bin/issuer.rs"
+
 [dependencies]
 alloy = { version = "1.0.36", features = ["contract", "signer-local", "sol-types", "reqwest-rustls-tls"], default-features = false, optional = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
 anyhow = { workspace = true }
+chrono = "0.4.42"
 ciborium = "0.2.2"
 hex = { workspace = true }
 ruint = { workspace = true }
@@ -34,6 +40,7 @@ oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" 
 oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 circom-types = { git = "https://github.com/TaceoLabs/co-snarks.git", default-features = false }
 ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
+ark-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 rand = "0.8.5"
 ark-ec = "0.5.0"
