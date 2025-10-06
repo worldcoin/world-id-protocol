@@ -1,4 +1,4 @@
-use crate::requests::constraints::{ConstraintExpr, ConstraintNode};
+use crate::proof_requests::constraints::{ConstraintExpr, ConstraintNode};
 use alloy::primitives::U256;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,7 @@ pub struct AuthenticatorRequest {
     pub app_id: String,
     /// Encoded action string (act_...)
     pub encoded_action: String,
-    /// Credential requests
+    /// Credential proof_requests
     pub requests: Vec<CredentialRequest>,
     /// Constraint expression (all/any) optional
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -167,7 +167,7 @@ impl AuthenticatorRequest {
         let selected_types = select_expr(self.constraints.as_ref().unwrap(), &is_selectable)?;
         let selected_set: Set<&str> = selected_types.into_iter().collect();
 
-        // Return requests in original order filtered by selected types
+        // Return proof_requests in original order filtered by selected types
         let result: Vec<&CredentialRequest> = self
             .requests
             .iter()
@@ -289,7 +289,7 @@ pub enum ValidationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::requests::{ConstraintExpr, ConstraintNode};
+    use crate::proof_requests::{ConstraintExpr, ConstraintNode};
     use time::macros::datetime;
 
     #[test]
@@ -460,7 +460,7 @@ mod tests {
   "rp_id": "1",
   "app_id": "app_123",
   "encoded_action": "act_0000000000000000000000000000000000001",
-  "requests": [
+  "proof_requests": [
     { "type": "gov-id", "signal": "abcd-efgh-ijkl" }
   ]
 }"#;
@@ -495,7 +495,7 @@ mod tests {
   "rp_id": "1",
   "app_id": "app_123",
   "encoded_action": "act_0000000000000000000000000000000000001",
-  "requests": [
+  "proof_requests": [
     { "type": "gov-id", "signal": "abcd-efgh-ijkl" },
     { "type": "orb", "signal": "abcd-efgh-ijkl" }
   ],
@@ -540,7 +540,7 @@ mod tests {
   "rp_id": "1",
   "app_id": "app_123",
   "encoded_action": "act_0000000000000000000000000000000000001",
-  "requests": [
+  "proof_requests": [
     { "type": "passport", "signal": "abcd-efgh-ijkl" },
     { "type": "my-number-card", "signal": "mnop-qrst-uvwx" },
     { "type": "orb", "signal": "abcd-efgh-ijkl" }
@@ -637,7 +637,7 @@ mod tests {
   "rp_id": "1",
   "app_id": "app_123",
   "encoded_action": "act_0000000000000000000000000000000000001",
-  "requests": [
+  "proof_requests": [
     { "type": "orb" },
     { "type": "orb" }
   ]
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn credentials_to_prove_with_constraints_all_and_any() {
-        // requests: orb, passport, national-id
+        // proof_requests: orb, passport, national-id
         let req = AuthenticatorRequest {
             id: "req".into(),
             version: Version::V1,
