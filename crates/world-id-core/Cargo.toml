@@ -16,7 +16,7 @@ path = "bin/rp.rs"
 required-features = ["cli"]
 
 [dependencies]
-alloy = { version = "1.0.36", features = ["contract", "signer-local", "sol-types", "reqwest-rustls-tls"], default-features = false, optional = true }
+alloy = { version = "1.0.36", features = ["sol-types"], default-features = false }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 anyhow = { workspace = true }
@@ -47,6 +47,16 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true
 [features]
 default = ["authenticator"]
 
-authenticator = ["dep:alloy", "dep:circom-types", "dep:eddsa-babyjubjub", "dep:groth16", "dep:oprf-client", "dep:oprf-types", "dep:reqwest"]
+authenticator = [
+    "alloy/contract", 
+    "alloy/signer-local",
+    "alloy/reqwest-rustls-tls",
+    "dep:circom-types",
+    "dep:eddsa-babyjubjub",
+    "dep:groth16",
+    "dep:oprf-client",
+    "dep:oprf-types",
+    "dep:reqwest"
+]
 
 cli = ["dep:oprf-test"]
