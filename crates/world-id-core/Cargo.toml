@@ -8,7 +8,7 @@ edition.workspace = true
 [[bin]]
 name = "authenticator"
 path = "bin/authenticator.rs"
-required-features = ["cli"]
+required-features = ["authenticator", "cli"]
 
 [[bin]]
 name = "rp"
