@@ -3,9 +3,11 @@ use base64::Engine as _;
 use sha2::{Digest, Sha256};
 
 /// Actions are defined by relying parties and represent the unit of uniqueness for proofs
-/// (e.g. one-time signup, daily claim, per-season reward). Together with the RP ID,
-/// the Action ID is a public input to nullifier generation, ensuring each user can only
-/// perform the specified action under the intended constraints while remaining anonymous.
+/// (e.g. one-time signup, daily claim, per-season reward).
+///
+/// Together with the RP ID, the Action ID is a public input to nullifier generation, ensuring
+/// each user can only perform the specified action under the intended constraints while remaining anonymous.
+///
 /// Action identifiers are encoded as `act_`-prefixed base64 JSON structures.
 /// TODO - link to public docs when available
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

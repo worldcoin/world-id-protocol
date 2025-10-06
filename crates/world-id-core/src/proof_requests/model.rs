@@ -737,7 +737,7 @@ mod tests {
         assert_eq!(sel_ok[0].credential_type, "orb");
         assert_eq!(sel_ok[1].credential_type, "passport");
 
-        let available_missing: std::collections::HashSet<&str> = ["orb"].into_iter().collect();
+        let available_missing: std::collections::HashSet<&str> = std::iter::once("orb").collect();
         assert!(req.credentials_to_prove(&available_missing).is_none());
     }
 
@@ -795,7 +795,7 @@ mod tests {
         assert_eq!(sel2[1].credential_type, "national-id");
 
         // Missing orb → cannot satisfy "all" → None
-        let available3: std::collections::HashSet<&str> = ["passport"].into_iter().collect();
+        let available3: std::collections::HashSet<&str> = std::iter::once("passport").collect();
         assert!(req.credentials_to_prove(&available3).is_none());
     }
 }

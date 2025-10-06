@@ -22,6 +22,7 @@ use eyre::Result;
 use groth16::{ConstraintMatrices, ProvingKey};
 use oprf_types::{MerkleEpoch, RpId, ShareEpoch};
 
+#[allow(dead_code)]
 type Affine = ark_babyjubjub::EdwardsAffine;
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -34,15 +35,19 @@ static MASK_ACCOUNT_INDEX: U256 =
 static MAX_PUBKEYS: usize = 7;
 static TREE_DEPTH: usize = 30;
 
+#[allow(dead_code)]
 static ZKEY_QUERY_BYTES: &[u8] = include_bytes!("../../../OPRFQueryProof.zkey");
+#[allow(dead_code)]
 static ZKEY_NULLIFIER_BYTES: &[u8] = include_bytes!("../../../OPRFNullifierProof.zkey");
 
+#[allow(dead_code)]
 static ZKEY_QUERY: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254>)>> =
     LazyLock::new(|| {
         let query_zkey = ZKey::from_reader(Cursor::new(ZKEY_QUERY_BYTES), CheckElement::No)?;
         Ok(query_zkey.into())
     });
 
+#[allow(dead_code)]
 static ZKEY_NULLIFIER: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254>)>> =
     LazyLock::new(|| {
         let nullifier_zkey =
@@ -52,6 +57,7 @@ static ZKEY_NULLIFIER: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254
 
 static REGISTRY: OnceLock<Arc<AccountRegistryInstance<DynProvider>>> = OnceLock::new();
 
+#[allow(dead_code)]
 type OPRFPublicKey = (Affine, ShareEpoch);
 type UniquenessProof = (Groth16Proof, BaseField);
 type MerkleProof = (BaseField, [BaseField; TREE_DEPTH], MerkleEpoch);
@@ -190,7 +196,7 @@ impl Authenticator {
             root,
             proof
                 .try_into()
-                .map_err(|e| eyre::eyre!("error parsing merkle inclusion proof"))?,
+                .map_err(|_e| eyre::eyre!("error parsing merkle inclusion proof"))?,
             MerkleEpoch::default(),
         ))
     }
@@ -237,11 +243,13 @@ impl Authenticator {
     //     Ok(Arc::new(pk.clone()))
     // }
 
+    #[allow(dead_code)]
     fn nullifier_matrices() -> Result<Arc<ConstraintMatrices<Fr>>> {
         let (matrices, _) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
         Ok(Arc::new(matrices.clone()))
     }
 
+    #[allow(dead_code)]
     fn nullifier_pk() -> Result<Arc<ProvingKey<Bn254>>> {
         let (_, pk) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
         Ok(Arc::new(pk.clone()))
@@ -332,11 +340,13 @@ impl AuthenticatorSigner {
     }
 
     /// Returns a reference to the internal signer.
+    #[allow(dead_code)]
     pub const fn onchain_signer(&self) -> &PrivateKeySigner {
         &self.onchain_signer
     }
 
     /// Returns a reference to the internal offchain signer.
+    #[allow(dead_code)]
     pub const fn offchain_signer_private_key(&self) -> &EdDSAPrivateKey {
         &self.offchain_signer
     }
