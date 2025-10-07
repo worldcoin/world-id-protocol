@@ -18,8 +18,8 @@ help:
 	@echo "  sol-fmt      - forge fmt (in contracts/)"
 
 build:
-	$(MAKE) rust-build
 	$(MAKE) sol-build
+	$(MAKE) rust-build
 
 fmt:
 	$(MAKE) rust-fmt

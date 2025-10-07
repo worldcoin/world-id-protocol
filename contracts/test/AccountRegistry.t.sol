@@ -25,7 +25,7 @@ contract AccountRegistryTest is Test {
 
     function setUp() public {
         recoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY);
-        accountRegistry = new AccountRegistry();
+        accountRegistry = new AccountRegistry(30);
         alternateRecoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY_ALT);
         AUTHENTICATOR_ADDRESS1 = vm.addr(AUTH1_PRIVATE_KEY);
         AUTHENTICATOR_ADDRESS2 = vm.addr(AUTH2_PRIVATE_KEY);
