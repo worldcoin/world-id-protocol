@@ -3,10 +3,9 @@ use std::array;
 use ark_ff::{AdditiveGroup, PrimeField, UniformRand};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::Result;
+use oprf_client::BaseField;
 use oprf_types::RpId;
 
-// BaseField for BabyJubJub curve operations
-type BaseField = ark_babyjubjub::Fq;
 use poseidon2::Poseidon2;
 use world_id_core::{config::Config, Authenticator};
 
