@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
+/// Upper bound on total constraint AST nodes (expr + type nodes).
+/// This prevents extremely large request bodies from causing excessive work.
+pub const MAX_CONSTRAINT_NODES: usize = 12;
+
 /// Logical operator kinds supported in constraint expressions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,6 +79,51 @@ impl ConstraintExpr<'_> {
             }
         }
         validate_expr(self, 1, max_depth)
+    }
+
+    /// Validate the maximum total number of nodes in the constraint AST.
+    /// Counts both expression containers and leaf type nodes. Short-circuits
+    /// once the running total exceeds `max_nodes` to avoid full traversal.
+    #[must_use]
+    pub fn validate_max_nodes(&self, max_nodes: usize) -> bool {
+        fn count_expr(expr: &ConstraintExpr<'_>, count: &mut usize, max_nodes: usize) -> bool {
+            // Count the expr node itself
+            *count += 1;
+            if *count > max_nodes {
+                return false;
+            }
+            match expr {
+                ConstraintExpr::All { all } => {
+                    for n in all {
+                        if !count_node(n, count, max_nodes) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                ConstraintExpr::Any { any } => {
+                    for n in any {
+                        if !count_node(n, count, max_nodes) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+            }
+        }
+
+        fn count_node(node: &ConstraintNode<'_>, count: &mut usize, max_nodes: usize) -> bool {
+            match node {
+                ConstraintNode::Type(_) => {
+                    *count += 1;
+                    *count <= max_nodes
+                }
+                ConstraintNode::Expr(child) => count_expr(child, count, max_nodes),
+            }
+        }
+
+        let mut count = 0;
+        count_expr(self, &mut count, max_nodes)
     }
 }
 

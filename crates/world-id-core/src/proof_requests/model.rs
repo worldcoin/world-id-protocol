@@ -1,4 +1,4 @@
-use crate::proof_requests::constraints::{ConstraintExpr, ConstraintNode};
+use crate::proof_requests::constraints::{ConstraintExpr, ConstraintNode, MAX_CONSTRAINT_NODES};
 use ruint::aliases::U256;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
@@ -259,6 +259,9 @@ impl AuthenticatorRequest {
                 if !expr.validate_max_depth(2) {
                     return Err(ValidationError::ConstraintTooDeep);
                 }
+                if !expr.validate_max_nodes(MAX_CONSTRAINT_NODES) {
+                    return Err(ValidationError::ConstraintTooLarge);
+                }
                 if expr.evaluate(&|t| provided.contains(t)) {
                     Ok(())
                 } else {
@@ -343,6 +346,9 @@ pub enum ValidationError {
     /// The constraints expression exceeds the supported nesting depth
     #[error("Constraints nesting exceeds maximum allowed depth")]
     ConstraintTooDeep,
+    /// The constraints expression exceeds the maximum allowed size/complexity
+    #[error("Constraints exceed maximum allowed size")]
+    ConstraintTooLarge,
 }
 
 #[cfg(test)]
@@ -507,6 +513,211 @@ mod tests {
 
         let err = request.validate_response(&response).unwrap_err();
         assert!(matches!(err, ValidationError::ConstraintTooDeep));
+    }
+
+    #[test]
+    fn constraint_node_limit_boundary_passes() {
+        // Root All with: 1 Type + Any(4) + Any(4)
+        // Node count = root(1) + type(1) + any(1+4) + any(1+4) = 12
+        let expr = ConstraintExpr::All {
+            all: vec![
+                ConstraintNode::Type("t0".into()),
+                ConstraintNode::Expr(ConstraintExpr::Any {
+                    any: vec![
+                        ConstraintNode::Type("t1".into()),
+                        ConstraintNode::Type("t2".into()),
+                        ConstraintNode::Type("t3".into()),
+                        ConstraintNode::Type("t4".into()),
+                    ],
+                }),
+                ConstraintNode::Expr(ConstraintExpr::Any {
+                    any: vec![
+                        ConstraintNode::Type("t5".into()),
+                        ConstraintNode::Type("t6".into()),
+                        ConstraintNode::Type("t7".into()),
+                        ConstraintNode::Type("t8".into()),
+                    ],
+                }),
+            ],
+        };
+
+        let request = AuthenticatorRequest {
+            id: "req_nodes_ok".into(),
+            version: Version::V1,
+            created_at: None,
+            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            rp_id: U256::from(1u64),
+            app_id: "app".into(),
+            encoded_action: "act".into(),
+            requests: vec![
+                CredentialRequest {
+                    credential_type: "t0".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t1".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t2".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t3".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t4".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t5".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t6".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t7".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t8".into(),
+                    signal: None,
+                },
+            ],
+            constraints: Some(expr),
+        };
+
+        // Provide just enough to satisfy both any-groups and the single type
+        let response = AuthenticatorResponse {
+            id: "req_nodes_ok".into(),
+            version: Version::V1,
+            responses: vec![
+                ResponseItem {
+                    credential_type: "t0".into(),
+                    proof: Some("0x".into()),
+                    nullifier: None,
+                    session_id: None,
+                    error: None,
+                },
+                ResponseItem {
+                    credential_type: "t1".into(),
+                    proof: Some("0x".into()),
+                    nullifier: None,
+                    session_id: None,
+                    error: None,
+                },
+                ResponseItem {
+                    credential_type: "t5".into(),
+                    proof: Some("0x".into()),
+                    nullifier: None,
+                    session_id: None,
+                    error: None,
+                },
+            ],
+        };
+
+        // Should not exceed size and should validate OK
+        assert!(request.validate_response(&response).is_ok());
+    }
+
+    #[test]
+    fn constraint_node_limit_exceeded_fails() {
+        // Root All with: 1 Type + Any(4) + Any(5)
+        // Node count = root(1) + type(1) + any(1+4) + any(1+5) = 13 (> 12)
+        let expr = ConstraintExpr::All {
+            all: vec![
+                ConstraintNode::Type("t0".into()),
+                ConstraintNode::Expr(ConstraintExpr::Any {
+                    any: vec![
+                        ConstraintNode::Type("t1".into()),
+                        ConstraintNode::Type("t2".into()),
+                        ConstraintNode::Type("t3".into()),
+                        ConstraintNode::Type("t4".into()),
+                    ],
+                }),
+                ConstraintNode::Expr(ConstraintExpr::Any {
+                    any: vec![
+                        ConstraintNode::Type("t5".into()),
+                        ConstraintNode::Type("t6".into()),
+                        ConstraintNode::Type("t7".into()),
+                        ConstraintNode::Type("t8".into()),
+                        ConstraintNode::Type("t9".into()),
+                    ],
+                }),
+            ],
+        };
+
+        let request = AuthenticatorRequest {
+            id: "req_nodes_too_many".into(),
+            version: Version::V1,
+            created_at: None,
+            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            rp_id: U256::from(1u64),
+            app_id: "app".into(),
+            encoded_action: "act".into(),
+            requests: vec![
+                CredentialRequest {
+                    credential_type: "t0".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t1".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t2".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t3".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t4".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t5".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t6".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t7".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t8".into(),
+                    signal: None,
+                },
+                CredentialRequest {
+                    credential_type: "t9".into(),
+                    signal: None,
+                },
+            ],
+            constraints: Some(expr),
+        };
+
+        // Response content is irrelevant; validation should fail before evaluation due to size
+        let response = AuthenticatorResponse {
+            id: "req_nodes_too_many".into(),
+            version: Version::V1,
+            responses: vec![ResponseItem {
+                credential_type: "t0".into(),
+                proof: Some("0x".into()),
+                nullifier: None,
+                session_id: None,
+                error: None,
+            }],
+        };
+
+        let err = request.validate_response(&response).unwrap_err();
+        assert!(matches!(err, ValidationError::ConstraintTooLarge));
     }
 
     #[test]
