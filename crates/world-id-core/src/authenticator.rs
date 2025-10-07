@@ -209,7 +209,7 @@ impl Authenticator {
         let response = reqwest::get(url).await?;
         let proof = response.json::<InclusionProofResponse>().await?;
         let root: BaseField = proof.root.try_into()?;
-        let proof: [BaseField; TREE_DEPTH] = proof
+        let siblings: [BaseField; TREE_DEPTH] = proof
             .proof
             .into_iter()
             .map(|p| p.try_into().unwrap())
@@ -219,9 +219,9 @@ impl Authenticator {
 
         Ok(MerkleMembership {
             root: MerkleRoot::from(root),
-            siblings: proof,
+            siblings,
             depth: TREE_DEPTH as u64,
-            mt_index: account_index.as_limbs()[0] - 1,
+            mt_index: proof.leaf_index,
             epoch: MerkleEpoch::default(),
         })
     }
@@ -292,6 +292,11 @@ impl Authenticator {
             pk_index: 0,
             sk: self.signer.offchain_signer_private_key().clone(),
         };
+
+        tracing::info!(
+            "merkle leaf: {}",
+            merkle_leaf(&key_material.pk_batch)
+        );
 
         // TODO: check rp nullifier key
 

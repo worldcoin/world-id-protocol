@@ -1,4 +1,4 @@
-use std::env::args;
+use std::{env::args, u64};
 
 use chrono::Utc;
 use eyre::Result;
@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
         .account_id(user_id)
         .issuer_schema_id(ISSUER_SCHEMA_ID)
         .genesis_issued_at(current_timestamp)
-        .expires_at(current_timestamp + EXPIRATION_TIME)
+        .expires_at(u64::MAX)
         .sign(&sk)?;
 
     println!("{}", json!(credential));
