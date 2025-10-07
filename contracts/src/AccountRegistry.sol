@@ -98,8 +98,8 @@ contract AccountRegistry is EIP712, Ownable2Step {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor() EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
-        tree.initWithDefaultZeroes(30);
+    constructor(uint256 depth) EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
+        tree.initWithDefaultZeroes(depth);
     }
 
     ////////////////////////////////////////////////////////////

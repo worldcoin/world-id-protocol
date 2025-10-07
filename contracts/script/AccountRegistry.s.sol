@@ -12,7 +12,7 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        accountRegistry = new AccountRegistry();
+        accountRegistry = new AccountRegistry(30);
 
         vm.stopBroadcast();
 
