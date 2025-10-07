@@ -74,6 +74,7 @@ struct OpsBatcherHandle {
 struct CreateAccountRequest {
     recovery_address: Option<String>,
     authenticator_addresses: Vec<String>,
+    authenticator_pubkeys: Vec<String>,
     offchain_signer_commitment: String,
 }
 
@@ -346,17 +347,19 @@ impl CreateBatcherRunner {
             {}
 
             // Parse all
-            let parsed: Vec<anyhow::Result<(Option<Address>, Vec<Address>, U256)>> =
+            let parsed: Vec<anyhow::Result<(Option<Address>, Vec<Address>, Vec<U256>, U256)>> =
                 batch.iter().map(|e| parse_create(&e.req)).collect();
 
             // Build aggregated params from successful parses
             let mut recovery_addresses: Vec<Address> = Vec::new();
             let mut auths: Vec<Vec<Address>> = Vec::new();
+            let mut pubkeys: Vec<Vec<U256>> = Vec::new();
             let mut commits: Vec<U256> = Vec::new();
             for r in &parsed {
-                if let Ok((rec, asv, com)) = r {
+                if let Ok((rec, asv, pks, com)) = r {
                     recovery_addresses.push(rec.unwrap_or(Address::ZERO));
                     auths.push(asv.clone());
+                    pubkeys.push(pks.clone());
                     commits.push(*com);
                 }
             }
@@ -369,7 +372,7 @@ impl CreateBatcherRunner {
                 continue;
             }
 
-            let call = contract.createManyAccounts(recovery_addresses, auths, commits);
+            let call = contract.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
             let tx_res = call.send().await;
             match tx_res {
                 Ok(pend) => {
@@ -633,7 +636,7 @@ fn parse_bytes(s: &str) -> anyhow::Result<Bytes> {
 
 fn parse_create(
     req: &CreateAccountRequest,
-) -> anyhow::Result<(Option<Address>, Vec<Address>, U256)> {
+) -> anyhow::Result<(Option<Address>, Vec<Address>, Vec<U256>, U256)> {
     let rec = match &req.recovery_address {
         Some(s) if !s.is_empty() => Some(parse_address(s)?),
         _ => None,
@@ -644,8 +647,14 @@ fn parse_create(
         .map(|s| parse_address(s))
         .collect();
     let auths = auths?;
+    let pubkeys: Result<Vec<_>, _> = req
+        .authenticator_pubkeys
+        .iter()
+        .map(|s| parse_u256(s))
+        .collect();
+    let pubkeys = pubkeys?;
     let commit = parse_u256(&req.offchain_signer_commitment)?;
-    Ok((rec, auths, commit))
+    Ok((rec, auths, pubkeys, commit))
 }
 
 async fn create_account(
