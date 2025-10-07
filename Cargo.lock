@@ -8131,7 +8131,6 @@ dependencies = [
  "groth16",
  "hex",
  "oprf-client",
- "oprf-core",
  "oprf-test",
  "oprf-types",
  "poseidon2",
