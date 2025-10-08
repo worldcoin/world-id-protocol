@@ -1,24 +1,14 @@
-use std::{array, fs::File};
+use std::fs::File;
 
-use ark_ec::AffineRepr;
-use ark_ff::{AdditiveGroup, PrimeField, UniformRand};
-use eddsa_babyjubjub::EdDSAPrivateKey;
+use ark_babyjubjub::EdwardsAffine;
+use ark_ff::UniformRand;
 use eyre::Result;
-use oprf_types::{crypto::UserPublicKeyBatch, RpId};
-use poseidon2::Poseidon2;
-use serde_json::json;
-use std::str::FromStr;
+use oprf_types::crypto::UserPublicKeyBatch;
 use world_id_core::{
     config::Config,
     types::{BaseField, RpRequest},
     Authenticator, Credential,
 };
-
-const PK_DS: &[u8] = b"World ID PK";
-
-fn get_pk_ds() -> BaseField {
-    BaseField::from_be_bytes_mod_order(PK_DS)
-}
 
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
@@ -43,6 +33,14 @@ async fn main() -> Result<()> {
     install_tracing();
     let config = Config::from_json("config.json").unwrap();
 
+    let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
+    let mut authenticator = Authenticator::new(seed, config)?;
+    println!("offchain pubkey: {:?}", authenticator.offchain_pubkey_compressed());
+
+    let mut pubkeys = [EdwardsAffine::default(); 7];
+    pubkeys[0] = authenticator.offchain_pubkey().pk;
+    println!("merkle leaf: {}", authenticator.merkle_leaf(&UserPublicKeyBatch { values: pubkeys }));
+
     let credential_path = std::env::args()
         .nth(1)
         .expect("credential file path is required as first argument");
@@ -53,10 +51,7 @@ async fn main() -> Result<()> {
         .expect("rp request file path is required as second argument");
     let rp_request: RpRequest = serde_json::from_reader(File::open(rp_request_path)?)?;
 
-    let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
-    let mut authenticator = Authenticator::new(seed, config)?;
     let mut rng = rand::thread_rng();
-
     let message_hash = BaseField::rand(&mut rng);
 
     let (proof, nullifier) = authenticator

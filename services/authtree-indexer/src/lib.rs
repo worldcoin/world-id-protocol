@@ -203,17 +203,26 @@ async fn http_get_proof(
         return (axum::http::StatusCode::BAD_REQUEST, "invalid account index").into_response();
     }
 
-    let exists = sqlx::query_scalar::<_, String>(
-        "select offchain_signer_commitment from accounts where account_index = $1",
+    let account_row = sqlx::query(
+        "select offchain_signer_commitment, authenticator_pubkeys from accounts where account_index = $1",
     )
     .bind(&account_index.to_string())
     .fetch_optional(&pool)
     .await
     .ok()
     .flatten();
-    if exists.is_none() {
+    
+    if account_row.is_none() {
         return (axum::http::StatusCode::NOT_FOUND, "account not found").into_response();
     }
+    
+    let row = account_row.unwrap();
+    let pubkeys_json: Json<Vec<String>> = row.get("authenticator_pubkeys");
+    let authenticator_pubkeys: Vec<U256> = pubkeys_json
+        .0
+        .iter()
+        .filter_map(|s| s.parse::<U256>().ok())
+        .collect();
 
     let leaf_index = account_index.as_limbs()[0] as usize - 1;
     let tree = GLOBAL_TREE.read().await;
@@ -224,6 +233,7 @@ async fn http_get_proof(
                 leaf_index as u64,
                 tree.root(),
                 proof_to_vec(&proof),
+                authenticator_pubkeys,
             );
             (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
         }

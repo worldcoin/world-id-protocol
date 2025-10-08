@@ -1,6 +1,6 @@
 {
     "rpc_url": "http://localhost:8545",
-    "registry_address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "registry_address": "0xD23be01fb4aCEAfd36b1EDD7aAA46daCF9679645",
     "indexer_url": "http://localhost:8080",
     "gateway_url": "http://localhost:8081",
     "nullifier_oracle_urls": [

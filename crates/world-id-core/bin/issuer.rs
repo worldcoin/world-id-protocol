@@ -7,7 +7,7 @@ use serde_json::json;
 use world_id_core::Credential;
 
 static ISSUER_SCHEMA_ID: u64 = 1;
-static EXPIRATION_TIME: u64 = 360000;
+static EXPIRATION_TIME: u64 = 3600;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
         .account_id(user_id)
         .issuer_schema_id(ISSUER_SCHEMA_ID)
         .genesis_issued_at(current_timestamp)
-        .expires_at(u64::MAX)
+        .expires_at(current_timestamp + EXPIRATION_TIME)
         .sign(&sk)?;
 
     println!("{}", json!(credential));

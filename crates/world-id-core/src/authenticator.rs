@@ -15,6 +15,7 @@ use alloy::signers::local::PrivateKeySigner;
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_bn254::{Bn254, Fr};
+use ark_ec::twisted_edwards::Affine;
 use ark_ec::AffineRepr;
 use ark_ff::{AdditiveGroup, PrimeField};
 use ark_serde_compat::groth16::Groth16Proof;
@@ -63,17 +64,6 @@ static REGISTRY: OnceLock<Arc<AccountRegistryInstance<DynProvider>>> = OnceLock:
 
 type UniquenessProof = (Groth16Proof, BaseField);
 
-fn merkle_leaf(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
-    let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Default::default();
-    let mut input = [ark_babyjubjub::Fq::ZERO; 16];
-    input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
-    for i in 0..7 {
-        input[i * 2 + 1] = pk.values[i].x().unwrap_or(BaseField::ZERO);
-        input[i * 2 + 2] = pk.values[i].y().unwrap_or(BaseField::ZERO);
-    }
-    poseidon2_16.permutation(&input)[1]
-}
-
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 #[derive(Debug)]
 pub struct Authenticator {
@@ -118,7 +108,7 @@ impl Authenticator {
         let pk = self.signer.offchain_signer_pubkey().pk;
         let mut compressed_bytes = Vec::new();
         pk.serialize_compressed(&mut compressed_bytes).unwrap();
-        U256::from_be_slice(&compressed_bytes)
+        U256::from_le_slice(&compressed_bytes)
     }
 
     /// Returns a reference to the `AccountRegistry` contract instance.
@@ -203,7 +193,9 @@ impl Authenticator {
     /// # Errors
     /// - Will error if the provided indexer URL is not valid or if there are HTTP call failures.
     /// - Will error if the user is not registered on the registry.
-    pub async fn fetch_inclusion_proof(&mut self) -> Result<MerkleMembership> {
+    pub async fn fetch_inclusion_proof(
+        &mut self,
+    ) -> Result<(MerkleMembership, UserPublicKeyBatch)> {
         let account_index = self.account_index().await?;
         let url = format!("{}/proof/{}", self.config.indexer_url(), account_index);
         let response = reqwest::get(url).await?;
@@ -217,44 +209,41 @@ impl Authenticator {
             .try_into()
             .unwrap();
 
-        Ok(MerkleMembership {
-            root: MerkleRoot::from(root),
-            siblings,
-            depth: TREE_DEPTH as u64,
-            mt_index: proof.leaf_index,
-            epoch: MerkleEpoch::default(),
-        })
+        let mut pubkey_batch = UserPublicKeyBatch {
+            values: [EdwardsAffine::default(); 7],
+        };
+
+        for i in 0..proof.authenticator_pubkeys.len() {
+            pubkey_batch.values[i] = EdwardsAffine::deserialize_compressed(Cursor::new(
+                proof.authenticator_pubkeys[i].as_le_slice(),
+            ))?;
+        }
+
+        Ok((
+            MerkleMembership {
+                root: MerkleRoot::from(root),
+                siblings,
+                depth: TREE_DEPTH as u64,
+                mt_index: proof.leaf_index,
+                epoch: MerkleEpoch::default(),
+            },
+            pubkey_batch,
+        ))
     }
 
-    /// Fetches the off-chain public keys for the holder's World ID.
+    /// Computes the Merkle leaf for a given public key batch.
     ///
     /// # Errors
-    /// Will error if the user does not have a registered World ID.
-    pub async fn fetch_pubkeys(&self) -> Result<[EdDSAPublicKey; MAX_PUBKEYS]> {
-        // TODO: actually fetch from registry
-        Ok(std::array::from_fn(|i| {
-            self.signer.offchain_signer_pubkey()
-        }))
-    }
-
-    fn query_matrices(&self) -> Result<Arc<ConstraintMatrices<Fr>>> {
-        let (matrices, _) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(Arc::new(matrices.clone()))
-    }
-
-    fn query_pk(&self) -> Result<Arc<ProvingKey<Bn254>>> {
-        let (_, pk) = ZKEY_QUERY.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(Arc::new(pk.clone()))
-    }
-
-    fn nullifier_matrices() -> Result<Arc<ConstraintMatrices<Fr>>> {
-        let (matrices, _) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(Arc::new(matrices.clone()))
-    }
-
-    fn nullifier_pk() -> Result<Arc<ProvingKey<Bn254>>> {
-        let (_, pk) = ZKEY_NULLIFIER.as_ref().map_err(|e| eyre::eyre!(e))?;
-        Ok(Arc::new(pk.clone()))
+    /// Will error if the provided public key batch is not valid.
+    pub fn merkle_leaf(&self, pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
+        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Default::default();
+        let mut input = [ark_babyjubjub::Fq::ZERO; 16];
+        input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
+        for i in 0..7 {
+            input[i * 2 + 1] = pk.values[i].x;
+            input[i * 2 + 2] = pk.values[i].y;
+        }
+        poseidon2_16.permutation(&input)[1]
     }
 
     /// Generates a World ID Uniqueness Proof given a provided context.
@@ -270,8 +259,12 @@ impl Authenticator {
         credential: Credential,
     ) -> Result<UniquenessProof> {
         let mut rng = rand::thread_rng();
-        let pubkeys = self.fetch_pubkeys().await?;
-        let merkle_membership = self.fetch_inclusion_proof().await?;
+        let (merkle_membership, pk_batch) = self.fetch_inclusion_proof().await?;
+        let pk_index = pk_batch
+            .values
+            .iter()
+            .position(|pk| pk == &self.offchain_pubkey().pk)
+            .unwrap() as u64;
 
         let query = OprfQuery {
             rp_id: RpId::new(rp_request.rp_id.parse::<u128>()?),
@@ -286,20 +279,12 @@ impl Authenticator {
         let groth16_material = Groth16Material::new(QUERY_ZKEY_PATH, NULLIFIER_ZKEY_PATH)?;
 
         let key_material = UserKeyMaterial {
-            pk_batch: UserPublicKeyBatch {
-                values: pubkeys.map(|pk| pk.pk),
-            },
-            pk_index: 0,
+            pk_batch,
+            pk_index,
             sk: self.signer.offchain_signer_private_key().clone(),
         };
 
-        tracing::info!(
-            "merkle leaf: {}",
-            merkle_leaf(&key_material.pk_batch)
-        );
-
         // TODO: check rp nullifier key
-
         let args = NullifierArgs {
             credential_signature: credential.try_into()?,
             merkle_membership,
