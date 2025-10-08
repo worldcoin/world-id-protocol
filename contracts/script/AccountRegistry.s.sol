@@ -12,7 +12,7 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        accountRegistry = new AccountRegistry();
+        accountRegistry = new AccountRegistry{salt: bytes32(uint256(0))}();
 
         vm.stopBroadcast();
 
