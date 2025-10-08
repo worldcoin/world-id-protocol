@@ -14,6 +14,3 @@ until curl -sSf http://localhost:8080 2>&1 | grep -vq "Failed to connect"; do
   echo "Waiting for authtree-indexer HTTP server on localhost:8080..."
   sleep 1
 done
-cargo run -p world-id-core --bin issuer --features cli -- 0 > /tmp/credential.json
-cargo run -p world-id-core --bin rp --features cli > /tmp/rp_request.json
-RUST_LOG=debug SEED=0101010101010101010101010101010101010101010101010101010101010101 cargo run -p world-id-core --features "authenticator cli" --bin authenticator /tmp/credential.json /tmp/rp_request.json
