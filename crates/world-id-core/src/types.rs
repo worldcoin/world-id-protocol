@@ -1,5 +1,9 @@
 use ruint::aliases::U256;
 
+/// The base field over which the elliptic curve is defined for the curve that is used to
+/// sign credentials in the World ID Protocol. The World ID Protocol currently uses the `BabyJubJub` curve.
+pub type BaseField = ark_babyjubjub::Fq;
+
 /// The response from an inclusion proof request.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct InclusionProofResponse {

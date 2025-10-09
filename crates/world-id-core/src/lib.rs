@@ -5,6 +5,8 @@
 #![deny(clippy::all, clippy::pedantic, clippy::nursery, missing_docs)]
 #![warn(dead_code)] // FIXME: Move to deny once the library has full functionality
 
+pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSASignature};
+
 #[cfg(feature = "authenticator")]
 pub mod account_registry;
 
@@ -22,3 +24,4 @@ pub use credential::Credential;
 
 /// Generic re-usable types
 pub mod types;
+pub use types::BaseField;

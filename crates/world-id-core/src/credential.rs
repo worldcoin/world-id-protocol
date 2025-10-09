@@ -1,6 +1,8 @@
 //! The Credential struct.
 
+use crate::{BaseField, EdDSAPrivateKey};
 use ark_ff::{PrimeField, Zero};
+use oprf_client::EdDSASignature;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS, POSEIDON2_BN254_T8_PARAMS};
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
@@ -12,9 +14,6 @@ pub enum CredentialVersion {
     #[default]
     V1 = 1,
 }
-
-/// The base field for the credential.
-pub type BaseField = ark_bn254::Fr;
 
 static MAX_CLAIMS: usize = 16;
 
@@ -54,7 +53,7 @@ pub struct Credential {
     /// By default this is the `EdDSA` signature over the hash of the credential (by the issuer's key registered in the `CredentialSchemaIssuerRegistry`),
     /// but this is not required. The issuer may choose to provide verifying information such that the credential can be verified
     /// using a smart contract (with EIP-1271), support coming in the next iteration of the circuit.
-    pub signature: Vec<u8>,
+    pub signature: Option<EdDSASignature>,
 }
 
 impl Credential {
@@ -69,7 +68,7 @@ impl Credential {
             expires_at: 0,
             claims: vec![BaseField::zero(); MAX_CLAIMS],
             associated_data_hash: BaseField::zero(),
-            signature: vec![],
+            signature: None,
         }
     }
 
@@ -134,7 +133,7 @@ impl Credential {
 
     /// Set the signature of the credential.
     #[must_use]
-    pub fn signature(mut self, signature: Vec<u8>) -> Self {
+    pub const fn signature(mut self, signature: Option<EdDSASignature>) -> Self {
         self.signature = signature;
         self
     }
@@ -184,6 +183,16 @@ impl Credential {
             }
         }
     }
+
+    /// Signs the credential with the given issuer private key.
+    ///
+    /// # Errors
+    /// Will error if the hash of the credential cannot be computed.
+    pub fn sign(self, private_key: &EdDSAPrivateKey) -> Result<Self, anyhow::Error> {
+        let hash = self.hash()?;
+        let signature = private_key.sign(hash);
+        Ok(self.signature(Some(signature)))
+    }
 }
 
 impl Default for Credential {
@@ -194,6 +203,7 @@ impl Default for Credential {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[allow(clippy::unreadable_literal)]
@@ -210,13 +220,11 @@ mod tests {
             .associated_data_hash(U256::from(42))
             .unwrap();
 
-        let signature: U256 = credential.hash().unwrap().into();
-        let signature = signature + U256::from(1);
-        let signature: [u8; 32] = signature.to_be_bytes();
-        let credential = credential.signature(signature.to_vec());
+        let issuer_sk = EdDSAPrivateKey::from_bytes([0; 32]);
+        let credential = credential.sign(&issuer_sk).unwrap();
 
         assert_eq!(credential.account_id, 456);
-        assert_eq!(credential.signature.len(), 32);
+        assert!(credential.signature.is_some());
 
         let json = serde_json::to_string_pretty(&credential).unwrap();
 
@@ -224,5 +232,10 @@ mod tests {
         let json2 = serde_json::to_string_pretty(&parsed).unwrap();
 
         assert_eq!(json, json2);
+
+        let issuer_public_key = issuer_sk.public();
+        let verified =
+            issuer_public_key.verify(credential.hash().unwrap(), &credential.signature.unwrap());
+        assert!(verified);
     }
 }
