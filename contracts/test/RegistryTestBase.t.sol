@@ -7,7 +7,7 @@ import {AbstractSignerPubkeyRegistry as A} from "../src/AbstractSignerPubkeyRegi
 interface RegistryLike {
     function EIP712_NAME() external view returns (string memory);
     function EIP712_VERSION() external view returns (string memory);
-    function nonceOf(uint256 id) external view returns (uint256);
+    function nonceOf(uint64 id) external view returns (uint256);
 }
 
 abstract contract RegistryTestBase is Test {
@@ -24,7 +24,7 @@ abstract contract RegistryTestBase is Test {
         return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, nameHash, versionHash, block.chainid, registry));
     }
 
-    function _signRemove(bytes32 removeTypehash, RegistryLike registry, uint256 pk, uint256 id)
+    function _signRemove(bytes32 removeTypehash, RegistryLike registry, uint256 pk, uint64 id)
         internal
         view
         returns (bytes memory)
@@ -45,7 +45,7 @@ abstract contract RegistryTestBase is Test {
         bytes32 updatePubkeyTypehash,
         RegistryLike registry,
         uint256 pk,
-        uint256 id,
+        uint64 id,
         A.Pubkey memory newPubkey,
         A.Pubkey memory oldPubkey
     ) internal view returns (bytes memory) {
@@ -65,7 +65,7 @@ abstract contract RegistryTestBase is Test {
         bytes32 updateSignerTypehash,
         RegistryLike registry,
         uint256 pk,
-        uint256 id,
+        uint64 id,
         address newSigner
     ) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(abi.encode(updateSignerTypehash, id, newSigner, registry.nonceOf(id)));

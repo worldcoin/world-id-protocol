@@ -86,7 +86,7 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
         assertEq(registry.addressToIssuerSchemaId(signer), 0);
     }
 
-    function _signUpdateIssuerSchemaUri(uint256 sk, uint256 issuerSchemaId, string memory schemaUri)
+    function _signUpdateIssuerSchemaUri(uint256 sk, uint64 issuerSchemaId, string memory schemaUri)
         internal
         view
         returns (bytes memory)

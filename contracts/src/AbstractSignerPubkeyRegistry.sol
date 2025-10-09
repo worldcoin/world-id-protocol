@@ -18,11 +18,11 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
     }
 
     // Storage
-    mapping(uint256 => Pubkey) internal _idToPubkey;
+    mapping(uint64 => Pubkey) internal _idToPubkey;
     mapping(address => uint256) internal _addressToId;
-    uint256 internal _nextId = 1;
+    uint64 internal _nextId = 1;
     // Per-id EIP-712 nonce to prevent signature replay across updates
-    mapping(uint256 => uint256) internal _nonces;
+    mapping(uint64 => uint256) internal _nonces;
 
     /**
      * @dev Initializes the EIP-712 domain and sets the deployer as the initial owner.
@@ -59,7 +59,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
      * @param pubkey The registered pubkey.
      * @param signer The authorized signer for this id.
      */
-    function _emitRegistered(uint256 id, Pubkey memory pubkey, address signer) internal virtual;
+    function _emitRegistered(uint64 id, Pubkey memory pubkey, address signer) internal virtual;
 
     /**
      * @dev Hook for children to emit a domain-specific "removed" event.
@@ -67,7 +67,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
      * @param pubkey The pubkey that was associated with the id.
      * @param signer The signer that authorized the removal.
      */
-    function _emitRemoved(uint256 id, Pubkey memory pubkey, address signer) internal virtual;
+    function _emitRemoved(uint64 id, Pubkey memory pubkey, address signer) internal virtual;
 
     /**
      * @dev Hook for children to emit a domain-specific "pubkey updated" event.
@@ -76,7 +76,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
      * @param newPubkey The new pubkey.
      * @param signer The signer that authorized the change.
      */
-    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
+    function _emitPubkeyUpdated(uint64 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
         internal
         virtual;
 
@@ -86,7 +86,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
      * @param oldSigner The previous signer.
      * @param newSigner The new signer.
      */
-    function _emitSignerUpdated(uint256 id, address oldSigner, address newSigner) internal virtual;
+    function _emitSignerUpdated(uint64 id, address oldSigner, address newSigner) internal virtual;
 
     /**
      * @dev Registers a new id with `pubkey` and `signer`.
@@ -105,7 +105,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
         require(signer != address(0), "Registry: signer cannot be zero address");
         require(_addressToId[signer] == 0, "Registry: signer already registered");
 
-        uint256 id = _nextId;
+        uint64 id = _nextId;
         _idToPubkey[id] = pubkey;
         _addressToId[signer] = id;
         _emitRegistered(id, pubkey, signer);
@@ -123,7 +123,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
      * @param id The id to remove.
      * @param signature The EIP-712 signature authorizing the removal.
      */
-    function remove(uint256 id, bytes calldata signature) public onlyOwner {
+    function remove(uint64 id, bytes calldata signature) public onlyOwner {
         require(!_isEmptyPubkey(_idToPubkey[id]), "Registry: id not registered");
         bytes32 hash = _hashTypedDataV4(keccak256(abi.encode(_typehashRemove(), id, _nonces[id])));
         address signer = ECDSA.recover(hash, signature);
@@ -150,7 +150,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
      * @param newPubkey The new pubkey to associate with `id`.
      * @param signature The EIP-712 signature authorizing the pubkey change.
      */
-    function updatePubkey(uint256 id, Pubkey memory newPubkey, bytes calldata signature) public onlyOwner {
+    function updatePubkey(uint64 id, Pubkey memory newPubkey, bytes calldata signature) public onlyOwner {
         Pubkey memory oldPubkey = _idToPubkey[id];
         require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
         require(!_isEmptyPubkey(newPubkey), "Registry: newPubkey cannot be zero");
@@ -179,7 +179,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
      * @param newSigner The address to set as the new signer for `id`.
      * @param signature The EIP-712 signature authorizing the signer change.
      */
-    function updateSigner(uint256 id, address newSigner, bytes calldata signature) public onlyOwner {
+    function updateSigner(uint64 id, address newSigner, bytes calldata signature) public onlyOwner {
         require(!_isEmptyPubkey(_idToPubkey[id]), "Registry: id not registered");
         require(newSigner != address(0), "Registry: newSigner cannot be zero address");
         require(_addressToId[newSigner] == 0, "Registry: newSigner already registered");
@@ -198,7 +198,7 @@ abstract contract AbstractSignerPubkeyRegistry is EIP712, Ownable {
     /**
      * @dev Returns the current nonce for the given id.
      */
-    function nonceOf(uint256 id) public view returns (uint256) {
+    function nonceOf(uint64 id) public view returns (uint256) {
         return _nonces[id];
     }
 

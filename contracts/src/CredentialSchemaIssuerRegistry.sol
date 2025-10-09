@@ -15,7 +15,7 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
     ////////////////////////////////////////////////////////////
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
-    mapping(uint256 => string) public idToSchemaUri;
+    mapping(uint64 => string) public idToSchemaUri;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -24,13 +24,13 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
     string public constant EIP712_NAME = "CredentialSchemaIssuerRegistry";
     string public constant EIP712_VERSION = "1.0";
 
-    string public constant REMOVE_ISSUER_SCHEMA_TYPEDEF = "RemoveIssuerSchema(uint256 issuerSchemaId,uint256 nonce)";
+    string public constant REMOVE_ISSUER_SCHEMA_TYPEDEF = "RemoveIssuerSchema(uint64 issuerSchemaId,uint256 nonce)";
     string public constant UPDATE_PUBKEY_TYPEDEF =
-        "UpdateIssuerSchemaPubkey(uint256 issuerSchemaId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)";
+        "UpdateIssuerSchemaPubkey(uint64 issuerSchemaId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)";
     string public constant UPDATE_SIGNER_TYPEDEF =
-        "UpdateIssuerSchemaSigner(uint256 issuerSchemaId,address newSigner,uint256 nonce)";
+        "UpdateIssuerSchemaSigner(uint64 issuerSchemaId,address newSigner,uint256 nonce)";
     string public constant UPDATE_ISSUER_SCHEMA_URI_TYPEDEF =
-        "UpdateIssuerSchemaUri(uint256 issuerSchemaId,string schemaUri)";
+        "UpdateIssuerSchemaUri(uint64 issuerSchemaId,string schemaUri)";
 
     bytes32 public constant REMOVE_ISSUER_SCHEMA_TYPEHASH = keccak256(abi.encodePacked(REMOVE_ISSUER_SCHEMA_TYPEDEF));
     bytes32 public constant UPDATE_PUBKEY_TYPEHASH = keccak256(abi.encodePacked(UPDATE_PUBKEY_TYPEDEF));
@@ -42,11 +42,11 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
     //                        Events                          //
     ////////////////////////////////////////////////////////////
 
-    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey, address signer);
-    event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
-    event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
+    event IssuerSchemaRegistered(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
+    event IssuerSchemaRemoved(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
+    event IssuerSchemaPubkeyUpdated(uint64 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey, address signer);
+    event IssuerSchemaSignerUpdated(uint64 indexed issuerSchemaId, address oldSigner, address newSigner);
+    event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -58,15 +58,15 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function issuerSchemaIdToPubkey(uint256 issuerSchemaId) public view returns (Pubkey memory) {
+    function issuerSchemaIdToPubkey(uint64 issuerSchemaId) public view returns (Pubkey memory) {
         return _idToPubkey[issuerSchemaId];
     }
 
-    function addressToIssuerSchemaId(address signer) public view returns (uint256) {
-        return _addressToId[signer];
+    function addressToIssuerSchemaId(address signer) public view returns (uint64) {
+        return uint64(_addressToId[signer]);
     }
 
-    function nextIssuerSchemaId() public view returns (uint256) {
+    function nextIssuerSchemaId() public view returns (uint64) {
         return _nextId;
     }
 
@@ -82,22 +82,22 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
         return UPDATE_SIGNER_TYPEHASH;
     }
 
-    function _emitRegistered(uint256 id, Pubkey memory pubkey, address signer) internal override {
+    function _emitRegistered(uint64 id, Pubkey memory pubkey, address signer) internal override {
         emit IssuerSchemaRegistered(id, pubkey, signer);
     }
 
-    function _emitRemoved(uint256 id, Pubkey memory pubkey, address signer) internal override {
+    function _emitRemoved(uint64 id, Pubkey memory pubkey, address signer) internal override {
         emit IssuerSchemaRemoved(id, pubkey, signer);
     }
 
-    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
+    function _emitPubkeyUpdated(uint64 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
         internal
         override
     {
         emit IssuerSchemaPubkeyUpdated(id, oldPubkey, newPubkey, signer);
     }
 
-    function _emitSignerUpdated(uint256 id, address oldSigner, address newSigner) internal override {
+    function _emitSignerUpdated(uint64 id, address oldSigner, address newSigner) internal override {
         emit IssuerSchemaSignerUpdated(id, oldSigner, newSigner);
     }
 
@@ -106,7 +106,7 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
      * @param issuerSchemaId The issuer+schema ID.
      * @return The schema URI for the issuerSchemaId.
      */
-    function getIssuerSchemaUri(uint256 issuerSchemaId) public view returns (string memory) {
+    function getIssuerSchemaUri(uint64 issuerSchemaId) public view returns (string memory) {
         return idToSchemaUri[issuerSchemaId];
     }
 
@@ -116,7 +116,7 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
      * @param schemaUri The new schema URI to set.
      * @param signature The signature of the issuer authorizing the update.
      */
-    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature) public {
+    function updateIssuerSchemaUri(uint64 issuerSchemaId, string memory schemaUri, bytes calldata signature) public {
         require(issuerSchemaId != 0, "Schema ID not registered");
         bytes32 hash =
             _hashTypedDataV4(keccak256(abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUri)));

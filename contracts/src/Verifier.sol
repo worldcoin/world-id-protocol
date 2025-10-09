@@ -22,9 +22,9 @@ contract Verifier is Ownable {
 
     function verify(
         bytes memory proof,
-        uint256 rpId,
+        uint64 rpId,
         uint256 actionId,
-        uint256 credentialIssuerId,
+        uint64 credentialIssuerId,
         uint256 authenticatorRoot
     ) external view returns (bool) {
         require(accountRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
