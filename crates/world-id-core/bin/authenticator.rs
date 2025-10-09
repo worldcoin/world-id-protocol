@@ -5,6 +5,7 @@ use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::Result;
 use oprf_client::BaseField;
 use oprf_types::RpId;
+
 use poseidon2::Poseidon2;
 use world_id_core::{config::Config, Authenticator};
 
