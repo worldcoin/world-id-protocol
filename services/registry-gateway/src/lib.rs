@@ -631,9 +631,7 @@ fn parse_u256(s: &str) -> anyhow::Result<U256> {
         .map_err(|e| anyhow::anyhow!("invalid u256: {}", e))
 }
 
-fn parse_create(
-    req: &CreateAccountRequest,
-) -> anyhow::Result<ParsedCreateAccount> {
+fn parse_create(req: &CreateAccountRequest) -> anyhow::Result<ParsedCreateAccount> {
     let rec = match &req.recovery_address {
         Some(s) if !s.is_empty() => Some(parse_address(s)?),
         _ => None,

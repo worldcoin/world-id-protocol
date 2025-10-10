@@ -1,8 +1,8 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
-use std::sync::{Arc, OnceLock};
 use std::io::Cursor;
+use std::sync::{Arc, OnceLock};
 
 use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::config::Config;
@@ -185,9 +185,9 @@ impl Authenticator {
             .into_iter()
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
-        let siblings: [BaseField; TREE_DEPTH] = siblings_vec
-            .try_into()
-            .map_err(|v: Vec<_>| eyre::eyre!("Expected {} siblings, got {}", TREE_DEPTH, v.len()))?;
+        let siblings: [BaseField; TREE_DEPTH] = siblings_vec.try_into().map_err(|v: Vec<_>| {
+            eyre::eyre!("Expected {} siblings, got {}", TREE_DEPTH, v.len())
+        })?;
 
         let mut pubkey_batch = UserPublicKeyBatch {
             values: [EdwardsAffine::default(); 7],
@@ -249,7 +249,8 @@ impl Authenticator {
             .values
             .iter()
             .position(|pk| pk == &self.offchain_pubkey().pk)
-            .ok_or_else(|| eyre::eyre!("Public key not found in batch"))? as u64;
+            .ok_or_else(|| eyre::eyre!("Public key not found in batch"))?
+            as u64;
 
         let query = OprfQuery {
             rp_id: RpId::new(rp_request.rp_id.parse::<u128>()?),
