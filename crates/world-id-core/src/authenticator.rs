@@ -6,7 +6,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::config::Config;
-use crate::types::{BaseField, InclusionProofResponse, RpRequest};
+use crate::types::{BaseField, CreateAccountRequest, InclusionProofResponse, RpRequest};
 use crate::Credential;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
@@ -217,7 +217,7 @@ impl Authenticator {
     /// Will error if the provided public key batch is not valid.
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn merkle_leaf(&self, pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
+    pub fn leaf_hash(&self, pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
         let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
         let mut input = [ark_babyjubjub::Fq::ZERO; 16];
         #[allow(clippy::unwrap_used)]
@@ -286,6 +286,40 @@ impl Authenticator {
             oprf_client::nullifier(self.config.nullifier_oracle_urls(), 2, args, &mut rng).await?;
 
         Ok((proof, nullifier))
+    }
+
+    /// Creates a new World ID account.
+    ///
+    /// # Errors
+    /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
+    pub async fn create_account(&self, recovery_address: Option<Address>) -> Result<()> {
+        let mut pubkey_batch = UserPublicKeyBatch {
+            values: [EdwardsAffine::default(); 7],
+        };
+        pubkey_batch.values[0] = self.offchain_pubkey().pk;
+        let leaf_hash = self.leaf_hash(&pubkey_batch);
+
+        let req = CreateAccountRequest {
+            recovery_address,
+            authenticator_addresses: vec![self.signer.onchain_signer_address()],
+            authenticator_pubkeys: vec![self.offchain_pubkey_compressed()?],
+            offchain_signer_commitment: leaf_hash.into(),
+        };
+
+        let resp = reqwest::Client::new()
+            .post(format!("{}/create-account", self.config.gateway_url()))
+            .json(&req)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(eyre::eyre!(
+                "failed to create account: {:?}",
+                resp.text().await?
+            ));
+        }
+
+        Ok(())
     }
 }
 

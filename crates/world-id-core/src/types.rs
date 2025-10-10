@@ -1,7 +1,7 @@
-use alloy::signers::k256::ecdsa::Signature;
+use alloy::{primitives::Address, signers::k256::ecdsa::Signature};
 use oprf_types::crypto::RpNullifierKey;
 use ruint::aliases::U256;
-use serde;
+use serde::{self, Deserialize, Serialize};
 
 /// The base field for the credential.
 pub type BaseField = ark_bn254::Fr;
@@ -60,4 +60,109 @@ pub struct RpRequest {
     #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
     #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
     pub nonce: BaseField,
+}
+
+/// The request to create a new World ID account.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateAccountRequest {
+    /// The recovery address.
+    pub recovery_address: Option<Address>,
+    /// The addresses of the authenticators.
+    pub authenticator_addresses: Vec<Address>,
+    /// The compressed public keys of the authenticators.
+    pub authenticator_pubkeys: Vec<U256>,
+    /// The offchain signer commitment.
+    pub offchain_signer_commitment: U256,
+}
+
+/// The request to update an authenticator.
+#[derive(Debug, Deserialize)]
+pub struct UpdateAuthenticatorRequest {
+    /// The account index.
+    pub account_index: String,
+    /// The old authenticator address.
+    pub old_authenticator_address: String,
+    /// The new authenticator address.
+    pub new_authenticator_address: String,
+    /// The old offchain signer commitment.
+    pub old_offchain_signer_commitment: String,
+    /// The new offchain signer commitment.
+    pub new_offchain_signer_commitment: String,
+    /// The sibling nodes.
+    pub sibling_nodes: Vec<String>,
+    /// The signature.
+    pub signature: String,
+    /// The nonce.
+    pub nonce: String,
+    /// The pubkey id.
+    pub pubkey_id: Option<String>,
+    /// The new authenticator pubkey.
+    pub new_authenticator_pubkey: Option<String>,
+}
+
+/// The request to insert an authenticator.
+#[derive(Debug, Deserialize)]
+pub struct InsertAuthenticatorRequest {
+    /// The account index.
+    pub account_index: String,
+    /// The new authenticator address.
+    pub new_authenticator_address: String,
+    /// The old offchain signer commitment.
+    pub old_offchain_signer_commitment: String,
+    /// The new offchain signer commitment.
+    pub new_offchain_signer_commitment: String,
+    /// The sibling nodes.
+    pub sibling_nodes: Vec<String>,
+    /// The signature.
+    pub signature: String,
+    /// The nonce.
+    pub nonce: String,
+    /// The pubkey id.
+    pub pubkey_id: Option<String>,
+    /// The new authenticator pubkey.
+    pub new_authenticator_pubkey: Option<String>,
+}
+
+/// The request to remove an authenticator.
+#[derive(Debug, Deserialize)]
+pub struct RemoveAuthenticatorRequest {
+    /// The account index.
+    pub account_index: String,
+    /// The authenticator address.
+    pub authenticator_address: String,
+    /// The old offchain signer commitment.
+    pub old_offchain_signer_commitment: String,
+    /// The new offchain signer commitment.
+    pub new_offchain_signer_commitment: String,
+    /// The sibling nodes.
+    pub sibling_nodes: Vec<String>,
+    /// The signature.
+    pub signature: String,
+    /// The nonce.
+    pub nonce: String,
+    /// The pubkey id.
+    pub pubkey_id: Option<String>,
+    /// The authenticator pubkey.
+    pub authenticator_pubkey: Option<String>,
+}
+
+/// The request to recover an account.
+#[derive(Debug, Deserialize)]
+pub struct RecoverAccountRequest {
+    /// The account index.
+    pub account_index: String,
+    /// The new authenticator address.
+    pub new_authenticator_address: String,
+    /// The old offchain signer commitment.
+    pub old_offchain_signer_commitment: String,
+    /// The new offchain signer commitment.
+    pub new_offchain_signer_commitment: String,
+    /// The sibling nodes.
+    pub sibling_nodes: Vec<String>,
+    /// The signature.
+    pub signature: String,
+    /// The nonce.
+    pub nonce: String,
+    /// The new authenticator pubkey.
+    pub new_authenticator_pubkey: Option<String>,
 }

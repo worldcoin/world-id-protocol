@@ -20,11 +20,12 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 use world_id_core::account_registry::AccountRegistry;
+use world_id_core::types::{
+    CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
-
-// Type alias for parsed create account data
-type ParsedCreateAccount = (Option<Address>, Vec<Address>, Vec<U256>, U256);
 
 #[derive(Clone, Debug)]
 pub struct GatewayConfig {
@@ -73,69 +74,9 @@ struct OpsBatcherHandle {
     tx: mpsc::Sender<OpEnvelope>,
 }
 
-#[derive(Debug, Deserialize)]
-struct CreateAccountRequest {
-    recovery_address: Option<String>,
-    authenticator_addresses: Vec<String>,
-    authenticator_pubkeys: Vec<String>,
-    offchain_signer_commitment: String,
-}
-
 #[derive(Debug, Serialize)]
 struct TxResponse {
     tx_hash: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct UpdateAuthenticatorRequest {
-    account_index: String,
-    old_authenticator_address: String,
-    new_authenticator_address: String,
-    old_offchain_signer_commitment: String,
-    new_offchain_signer_commitment: String,
-    sibling_nodes: Vec<String>,
-    signature: String,
-    nonce: String,
-    pubkey_id: Option<String>,
-    new_authenticator_pubkey: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct InsertAuthenticatorRequest {
-    account_index: String,
-    new_authenticator_address: String,
-    old_offchain_signer_commitment: String,
-    new_offchain_signer_commitment: String,
-    sibling_nodes: Vec<String>,
-    signature: String,
-    nonce: String,
-    pubkey_id: Option<String>,
-    new_authenticator_pubkey: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RemoveAuthenticatorRequest {
-    account_index: String,
-    authenticator_address: String,
-    old_offchain_signer_commitment: String,
-    new_offchain_signer_commitment: String,
-    sibling_nodes: Vec<String>,
-    signature: String,
-    nonce: String,
-    pubkey_id: Option<String>,
-    authenticator_pubkey: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RecoverAccountRequest {
-    account_index: String,
-    new_authenticator_address: String,
-    old_offchain_signer_commitment: String,
-    new_offchain_signer_commitment: String,
-    sibling_nodes: Vec<String>,
-    signature: String,
-    nonce: String,
-    new_authenticator_pubkey: Option<String>,
 }
 
 static DEFAULT_BATCH_MS: Lazy<u64> = Lazy::new(|| 1000);
@@ -267,7 +208,7 @@ pub async fn spawn_gateway(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> 
 
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run_from_env() -> anyhow::Result<()> {
-    let rpc_url = std::env::var("RPC_URL").expect("RPC_URL is required");
+    let rpc_url = std::env::var("RPC_URL").unwrap_or("http://localhost:8545".to_string());
     let wallet_key = std::env::var("WALLET_KEY").expect("WALLET_KEY (hex privkey) is required");
     let registry_addr: Address = std::env::var("REGISTRY_ADDRESS")
         .expect("REGISTRY_ADDRESS is required")
@@ -281,7 +222,7 @@ pub async fn run_from_env() -> anyhow::Result<()> {
         .or_else(|_| std::env::var("PORT"))
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(4000);
+        .unwrap_or(8081);
     let listen_addr = SocketAddr::from(([127, 0, 0, 1], port));
 
     let app = build_app(registry_addr, rpc_url, wallet_key, batch_ms);
@@ -349,28 +290,17 @@ impl CreateBatcherRunner {
             .is_ok()
             {}
 
-            // Parse all
-            let parsed: Vec<anyhow::Result<ParsedCreateAccount>> =
-                batch.iter().map(|e| parse_create(&e.req)).collect();
-
-            // Build aggregated params from successful parses
+            // Build aggregated params from batch
             let mut recovery_addresses: Vec<Address> = Vec::new();
             let mut auths: Vec<Vec<Address>> = Vec::new();
             let mut pubkeys: Vec<Vec<U256>> = Vec::new();
             let mut commits: Vec<U256> = Vec::new();
-            for (rec, asv, pks, com) in parsed.iter().flatten() {
-                recovery_addresses.push(rec.unwrap_or(Address::ZERO));
-                auths.push(asv.clone());
-                pubkeys.push(pks.clone());
-                commits.push(*com);
-            }
 
-            // If none valid, respond errors and continue
-            if auths.is_empty() {
-                for (env, res) in batch.into_iter().zip(parsed.into_iter()) {
-                    let _ = env.resp.send(res.map(|_| String::new()));
-                }
-                continue;
+            for env in &batch {
+                recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
+                auths.push(env.req.authenticator_addresses.clone());
+                pubkeys.push(env.req.authenticator_pubkeys.clone());
+                commits.push(env.req.offchain_signer_commitment);
             }
 
             let call = contract.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
@@ -378,8 +308,8 @@ impl CreateBatcherRunner {
             match tx_res {
                 Ok(pend) => {
                     let hash = format!("0x{:x}", pend.tx_hash());
-                    for (env, res) in batch.into_iter().zip(parsed.into_iter()) {
-                        let _ = env.resp.send(res.map(|_| hash.clone()));
+                    for env in batch {
+                        let _ = env.resp.send(Ok(hash.clone()));
                     }
                 }
                 Err(err) => {
@@ -625,31 +555,6 @@ impl OpsBatcherRunner {
 fn parse_address(s: &str) -> anyhow::Result<Address> {
     s.parse()
         .map_err(|e| anyhow::anyhow!("invalid address: {}", e))
-}
-fn parse_u256(s: &str) -> anyhow::Result<U256> {
-    s.parse()
-        .map_err(|e| anyhow::anyhow!("invalid u256: {}", e))
-}
-
-fn parse_create(req: &CreateAccountRequest) -> anyhow::Result<ParsedCreateAccount> {
-    let rec = match &req.recovery_address {
-        Some(s) if !s.is_empty() => Some(parse_address(s)?),
-        _ => None,
-    };
-    let auths: Result<Vec<_>, _> = req
-        .authenticator_addresses
-        .iter()
-        .map(|s| parse_address(s))
-        .collect();
-    let auths = auths?;
-    let pubkeys: Result<Vec<_>, _> = req
-        .authenticator_pubkeys
-        .iter()
-        .map(|s| parse_u256(s))
-        .collect();
-    let pubkeys = pubkeys?;
-    let commit = parse_u256(&req.offchain_signer_commitment)?;
-    Ok((rec, auths, pubkeys, commit))
 }
 
 async fn create_account(
