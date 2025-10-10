@@ -50,10 +50,7 @@ fn deploy_registry() -> String {
         .captures(&stdout)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
-        .expect(&format!(
-            "failed to parse deployed address from script output: {}",
-            stdout
-        ));
+        .expect("failed to parse deployed address from script output");
     addr
 }
 
@@ -200,7 +197,7 @@ async fn e2e_backfill_and_live_sync() {
 
     // Verify proof endpoint is working
     let client = reqwest::Client::builder().build().unwrap();
-    let base = format!("http://127.0.0.1:8080");
+    let base = "http://127.0.0.1:8080";
     let resp = client.get(format!("{}/proof/1", base)).send().await;
 
     assert!(resp.is_ok(), "proof request failed");
@@ -212,5 +209,6 @@ async fn e2e_backfill_and_live_sync() {
     // Cleanup
     indexer_task.abort();
     let _ = anvil.kill();
+    anvil.wait().unwrap();
     reset_db(&pool).await;
 }

@@ -57,6 +57,12 @@ pub struct Credential {
     issuer: EdDSAPublicKey,
 }
 
+impl Default for Credential {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Credential {
     /// Initializes a new credential.
     #[must_use]
@@ -143,7 +149,10 @@ impl Credential {
     }
 
     /// Get the claims hash of the credential.
-    #[must_use]
+    ///
+    /// # Errors
+    /// Will error if there are more claims than the maximum allowed.
+    /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
     pub fn claims_hash(&self) -> Result<BaseField, eyre::Error> {
         let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
         if self.claims.len() > MAX_CLAIMS {
@@ -203,7 +212,7 @@ impl TryFrom<Credential> for CredentialsSignature {
             hashes: [credential.claims_hash()?, credential.associated_data_hash],
             signature: credential
                 .signature
-                .ok_or(eyre::eyre!("Credential not signed"))?,
+                .ok_or_else(|| eyre::eyre!("Credential not signed"))?,
             genesis_issued_at: credential.genesis_issued_at,
             expires_at: credential.expires_at,
         })

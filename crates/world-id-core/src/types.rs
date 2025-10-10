@@ -1,5 +1,5 @@
 use alloy::signers::k256::ecdsa::Signature;
-use oprf_types::{crypto::RpNullifierKey, RpId};
+use oprf_types::crypto::RpNullifierKey;
 use ruint::aliases::U256;
 use serde;
 

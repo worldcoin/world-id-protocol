@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     let mut authenticator = Authenticator::new(seed, config)?;
     println!(
         "offchain pubkey: {:?}",
-        authenticator.offchain_pubkey_compressed()
+        authenticator.offchain_pubkey_compressed()?
     );
 
     let mut pubkeys = [EdwardsAffine::default(); 7];

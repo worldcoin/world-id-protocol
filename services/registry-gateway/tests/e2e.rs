@@ -247,7 +247,7 @@ async fn e2e_gateway_full_flow() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     // increment nonce
-    nonce = nonce + U256::from(1);
+    nonce += U256::from(1);
 
     // remove-authenticator (remove the one we inserted)
     let sig_rem = sign_remove_authenticator(
@@ -301,7 +301,7 @@ async fn e2e_gateway_full_flow() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    nonce = nonce + U256::from(1);
+    nonce += U256::from(1);
 
     let signer_new = PrivateKeySigner::random();
     let wallet_addr_new: Address = signer_new.address();
@@ -356,7 +356,7 @@ async fn e2e_gateway_full_flow() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    nonce = nonce + U256::from(1);
+    nonce += U256::from(1);
 
     // update-authenticator: replace original wallet authenticator with new one
     let new_auth4: Address = address!("0x00000000000000000000000000000000000000a4");

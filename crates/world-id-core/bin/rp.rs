@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
     let current_time_stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("system time is after unix epoch")
-        .as_secs() as u64;
+        .as_secs();
 
     let mut msg = Vec::new();
     msg.extend(nonce.into_bigint().to_bytes_le());
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
         signature,
         current_time_stamp,
         action_id,
-        nonce: nonce.try_into()?,
+        nonce,
     };
 
     println!("{}", json!(rp_request));

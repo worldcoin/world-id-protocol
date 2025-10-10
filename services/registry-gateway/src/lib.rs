@@ -23,6 +23,9 @@ use world_id_core::account_registry::AccountRegistry;
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
+// Type alias for parsed create account data
+type ParsedCreateAccount = (Option<Address>, Vec<Address>, Vec<U256>, U256);
+
 #[derive(Clone, Debug)]
 pub struct GatewayConfig {
     pub registry_addr: Address,
@@ -347,7 +350,7 @@ impl CreateBatcherRunner {
             {}
 
             // Parse all
-            let parsed: Vec<anyhow::Result<(Option<Address>, Vec<Address>, Vec<U256>, U256)>> =
+            let parsed: Vec<anyhow::Result<ParsedCreateAccount>> =
                 batch.iter().map(|e| parse_create(&e.req)).collect();
 
             // Build aggregated params from successful parses
@@ -355,13 +358,11 @@ impl CreateBatcherRunner {
             let mut auths: Vec<Vec<Address>> = Vec::new();
             let mut pubkeys: Vec<Vec<U256>> = Vec::new();
             let mut commits: Vec<U256> = Vec::new();
-            for r in &parsed {
-                if let Ok((rec, asv, pks, com)) = r {
-                    recovery_addresses.push(rec.unwrap_or(Address::ZERO));
-                    auths.push(asv.clone());
-                    pubkeys.push(pks.clone());
-                    commits.push(*com);
-                }
+            for (rec, asv, pks, com) in parsed.iter().flatten() {
+                recovery_addresses.push(rec.unwrap_or(Address::ZERO));
+                auths.push(asv.clone());
+                pubkeys.push(pks.clone());
+                commits.push(*com);
             }
 
             // If none valid, respond errors and continue
@@ -629,14 +630,10 @@ fn parse_u256(s: &str) -> anyhow::Result<U256> {
     s.parse()
         .map_err(|e| anyhow::anyhow!("invalid u256: {}", e))
 }
-fn parse_bytes(s: &str) -> anyhow::Result<Bytes> {
-    s.parse()
-        .map_err(|e| anyhow::anyhow!("invalid bytes: {}", e))
-}
 
 fn parse_create(
     req: &CreateAccountRequest,
-) -> anyhow::Result<(Option<Address>, Vec<Address>, Vec<U256>, U256)> {
+) -> anyhow::Result<ParsedCreateAccount> {
     let rec = match &req.recovery_address {
         Some(s) if !s.is_empty() => Some(parse_address(s)?),
         _ => None,

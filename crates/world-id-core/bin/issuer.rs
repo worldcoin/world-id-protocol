@@ -1,4 +1,4 @@
-use std::{env::args, u64};
+use std::env::args;
 
 use chrono::Utc;
 use eyre::Result;

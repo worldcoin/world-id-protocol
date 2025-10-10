@@ -2,7 +2,7 @@
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
 use std::sync::{Arc, OnceLock};
-use std::{io::Cursor, sync::LazyLock};
+use std::io::Cursor;
 
 use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::config::Config;
@@ -14,16 +14,11 @@ use alloy::providers::{DynProvider, Provider};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
-use ark_bn254::{Bn254, Fr};
-use ark_ec::twisted_edwards::Affine;
-use ark_ec::AffineRepr;
-use ark_ff::{AdditiveGroup, PrimeField};
+use ark_ff::AdditiveGroup;
 use ark_serde_compat::groth16::Groth16Proof;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
-use circom_types::{groth16::ZKey, traits::CheckElement};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::Result;
-use groth16::{ConstraintMatrices, ProvingKey};
 use oprf_client::zk::Groth16Material;
 use oprf_client::{MerkleMembership, NullifierArgs, OprfQuery, UserKeyMaterial};
 use oprf_types::crypto::UserPublicKeyBatch;
@@ -38,27 +33,10 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
-static MAX_PUBKEYS: usize = 7;
 static TREE_DEPTH: usize = 30;
 
 static QUERY_ZKEY_PATH: &str = "OPRFQueryProof.zkey";
 static NULLIFIER_ZKEY_PATH: &str = "OPRFNullifierProof.zkey";
-
-static ZKEY_QUERY_BYTES: &[u8] = include_bytes!("../../../OPRFQueryProof.zkey");
-static ZKEY_NULLIFIER_BYTES: &[u8] = include_bytes!("../../../OPRFNullifierProof.zkey");
-
-static ZKEY_QUERY: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254>)>> =
-    LazyLock::new(|| {
-        let query_zkey = ZKey::from_reader(Cursor::new(ZKEY_QUERY_BYTES), CheckElement::No)?;
-        Ok(query_zkey.into())
-    });
-
-static ZKEY_NULLIFIER: LazyLock<Result<(ConstraintMatrices<Fr>, ProvingKey<Bn254>)>> =
-    LazyLock::new(|| {
-        let nullifier_zkey =
-            ZKey::from_reader(Cursor::new(ZKEY_NULLIFIER_BYTES), CheckElement::No)?;
-        Ok(nullifier_zkey.into())
-    });
 
 static REGISTRY: OnceLock<Arc<AccountRegistryInstance<DynProvider>>> = OnceLock::new();
 
@@ -103,12 +81,13 @@ impl Authenticator {
 
     /// Returns the compressed `EdDSA` public key of the Authenticator signer which is used to verify off-chain operations.
     /// For example, the Nullifier Oracle uses it to verify requests for nullifiers.
-    #[must_use]
-    pub fn offchain_pubkey_compressed(&self) -> U256 {
+    /// # Errors
+    /// Will error if the public key cannot be serialized.
+    pub fn offchain_pubkey_compressed(&self) -> Result<U256> {
         let pk = self.signer.offchain_signer_pubkey().pk;
         let mut compressed_bytes = Vec::new();
-        pk.serialize_compressed(&mut compressed_bytes).unwrap();
-        U256::from_le_slice(&compressed_bytes)
+        pk.serialize_compressed(&mut compressed_bytes)?;
+        Ok(U256::from_le_slice(&compressed_bytes))
     }
 
     /// Returns a reference to the `AccountRegistry` contract instance.
@@ -201,13 +180,14 @@ impl Authenticator {
         let response = reqwest::get(url).await?;
         let proof = response.json::<InclusionProofResponse>().await?;
         let root: BaseField = proof.root.try_into()?;
-        let siblings: [BaseField; TREE_DEPTH] = proof
+        let siblings_vec: Vec<BaseField> = proof
             .proof
             .into_iter()
-            .map(|p| p.try_into().unwrap())
-            .collect::<Vec<_>>()
+            .map(std::convert::TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+        let siblings: [BaseField; TREE_DEPTH] = siblings_vec
             .try_into()
-            .unwrap();
+            .map_err(|v: Vec<_>| eyre::eyre!("Expected {} siblings, got {}", TREE_DEPTH, v.len()))?;
 
         let mut pubkey_batch = UserPublicKeyBatch {
             values: [EdwardsAffine::default(); 7],
@@ -235,10 +215,15 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the provided public key batch is not valid.
+    #[allow(clippy::missing_panics_doc)]
+    #[must_use]
     pub fn merkle_leaf(&self, pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
-        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Default::default();
+        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
         let mut input = [ark_babyjubjub::Fq::ZERO; 16];
-        input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
+        #[allow(clippy::unwrap_used)]
+        {
+            input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
+        }
         for i in 0..7 {
             input[i * 2 + 1] = pk.values[i].x;
             input[i * 2 + 2] = pk.values[i].y;
@@ -252,19 +237,19 @@ impl Authenticator {
     /// - Will error if the any of the provided parameters are not valid.
     /// - Will error if any of the required network requests fail.
     /// - Will error if the user does not have a registered World ID.
+    #[allow(clippy::future_not_send)]
     pub async fn generate_proof(
         &mut self,
         message_hash: BaseField,
         rp_request: RpRequest,
         credential: Credential,
     ) -> Result<UniquenessProof> {
-        let mut rng = rand::thread_rng();
         let (merkle_membership, pk_batch) = self.fetch_inclusion_proof().await?;
         let pk_index = pk_batch
             .values
             .iter()
             .position(|pk| pk == &self.offchain_pubkey().pk)
-            .unwrap() as u64;
+            .ok_or_else(|| eyre::eyre!("Public key not found in batch"))? as u64;
 
         let query = OprfQuery {
             rp_id: RpId::new(rp_request.rp_id.parse::<u128>()?),
@@ -295,8 +280,9 @@ impl Authenticator {
             rp_nullifier_key: rp_request.rp_nullifier_key,
         };
 
+        let mut rng = rand::thread_rng();
         let (proof, _public, nullifier) =
-            oprf_client::nullifier(&self.config.nullifier_oracle_urls(), 2, args, &mut rng).await?;
+            oprf_client::nullifier(self.config.nullifier_oracle_urls(), 2, args, &mut rng).await?;
 
         Ok((proof, nullifier))
     }
@@ -330,6 +316,7 @@ impl AuthenticatorSigner {
     }
 
     /// Returns a reference to the internal signer.
+    #[allow(unused)]
     pub const fn onchain_signer(&self) -> &PrivateKeySigner {
         &self.onchain_signer
     }

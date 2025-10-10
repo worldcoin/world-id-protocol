@@ -210,7 +210,7 @@ async fn http_get_proof(
     let account_row = sqlx::query(
         "select offchain_signer_commitment, authenticator_pubkeys from accounts where account_index = $1",
     )
-    .bind(&account_index.to_string())
+    .bind(account_index.to_string())
     .fetch_optional(&pool)
     .await
     .ok()
@@ -328,21 +328,17 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
     let mut from = load_checkpoint(&pool).await?.unwrap_or(cfg.start_block);
 
     // Backfill until head
-    loop {
-        if let Err(err) = backfill(
-            &provider,
-            &pool,
-            cfg.registry_address,
-            &mut from,
-            cfg.batch_size,
-        )
-        .await
-        {
-            tracing::error!(?err, "backfill error; retrying after delay");
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        } else {
-            break;
-        }
+    while let Err(err) = backfill(
+        &provider,
+        &pool,
+        cfg.registry_address,
+        &mut from,
+        cfg.batch_size,
+    )
+    .await
+    {
+        tracing::error!(?err, "backfill error; retrying after delay");
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
 
     tracing::info!("switching to websocket live follow");
@@ -393,7 +389,7 @@ pub async fn backfill<P: Provider>(
     batch_size: u64,
 ) -> anyhow::Result<()> {
     // Determine current head
-    let head: u64 = provider.get_block_number().await?.into();
+    let head = provider.get_block_number().await?;
     if *from_block == 0 {
         *from_block = 1;
     }
