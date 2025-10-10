@@ -54,6 +54,7 @@ pub struct Credential {
     /// The signature of the credential.
     #[serde(serialize_with = "serialize_signature")]
     #[serde(deserialize_with = "deserialize_signature")]
+    #[serde(default)]
     signature: Option<EdDSASignature>,
     /// The issuer of the credential.
     issuer: EdDSAPublicKey,
