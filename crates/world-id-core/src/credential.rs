@@ -1,14 +1,17 @@
 //! The Credential struct.
 
+use crate::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::{PrimeField, Zero};
 use eyre::bail;
-use oprf_client::{CredentialsSignature, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::types::BaseField;
+
+#[cfg(feature = "authenticator")]
+use oprf_client::CredentialsSignature;
 
 /// Version representation of the `Credential` struct
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -206,6 +209,7 @@ impl Credential {
     }
 }
 
+#[cfg(feature = "authenticator")]
 impl TryFrom<Credential> for CredentialsSignature {
     type Error = eyre::Error;
     fn try_from(credential: Credential) -> Result<Self, Self::Error> {

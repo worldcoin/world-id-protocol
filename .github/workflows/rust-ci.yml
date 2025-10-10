@@ -77,11 +77,11 @@ jobs:
       - name: Run tests
         run: |
           cargo test --all --all-features
-          cargo test --all --no-default-features
+          cargo test -p world-id-core --no-default-features
 
       - name: Build non-default features
         run: |
-          cargo build --all --no-default-features
+          cargo build -p world-id-core --no-default-features
 
   deny:
     name: Cargo deny

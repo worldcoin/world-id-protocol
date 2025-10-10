@@ -1,14 +1,20 @@
-use alloy::{primitives::Address, signers::k256::ecdsa::Signature};
-use oprf_types::crypto::RpNullifierKey;
 use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
+
+#[cfg(any(feature = "authenticator", feature = "rp"))]
+use alloy::signers::k256::ecdsa::Signature;
+#[cfg(any(feature = "authenticator", feature = "rp"))]
+use oprf_types::crypto::RpNullifierKey;
+
+#[cfg(feature = "authenticator")]
+use alloy::primitives::Address;
 
 /// The base field over which the elliptic curve is defined for the curve that is used to
 /// sign credentials in the World ID Protocol. The World ID Protocol currently uses the `BabyJubJub` curve.
 pub type BaseField = ark_bn254::Fr;
 
 /// The response from an inclusion proof request.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct InclusionProofResponse {
     /// TODO: Add proper documentation.
     pub account_index: u64,
@@ -43,7 +49,8 @@ impl InclusionProofResponse {
 }
 
 /// The request to register an action for an RP.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg(any(feature = "authenticator", feature = "rp"))]
+#[derive(Serialize, Deserialize)]
 pub struct RpRequest {
     /// The ID of the RP.
     pub rp_id: String,
@@ -64,6 +71,7 @@ pub struct RpRequest {
 }
 
 /// The request to create a new World ID account.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateAccountRequest {
     /// The recovery address.
@@ -77,6 +85,7 @@ pub struct CreateAccountRequest {
 }
 
 /// The request to update an authenticator.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Deserialize)]
 pub struct UpdateAuthenticatorRequest {
     /// The account index.
@@ -102,6 +111,7 @@ pub struct UpdateAuthenticatorRequest {
 }
 
 /// The request to insert an authenticator.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Deserialize)]
 pub struct InsertAuthenticatorRequest {
     /// The account index.
@@ -125,6 +135,7 @@ pub struct InsertAuthenticatorRequest {
 }
 
 /// The request to remove an authenticator.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Deserialize)]
 pub struct RemoveAuthenticatorRequest {
     /// The account index.
@@ -148,6 +159,7 @@ pub struct RemoveAuthenticatorRequest {
 }
 
 /// The request to recover an account.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Deserialize)]
 pub struct RecoverAccountRequest {
     /// The account index.

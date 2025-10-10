@@ -65,4 +65,6 @@ authenticator = [
     "dep:reqwest"
 ]
 
+rp = ["dep:oprf-types"]
+
 cli = ["dep:oprf-test"]

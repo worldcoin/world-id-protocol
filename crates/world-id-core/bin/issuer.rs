@@ -2,9 +2,8 @@ use std::env::args;
 
 use chrono::Utc;
 use eyre::Result;
-use oprf_client::EdDSAPrivateKey;
 use serde_json::json;
-use world_id_core::Credential;
+use world_id_core::{Credential, EdDSAPrivateKey};
 
 static ISSUER_SCHEMA_ID: u64 = 1;
 static EXPIRATION_TIME: u64 = 3600;
