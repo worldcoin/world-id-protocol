@@ -130,10 +130,11 @@ async fn set_leaf_at_index(leaf_index: usize, value: U256) {
 }
 
 async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
-    let rows =
-        sqlx::query("select account_index, offchain_signer_commitment from accounts order by account_index asc")
-            .fetch_all(pool)
-            .await?;
+    let rows = sqlx::query(
+        "select account_index, offchain_signer_commitment from accounts order by account_index asc",
+    )
+    .fetch_all(pool)
+    .await?;
 
     let mut leaves: Vec<(usize, U256)> = Vec::with_capacity(rows.len());
     for r in rows {
@@ -154,7 +155,10 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn update_tree_with_commitment(account_index: U256, new_commitment: U256) -> anyhow::Result<()> {
+async fn update_tree_with_commitment(
+    account_index: U256,
+    new_commitment: U256,
+) -> anyhow::Result<()> {
     if account_index == 0 {
         anyhow::bail!("account index cannot be zero");
     }
@@ -211,11 +215,11 @@ async fn http_get_proof(
     .await
     .ok()
     .flatten();
-    
+
     if account_row.is_none() {
         return (axum::http::StatusCode::NOT_FOUND, "account not found").into_response();
     }
-    
+
     let row = account_row.unwrap();
     let pubkeys_json: Json<Vec<String>> = row.get("authenticator_pubkeys");
     let authenticator_pubkeys: Vec<U256> = pubkeys_json
@@ -407,7 +411,7 @@ pub async fn backfill<P: Provider>(
         AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
         AccountRegistry::AccountRecovered::SIGNATURE_HASH,
     ];
-    
+
     let filter = Filter::new()
         .address(registry)
         .event_signature(event_signatures)
@@ -430,11 +434,13 @@ pub async fn backfill<P: Provider>(
                 let block_number = lg.block_number;
                 let tx_hash = lg.transaction_hash;
                 let log_index = lg.log_index;
-                
-                if let Err(e) = handle_registry_event(pool, &event, block_number, tx_hash, log_index).await {
+
+                if let Err(e) =
+                    handle_registry_event(pool, &event, block_number, tx_hash, log_index).await
+                {
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
-                
+
                 if let Err(e) = update_tree_with_event(&event).await {
                     tracing::error!(?e, ?event, "failed to update tree for event");
                 }
@@ -480,7 +486,9 @@ pub fn decode_account_updated(lg: &alloy::rpc::types::Log) -> anyhow::Result<Acc
     })
 }
 
-pub fn decode_authenticator_inserted(lg: &alloy::rpc::types::Log) -> anyhow::Result<AuthenticatorInsertedEvent> {
+pub fn decode_authenticator_inserted(
+    lg: &alloy::rpc::types::Log,
+) -> anyhow::Result<AuthenticatorInsertedEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
     let typed = AccountRegistry::AuthenticatorInserted::decode_log(&prim)?;
@@ -495,7 +503,9 @@ pub fn decode_authenticator_inserted(lg: &alloy::rpc::types::Log) -> anyhow::Res
     })
 }
 
-pub fn decode_authenticator_removed(lg: &alloy::rpc::types::Log) -> anyhow::Result<AuthenticatorRemovedEvent> {
+pub fn decode_authenticator_removed(
+    lg: &alloy::rpc::types::Log,
+) -> anyhow::Result<AuthenticatorRemovedEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
     let typed = AccountRegistry::AuthenticatorRemoved::decode_log(&prim)?;
@@ -510,7 +520,9 @@ pub fn decode_authenticator_removed(lg: &alloy::rpc::types::Log) -> anyhow::Resu
     })
 }
 
-pub fn decode_account_recovered(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountRecoveredEvent> {
+pub fn decode_account_recovered(
+    lg: &alloy::rpc::types::Log,
+) -> anyhow::Result<AccountRecoveredEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
     let typed = AccountRegistry::AccountRecovered::decode_log(&prim)?;
@@ -528,19 +540,25 @@ pub fn decode_registry_event(lg: &alloy::rpc::types::Log) -> anyhow::Result<Regi
     if lg.topics().is_empty() {
         anyhow::bail!("log has no topics");
     }
-    
+
     let event_sig = lg.topics()[0];
-    
+
     if event_sig == AccountRegistry::AccountCreated::SIGNATURE_HASH {
         Ok(RegistryEvent::AccountCreated(decode_account_created(lg)?))
     } else if event_sig == AccountRegistry::AccountUpdated::SIGNATURE_HASH {
         Ok(RegistryEvent::AccountUpdated(decode_account_updated(lg)?))
     } else if event_sig == AccountRegistry::AuthenticatorInserted::SIGNATURE_HASH {
-        Ok(RegistryEvent::AuthenticatorInserted(decode_authenticator_inserted(lg)?))
+        Ok(RegistryEvent::AuthenticatorInserted(
+            decode_authenticator_inserted(lg)?,
+        ))
     } else if event_sig == AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH {
-        Ok(RegistryEvent::AuthenticatorRemoved(decode_authenticator_removed(lg)?))
+        Ok(RegistryEvent::AuthenticatorRemoved(
+            decode_authenticator_removed(lg)?,
+        ))
     } else if event_sig == AccountRegistry::AccountRecovered::SIGNATURE_HASH {
-        Ok(RegistryEvent::AccountRecovered(decode_account_recovered(lg)?))
+        Ok(RegistryEvent::AccountRecovered(decode_account_recovered(
+            lg,
+        )?))
     } else {
         anyhow::bail!("unknown event signature: {:?}", event_sig)
     }
@@ -820,7 +838,7 @@ pub async fn stream_logs(
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
-    
+
     let event_signatures = vec![
         AccountRegistry::AccountCreated::SIGNATURE_HASH,
         AccountRegistry::AccountUpdated::SIGNATURE_HASH,
@@ -828,7 +846,7 @@ pub async fn stream_logs(
         AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
         AccountRegistry::AccountRecovered::SIGNATURE_HASH,
     ];
-    
+
     let filter = Filter::new()
         .address(registry)
         .event_signature(event_signatures)
@@ -843,15 +861,17 @@ pub async fn stream_logs(
                 let block_number = log.block_number;
                 let tx_hash = log.transaction_hash;
                 let log_index = log.log_index;
-                
-                if let Err(e) = handle_registry_event(pool, &event, block_number, tx_hash, log_index).await {
+
+                if let Err(e) =
+                    handle_registry_event(pool, &event, block_number, tx_hash, log_index).await
+                {
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
-                
+
                 if let Err(e) = update_tree_with_event(&event).await {
                     tracing::error!(?e, ?event, "failed to update tree for live event");
                 }
-                
+
                 if let Some(bn) = log.block_number {
                     save_checkpoint(pool, bn).await?;
                 }

@@ -24,7 +24,13 @@ pub struct InclusionProofResponse {
 impl InclusionProofResponse {
     /// Instantiates a new inclusion proof response.
     #[must_use]
-    pub const fn new(account_index: u64, leaf_index: u64, root: U256, proof: Vec<U256>, authenticator_pubkeys: Vec<U256>) -> Self {
+    pub const fn new(
+        account_index: u64,
+        leaf_index: u64,
+        root: U256,
+        proof: Vec<U256>,
+        authenticator_pubkeys: Vec<U256>,
+    ) -> Self {
         Self {
             account_index,
             leaf_index,

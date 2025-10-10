@@ -35,11 +35,17 @@ async fn main() -> Result<()> {
 
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
     let mut authenticator = Authenticator::new(seed, config)?;
-    println!("offchain pubkey: {:?}", authenticator.offchain_pubkey_compressed());
+    println!(
+        "offchain pubkey: {:?}",
+        authenticator.offchain_pubkey_compressed()
+    );
 
     let mut pubkeys = [EdwardsAffine::default(); 7];
     pubkeys[0] = authenticator.offchain_pubkey().pk;
-    println!("merkle leaf: {}", authenticator.merkle_leaf(&UserPublicKeyBatch { values: pubkeys }));
+    println!(
+        "merkle leaf: {}",
+        authenticator.merkle_leaf(&UserPublicKeyBatch { values: pubkeys })
+    );
 
     let credential_path = std::env::args()
         .nth(1)
