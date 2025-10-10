@@ -14,7 +14,7 @@ use serde_json::json;
 use world_id_core::types::{BaseField, RpRequest};
 
 const DEFAULT_KEY_GEN_CONTRACT_ADDRESS: Address =
-    address!("0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9");
+    address!("0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9");
 const PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 #[tokio::main]

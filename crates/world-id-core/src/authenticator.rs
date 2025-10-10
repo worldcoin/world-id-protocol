@@ -24,7 +24,6 @@ use oprf_client::{MerkleMembership, NullifierArgs, OprfQuery, UserKeyMaterial};
 use oprf_types::crypto::UserPublicKeyBatch;
 use oprf_types::{MerkleEpoch, MerkleRoot, RpId, ShareEpoch};
 use poseidon2::Poseidon2;
-use reqwest::StatusCode;
 use std::str::FromStr;
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -219,7 +218,7 @@ impl Authenticator {
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn leaf_hash(&self, pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
-        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Default::default();
+        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
         let mut input = [ark_babyjubjub::Fq::ZERO; 16];
         #[allow(clippy::unwrap_used)]
         {
@@ -300,27 +299,28 @@ impl Authenticator {
         pubkey_batch.values[0] = self.offchain_pubkey().pk;
         let leaf_hash = self.leaf_hash(&pubkey_batch);
 
-        let req = CreateAccountRequest{
+        let req = CreateAccountRequest {
             recovery_address,
             authenticator_addresses: vec![self.signer.onchain_signer_address()],
             authenticator_pubkeys: vec![self.offchain_pubkey_compressed()?],
             offchain_signer_commitment: leaf_hash.into(),
         };
-        
+
         let resp = reqwest::Client::new()
             .post(format!("{}/create-account", self.config.gateway_url()))
             .json(&req)
             .send()
-            .await
-            .unwrap();
+            .await?;
 
-        if resp.status() != StatusCode::ACCEPTED {
-            return Err(eyre::eyre!("failed to create account: {:?}", resp.text().await?));
+        if !resp.status().is_success() {
+            return Err(eyre::eyre!(
+                "failed to create account: {:?}",
+                resp.text().await?
+            ));
         }
 
         Ok(())
     }
-
 }
 
 /// The inner signer which can sign requests for both on-chain and off-chain operations on behalf of the authenticator.

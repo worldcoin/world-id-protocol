@@ -1,9 +1,9 @@
-use std::fs::File;
+use std::{fs::File, time::Duration};
 
-use ark_babyjubjub::EdwardsAffine;
+use alloy::primitives::address;
 use ark_ff::UniformRand;
 use eyre::Result;
-use oprf_types::crypto::UserPublicKeyBatch;
+use tokio::time::sleep;
 use world_id_core::{
     config::Config,
     types::{BaseField, RpRequest},
@@ -35,17 +35,13 @@ async fn main() -> Result<()> {
 
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
     let mut authenticator = Authenticator::new(seed, config)?;
-    println!(
-        "offchain pubkey: {:?}",
-        authenticator.offchain_pubkey_compressed()?
-    );
 
-    let mut pubkeys = [EdwardsAffine::default(); 7];
-    pubkeys[0] = authenticator.offchain_pubkey().pk;
-    println!(
-        "merkle leaf: {}",
-        authenticator.merkle_leaf(&UserPublicKeyBatch { values: pubkeys })
-    );
+    // Some dummy recovery address
+    authenticator
+        .create_account(Some(address!("4242424242424242424242424242424242424242")))
+        .await?;
+
+    sleep(Duration::from_secs(5)).await;
 
     let credential_path = std::env::args()
         .nth(1)

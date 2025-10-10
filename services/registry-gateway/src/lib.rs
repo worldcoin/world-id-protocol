@@ -20,7 +20,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 use world_id_core::account_registry::AccountRegistry;
-use world_id_core::types::{CreateAccountRequest, UpdateAuthenticatorRequest, InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RecoverAccountRequest};
+use world_id_core::types::{
+    CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
@@ -205,7 +208,7 @@ pub async fn spawn_gateway(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> 
 
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run_from_env() -> anyhow::Result<()> {
-    let rpc_url = std::env::var("RPC_URL").expect("RPC_URL is required");
+    let rpc_url = std::env::var("RPC_URL").unwrap_or("http://localhost:8545".to_string());
     let wallet_key = std::env::var("WALLET_KEY").expect("WALLET_KEY (hex privkey) is required");
     let registry_addr: Address = std::env::var("REGISTRY_ADDRESS")
         .expect("REGISTRY_ADDRESS is required")
@@ -219,7 +222,7 @@ pub async fn run_from_env() -> anyhow::Result<()> {
         .or_else(|_| std::env::var("PORT"))
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(4000);
+        .unwrap_or(8081);
     let listen_addr = SocketAddr::from(([127, 0, 0, 1], port));
 
     let app = build_app(registry_addr, rpc_url, wallet_key, batch_ms);
@@ -292,7 +295,7 @@ impl CreateBatcherRunner {
             let mut auths: Vec<Vec<Address>> = Vec::new();
             let mut pubkeys: Vec<Vec<U256>> = Vec::new();
             let mut commits: Vec<U256> = Vec::new();
-            
+
             for env in &batch {
                 recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
                 auths.push(env.req.authenticator_addresses.clone());
