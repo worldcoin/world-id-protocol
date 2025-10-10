@@ -3,18 +3,18 @@ pragma solidity ^0.8.13;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {RpRegistry} from "./RpRegistry.sol";
-import {CredentialIssuerRegistry} from "./CredentialIssuerRegistry.sol";
+import {CredentialSchemaIssuerRegistry} from "./CredentialSchemaIssuerRegistry.sol";
 import {AccountRegistry} from "./AccountRegistry.sol";
 import {AbstractSignerPubkeyRegistry as A} from "./AbstractSignerPubkeyRegistry.sol";
 
 contract Verifier is Ownable {
     RpRegistry public rpRegistry;
-    CredentialIssuerRegistry public credentialIssuerRegistry;
+    CredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
     AccountRegistry public accountRegistry;
 
     constructor(address _rpRegistry, address _credentialIssuerRegistry, address _accountRegistry) Ownable(msg.sender) {
         rpRegistry = RpRegistry(_rpRegistry);
-        credentialIssuerRegistry = CredentialIssuerRegistry(_credentialIssuerRegistry);
+        credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
         accountRegistry = AccountRegistry(_accountRegistry);
     }
 
@@ -30,7 +30,8 @@ contract Verifier is Ownable {
         require(accountRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
 
         A.Pubkey memory rpPubkey = rpRegistry.rpIdToPubkey(rpId);
-        A.Pubkey memory credentialIssuerPubkey = credentialIssuerRegistry.issuerIdToPubkey(credentialIssuerId);
+        A.Pubkey memory credentialIssuerPubkey =
+            credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(credentialIssuerId);
 
         require(rpPubkey.x != 0 && rpPubkey.y != 0, "RP not registered");
         require(credentialIssuerPubkey.x != 0 && credentialIssuerPubkey.y != 0, "Credential issuer not registered");
@@ -46,8 +47,8 @@ contract Verifier is Ownable {
         rpRegistry = RpRegistry(_rpRegistry);
     }
 
-    function updateCredentialIssuerRegistry(address _credentialIssuerRegistry) external onlyOwner {
-        credentialIssuerRegistry = CredentialIssuerRegistry(_credentialIssuerRegistry);
+    function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry) external onlyOwner {
+        credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialSchemaIssuerRegistry);
     }
 
     function updateAccountRegistry(address _accountRegistry) external onlyOwner {

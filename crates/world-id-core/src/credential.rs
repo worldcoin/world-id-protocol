@@ -26,26 +26,26 @@ static MAX_CLAIMS: usize = 16;
 ///
 /// In the case of World ID these statements are about humans, with the most common
 /// credentials being Orb verification or document verification.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Credential {
     /// Version representation of this structure
-    version: CredentialVersion,
+    pub version: CredentialVersion,
     /// Unique credential type id that is used to lookup of verifying information
-    issuer_schema_id: u64,
+    pub issuer_schema_id: u64,
     /// World ID to which the credential is issued. This ID comes from the `AccountRegistry`.
-    account_id: u64,
+    pub account_id: u64,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
     /// this timestamp should stay constant.
-    genesis_issued_at: u64,
+    pub genesis_issued_at: u64,
     /// Expiration timestamp (unix seconds)
-    expires_at: u64,
+    pub expires_at: u64,
     /// These are concrete statements that the issuer attests about the receiver.
     /// Could be just commitments to data (e.g. passport image) or
     /// the value directly (e.g. date of birth)
     #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base_sequence")]
     #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base_sequence")]
-    claims: Vec<BaseField>,
+    pub claims: Vec<BaseField>,
     /// If needed, can be used as commitment to the underlying data.
     /// This can be useful to tie multiple proofs about the same data together.
     #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
@@ -207,5 +207,34 @@ impl TryFrom<Credential> for CredentialsSignature {
             genesis_issued_at: credential.genesis_issued_at,
             expires_at: credential.expires_at,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[allow(clippy::unreadable_literal)]
+    #[test]
+    fn test_credential_builder_and_json_export() {
+        let credential = Credential::new()
+            .version(CredentialVersion::V1)
+            .issuer_schema_id(123)
+            .account_id(456)
+            .genesis_issued_at(1234567890)
+            .expires_at(1234567890 + 86_400)
+            .claim(0, U256::from(999))
+            .unwrap()
+            .associated_data_hash(U256::from(42))
+            .unwrap();
+
+        assert_eq!(credential.account_id, 456);
+
+        let json = serde_json::to_string_pretty(&credential).unwrap();
+
+        let parsed: Credential = serde_json::from_str(&json).unwrap();
+        let json2 = serde_json::to_string_pretty(&parsed).unwrap();
+
+        assert_eq!(json, json2);
     }
 }

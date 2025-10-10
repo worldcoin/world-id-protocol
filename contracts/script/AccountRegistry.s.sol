@@ -12,7 +12,8 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        accountRegistry = new AccountRegistry{salt: bytes32(uint256(0))}();
+        uint256 treeDepth = uint256(vm.envUint("TREE_DEPTH"));
+        accountRegistry = new AccountRegistry{salt: bytes32(uint256(0))}(treeDepth);
 
         vm.stopBroadcast();
 
