@@ -214,7 +214,9 @@ contract AccountRegistry is EIP712, Ownable2Step {
         tree.insert(offchainSignerCommitment);
         _recordCurrentRoot();
 
-        emit AccountCreated(nextAccountIndex, recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment);
+        emit AccountCreated(
+            nextAccountIndex, recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment
+        );
 
         nextAccountIndex++;
     }
@@ -260,7 +262,11 @@ contract AccountRegistry is EIP712, Ownable2Step {
             }
 
             emit AccountCreated(
-                nextAccountIndex, recoveryAddresses[i], authenticatorAddresses[i], authenticatorPubkeys[i], offchainSignerCommitments[i]
+                nextAccountIndex,
+                recoveryAddresses[i],
+                authenticatorAddresses[i],
+                authenticatorPubkeys[i],
+                offchainSignerCommitments[i]
             );
 
             nextAccountIndex++;

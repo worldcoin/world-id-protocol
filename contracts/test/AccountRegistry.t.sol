@@ -60,15 +60,7 @@ contract AccountRegistryTest is Test {
     ) private returns (bytes memory, uint256[] memory) {
         bytes memory signature = eip712Sign(
             accountRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
-            abi.encode(
-                accountIndex,
-                AUTHENTICATOR_ADDRESS1,
-                AUTHENTICATOR_ADDRESS2,
-                pubkeyId,
-                newLeaf,
-                newLeaf,
-                nonce
-            ),
+            abi.encode(accountIndex, AUTHENTICATOR_ADDRESS1, AUTHENTICATOR_ADDRESS2, pubkeyId, newLeaf, newLeaf, nonce),
             AUTH1_PRIVATE_KEY
         );
 
@@ -97,7 +89,9 @@ contract AccountRegistryTest is Test {
         authenticatorPubkeys[0] = 0;
         uint256 size = accountRegistry.nextAccountIndex();
         uint256 startGas = gasleft();
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
         uint256 endGas = gasleft();
         console.log("Gas used per create account:", (startGas - endGas));
         assertEq(accountRegistry.nextAccountIndex(), size + 1);
@@ -121,7 +115,9 @@ contract AccountRegistryTest is Test {
         }
 
         uint256 startGas = gasleft();
-        accountRegistry.createManyAccounts(recoveryAddresses, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitments);
+        accountRegistry.createManyAccounts(
+            recoveryAddresses, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitments
+        );
         uint256 endGas = gasleft();
         console.log("Gas used per account:", (startGas - endGas) / numAccounts);
         assertEq(accountRegistry.nextAccountIndex(), size + numAccounts);
@@ -132,7 +128,9 @@ contract AccountRegistryTest is Test {
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);
         authenticatorPubkeys[0] = 0;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
 
         uint256 nonce = 0;
         uint256 accountIndex = 1;
@@ -173,7 +171,9 @@ contract AccountRegistryTest is Test {
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);
         authenticatorPubkeys[0] = 0;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
 
         uint256 nonce = 0;
         uint256 accountIndex = 2;
@@ -203,7 +203,9 @@ contract AccountRegistryTest is Test {
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);
         authenticatorPubkeys[0] = 0;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
 
         uint256 nonce = 1;
         uint256 accountIndex = 1;
@@ -237,7 +239,9 @@ contract AccountRegistryTest is Test {
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);
         authenticatorPubkeys[0] = 0;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
@@ -280,7 +284,9 @@ contract AccountRegistryTest is Test {
         uint256[] memory authenticatorPubkeys = new uint256[](2);
         authenticatorPubkeys[0] = 0;
         authenticatorPubkeys[1] = 0;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
@@ -289,12 +295,7 @@ contract AccountRegistryTest is Test {
         bytes memory signature = eip712Sign(
             accountRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(
-                accountIndex,
-                AUTHENTICATOR_ADDRESS2,
-                uint256(1),
-                OFFCHAIN_SIGNER_COMMITMENT,
-                newCommitment,
-                nonce
+                accountIndex, AUTHENTICATOR_ADDRESS2, uint256(1), OFFCHAIN_SIGNER_COMMITMENT, newCommitment, nonce
             ),
             AUTH1_PRIVATE_KEY
         );
@@ -323,7 +324,9 @@ contract AccountRegistryTest is Test {
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);
         authenticatorPubkeys[0] = 0;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
@@ -343,7 +346,9 @@ contract AccountRegistryTest is Test {
         authenticatorAddresses[0] = AUTHENTICATOR_ADDRESS1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);
         authenticatorPubkeys[0] = 0;
-        accountRegistry.createAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
 
         uint256 accountIndex = 1;
         uint256 nonce = 1;
@@ -367,7 +372,9 @@ contract AccountRegistryTest is Test {
         uint256[] memory authenticatorPubkeys = new uint256[](2);
         authenticatorPubkeys[0] = 0;
         authenticatorPubkeys[1] = 0;
-        accountRegistry.createAccount(recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT);
+        accountRegistry.createAccount(
+            recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
