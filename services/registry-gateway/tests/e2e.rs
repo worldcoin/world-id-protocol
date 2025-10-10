@@ -104,7 +104,6 @@ async fn wait_http_ready(client: &Client) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires additional setup"]
 async fn e2e_gateway_full_flow() {
     let anvil = Anvil::new().fork(RPC_FORK_URL).try_spawn().unwrap();
 
@@ -137,6 +136,7 @@ async fn e2e_gateway_full_flow() {
     let body_create = serde_json::json!({
         "recovery_address": format!("0x{:x}", wallet_addr),
         "authenticator_addresses": [format!("0x{:x}", wallet_addr)],
+        "authenticator_pubkeys": ["100"],
         "offchain_signer_commitment": "1",
     });
     let resp = client
@@ -199,6 +199,7 @@ async fn e2e_gateway_full_flow() {
         U256::from(1),
         new_auth2,
         U256::from(1),
+        U256::from(200),
         U256::from(2),
         nonce,
         &domain,
@@ -215,6 +216,7 @@ async fn e2e_gateway_full_flow() {
         "signature": sig_ins_hex,
         "nonce": format!("0x{:x}", nonce),
         "pubkey_id": "0x1",
+        "new_authenticator_pubkey": "200",
     });
     // Issue request to gateway
     let resp = client
@@ -245,7 +247,7 @@ async fn e2e_gateway_full_flow() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     // increment nonce
-    nonce = nonce + U256::from(1);
+    nonce += U256::from(1);
 
     // remove-authenticator (remove the one we inserted)
     let sig_rem = sign_remove_authenticator(
@@ -253,6 +255,7 @@ async fn e2e_gateway_full_flow() {
         U256::from(1),
         new_auth2,
         U256::from(1),
+        U256::from(200),
         U256::from(3),
         nonce,
         &domain,
@@ -269,6 +272,7 @@ async fn e2e_gateway_full_flow() {
         "signature": sig_rem_hex,
         "nonce": format!("0x{:x}", nonce),
         "pubkey_id": "0x1",
+        "authenticator_pubkey": "200",
     });
     let resp = client
         .post(format!("{}/remove-authenticator", base))
@@ -297,7 +301,7 @@ async fn e2e_gateway_full_flow() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    nonce = nonce + U256::from(1);
+    nonce += U256::from(1);
 
     let signer_new = PrivateKeySigner::random();
     let wallet_addr_new: Address = signer_new.address();
@@ -307,6 +311,7 @@ async fn e2e_gateway_full_flow() {
         &signer,
         U256::from(1),
         wallet_addr_new,
+        U256::from(300),
         U256::from(4),
         nonce,
         &domain,
@@ -322,6 +327,7 @@ async fn e2e_gateway_full_flow() {
         "sibling_nodes": default_sibling_nodes(),
         "signature": sig_rec_hex,
         "nonce": format!("0x{:x}", nonce),
+        "new_authenticator_pubkey": "300",
     });
     let resp = client
         .post(format!("{}/recover-account", base))
@@ -350,7 +356,7 @@ async fn e2e_gateway_full_flow() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    nonce = nonce + U256::from(1);
+    nonce += U256::from(1);
 
     // update-authenticator: replace original wallet authenticator with new one
     let new_auth4: Address = address!("0x00000000000000000000000000000000000000a4");
@@ -360,6 +366,7 @@ async fn e2e_gateway_full_flow() {
         wallet_addr_new,
         new_auth4,
         U256::from(0),
+        U256::from(400),
         U256::from(5),
         nonce,
         &domain,
@@ -377,6 +384,7 @@ async fn e2e_gateway_full_flow() {
         "signature": sig_upd_hex,
         "nonce": format!("0x{:x}", nonce),
         "pubkey_id": "0x0",
+        "new_authenticator_pubkey": "400",
     });
     let resp = client
         .post(format!("{}/update-authenticator", base))

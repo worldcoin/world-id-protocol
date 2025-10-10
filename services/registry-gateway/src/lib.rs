@@ -23,6 +23,9 @@ use world_id_core::account_registry::AccountRegistry;
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
+// Type alias for parsed create account data
+type ParsedCreateAccount = (Option<Address>, Vec<Address>, Vec<U256>, U256);
+
 #[derive(Clone, Debug)]
 pub struct GatewayConfig {
     pub registry_addr: Address,
@@ -74,6 +77,7 @@ struct OpsBatcherHandle {
 struct CreateAccountRequest {
     recovery_address: Option<String>,
     authenticator_addresses: Vec<String>,
+    authenticator_pubkeys: Vec<String>,
     offchain_signer_commitment: String,
 }
 
@@ -93,6 +97,7 @@ struct UpdateAuthenticatorRequest {
     signature: String,
     nonce: String,
     pubkey_id: Option<String>,
+    new_authenticator_pubkey: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,6 +110,7 @@ struct InsertAuthenticatorRequest {
     signature: String,
     nonce: String,
     pubkey_id: Option<String>,
+    new_authenticator_pubkey: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,6 +123,7 @@ struct RemoveAuthenticatorRequest {
     signature: String,
     nonce: String,
     pubkey_id: Option<String>,
+    authenticator_pubkey: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,6 +135,7 @@ struct RecoverAccountRequest {
     sibling_nodes: Vec<String>,
     signature: String,
     nonce: String,
+    new_authenticator_pubkey: Option<String>,
 }
 
 static DEFAULT_BATCH_MS: Lazy<u64> = Lazy::new(|| 1000);
@@ -342,19 +350,19 @@ impl CreateBatcherRunner {
             {}
 
             // Parse all
-            let parsed: Vec<anyhow::Result<(Option<Address>, Vec<Address>, U256)>> =
+            let parsed: Vec<anyhow::Result<ParsedCreateAccount>> =
                 batch.iter().map(|e| parse_create(&e.req)).collect();
 
             // Build aggregated params from successful parses
             let mut recovery_addresses: Vec<Address> = Vec::new();
             let mut auths: Vec<Vec<Address>> = Vec::new();
+            let mut pubkeys: Vec<Vec<U256>> = Vec::new();
             let mut commits: Vec<U256> = Vec::new();
-            for r in &parsed {
-                if let Ok((rec, asv, com)) = r {
-                    recovery_addresses.push(rec.unwrap_or(Address::ZERO));
-                    auths.push(asv.clone());
-                    commits.push(*com);
-                }
+            for (rec, asv, pks, com) in parsed.iter().flatten() {
+                recovery_addresses.push(rec.unwrap_or(Address::ZERO));
+                auths.push(asv.clone());
+                pubkeys.push(pks.clone());
+                commits.push(*com);
             }
 
             // If none valid, respond errors and continue
@@ -365,7 +373,7 @@ impl CreateBatcherRunner {
                 continue;
             }
 
-            let call = contract.createManyAccounts(recovery_addresses, auths, commits);
+            let call = contract.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
             let tx_res = call.send().await;
             match tx_res {
                 Ok(pend) => {
@@ -396,6 +404,7 @@ enum OpKind {
         sibling_nodes: Vec<U256>,
         nonce: U256,
         pubkey_id: U256,
+        new_pubkey: U256,
     },
     Insert {
         account_index: U256,
@@ -406,6 +415,7 @@ enum OpKind {
         sibling_nodes: Vec<U256>,
         nonce: U256,
         pubkey_id: U256,
+        new_pubkey: U256,
     },
     Remove {
         account_index: U256,
@@ -416,6 +426,7 @@ enum OpKind {
         sibling_nodes: Vec<U256>,
         nonce: U256,
         pubkey_id: U256,
+        authenticator_pubkey: U256,
     },
     Recover {
         account_index: U256,
@@ -425,6 +436,7 @@ enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
+        new_pubkey: U256,
     },
 }
 
@@ -495,12 +507,14 @@ impl OpsBatcherRunner {
                         sibling_nodes,
                         nonce,
                         pubkey_id,
+                        new_pubkey,
                     } => contract
                         .updateAuthenticator(
                             *account_index,
                             *old_authenticator_address,
                             *new_authenticator_address,
                             *pubkey_id,
+                            *new_pubkey,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -518,11 +532,13 @@ impl OpsBatcherRunner {
                         sibling_nodes,
                         nonce,
                         pubkey_id,
+                        new_pubkey,
                     } => contract
                         .insertAuthenticator(
                             *account_index,
                             *new_authenticator_address,
                             *pubkey_id,
+                            *new_pubkey,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -540,11 +556,13 @@ impl OpsBatcherRunner {
                         sibling_nodes,
                         nonce,
                         pubkey_id,
+                        authenticator_pubkey,
                     } => contract
                         .removeAuthenticator(
                             *account_index,
                             *authenticator_address,
                             *pubkey_id,
+                            *authenticator_pubkey,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -561,10 +579,12 @@ impl OpsBatcherRunner {
                         signature,
                         sibling_nodes,
                         nonce,
+                        new_pubkey,
                     } => contract
                         .recoverAccount(
                             *account_index,
                             *new_authenticator_address,
+                            *new_pubkey,
                             *old_commit,
                             *new_commit,
                             signature.clone(),
@@ -610,14 +630,8 @@ fn parse_u256(s: &str) -> anyhow::Result<U256> {
     s.parse()
         .map_err(|e| anyhow::anyhow!("invalid u256: {}", e))
 }
-fn parse_bytes(s: &str) -> anyhow::Result<Bytes> {
-    s.parse()
-        .map_err(|e| anyhow::anyhow!("invalid bytes: {}", e))
-}
 
-fn parse_create(
-    req: &CreateAccountRequest,
-) -> anyhow::Result<(Option<Address>, Vec<Address>, U256)> {
+fn parse_create(req: &CreateAccountRequest) -> anyhow::Result<ParsedCreateAccount> {
     let rec = match &req.recovery_address {
         Some(s) if !s.is_empty() => Some(parse_address(s)?),
         _ => None,
@@ -628,8 +642,14 @@ fn parse_create(
         .map(|s| parse_address(s))
         .collect();
     let auths = auths?;
+    let pubkeys: Result<Vec<_>, _> = req
+        .authenticator_pubkeys
+        .iter()
+        .map(|s| parse_u256(s))
+        .collect();
+    let pubkeys = pubkeys?;
     let commit = parse_u256(&req.offchain_signer_commitment)?;
-    Ok((rec, auths, commit))
+    Ok((rec, auths, pubkeys, commit))
 }
 
 async fn create_account(
@@ -697,6 +717,12 @@ async fn update_authenticator(
                 .map(|s| req_u256("pubkey_id", s))
                 .transpose()?
                 .unwrap_or(U256::from(0u64)),
+            new_pubkey: req
+                .new_authenticator_pubkey
+                .as_deref()
+                .map(|s| req_u256("new_authenticator_pubkey", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: oneshot::channel().0, // placeholder, replaced below
     };
@@ -745,6 +771,12 @@ async fn insert_authenticator(
                 .map(|s| req_u256("pubkey_id", s))
                 .transpose()?
                 .unwrap_or(U256::from(0u64)),
+            new_pubkey: req
+                .new_authenticator_pubkey
+                .as_deref()
+                .map(|s| req_u256("new_authenticator_pubkey", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: tx,
     };
@@ -791,6 +823,12 @@ async fn remove_authenticator(
                 .map(|s| req_u256("pubkey_id", s))
                 .transpose()?
                 .unwrap_or(U256::from(0u64)),
+            authenticator_pubkey: req
+                .authenticator_pubkey
+                .as_deref()
+                .map(|s| req_u256("authenticator_pubkey", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: tx,
     };
@@ -831,6 +869,12 @@ async fn recover_account(
             sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
             signature: req_bytes("signature", &req.signature)?,
             nonce: req_u256("nonce", &req.nonce)?,
+            new_pubkey: req
+                .new_authenticator_pubkey
+                .as_deref()
+                .map(|s| req_u256("new_authenticator_pubkey", s))
+                .transpose()?
+                .unwrap_or(U256::from(0u64)),
         },
         resp: tx,
     };
