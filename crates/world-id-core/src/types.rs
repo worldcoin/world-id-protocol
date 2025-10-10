@@ -3,7 +3,8 @@ use oprf_types::crypto::RpNullifierKey;
 use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
 
-/// The base field for the credential.
+/// The base field over which the elliptic curve is defined for the curve that is used to
+/// sign credentials in the World ID Protocol. The World ID Protocol currently uses the `BabyJubJub` curve.
 pub type BaseField = ark_bn254::Fr;
 
 /// The response from an inclusion proof request.
