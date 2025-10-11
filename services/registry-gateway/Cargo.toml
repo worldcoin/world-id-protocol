@@ -8,12 +8,13 @@ license.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-alloy = { version = "1.0.22", features = ["full", "json-rpc",
+alloy = { version = "1.0.22", default-features = false, features = ["json-rpc",
     "node-bindings",
     "rpc-client",
     "rpc-types-debug",
     "rpc-types-trace",
-    "signer-aws"] }
+    "signer-aws", 
+    "reqwest-rustls-tls"] }
 anyhow = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
 world-id-core = { path = "../../crates/world-id-core" }
@@ -32,7 +33,7 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 world-id-core = { path = "../../crates/world-id-core" }
 regex = "1.11.0"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

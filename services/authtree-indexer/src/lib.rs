@@ -16,9 +16,12 @@ use semaphore_rs_trees::proof::InclusionProof;
 use semaphore_rs_trees::Branch;
 use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::InclusionProofResponse;
+
+mod config;
+use crate::config::RunMode;
+pub use config::GlobalConfig;
 
 #[derive(Debug, Clone)]
 pub struct AccountCreatedEvent {
@@ -76,45 +79,6 @@ pub enum RegistryEvent {
     AuthenticatorInserted(AuthenticatorInsertedEvent),
     AuthenticatorRemoved(AuthenticatorRemovedEvent),
     AccountRecovered(AccountRecoveredEvent),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RunMode {
-    /// Only run the indexer (sync chain data and write to DB)
-    IndexerOnly,
-    /// Only serve HTTP endpoint (requires pre-populated DB)
-    HttpOnly,
-    /// Run both indexer and HTTP server (default)
-    Both,
-}
-
-impl std::str::FromStr for RunMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "indexer" | "indexer-only" => Ok(Self::IndexerOnly),
-            "http" | "http-only" => Ok(Self::HttpOnly),
-            "both" | "all" => Ok(Self::Both),
-            _ => Err(format!(
-                "Invalid run mode: '{}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
-                s
-            )),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct IndexerConfig {
-    pub rpc_url: String,
-    pub ws_url: String,
-    pub registry_address: Address,
-    pub db_url: String,
-    pub start_block: u64,
-    pub batch_size: u64,
-    pub http_addr: SocketAddr,
-    pub mode: RunMode,
-    pub db_poll_interval_secs: u64,
 }
 
 static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> =
@@ -287,71 +251,11 @@ async fn start_http_server(addr: SocketAddr, pool: PgPool) -> anyhow::Result<()>
     Ok(())
 }
 
-pub async fn run_from_env() -> anyhow::Result<()> {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "authtree_indexer=info".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
-    let _ = dotenvy::dotenv();
-
-    let cfg = load_config_from_env()?;
-    tracing::info!(?cfg, "starting authtree-indexer");
-
-    run_indexer(cfg).await
-}
-
-pub fn load_config_from_env() -> anyhow::Result<IndexerConfig> {
-    use alloy::primitives::address;
-    let rpc_url = std::env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
-    let registry_address = std::env::var("REGISTRY_ADDRESS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| address!("0x0000000000000000000000000000000000000000"));
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/postgres".to_string());
-    let start_block: u64 = std::env::var("START_BLOCK")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let batch_size: u64 = std::env::var("BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(64);
-    let ws_url = std::env::var("WS_URL").unwrap_or_else(|_| "ws://localhost:8545".to_string());
-    let http_addr = std::env::var("HTTP_ADDR")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| "0.0.0.0:8080".parse().unwrap());
-
-    let mode_str = std::env::var("RUN_MODE").unwrap_or_else(|_| "both".to_string());
-    let mode: RunMode = mode_str.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-
-    let db_poll_interval_secs: u64 = std::env::var("DB_POLL_INTERVAL_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-
-    Ok(IndexerConfig {
-        rpc_url,
-        ws_url,
-        registry_address,
-        db_url,
-        start_block,
-        batch_size,
-        http_addr,
-        mode,
-        db_poll_interval_secs,
-    })
-}
-
-pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
+pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     let pool = make_db_pool(&cfg.db_url).await?;
     init_db(&pool).await?;
 
-    match cfg.mode {
+    match cfg.run_mode {
         RunMode::IndexerOnly => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
             run_indexer_only(cfg, pool).await
@@ -375,7 +279,7 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
     }
 }
 
-async fn run_indexer_only(cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
+async fn run_indexer_only(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()> {
     let provider =
         ProviderBuilder::new().connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
 
@@ -403,7 +307,7 @@ async fn run_indexer_only(cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()
     Ok(())
 }
 
-async fn run_http_only(cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
+async fn run_http_only(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()> {
     // Start DB poller for account updates
     let poller_pool = pool.clone();
     let poll_interval = cfg.db_poll_interval_secs;
@@ -420,7 +324,7 @@ async fn run_http_only(cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
     http_result
 }
 
-async fn run_both(cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
+async fn run_both(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()> {
     let provider =
         ProviderBuilder::new().connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
 

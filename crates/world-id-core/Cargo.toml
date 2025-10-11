@@ -36,7 +36,7 @@ tracing-subscriber = { workspace = true }
 eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", optional = true }
+oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", features = ["rustls"], optional = true }
 oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", optional = true }
 oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", optional = true }
 circom-types = { git = "https://github.com/TaceoLabs/co-snarks.git", default-features = false, optional = true }
@@ -49,7 +49,7 @@ uuid = "1"
 witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git"}
 eyre = "0.6"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git", optional = true }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true }
+reqwest = { workspace = true, optional = true }
 
 [features]
 default = ["authenticator"]
