@@ -1,14 +1,17 @@
 //! The Credential struct.
 
+use crate::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::{PrimeField, Zero};
 use eyre::bail;
-use oprf_client::{CredentialsSignature, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use ruint::aliases::U256;
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::types::BaseField;
+
+#[cfg(feature = "authenticator")]
+use oprf_client::CredentialsSignature;
 
 /// Version representation of the `Credential` struct
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -52,6 +55,9 @@ pub struct Credential {
     #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
     associated_data_hash: BaseField,
     /// The signature of the credential.
+    #[serde(serialize_with = "serialize_signature")]
+    #[serde(deserialize_with = "deserialize_signature")]
+    #[serde(default)]
     signature: Option<EdDSASignature>,
     /// The issuer of the credential.
     issuer: EdDSAPublicKey,
@@ -203,6 +209,7 @@ impl Credential {
     }
 }
 
+#[cfg(feature = "authenticator")]
 impl TryFrom<Credential> for CredentialsSignature {
     type Error = eyre::Error;
     fn try_from(credential: Credential) -> Result<Self, Self::Error> {
@@ -217,6 +224,41 @@ impl TryFrom<Credential> for CredentialsSignature {
             expires_at: credential.expires_at,
         })
     }
+}
+
+#[allow(clippy::ref_option)]
+fn serialize_signature<S>(
+    signature: &Option<EdDSASignature>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let Some(signature) = signature else {
+        return serializer.serialize_none();
+    };
+    let sig = signature
+        .to_compressed_bytes()
+        .map_err(serde::ser::Error::custom)?;
+    serializer.serialize_str(&hex::encode(sig))
+}
+
+fn deserialize_signature<'de, D>(deserializer: D) -> Result<Option<EdDSASignature>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let maybe_str = Option::<String>::deserialize(deserializer)?;
+
+    let Some(s) = maybe_str else { return Ok(None) };
+
+    let bytes = hex::decode(s).map_err(de::Error::custom)?;
+    if bytes.len() != 64 {
+        return Err(de::Error::custom("Invalid signature. Expected 64 bytes."));
+    }
+    let mut arr = [0u8; 64];
+    arr.copy_from_slice(&bytes);
+    let signature = EdDSASignature::from_compressed_bytes(arr).map_err(de::Error::custom)?;
+    Ok(Some(signature))
 }
 
 #[cfg(test)]
@@ -237,13 +279,22 @@ mod tests {
             .associated_data_hash(U256::from(42))
             .unwrap();
 
-        assert_eq!(credential.account_id, 456);
+        let issuer_sk = EdDSAPrivateKey::from_bytes([0; 32]);
+        let credential = credential.sign(&issuer_sk).unwrap();
 
-        let json = serde_json::to_string_pretty(&credential).unwrap();
+        assert_eq!(credential.account_id, 456);
+        assert!(credential.signature.is_some());
+
+        let json = serde_json::to_string(&credential).unwrap();
 
         let parsed: Credential = serde_json::from_str(&json).unwrap();
-        let json2 = serde_json::to_string_pretty(&parsed).unwrap();
+        let json2 = serde_json::to_string(&parsed).unwrap();
 
         assert_eq!(json, json2);
+
+        let issuer_public_key = issuer_sk.public();
+        let verified =
+            issuer_public_key.verify(credential.hash().unwrap(), &credential.signature.unwrap());
+        assert!(verified);
     }
 }
