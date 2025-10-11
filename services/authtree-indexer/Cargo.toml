@@ -12,7 +12,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 world-id-core = { path = "../../crates/world-id-core" }
 poseidon2 = { workspace = true }
-alloy = { version = "1.0.22", default-features = false, features = ["provider-ws"] }
+alloy = { version = "1.0.22", default-features = false, features = ["rpc-types", "provider-ws"] }
 dotenvy = "0.15"
 url = "2"
 hex = "0.4"

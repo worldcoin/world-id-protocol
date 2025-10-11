@@ -241,9 +241,18 @@ async fn http_get_proof(
     }
 }
 
+async fn http_health() -> impl IntoResponse {
+    // TODO: check DB connection
+    (
+        axum::http::StatusCode::OK,
+        axum::Json(serde_json::json!({"status":"ok"})),
+    )
+}
+
 async fn start_http_server(addr: SocketAddr, pool: PgPool) -> anyhow::Result<()> {
     let app = axum::Router::new()
         .route("/proof/:account_index", axum::routing::get(http_get_proof))
+        .route("/health", axum::routing::get(http_health))
         .with_state(pool);
 
     tracing::info!(%addr, "HTTP server listening");

@@ -28,12 +28,12 @@ RUN curl -sSL https://musl.cc/x86_64-linux-musl-cross.tgz \
  && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ar /usr/local/bin/x86_64-linux-musl-ar \
  && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ranlib /usr/local/bin/x86_64-linux-musl-ranlib
 
-RUN rustup target add x86_64-unknown-linux-musl
-
 RUN curl -L https://foundry.paradigm.xyz | bash \
   && /root/.foundry/bin/foundryup
 
 ENV PATH="/root/.foundry/bin:${PATH}"
+
+RUN rustup target add x86_64-unknown-linux-musl
 
 RUN cargo install cargo-chef
 
@@ -49,8 +49,10 @@ COPY . .
 # build the contracts to have the ABIs available
 RUN make sol-build
 
-RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME\
-RUN cp target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin
+RUN rustup target add x86_64-unknown-linux-musl && \
+  cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME
+
+RUN mv target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin
 
 ####################################################################################################
 ## Final image
