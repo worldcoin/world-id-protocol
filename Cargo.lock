@@ -1482,7 +1482,6 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "axum 0.7.9",
- "clap",
  "dotenvy",
  "futures-util",
  "hex",
