@@ -112,26 +112,26 @@ pub struct UpdateAuthenticatorRequest {
 
 /// The request to insert an authenticator.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InsertAuthenticatorRequest {
     /// The account index.
-    pub account_index: String,
+    pub account_index: U256,
     /// The new authenticator address.
-    pub new_authenticator_address: String,
+    pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: String,
+    pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: String,
+    pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    pub sibling_nodes: Vec<String>,
+    pub sibling_nodes: Vec<U256>,
     /// The signature.
-    pub signature: String,
+    pub signature: Vec<u8>,
     /// The nonce.
-    pub nonce: String,
+    pub nonce: U256,
     /// The pubkey id.
-    pub pubkey_id: Option<String>,
+    pub pubkey_id: U256,
     /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: Option<String>,
+    pub new_authenticator_pubkey: U256,
 }
 
 /// The request to remove an authenticator.

@@ -654,34 +654,15 @@ async fn insert_authenticator(
     let (tx, rx) = oneshot::channel();
     let env = OpEnvelope {
         kind: OpKind::Insert {
-            account_index: req_u256("account_index", &req.account_index)?,
-            new_authenticator_address: req_address(
-                "new_authenticator_address",
-                &req.new_authenticator_address,
-            )?,
-            old_commit: req_u256(
-                "old_offchain_signer_commitment",
-                &req.old_offchain_signer_commitment,
-            )?,
-            new_commit: req_u256(
-                "new_offchain_signer_commitment",
-                &req.new_offchain_signer_commitment,
-            )?,
-            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
-            signature: req_bytes("signature", &req.signature)?,
-            nonce: req_u256("nonce", &req.nonce)?,
-            pubkey_id: req
-                .pubkey_id
-                .as_deref()
-                .map(|s| req_u256("pubkey_id", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
-            new_pubkey: req
-                .new_authenticator_pubkey
-                .as_deref()
-                .map(|s| req_u256("new_authenticator_pubkey", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
+            account_index: req.account_index,
+            new_authenticator_address: req.new_authenticator_address,
+            old_commit: req.old_offchain_signer_commitment,
+            new_commit: req.new_offchain_signer_commitment,
+            sibling_nodes: req.sibling_nodes.clone(),
+            signature: Bytes::from(req.signature.clone()),
+            nonce: req.nonce,
+            pubkey_id: req.pubkey_id,
+            new_pubkey: req.new_authenticator_pubkey,
         },
         resp: tx,
     };
