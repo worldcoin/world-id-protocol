@@ -106,7 +106,7 @@ jobs:
 
   docker:
     name: Test Docker build
-    runs-on: arc-4xlarge-amd64-runner
+    runs-on: arm64-ubuntu-22.04-32core
     services:
       postgres:
         image: postgres:17
