@@ -17,7 +17,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().unwrap();
+    let _ = dotenvy::dotenv();
+
     let args = Args::parse();
 
     // Determine mode based on flags
