@@ -88,18 +88,13 @@ pub enum RunMode {
     Both,
 }
 
-impl std::str::FromStr for RunMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl RunMode {
+    pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "indexer" | "indexer-only" => Ok(Self::IndexerOnly),
-            "http" | "http-only" => Ok(Self::HttpOnly),
-            "both" | "all" => Ok(Self::Both),
-            _ => Err(format!(
-                "Invalid run mode: '{}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
-                s
-            )),
+            "indexer" | "indexer-only" => Some(Self::IndexerOnly),
+            "http" | "http-only" => Some(Self::HttpOnly),
+            "both" | "all" => Some(Self::Both),
+            _ => None,
         }
     }
 }
@@ -327,7 +322,12 @@ pub fn load_config_from_env() -> anyhow::Result<IndexerConfig> {
         .unwrap_or_else(|| "0.0.0.0:8080".parse().unwrap());
 
     let mode_str = std::env::var("RUN_MODE").unwrap_or_else(|_| "both".to_string());
-    let mode: RunMode = mode_str.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+    let mode = RunMode::from_str(&mode_str).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Invalid RUN_MODE: '{}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
+            mode_str
+        )
+    })?;
 
     let db_poll_interval_secs: u64 = std::env::var("DB_POLL_INTERVAL_SECS")
         .ok()
