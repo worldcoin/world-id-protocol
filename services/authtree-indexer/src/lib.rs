@@ -78,6 +78,32 @@ pub enum RegistryEvent {
     AccountRecovered(AccountRecoveredEvent),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunMode {
+    /// Only run the indexer (sync chain data and write to DB)
+    IndexerOnly,
+    /// Only serve HTTP endpoint (requires pre-populated DB)
+    HttpOnly,
+    /// Run both indexer and HTTP server (default)
+    Both,
+}
+
+impl std::str::FromStr for RunMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "indexer" | "indexer-only" => Ok(Self::IndexerOnly),
+            "http" | "http-only" => Ok(Self::HttpOnly),
+            "both" | "all" => Ok(Self::Both),
+            _ => Err(format!(
+                "Invalid run mode: '{}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
+                s
+            )),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct IndexerConfig {
     pub rpc_url: String,
@@ -87,6 +113,8 @@ pub struct IndexerConfig {
     pub start_block: u64,
     pub batch_size: u64,
     pub http_addr: SocketAddr,
+    pub mode: RunMode,
+    pub db_poll_interval_secs: u64,
 }
 
 static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> =
@@ -269,13 +297,13 @@ pub async fn run_from_env() -> anyhow::Result<()> {
 
     let _ = dotenvy::dotenv();
 
-    let cfg = load_config_from_env();
+    let cfg = load_config_from_env()?;
     tracing::info!(?cfg, "starting authtree-indexer");
 
     run_indexer(cfg).await
 }
 
-pub fn load_config_from_env() -> IndexerConfig {
+pub fn load_config_from_env() -> anyhow::Result<IndexerConfig> {
     use alloy::primitives::address;
     let rpc_url = std::env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
     let registry_address = std::env::var("REGISTRY_ADDRESS")
@@ -297,7 +325,16 @@ pub fn load_config_from_env() -> IndexerConfig {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or_else(|| "0.0.0.0:8080".parse().unwrap());
-    IndexerConfig {
+
+    let mode_str = std::env::var("RUN_MODE").unwrap_or_else(|_| "both".to_string());
+    let mode: RunMode = mode_str.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+
+    let db_poll_interval_secs: u64 = std::env::var("DB_POLL_INTERVAL_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Ok(IndexerConfig {
         rpc_url,
         ws_url,
         registry_address,
@@ -305,19 +342,87 @@ pub fn load_config_from_env() -> IndexerConfig {
         start_block,
         batch_size,
         http_addr,
-    }
+        mode,
+        db_poll_interval_secs,
+    })
 }
 
 pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
-    let provider =
-        ProviderBuilder::new().connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
-
     let pool = make_db_pool(&cfg.db_url).await?;
     init_db(&pool).await?;
 
-    let start_time = std::time::Instant::now();
-    build_tree_from_db(&pool).await?;
-    tracing::info!("building tree from DB took {:?}", start_time.elapsed());
+    match cfg.mode {
+        RunMode::IndexerOnly => {
+            tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
+            run_indexer_only(cfg, pool).await
+        }
+        RunMode::HttpOnly => {
+            tracing::info!("Running in HTTP-ONLY mode (building tree from DB)");
+            // Build tree from DB for HTTP-only mode
+            let start_time = std::time::Instant::now();
+            build_tree_from_db(&pool).await?;
+            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
+            run_http_only(cfg, pool).await
+        }
+        RunMode::Both => {
+            tracing::info!("Running in BOTH mode (indexer + HTTP server)");
+            // Build tree from DB for both mode
+            let start_time = std::time::Instant::now();
+            build_tree_from_db(&pool).await?;
+            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
+            run_both(cfg, pool).await
+        }
+    }
+}
+
+async fn run_indexer_only(cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
+    let provider =
+        ProviderBuilder::new().connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
+
+    // Determine starting block from checkpoint or env
+    let mut from = load_checkpoint(&pool).await?.unwrap_or(cfg.start_block);
+
+    // Backfill until head (update_tree = false for indexer-only mode)
+    while let Err(err) = backfill(
+        &provider,
+        &pool,
+        cfg.registry_address,
+        &mut from,
+        cfg.batch_size,
+        false, // Don't update in-memory tree
+    )
+    .await
+    {
+        tracing::error!(?err, "backfill error; retrying after delay");
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+
+    tracing::info!("switching to websocket live follow");
+    stream_logs(&cfg.ws_url, &pool, cfg.registry_address, from, false).await?;
+
+    Ok(())
+}
+
+async fn run_http_only(cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
+    // Start DB poller for account updates
+    let poller_pool = pool.clone();
+    let poll_interval = cfg.db_poll_interval_secs;
+    let poller_handle = tokio::spawn(async move {
+        if let Err(e) = poll_db_changes(poller_pool, poll_interval).await {
+            tracing::error!(?e, "DB poller failed");
+        }
+    });
+
+    // Start HTTP server
+    let http_result = start_http_server(cfg.http_addr, pool).await;
+
+    poller_handle.abort();
+    http_result
+}
+
+async fn run_both(cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
+    let provider =
+        ProviderBuilder::new().connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
 
     // Start HTTP server
     let http_pool = pool.clone();
@@ -327,13 +432,14 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool).await?.unwrap_or(cfg.start_block);
 
-    // Backfill until head
+    // Backfill until head (update_tree = true for both mode)
     while let Err(err) = backfill(
         &provider,
         &pool,
         cfg.registry_address,
         &mut from,
         cfg.batch_size,
+        true, // Update in-memory tree directly from events
     )
     .await
     {
@@ -342,7 +448,7 @@ pub async fn run_indexer(cfg: IndexerConfig) -> anyhow::Result<()> {
     }
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&cfg.ws_url, &pool, cfg.registry_address, from).await?;
+    stream_logs(&cfg.ws_url, &pool, cfg.registry_address, from, true).await?;
 
     http_handle.abort();
     Ok(())
@@ -387,6 +493,7 @@ pub async fn backfill<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
+    update_tree: bool,
 ) -> anyhow::Result<()> {
     // Determine current head
     let head = provider.get_block_number().await?;
@@ -437,8 +544,10 @@ pub async fn backfill<P: Provider>(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if let Err(e) = update_tree_with_event(&event).await {
-                    tracing::error!(?e, ?event, "failed to update tree for event");
+                if update_tree {
+                    if let Err(e) = update_tree_with_event(&event).await {
+                        tracing::error!(?e, ?event, "failed to update tree for event");
+                    }
                 }
             }
             Err(e) => {
@@ -593,7 +702,7 @@ pub async fn update_commitment(
     new_commitment: U256,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        r#"update accounts 
+        r#"update accounts
         set offchain_signer_commitment = $2
         where account_index = $1"#,
     )
@@ -614,7 +723,7 @@ pub async fn update_authenticator_at_index(
 ) -> anyhow::Result<()> {
     // Update authenticator at specific index (pubkey_id)
     sqlx::query(
-        r#"update accounts 
+        r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), false),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), false),
             offchain_signer_commitment = $5
@@ -640,7 +749,7 @@ pub async fn insert_authenticator_at_index(
 ) -> anyhow::Result<()> {
     // Ensure arrays are large enough and insert at specific index
     sqlx::query(
-        r#"update accounts 
+        r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), true),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), true),
             offchain_signer_commitment = $5
@@ -664,7 +773,7 @@ pub async fn remove_authenticator_at_index(
 ) -> anyhow::Result<()> {
     // Remove authenticator at specific index by setting to null
     sqlx::query(
-        r#"update accounts 
+        r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, 'null'::jsonb, false),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, 'null'::jsonb, false),
             offchain_signer_commitment = $3
@@ -825,11 +934,100 @@ pub async fn handle_registry_event(
     Ok(())
 }
 
+pub async fn poll_db_changes(pool: PgPool, poll_interval_secs: u64) -> anyhow::Result<()> {
+    tracing::info!(
+        poll_interval_secs,
+        "Starting DB polling for account updates..."
+    );
+
+    // Track the last known max update timestamp
+    let mut last_poll_time = std::time::SystemTime::now();
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(poll_interval_secs)).await;
+
+        // Query for accounts that have been updated since last poll
+        let current_time = std::time::SystemTime::now();
+
+        match fetch_recent_account_updates(&pool, last_poll_time).await {
+            Ok(updates) => {
+                if !updates.is_empty() {
+                    tracing::info!(count = updates.len(), "Found account updates from DB");
+
+                    for (account_index, commitment) in updates {
+                        tracing::debug!(
+                            account_index = %account_index,
+                            commitment = %commitment,
+                            "Updating tree from DB poll"
+                        );
+
+                        if let Err(e) = update_tree_with_commitment(account_index, commitment).await
+                        {
+                            tracing::error!(
+                                ?e,
+                                account_index = %account_index,
+                                "Failed to update tree from DB poll"
+                            );
+                        }
+                    }
+                }
+
+                last_poll_time = current_time;
+            }
+            Err(e) => {
+                tracing::error!(?e, "Failed to fetch account updates from DB");
+            }
+        }
+    }
+}
+
+async fn fetch_recent_account_updates(
+    pool: &PgPool,
+    since: std::time::SystemTime,
+) -> anyhow::Result<Vec<(U256, U256)>> {
+    // Convert SystemTime to timestamp
+    let since_duration = since
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let since_timestamp = since_duration.as_secs() as i64;
+
+    // Query commitment_update_events for recent changes
+    let rows = sqlx::query(
+        r#"
+        SELECT DISTINCT ON (account_index)
+            account_index,
+            new_commitment
+        FROM commitment_update_events
+        WHERE created_at > to_timestamp($1)
+        ORDER BY account_index, created_at DESC
+        "#,
+    )
+    .bind(since_timestamp)
+    .fetch_all(pool)
+    .await?;
+
+    let mut updates = Vec::new();
+    for row in rows {
+        let account_index_str: String = row.try_get("account_index")?;
+        let commitment_str: String = row.try_get("new_commitment")?;
+
+        if let (Ok(idx), Ok(comm)) = (
+            account_index_str.parse::<U256>(),
+            commitment_str.parse::<U256>(),
+        ) {
+            updates.push((idx, comm));
+        }
+    }
+
+    Ok(updates)
+}
+
 pub async fn stream_logs(
     ws_url: &str,
     pool: &PgPool,
     registry: Address,
     start_from: u64,
+    update_tree: bool,
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
@@ -864,8 +1062,10 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if let Err(e) = update_tree_with_event(&event).await {
-                    tracing::error!(?e, ?event, "failed to update tree for live event");
+                if update_tree {
+                    if let Err(e) = update_tree_with_event(&event).await {
+                        tracing::error!(?e, ?event, "failed to update tree for live event");
+                    }
                 }
 
                 if let Some(bn) = log.block_number {
