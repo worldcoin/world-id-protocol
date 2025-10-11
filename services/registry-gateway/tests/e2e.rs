@@ -7,7 +7,8 @@ use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use regex::Regex;
 use registry_gateway::{spawn_gateway, GatewayConfig};
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
+use serde::Deserialize;
 use world_id_core::account_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
     sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
@@ -18,6 +19,58 @@ const ANVIL_MNEMONIC: &str = "test test test test test test test test test test 
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
+
+#[derive(Debug, Deserialize)]
+struct GatewayStatusResponse {
+    request_id: String,
+    kind: String,
+    status: GatewayRequestState,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+enum GatewayRequestState {
+    Queued,
+    Batching,
+    Submitted { tx_hash: String },
+    Finalized { tx_hash: String },
+    Failed { error: String },
+}
+
+async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let resp = client
+            .get(format!("{}/status/{}", base, request_id))
+            .send()
+            .await
+            .unwrap();
+        let status_code = resp.status();
+        if status_code == StatusCode::NOT_FOUND {
+            panic!("request {request_id} not found");
+        }
+        if !status_code.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            panic!(
+                "status check for {request_id} failed: {} body={}",
+                status_code, body_text
+            );
+        }
+        let body: GatewayStatusResponse = resp.json().await.unwrap();
+        match body.status {
+            GatewayRequestState::Finalized { tx_hash } => return tx_hash,
+            GatewayRequestState::Failed { error } => {
+                panic!("request {request_id} failed: {error}");
+            }
+            _ => {
+                if std::time::Instant::now() > deadline {
+                    panic!("timeout waiting for request {request_id} to finalize");
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+}
 
 fn default_sibling_nodes() -> Vec<String> {
     vec![
@@ -148,10 +201,20 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "create-account failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let create_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &create_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "create-account failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "create-account should return a finalized tx hash"
     );
 
     // Wait until createManyAccounts is reflected on-chain
@@ -230,10 +293,20 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "insert-authenticator failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let insert_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &insert_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "insert-authenticator failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "insert-authenticator should return a finalized tx hash"
     );
     // wait until mapping shows up
     let deadline2 = std::time::Instant::now() + Duration::from_secs(10);
@@ -285,10 +358,20 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "remove-authenticator failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let remove_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &remove_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "remove-authenticator failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "remove-authenticator should return a finalized tx hash"
     );
     // wait until mapping cleared
     let deadline3 = std::time::Instant::now() + Duration::from_secs(10);
@@ -340,10 +423,20 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "recover-account failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let recover_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &recover_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "recover-account failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "recover-account should return a finalized tx hash"
     );
     // wait mapping
     let deadline4 = std::time::Instant::now() + Duration::from_secs(10);
@@ -397,10 +490,20 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "update-authenticator failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let update_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &update_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "update-authenticator failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "update-authenticator should return a finalized tx hash"
     );
     // wait mapping: old removed, new present
     let deadline5 = std::time::Instant::now() + Duration::from_secs(10);
