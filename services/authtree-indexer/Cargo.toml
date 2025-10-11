@@ -11,8 +11,8 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 world-id-core = { path = "../../crates/world-id-core" }
-poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
-alloy = { version = "1.0.22", default-features = false, features = ["reqwest-rustls-tls", "provider-ws"] }
+poseidon2 = { workspace = true }
+alloy = { version = "1.0.22", default-features = false, features = ["provider-ws"] }
 dotenvy = "0.15"
 url = "2"
 hex = "0.4"

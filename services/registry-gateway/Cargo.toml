@@ -13,8 +13,7 @@ alloy = { version = "1.0.22", default-features = false, features = ["json-rpc",
     "rpc-client",
     "rpc-types-debug",
     "rpc-types-trace",
-    "signer-aws", 
-    "reqwest-rustls-tls"] }
+    "signer-aws"] }
 anyhow = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
 world-id-core = { path = "../../crates/world-id-core" }
