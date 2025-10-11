@@ -1,0 +1,38 @@
+[
+  {
+    "label": "rust-test",
+    "command": "make",
+    "args": ["rust-test"],
+    "tags": ["rust-test"]
+  },
+  {
+    "label": "test",
+    "command": "make",
+    "args": ["test"],
+    "tags": ["test"]
+  },
+  {
+    "label": "build",
+    "command": "make",
+    "args": ["build"],
+    "tags": ["build"]
+  },
+  {
+    "label": "lint",
+    "command": "make",
+    "args": ["lint"],
+    "tags": ["lint"]
+  },
+  {
+    "label": "rust-build",
+    "command": "make",
+    "args": ["rust-build"],
+    "tags": ["rust-build"]
+  },
+  {
+    "label": "rust-clippy",
+    "command": "make",
+    "args": ["rust-clippy"],
+    "tags": ["rust-clippy"]
+  }
+]
