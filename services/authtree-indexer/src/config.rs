@@ -78,8 +78,7 @@ impl GlobalConfig {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap();
-        let db_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/postgres".to_string());
+        let db_url = std::env::var("DATABASE_URL").unwrap();
         let start_block: u64 = std::env::var("START_BLOCK")
             .ok()
             .and_then(|s| s.parse().ok())

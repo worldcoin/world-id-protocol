@@ -2,6 +2,8 @@ target/
 .git/
 .claude/
 .DS_Store
-contracts/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
 node_modules/
 .env

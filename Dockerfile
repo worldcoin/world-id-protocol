@@ -9,18 +9,31 @@ ARG SERVICE_NAME
 RUN test -n "$SERVICE_NAME" || (echo "ERROR: SERVICE_NAME is required" && exit 1)
 
 # Install dependencies for cross-compilation
-# TODO: remove perl, make, build-essential, pkg-config once openssl is removed
 RUN apt-get update && apt-get install -y \
     musl-tools \
     clang \
-    libssl-dev \
-    pkg-config \
     build-essential \
+    pkg-config \
     perl \
+    curl \
+    git \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# Provide a musl-targeted C/C++ toolchain required by crates built with cxx/link-cplusplus (circom-witness)
+RUN curl -sSL https://musl.cc/x86_64-linux-musl-cross.tgz \
+    | tar -xz -C /opt \
+ && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/x86_64-linux-musl-gcc \
+ && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-g++ /usr/local/bin/x86_64-linux-musl-g++ \
+ && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ar /usr/local/bin/x86_64-linux-musl-ar \
+ && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ranlib /usr/local/bin/x86_64-linux-musl-ranlib
+
 RUN rustup target add x86_64-unknown-linux-musl
+
+RUN curl -L https://foundry.paradigm.xyz | bash \
+  && /root/.foundry/bin/foundryup
+
+ENV PATH="/root/.foundry/bin:${PATH}"
 
 RUN cargo install cargo-chef
 
@@ -32,8 +45,12 @@ FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --target x86_64-unknown-linux-musl --locked --recipe-path recipe.json --package $SERVICE_NAME
 COPY . .
-RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME
-RUN mv target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin
+
+# build the contracts to have the ABIs available
+RUN make sol-build
+
+RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME\
+RUN cp target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin
 
 ####################################################################################################
 ## Final image
