@@ -139,7 +139,7 @@ jobs:
 
       - name: Run Docker container
         run: |
-          docker run -d --network host --env-file .env.example --name authtree-indexer-container authtree-indexer:latest
+          docker run -d --network host --env-file services/authtree-indexer/.env.example --name authtree-indexer-container authtree-indexer:latest
 
           # Wait for the application to start
           sleep 10

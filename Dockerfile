@@ -10,12 +10,12 @@ WORKDIR /app
 ARG SERVICE_NAME
 RUN test -n "$SERVICE_NAME" || (echo "ERROR: SERVICE_NAME is required" && exit 1)
 
+# Install dependencies (required for ring crate)
 RUN apt-get update && apt-get install -y \
   musl-tools \
   clang \
   build-essential \
   pkg-config \
-  perl \
   ca-certificates \
 && rm -rf /var/lib/apt/lists/*   
 
@@ -23,7 +23,6 @@ RUN apt-get update && apt-get install -y \
 RUN rustup set profile minimal \
  && rustup toolchain uninstall stable || true \
  && rustup toolchain install stable --profile minimal \
- && rustup default stable \
  && rustup target add x86_64-unknown-linux-musl
 
 # Install Foundry
