@@ -20,6 +20,9 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+RUN curl -L https://foundry.paradigm.xyz | bash \
+ && /root/.foundry/bin/foundryup
+
 # Provide a musl-targeted C/C++ toolchain required by crates built with cxx/link-cplusplus (circom-witness)
 RUN curl -sSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 300 https://musl.cc/x86_64-linux-musl-cross.tgz \
     | tar -xz -C /opt \
@@ -28,8 +31,7 @@ RUN curl -sSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 300 http
  && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ar /usr/local/bin/x86_64-linux-musl-ar \
  && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ranlib /usr/local/bin/x86_64-linux-musl-ranlib
 
-RUN curl -L https://foundry.paradigm.xyz | bash \
-  && /root/.foundry/bin/foundryup
+
 
 ENV PATH="/root/.foundry/bin:${PATH}"
 
