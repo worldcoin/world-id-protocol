@@ -905,34 +905,15 @@ async fn remove_authenticator(
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Remove {
-            account_index: req_u256("account_index", &req.account_index)?,
-            authenticator_address: req_address(
-                "authenticator_address",
-                &req.authenticator_address,
-            )?,
-            old_commit: req_u256(
-                "old_offchain_signer_commitment",
-                &req.old_offchain_signer_commitment,
-            )?,
-            new_commit: req_u256(
-                "new_offchain_signer_commitment",
-                &req.new_offchain_signer_commitment,
-            )?,
-            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
-            signature: req_bytes("signature", &req.signature)?,
-            nonce: req_u256("nonce", &req.nonce)?,
-            pubkey_id: req
-                .pubkey_id
-                .as_deref()
-                .map(|s| req_u256("pubkey_id", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
-            authenticator_pubkey: req
-                .authenticator_pubkey
-                .as_deref()
-                .map(|s| req_u256("authenticator_pubkey", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
+            account_index: req.account_index,
+            authenticator_address: req.authenticator_address,
+            old_commit: req.old_offchain_signer_commitment,
+            new_commit: req.new_offchain_signer_commitment,
+            sibling_nodes: req.sibling_nodes.clone(),
+            signature: Bytes::from(req.signature.clone()),
+            nonce: req.nonce,
+            pubkey_id: req.pubkey_id.unwrap_or(U256::from(0u64)),
+            authenticator_pubkey: req.authenticator_pubkey.unwrap_or(U256::from(0u64)),
         },
     };
 
@@ -972,28 +953,14 @@ async fn recover_account(
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Recover {
-            account_index: req_u256("account_index", &req.account_index)?,
-            new_authenticator_address: req_address(
-                "new_authenticator_address",
-                &req.new_authenticator_address,
-            )?,
-            old_commit: req_u256(
-                "old_offchain_signer_commitment",
-                &req.old_offchain_signer_commitment,
-            )?,
-            new_commit: req_u256(
-                "new_offchain_signer_commitment",
-                &req.new_offchain_signer_commitment,
-            )?,
-            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
-            signature: req_bytes("signature", &req.signature)?,
-            nonce: req_u256("nonce", &req.nonce)?,
-            new_pubkey: req
-                .new_authenticator_pubkey
-                .as_deref()
-                .map(|s| req_u256("new_authenticator_pubkey", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
+            account_index: req.account_index,
+            new_authenticator_address: req.new_authenticator_address,
+            old_commit: req.old_offchain_signer_commitment,
+            new_commit: req.new_offchain_signer_commitment,
+            sibling_nodes: req.sibling_nodes.clone(),
+            signature: Bytes::from(req.signature.clone()),
+            nonce: req.nonce,
+            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
         },
     };
 
