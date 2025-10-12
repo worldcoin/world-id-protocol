@@ -34,5 +34,11 @@
     "command": "make",
     "args": ["rust-clippy"],
     "tags": ["rust-clippy"]
+  },
+  {
+    "label": "rust-fmt",
+    "command": "make",
+    "args": ["rust-fmt"],
+    "tags": ["rust-fmt"]
   }
 ]
