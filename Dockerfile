@@ -1,39 +1,40 @@
 ####################################################################################################
 ## Base image
 ####################################################################################################
-FROM rust:1-slim AS chef
+
+# We use the musl-cross image to have a musl-targeted C/C++ toolchain required by crates built with cxx/link-cplusplus (circom-witness)
+FROM ghcr.io/rust-cross/rust-musl-cross:x86_64-musl AS chef
 USER root
 WORKDIR /app
 
 ARG SERVICE_NAME
 RUN test -n "$SERVICE_NAME" || (echo "ERROR: SERVICE_NAME is required" && exit 1)
 
-# Install dependencies for cross-compilation
+ENV CC_x86_64_unknown_linux_musl=musl-gcc \
+  AR_x86_64_unknown_linux_musl=ar
+
 RUN apt-get update && apt-get install -y \
-    musl-tools \
-    clang \
-    build-essential \
-    pkg-config \
-    perl \
-    curl \
-    git \
-    ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+  musl-tools \
+  clang \
+  build-essential \
+  pkg-config \
+  perl \
+  curl \
+  git \
+  ca-certificates \
+&& rm -rf /var/lib/apt/lists/*   
+
+# Remove the pre-installed toolchain and add the MUSL target
+RUN rustup set profile minimal \
+ && rustup toolchain uninstall stable || true \
+ && rustup toolchain install stable --profile minimal \
+ && rustup default stable \
+ && rustup target add x86_64-unknown-linux-musl
 
 # Install Foundry
 RUN curl -L https://foundry.paradigm.xyz | bash \
  && /root/.foundry/bin/foundryup
 ENV PATH="/root/.foundry/bin:${PATH}"
-
-# Provide a musl-targeted C/C++ toolchain required by crates built with cxx/link-cplusplus (circom-witness)
-RUN curl -sSL --retry 3 --ipv4 --max-time 300 https://musl.cc/x86_64-linux-musl-cross.tgz \
-    | tar -xz -C /opt \
- && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/x86_64-linux-musl-gcc \
- && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-g++ /usr/local/bin/x86_64-linux-musl-g++ \
- && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ar /usr/local/bin/x86_64-linux-musl-ar \
- && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ranlib /usr/local/bin/x86_64-linux-musl-ranlib
-
-RUN rustup target add x86_64-unknown-linux-musl
 
 RUN cargo install cargo-chef
 
@@ -43,6 +44,11 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
+ENV PATH="/usr/local/musl/bin:${PATH}"
+ENV CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc \
+    AR_x86_64_unknown_linux_musl=x86_64-linux-musl-ar \
+    RANLIB_x86_64_unknown_linux_musl=x86_64-linux-musl-ranlib \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc
 RUN cargo chef cook --release --target x86_64-unknown-linux-musl --locked --recipe-path recipe.json --package $SERVICE_NAME
 COPY . .
 
