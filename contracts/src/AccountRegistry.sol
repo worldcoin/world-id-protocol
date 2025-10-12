@@ -268,10 +268,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
 
         for (uint256 i = 0; i < recoveryAddresses.length; i++) {
             _registerAccount(
-                recoveryAddresses[i],
-                authenticatorAddresses[i],
-                authenticatorPubkeys[i],
-                offchainSignerCommitments[i]
+                recoveryAddresses[i], authenticatorAddresses[i], authenticatorPubkeys[i], offchainSignerCommitments[i]
             );
         }
 
