@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {AbstractSignerPubkeyRegistry} from "./AbstractSignerPubkeyRegistry.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /**
@@ -9,10 +10,24 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
+contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
+    ////////////////////////////////////////////////////////////
+    //                         Types                          //
+    ////////////////////////////////////////////////////////////
+
+    struct Pubkey {
+        uint256 x;
+        uint256 y;
+    }
+
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
+
+    mapping(uint256 => Pubkey) private _idToPubkey;
+    mapping(address => uint256) private _addressToId;
+    uint256 private _nextId = 1;
+    mapping(uint256 => uint256) private _nonces;
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
     mapping(uint256 => string) public idToSchemaUri;
@@ -52,53 +67,74 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor() AbstractSignerPubkeyRegistry(EIP712_NAME, EIP712_VERSION) {}
+    constructor() EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {}
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function issuerSchemaIdToPubkey(uint256 issuerSchemaId) public view returns (Pubkey memory) {
-        return _idToPubkey[issuerSchemaId];
+    function register(Pubkey memory pubkey, address signer) public onlyOwner {
+        require(pubkey.x != 0 && pubkey.y != 0, "Registry: pubkey cannot be zero");
+        require(signer != address(0), "Registry: signer cannot be zero address");
+        require(_addressToId[signer] == 0, "Registry: signer already registered");
+
+        uint256 issuerSchemaId = _nextId;
+        _idToPubkey[issuerSchemaId] = pubkey;
+        _addressToId[signer] = issuerSchemaId;
+        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer);
+        _nextId = issuerSchemaId + 1;
     }
 
-    function addressToIssuerSchemaId(address signer) public view returns (uint256) {
-        return _addressToId[signer];
+    function remove(uint256 issuerSchemaId, bytes calldata signature) public onlyOwner {
+        Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
+        require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
+        bytes32 hash =
+            _hashTypedDataV4(keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId])));
+        address signer = ECDSA.recover(hash, signature);
+        require(_addressToId[signer] == issuerSchemaId, "Registry: invalid signature");
+
+        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
+
+        _nonces[issuerSchemaId]++;
+        delete _idToPubkey[issuerSchemaId];
+        delete _addressToId[signer];
+        delete idToSchemaUri[issuerSchemaId];
     }
 
-    function nextIssuerSchemaId() public view returns (uint256) {
-        return _nextId;
-    }
-
-    function _typehashRemove() internal pure override returns (bytes32) {
-        return REMOVE_ISSUER_SCHEMA_TYPEHASH;
-    }
-
-    function _typehashUpdatePubkey() internal pure override returns (bytes32) {
-        return UPDATE_PUBKEY_TYPEHASH;
-    }
-
-    function _typehashUpdateSigner() internal pure override returns (bytes32) {
-        return UPDATE_SIGNER_TYPEHASH;
-    }
-
-    function _emitRegistered(uint256 id, Pubkey memory pubkey, address signer) internal override {
-        emit IssuerSchemaRegistered(id, pubkey, signer);
-    }
-
-    function _emitRemoved(uint256 id, Pubkey memory pubkey, address signer) internal override {
-        emit IssuerSchemaRemoved(id, pubkey, signer);
-    }
-
-    function _emitPubkeyUpdated(uint256 id, Pubkey memory oldPubkey, Pubkey memory newPubkey, address signer)
-        internal
-        override
+    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
+        public
+        onlyOwner
     {
-        emit IssuerSchemaPubkeyUpdated(id, oldPubkey, newPubkey, signer);
+        Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
+        require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
+        require(!_isEmptyPubkey(newPubkey), "Registry: newPubkey cannot be zero");
+        bytes32 hash = _hashTypedDataV4(
+            keccak256(abi.encode(UPDATE_PUBKEY_TYPEHASH, issuerSchemaId, newPubkey, oldPubkey, _nonces[issuerSchemaId]))
+        );
+        address signer = ECDSA.recover(hash, signature);
+        require(_addressToId[signer] == issuerSchemaId, "Registry: invalid signature");
+
+        _idToPubkey[issuerSchemaId] = newPubkey;
+        emit IssuerSchemaPubkeyUpdated(issuerSchemaId, oldPubkey, newPubkey, signer);
+
+        _nonces[issuerSchemaId]++;
     }
 
-    function _emitSignerUpdated(uint256 id, address oldSigner, address newSigner) internal override {
-        emit IssuerSchemaSignerUpdated(id, oldSigner, newSigner);
+    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature) public onlyOwner {
+        require(!_isEmptyPubkey(_idToPubkey[issuerSchemaId]), "Registry: id not registered");
+        require(newSigner != address(0), "Registry: newSigner cannot be zero address");
+        require(_addressToId[newSigner] == 0, "Registry: newSigner already registered");
+
+        bytes32 hash =
+            _hashTypedDataV4(keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId])));
+        address oldSigner = ECDSA.recover(hash, signature);
+        require(_addressToId[oldSigner] == issuerSchemaId, "Registry: invalid signature");
+
+        _addressToId[newSigner] = issuerSchemaId;
+        delete _addressToId[oldSigner];
+        emit IssuerSchemaSignerUpdated(issuerSchemaId, oldSigner, newSigner);
+
+        _nonces[issuerSchemaId]++;
     }
 
     /**
@@ -127,5 +163,25 @@ contract CredentialSchemaIssuerRegistry is AbstractSignerPubkeyRegistry {
         idToSchemaUri[issuerSchemaId] = schemaUri;
 
         emit IssuerSchemaUpdated(issuerSchemaId, oldSchemaUri, schemaUri);
+    }
+
+    function issuerSchemaIdToPubkey(uint256 issuerSchemaId) public view returns (Pubkey memory) {
+        return _idToPubkey[issuerSchemaId];
+    }
+
+    function addressToIssuerSchemaId(address signer) public view returns (uint256) {
+        return _addressToId[signer];
+    }
+
+    function nextIssuerSchemaId() public view returns (uint256) {
+        return _nextId;
+    }
+
+    function nonceOf(uint256 issuerSchemaId) public view returns (uint256) {
+        return _nonces[issuerSchemaId];
+    }
+
+    function _isEmptyPubkey(Pubkey memory pubkey) internal pure returns (bool) {
+        return pubkey.x == 0 && pubkey.y == 0;
     }
 }
