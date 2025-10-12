@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y \
  && rm -rf /var/lib/apt/lists/*
 
 # Provide a musl-targeted C/C++ toolchain required by crates built with cxx/link-cplusplus (circom-witness)
-RUN curl -sSL https://musl.cc/x86_64-linux-musl-cross.tgz \
+RUN curl -sSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 300 https://musl.cc/x86_64-linux-musl-cross.tgz \
     | tar -xz -C /opt \
  && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/x86_64-linux-musl-gcc \
  && ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-g++ /usr/local/bin/x86_64-linux-musl-g++ \
