@@ -10,9 +10,6 @@ WORKDIR /app
 ARG SERVICE_NAME
 RUN test -n "$SERVICE_NAME" || (echo "ERROR: SERVICE_NAME is required" && exit 1)
 
-ENV CC_x86_64_unknown_linux_musl=musl-gcc \
-  AR_x86_64_unknown_linux_musl=ar
-
 RUN apt-get update && apt-get install -y \
   musl-tools \
   clang \
@@ -48,8 +45,7 @@ COPY . .
 # build the contracts to have the ABIs available
 RUN make sol-build
 
-RUN rustup target add x86_64-unknown-linux-musl && \
-  cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME
+RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME
 
 RUN mv target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin
 
