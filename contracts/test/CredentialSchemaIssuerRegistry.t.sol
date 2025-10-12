@@ -15,9 +15,7 @@ contract CredentialIssuerRegistryTest is Test {
     }
 
     function _generatePubkey(string memory str) public pure returns (CredentialSchemaIssuerRegistry.Pubkey memory) {
-        return CredentialSchemaIssuerRegistry.Pubkey(
-            uint256(keccak256(bytes(str))), uint256(keccak256(bytes(str)))
-        );
+        return CredentialSchemaIssuerRegistry.Pubkey(uint256(keccak256(bytes(str))), uint256(keccak256(bytes(str))));
     }
 
     function _domainSeparator() internal view returns (bytes32) {
@@ -27,8 +25,7 @@ contract CredentialIssuerRegistryTest is Test {
     }
 
     function _signRemove(uint256 pk, uint256 id) internal view returns (bytes memory) {
-        bytes32 structHash =
-            keccak256(abi.encode(registry.REMOVE_ISSUER_SCHEMA_TYPEHASH(), id, registry.nonceOf(id)));
+        bytes32 structHash = keccak256(abi.encode(registry.REMOVE_ISSUER_SCHEMA_TYPEHASH(), id, registry.nonceOf(id)));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
@@ -40,9 +37,8 @@ contract CredentialIssuerRegistryTest is Test {
         CredentialSchemaIssuerRegistry.Pubkey memory newPubkey,
         CredentialSchemaIssuerRegistry.Pubkey memory oldPubkey
     ) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(registry.UPDATE_PUBKEY_TYPEHASH(), id, newPubkey, oldPubkey, registry.nonceOf(id))
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(registry.UPDATE_PUBKEY_TYPEHASH(), id, newPubkey, oldPubkey, registry.nonceOf(id)));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
@@ -56,10 +52,11 @@ contract CredentialIssuerRegistryTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _isEq(
-        CredentialSchemaIssuerRegistry.Pubkey memory a,
-        CredentialSchemaIssuerRegistry.Pubkey memory b
-    ) public pure returns (bool) {
+    function _isEq(CredentialSchemaIssuerRegistry.Pubkey memory a, CredentialSchemaIssuerRegistry.Pubkey memory b)
+        public
+        pure
+        returns (bool)
+    {
         return a.x == b.x && a.y == b.y;
     }
 
@@ -130,9 +127,8 @@ contract CredentialIssuerRegistryTest is Test {
         view
         returns (bytes memory)
     {
-        bytes32 structHash = keccak256(
-            abi.encode(registry.UPDATE_ISSUER_SCHEMA_URI_TYPEHASH(), issuerSchemaId, schemaUri)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(registry.UPDATE_ISSUER_SCHEMA_URI_TYPEHASH(), issuerSchemaId, schemaUri));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sk, digest);
         return abi.encodePacked(r, s, v);

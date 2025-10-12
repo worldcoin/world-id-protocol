@@ -88,8 +88,9 @@ contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
     function remove(uint256 issuerSchemaId, bytes calldata signature) public onlyOwner {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
-        bytes32 hash =
-            _hashTypedDataV4(keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId])));
+        bytes32 hash = _hashTypedDataV4(
+            keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId]))
+        );
         address signer = ECDSA.recover(hash, signature);
         require(_addressToId[signer] == issuerSchemaId, "Registry: invalid signature");
 
@@ -101,10 +102,7 @@ contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
         delete idToSchemaUri[issuerSchemaId];
     }
 
-    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
-        public
-        onlyOwner
-    {
+    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature) public onlyOwner {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
         require(!_isEmptyPubkey(newPubkey), "Registry: newPubkey cannot be zero");
@@ -125,8 +123,9 @@ contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
         require(newSigner != address(0), "Registry: newSigner cannot be zero address");
         require(_addressToId[newSigner] == 0, "Registry: newSigner already registered");
 
-        bytes32 hash =
-            _hashTypedDataV4(keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId])));
+        bytes32 hash = _hashTypedDataV4(
+            keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId]))
+        );
         address oldSigner = ECDSA.recover(hash, signature);
         require(_addressToId[oldSigner] == issuerSchemaId, "Registry: invalid signature");
 
