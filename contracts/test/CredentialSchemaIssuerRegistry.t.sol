@@ -1,29 +1,69 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {AbstractSignerPubkeyRegistry as A} from "../src/AbstractSignerPubkeyRegistry.sol";
+import {Test} from "forge-std/Test.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
-import {RegistryTestBase, RegistryLike} from "./RegistryTestBase.t.sol";
 
-contract CredentialIssuerRegistryTest is RegistryTestBase {
+contract CredentialIssuerRegistryTest is Test {
+    bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+
     CredentialSchemaIssuerRegistry private registry;
 
     function setUp() public {
         registry = new CredentialSchemaIssuerRegistry();
     }
 
-    function _generatePubkey(string memory str) public pure returns (A.Pubkey memory) {
-        return A.Pubkey(uint256(keccak256(bytes(str))), uint256(keccak256(bytes(str))));
+    function _generatePubkey(string memory str) public pure returns (CredentialSchemaIssuerRegistry.Pubkey memory) {
+        return CredentialSchemaIssuerRegistry.Pubkey(uint256(keccak256(bytes(str))), uint256(keccak256(bytes(str))));
     }
 
-    function _isEq(A.Pubkey memory a, A.Pubkey memory b) public pure returns (bool) {
+    function _domainSeparator() internal view returns (bytes32) {
+        bytes32 nameHash = keccak256(bytes(registry.EIP712_NAME()));
+        bytes32 versionHash = keccak256(bytes(registry.EIP712_VERSION()));
+        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, nameHash, versionHash, block.chainid, address(registry)));
+    }
+
+    function _signRemove(uint256 pk, uint256 id) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(abi.encode(registry.REMOVE_ISSUER_SCHEMA_TYPEHASH(), id, registry.nonceOf(id)));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signUpdatePubkey(
+        uint256 pk,
+        uint256 id,
+        CredentialSchemaIssuerRegistry.Pubkey memory newPubkey,
+        CredentialSchemaIssuerRegistry.Pubkey memory oldPubkey
+    ) internal view returns (bytes memory) {
+        bytes32 structHash =
+            keccak256(abi.encode(registry.UPDATE_PUBKEY_TYPEHASH(), id, newPubkey, oldPubkey, registry.nonceOf(id)));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signUpdateSigner(uint256 pk, uint256 id, address newSigner) internal view returns (bytes memory) {
+        bytes32 structHash =
+            keccak256(abi.encode(registry.UPDATE_SIGNER_TYPEHASH(), id, newSigner, registry.nonceOf(id)));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _isEq(CredentialSchemaIssuerRegistry.Pubkey memory a, CredentialSchemaIssuerRegistry.Pubkey memory b)
+        public
+        pure
+        returns (bool)
+    {
         return a.x == b.x && a.y == b.y;
     }
 
     function testRegisterAndGetters() public {
         uint256 signerPk = 0xAAA1;
         address signer = vm.addr(signerPk);
-        A.Pubkey memory pubkey = _generatePubkey("pubkey-issuer-1");
+        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("pubkey-issuer-1");
 
         vm.expectEmit();
         emit CredentialSchemaIssuerRegistry.IssuerSchemaRegistered(1, pubkey, signer);
@@ -37,13 +77,11 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
     function testUpdatePubkeyFlow() public {
         uint256 signerPk = 0xAAA2;
         address signer = vm.addr(signerPk);
-        A.Pubkey memory pubkey = _generatePubkey("old");
+        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("old");
         registry.register(pubkey, signer);
 
-        A.Pubkey memory newPubkey = _generatePubkey("new");
-        bytes memory sig = _signUpdatePubkey(
-            registry.UPDATE_PUBKEY_TYPEHASH(), RegistryLike(address(registry)), signerPk, 1, newPubkey, pubkey
-        );
+        CredentialSchemaIssuerRegistry.Pubkey memory newPubkey = _generatePubkey("new");
+        bytes memory sig = _signUpdatePubkey(signerPk, 1, newPubkey, pubkey);
 
         vm.expectEmit();
         emit CredentialSchemaIssuerRegistry.IssuerSchemaPubkeyUpdated(1, pubkey, newPubkey, signer);
@@ -58,8 +96,7 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
         registry.register(_generatePubkey("k"), oldSigner);
 
         address newSigner = vm.addr(0xAAA4);
-        bytes memory sig =
-            _signUpdateSigner(registry.UPDATE_SIGNER_TYPEHASH(), RegistryLike(address(registry)), oldPk, 1, newSigner);
+        bytes memory sig = _signUpdateSigner(oldPk, 1, newSigner);
 
         vm.expectEmit();
         emit CredentialSchemaIssuerRegistry.IssuerSchemaSignerUpdated(1, oldSigner, newSigner);
@@ -72,17 +109,16 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
     function testRemoveFlow() public {
         uint256 signerPk = 0xAAA5;
         address signer = vm.addr(signerPk);
-        A.Pubkey memory pubkey = _generatePubkey("k");
+        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("k");
         registry.register(pubkey, signer);
 
-        bytes memory sig =
-            _signRemove(registry.REMOVE_ISSUER_SCHEMA_TYPEHASH(), RegistryLike(address(registry)), signerPk, 1);
+        bytes memory sig = _signRemove(signerPk, 1);
 
         vm.expectEmit();
         emit CredentialSchemaIssuerRegistry.IssuerSchemaRemoved(1, pubkey, signer);
         registry.remove(1, sig);
 
-        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), A.Pubkey(0, 0)));
+        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), CredentialSchemaIssuerRegistry.Pubkey(0, 0)));
         assertEq(registry.addressToIssuerSchemaId(signer), 0);
     }
 
@@ -93,14 +129,7 @@ contract CredentialIssuerRegistryTest is RegistryTestBase {
     {
         bytes32 structHash =
             keccak256(abi.encode(registry.UPDATE_ISSUER_SCHEMA_URI_TYPEHASH(), issuerSchemaId, schemaUri));
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                _domainSeparator(address(registry), registry.EIP712_NAME(), registry.EIP712_VERSION()),
-                structHash
-            )
-        );
-
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sk, digest);
         return abi.encodePacked(r, s, v);
     }
