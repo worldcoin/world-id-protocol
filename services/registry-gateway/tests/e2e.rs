@@ -8,36 +8,19 @@ use alloy::signers::local::PrivateKeySigner;
 use regex::Regex;
 use registry_gateway::{spawn_gateway, GatewayConfig};
 use reqwest::{Client, StatusCode};
-use serde::Deserialize;
 use world_id_core::account_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
     sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
 };
 use world_id_core::types::{
-    InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
+    GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-
-#[derive(Debug, Deserialize)]
-struct GatewayStatusResponse {
-    request_id: String,
-    kind: String,
-    status: GatewayRequestState,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-enum GatewayRequestState {
-    Queued,
-    Batching,
-    Submitted { tx_hash: String },
-    Finalized { tx_hash: String },
-    Failed { error: String },
-}
 
 async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -477,19 +460,21 @@ async fn e2e_gateway_full_flow() {
     )
     .await
     .unwrap();
-    let sig_upd_hex = format!("0x{}", hex::encode(sig_upd.as_bytes()));
-    let body_upd = serde_json::json!({
-        "account_index": "0x1",
-        "old_authenticator_address": format!("0x{:x}", wallet_addr_new),
-        "new_authenticator_address": format!("0x{:x}", new_auth4),
-        "old_offchain_signer_commitment": "4",
-        "new_offchain_signer_commitment": "5",
-        "sibling_nodes": default_sibling_nodes(),
-        "signature": sig_upd_hex,
-        "nonce": format!("0x{:x}", nonce),
-        "pubkey_id": "0x0",
-        "new_authenticator_pubkey": "400",
-    });
+    let body_upd = UpdateAuthenticatorRequest {
+        account_index: U256::from(1),
+        old_authenticator_address: wallet_addr_new,
+        new_authenticator_address: new_auth4,
+        old_offchain_signer_commitment: U256::from(4),
+        new_offchain_signer_commitment: U256::from(5),
+        sibling_nodes: default_sibling_nodes()
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+        signature: sig_upd.as_bytes().to_vec(),
+        nonce,
+        pubkey_id: Some(U256::from(0)),
+        new_authenticator_pubkey: Some(U256::from(400)),
+    };
     let resp = client
         .post(format!("{}/update-authenticator", base))
         .json(&body_upd)

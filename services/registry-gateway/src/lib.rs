@@ -211,17 +211,8 @@ impl IntoResponse for ApiError {
 
 type ApiResult<T> = Result<T, ApiError>;
 
-fn req_address(field: &str, s: &str) -> ApiResult<Address> {
-    parse_address(s).map_err(|e| ApiError::bad_req(field, e))
-}
 fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
     s.parse().map_err(|e| ApiError::bad_req(field, e))
-}
-fn req_bytes(field: &str, s: &str) -> ApiResult<Bytes> {
-    s.parse().map_err(|e| ApiError::bad_req(field, e))
-}
-fn req_u256_vec(field: &str, v: &[String]) -> ApiResult<Vec<U256>> {
-    v.iter().map(|s| req_u256(field, s)).collect()
 }
 
 fn build_app(registry_addr: Address, rpc_url: String, wallet_key: String, batch_ms: u64) -> Router {
@@ -724,11 +715,6 @@ impl OpsBatcherRunner {
     }
 }
 
-fn parse_address(s: &str) -> anyhow::Result<Address> {
-    s.parse()
-        .map_err(|e| anyhow::anyhow!("invalid address: {}", e))
-}
-
 async fn create_account(
     State(state): State<AppState>,
     Json(req): Json<CreateAccountRequest>,
@@ -780,38 +766,16 @@ async fn update_authenticator(
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Update {
-            account_index: req_u256("account_index", &req.account_index)?,
-            old_authenticator_address: req_address(
-                "old_authenticator_address",
-                &req.old_authenticator_address,
-            )?,
-            new_authenticator_address: req_address(
-                "new_authenticator_address",
-                &req.new_authenticator_address,
-            )?,
-            old_commit: req_u256(
-                "old_offchain_signer_commitment",
-                &req.old_offchain_signer_commitment,
-            )?,
-            new_commit: req_u256(
-                "new_offchain_signer_commitment",
-                &req.new_offchain_signer_commitment,
-            )?,
-            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
-            signature: req_bytes("signature", &req.signature)?,
-            nonce: req_u256("nonce", &req.nonce)?,
-            pubkey_id: req
-                .pubkey_id
-                .as_deref()
-                .map(|s| req_u256("pubkey_id", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
-            new_pubkey: req
-                .new_authenticator_pubkey
-                .as_deref()
-                .map(|s| req_u256("new_authenticator_pubkey", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
+            account_index: req.account_index,
+            old_authenticator_address: req.old_authenticator_address,
+            new_authenticator_address: req.new_authenticator_address,
+            old_commit: req.old_offchain_signer_commitment,
+            new_commit: req.new_offchain_signer_commitment,
+            sibling_nodes: req.sibling_nodes.clone(),
+            signature: Bytes::from(req.signature.clone()),
+            nonce: req.nonce,
+            pubkey_id: req.pubkey_id.unwrap_or(U256::from(0u64)),
+            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
         },
     };
 
