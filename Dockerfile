@@ -19,8 +19,6 @@ RUN apt-get update && apt-get install -y \
   build-essential \
   pkg-config \
   perl \
-  curl \
-  git \
   ca-certificates \
 && rm -rf /var/lib/apt/lists/*   
 
@@ -44,11 +42,6 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-ENV PATH="/usr/local/musl/bin:${PATH}"
-ENV CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc \
-    AR_x86_64_unknown_linux_musl=x86_64-linux-musl-ar \
-    RANLIB_x86_64_unknown_linux_musl=x86_64-linux-musl-ranlib \
-    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc
 RUN cargo chef cook --release --target x86_64-unknown-linux-musl --locked --recipe-path recipe.json --package $SERVICE_NAME
 COPY . .
 
