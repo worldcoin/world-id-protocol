@@ -13,5 +13,5 @@ The World ID Indexer primarily indexes the Acccount Registry of the World ID Pro
 2. Run Postgres (e.g. through Docker)
 
 ```
-    docker run --name postgres -p 5432:5432
+    docker run -p 5432:5432 -e POSTGRES_PASSWORD=postgres -t postgres
 ```

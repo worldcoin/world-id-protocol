@@ -20,8 +20,9 @@ async fn main() {
     tracing::info!("Starting world-id-indexer...");
 
     let config = GlobalConfig::from_env();
-
     authtree_indexer::run_indexer(config)
         .await
         .expect("indexer run failed");
+
+    tracing::info!("⚠️ Exiting world-id-indexer...");
 }

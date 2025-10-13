@@ -14,6 +14,7 @@ use semaphore_rs_hasher::Hasher;
 use semaphore_rs_trees::imt::MerkleTree;
 use semaphore_rs_trees::proof::InclusionProof;
 use semaphore_rs_trees::Branch;
+use sqlx::migrate::Migrator;
 use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
 use world_id_core::account_registry::AccountRegistry;
@@ -22,6 +23,8 @@ use world_id_core::types::InclusionProofResponse;
 mod config;
 use crate::config::RunMode;
 pub use config::GlobalConfig;
+
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Debug, Clone)]
 pub struct AccountCreatedEvent {
@@ -100,12 +103,27 @@ impl Hasher for PoseidonHasher {
     }
 }
 
-// Big tree is too slow for debug builds, so we use a smaller tree
-const TREE_DEPTH: usize = if cfg!(debug_assertions) { 10 } else { 30 };
+// Big tree is too slow for debug builds, so we use a smaller tree.
+static TREE_DEPTH: LazyLock<usize> = LazyLock::new(|| {
+    let override_depth = std::env::var("OVERRIDE_TREE_DEPTH")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
+
+    match override_depth {
+        Some(depth) => {
+            tracing::info!("Setting tree depth from OVERRIDE_TREE_DEPTH to {depth}");
+            depth
+        }
+        None => {
+            tracing::info!("Using default tree depth: 30");
+            30
+        }
+    }
+});
 
 // Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
 static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher>>> =
-    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
+    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(*TREE_DEPTH, U256::ZERO)));
 
 async fn set_leaf_at_index(leaf_index: usize, value: U256) {
     let mut tree = GLOBAL_TREE.write().await;
@@ -128,6 +146,8 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     .fetch_all(pool)
     .await?;
 
+    tracing::info!("There are {:?} rows in the table.", rows.len());
+
     let mut leaves: Vec<(usize, U256)> = Vec::with_capacity(rows.len());
     for r in rows {
         let account_index: String = r.get("account_index");
@@ -143,7 +163,11 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
 
     let mut tree = GLOBAL_TREE.write().await;
     tree.set_range(0, leaves.into_iter().map(|(_, v)| v));
-    tracing::info!(root = %format!("0x{:x}", tree.root()), depth = 30, "tree built from DB");
+    tracing::info!(
+        root = %format!("0x{:x}", tree.root()),
+        depth = *TREE_DEPTH,
+        "tree built from DB"
+    );
     Ok(())
 }
 
@@ -263,6 +287,10 @@ async fn start_http_server(addr: SocketAddr, pool: PgPool) -> anyhow::Result<()>
 pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     let pool = make_db_pool(&cfg.db_url).await?;
     init_db(&pool).await?;
+
+    tracing::info!("Connection to DB successful, running migrations.");
+    MIGRATOR.run(&pool).await.expect("failed to run migrations");
+    tracing::info!("🟢 Migrations synced successfully.");
 
     match cfg.run_mode {
         RunMode::IndexerOnly => {
