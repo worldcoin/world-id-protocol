@@ -1,9 +1,11 @@
 use authtree_indexer::GlobalConfig;
+use std::path::Path;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[tokio::main]
 async fn main() {
-    let _ = dotenvy::dotenv();
+    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"); // load env vars in the root of this service
+    let _ = dotenvy::from_path(&env_path);
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(
