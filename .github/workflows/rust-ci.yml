@@ -110,7 +110,7 @@ jobs:
     strategy:
       matrix:
         service:
-          - indexer
+          - world-id-indexer
     services:
       postgres:
         image: postgres:17
