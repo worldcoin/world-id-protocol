@@ -1,6 +1,6 @@
-use authtree_indexer::GlobalConfig;
 use std::path::Path;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use world_id_indexer::GlobalConfig;
 
 #[tokio::main]
 async fn main() {
@@ -9,7 +9,7 @@ async fn main() {
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "authtree_indexer=info".into()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "world_id_indexer=info".into()),
         ))
         .with(
             tracing_subscriber::fmt::layer()
@@ -22,7 +22,7 @@ async fn main() {
     tracing::info!("Starting world-id-indexer...");
 
     let config = GlobalConfig::from_env();
-    authtree_indexer::run_indexer(config)
+    world_id_indexer::run_indexer(config)
         .await
         .expect("indexer run failed");
 

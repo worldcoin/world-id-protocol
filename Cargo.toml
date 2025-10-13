@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/world-id-core",
-    "services/authtree-indexer",
+    "services/indexer",
     "services/registry-gateway",
 ]
 resolver = "2"

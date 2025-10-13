@@ -107,6 +107,10 @@ jobs:
   docker:
     name: Test Docker build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - indexer
     services:
       postgres:
         image: postgres:17
@@ -131,29 +135,29 @@ jobs:
         with:
           push: false
           load: true
-          tags: authtree-indexer:latest
+          tags: ${{ matrix.service }}:latest
           cache-from: type=gha
           cache-to: "type=gha,mode=max"
           platforms: linux/amd64
-          build-args: SERVICE_NAME=authtree-indexer
+          build-args: SERVICE_NAME=${{ matrix.service }}
 
       - name: Run Docker container
         run: |
-          docker run -d --network host --env-file services/authtree-indexer/.env.example --name authtree-indexer-container authtree-indexer:latest
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
 
           # Wait for the application to start
           sleep 10
 
           # Output logs to GitHub action
-          docker logs authtree-indexer-container
+          docker logs ${{ matrix.service }}-container
 
       - name: Health check Docker container
         run: curl -f http://0.0.0.0:8000/health
 
       - name: Clean up
         run: |
-          docker stop authtree-indexer-container
-          docker rm authtree-indexer-container
+          docker stop ${{ matrix.service }}-container
+          docker rm ${{ matrix.service }}-container
 
 # TODO: add docs check when relevant
 #   docs:

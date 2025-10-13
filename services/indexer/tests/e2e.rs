@@ -105,7 +105,7 @@ async fn e2e_backfill_and_live_sync() {
         .await
         .unwrap();
     // Ensure schema exists before any queries
-    authtree_indexer::init_db(&pool).await.unwrap();
+    world_id_indexer::init_db(&pool).await.unwrap();
 
     // // Killall anvil processes
     Command::new("pkill")
@@ -148,7 +148,7 @@ async fn e2e_backfill_and_live_sync() {
     std::env::set_var("BATCH_SIZE", "1000");
 
     let indexer_task = tokio::spawn(async move {
-        authtree_indexer::run_indexer(authtree_indexer::GlobalConfig::from_env())
+        world_id_indexer::run_indexer(world_id_indexer::GlobalConfig::from_env())
             .await
             .unwrap();
     });
