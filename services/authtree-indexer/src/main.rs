@@ -1,34 +1,30 @@
-use clap::Parser;
-
-#[derive(Parser, Debug)]
-#[command(name = "authtree-indexer")]
-#[command(about = "AuthTree Indexer - tracks chain data and serves HTTP API", long_about = None)]
-struct Args {
-    /// Enable the indexer (tracks chain and writes to DB)
-    #[arg(long, default_value_t = false)]
-    indexer: bool,
-
-    /// Enable the HTTP server (serves API endpoints)
-    #[arg(long, default_value_t = false)]
-    http: bool,
-}
+use authtree_indexer::GlobalConfig;
+use std::path::Path;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[tokio::main]
 async fn main() {
-    let args = Args::parse();
+    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"); // load env vars in the root of this service
+    let _ = dotenvy::from_path(&env_path);
 
-    // Determine mode based on flags
-    // If neither flag is set, default to both (backward compatibility)
-    let mode = match (args.indexer, args.http) {
-        (true, true) => "both",
-        (true, false) => "indexer",
-        (false, true) => "http",
-        (false, false) => "both", // default
-    };
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "authtree_indexer=info".into()),
+        ))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .flatten_event(true)
+                .with_current_span(true),
+        )
+        .init();
 
-    std::env::set_var("RUN_MODE", mode);
+    tracing::info!("Starting world-id-indexer...");
 
-    authtree_indexer::run_from_env()
+    let config = GlobalConfig::from_env();
+    authtree_indexer::run_indexer(config)
         .await
         .expect("indexer run failed");
+
+    tracing::info!("⚠️ Exiting world-id-indexer...");
 }

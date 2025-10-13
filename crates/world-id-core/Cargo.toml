@@ -21,7 +21,9 @@ path = "bin/issuer.rs"
 
 [dependencies]
 alloy = { version = "1", features = ["sol-types", "rpc"], default-features = false }
+ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
+poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
 anyhow = { workspace = true }
@@ -33,23 +35,21 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
+ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "a7572c6" }
+eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "a7572c6" }
+oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "a7572c6" }
+oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "a7572c6" }
+oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "a7572c6" }
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", optional = true }
-oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", optional = true }
-oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", optional = true }
 circom-types = { git = "https://github.com/TaceoLabs/co-snarks.git", default-features = false, optional = true }
-ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
-ark-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
-poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service.git" }
 rand = "0.8"
 ark-ec = "0.5.0"
 uuid = "1"
 witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git"}
 eyre = "0.6"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git", optional = true }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true }
+reqwest = { workspace = true, optional = true }
 
 [features]
 default = ["authenticator"]
