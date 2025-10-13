@@ -14,13 +14,13 @@ license = "MIT"
 [workspace.dependencies]
 anyhow = "1"
 # TODO: update to crates.io
-ark-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "a7572c6" }
+ark-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
 ark-bn254 = { version = "0.5" }
 ark-ff = { version = "0.5" }
 ark-serialize = "0.5"
 hex = {version = "0.4" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
-poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "a7572c6" }
+poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"

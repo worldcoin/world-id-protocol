@@ -53,14 +53,14 @@ pub struct Credential {
     /// This can be useful to tie multiple proofs about the same data together.
     #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
     #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
-    associated_data_hash: BaseField,
+    pub associated_data_hash: BaseField,
     /// The signature of the credential.
     #[serde(serialize_with = "serialize_signature")]
     #[serde(deserialize_with = "deserialize_signature")]
     #[serde(default)]
-    signature: Option<EdDSASignature>,
+    pub signature: Option<EdDSASignature>,
     /// The issuer of the credential.
-    issuer: EdDSAPublicKey,
+    pub issuer: EdDSAPublicKey,
 }
 
 impl Default for Credential {
@@ -207,6 +207,26 @@ impl Credential {
         self.issuer = signer.public();
         Ok(self)
     }
+
+    /// Verify the signature of the credential against the issuer public key and expected hash.
+    ///
+    /// # Errors
+    /// Will error if the credential is not signed.
+    /// Will error if the credential cannot be hashed.
+    pub fn verify_signature(
+        &self,
+        expected_issuer_pubkey: &EdDSAPublicKey,
+    ) -> Result<bool, eyre::Error> {
+        if &self.issuer != expected_issuer_pubkey {
+            return Err(eyre::eyre!(
+                "Issuer public key does not match expected public key"
+            ));
+        }
+        if let Some(signature) = &self.signature {
+            return Ok(self.issuer.verify(self.hash()?, signature));
+        }
+        Err(eyre::eyre!("Credential not signed"))
+    }
 }
 
 #[cfg(feature = "authenticator")]
@@ -293,8 +313,13 @@ mod tests {
         assert_eq!(json, json2);
 
         let issuer_public_key = issuer_sk.public();
-        let verified =
-            issuer_public_key.verify(credential.hash().unwrap(), &credential.signature.unwrap());
+        let verified = issuer_public_key.verify(
+            credential.hash().unwrap(),
+            credential.signature.as_ref().unwrap(),
+        );
+        assert!(verified);
+
+        let verified = credential.verify_signature(&issuer_public_key).unwrap();
         assert!(verified);
     }
 }

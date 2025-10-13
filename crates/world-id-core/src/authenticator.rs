@@ -22,8 +22,9 @@ use eyre::Result;
 use oprf_client::zk::Groth16Material;
 use oprf_client::{MerkleMembership, NullifierArgs, OprfQuery, UserKeyMaterial};
 use oprf_types::crypto::UserPublicKeyBatch;
-use oprf_types::{MerkleEpoch, MerkleRoot, RpId, ShareEpoch};
+use oprf_types::{MerkleRoot, RpId, ShareEpoch};
 use poseidon2::Poseidon2;
+use secrecy::{ExposeSecret, SecretBox};
 use std::str::FromStr;
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -205,7 +206,6 @@ impl Authenticator {
                 siblings,
                 depth: TREE_DEPTH as u64,
                 mt_index: proof.leaf_index,
-                epoch: MerkleEpoch::default(),
             },
             pubkey_batch,
         ))
@@ -267,7 +267,11 @@ impl Authenticator {
         let key_material = UserKeyMaterial {
             pk_batch,
             pk_index,
-            sk: self.signer.offchain_signer_private_key().clone(),
+            sk: self
+                .signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .clone(),
         };
 
         // TODO: check rp nullifier key
@@ -331,7 +335,7 @@ pub struct AuthenticatorSigner {
     /// An on-chain SECP256K1 private key.
     onchain_signer: PrivateKeySigner,
     /// An off-chain `EdDSA` private key.
-    offchain_signer: EdDSAPrivateKey,
+    offchain_signer: SecretBox<EdDSAPrivateKey>,
 }
 
 impl AuthenticatorSigner {
@@ -342,7 +346,7 @@ impl AuthenticatorSigner {
         }
         let bytes: [u8; 32] = seed.try_into()?;
         let onchain_signer = PrivateKeySigner::from_bytes(&bytes.into())?;
-        let offchain_signer = EdDSAPrivateKey::from_bytes(bytes);
+        let offchain_signer = SecretBox::new(Box::new(EdDSAPrivateKey::from_bytes(bytes)));
 
         Ok(Self {
             onchain_signer,
@@ -357,7 +361,7 @@ impl AuthenticatorSigner {
     }
 
     /// Returns a reference to the internal offchain signer.
-    pub const fn offchain_signer_private_key(&self) -> &EdDSAPrivateKey {
+    pub const fn offchain_signer_private_key(&self) -> &SecretBox<EdDSAPrivateKey> {
         &self.offchain_signer
     }
 
@@ -366,6 +370,6 @@ impl AuthenticatorSigner {
     }
 
     pub fn offchain_signer_pubkey(&self) -> EdDSAPublicKey {
-        self.offchain_signer.public()
+        self.offchain_signer.expose_secret().public()
     }
 }
