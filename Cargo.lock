@@ -916,7 +916,7 @@ checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 [[package]]
 name = "ark-babyjubjub"
 version = "0.5.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -1274,7 +1274,7 @@ dependencies = [
 [[package]]
 name = "ark-serde-compat"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "ark-babyjubjub",
  "ark-bn254 0.5.0",
@@ -2973,7 +2973,7 @@ dependencies = [
 [[package]]
 name = "eddsa-babyjubjub"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "ark-babyjubjub",
  "ark-ec 0.5.0",
@@ -4466,7 +4466,7 @@ dependencies = [
 [[package]]
 name = "nodes-telemetry"
 version = "0.1.0"
-source = "git+https://github.com/paolodamico/nodes-telemetry.git?rev=aa76465#aa764653eb056b71e5d534c5d5602507ea301417"
+source = "git+https://github.com/TaceoLabs/nodes-telemetry.git?rev=00824cd#00824cd47d660314d0dcd77f497e9592a37e5ea5"
 dependencies = [
  "eyre",
  "humantime",
@@ -4715,7 +4715,7 @@ dependencies = [
 [[package]]
 name = "oprf-client"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "ark-babyjubjub",
  "ark-bn254 0.5.0",
@@ -4744,7 +4744,7 @@ dependencies = [
 [[package]]
 name = "oprf-core"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "ark-babyjubjub",
  "ark-ec 0.5.0",
@@ -4758,14 +4758,16 @@ dependencies = [
  "rand_chacha 0.3.1",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror 2.0.17",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
 name = "oprf-service"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "alloy",
  "ark-babyjubjub",
@@ -4803,12 +4805,13 @@ dependencies = [
  "tower-http 0.6.6",
  "tracing",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
 name = "oprf-test"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "alloy",
  "ark-babyjubjub",
@@ -4842,7 +4845,7 @@ dependencies = [
 [[package]]
 name = "oprf-types"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "alloy",
  "ark-babyjubjub",
@@ -5048,7 +5051,7 @@ checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
 [[package]]
 name = "poseidon2"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=a7572c6#a7572c68bf097e370606f5e3871d05a51a6b4765"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -6614,7 +6617,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "telemetry-batteries"
 version = "0.1.1"
-source = "git+https://github.com/worldcoin/telemetry-batteries.git?rev=b3db8a8100820a26bc1cc779aa4678502dc73f4a#b3db8a8100820a26bc1cc779aa4678502dc73f4a"
+source = "git+https://github.com/worldcoin/telemetry-batteries.git?rev=dc325a1df78867892066575866b6a805380f8237#dc325a1df78867892066575866b6a805380f8237"
 dependencies = [
  "chrono",
  "dirs",
@@ -7900,6 +7903,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "ruint",
+ "secrecy",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
