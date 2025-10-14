@@ -5,7 +5,7 @@
 Monorepo containing:
 
 - `services/registry-gateway`: HTTP API service to interact with onchain `AccountRegistry`
-- `services/authtree-indexer`: Indexer for `AccountCreated` events serving inclusion proofs
+- `services/world-id-indexer`: Indexer for `AccountCreated` events serving inclusion proofs
 - `crates/world-id-core`: The core library of the World ID Protocol
 - `contracts/`: Onchain contracts
 
@@ -43,7 +43,7 @@ Use the provided Makefile:
 - `make rust-test`: `cargo test --workspace`
 - `make rust-fmt`: `cargo fmt --all`
 - `make rust-clippy`: `cargo clippy --workspace --all-targets -D warnings`
-- `make run-indexer`: Run `authtree-indexer`
+- `make run-indexer`: Run `world-id-indexer`
 - `make run-gateway`: Run `registry-gateway` (defaults to 127.0.0.1:4000)
 - `make sol-build`: `forge build` in `contracts/`
 - `make sol-test`: `forge test -vvv` in `contracts/`
@@ -77,26 +77,6 @@ Endpoints:
 - `POST /remove-authenticator`
 - `POST /recover-account`
 - `GET /is-valid-root?root=<u256>`
-
-### authtree-indexer
-
-Environment variables:
-
-- `RPC_URL` (required): HTTP RPC endpoint
-- `REGISTRY_ADDRESS` (optional, default 0x0…0): Contract address
-- `DATABASE_URL` or `PG_URL` (required): Postgres connection string
-- `START_BLOCK` (optional, default 0): Initial block to backfill from
-- `BATCH_SIZE` (optional, default 5000): Backfill chunk size
-- `WS_URL` (optional): Websocket RPC; when provided, follows new logs live after backfill
-- `RUST_LOG` (optional): e.g. `authtree_indexer=info`
-
-Run:
-
-```
-make run-indexer
-```
-
-The indexer will backfill `AccountCreated` events into Postgres tables defined under `services/authtree-indexer/migrations`, then optionally follow live via WS if `WS_URL` is set.
 
 ## Solidity contracts
 

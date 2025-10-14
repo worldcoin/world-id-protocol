@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         service:
-          - authtree-indexer
+          - world-id-indexer
     permissions:
       contents: read
       id-token: write
