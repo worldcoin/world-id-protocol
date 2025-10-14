@@ -76,6 +76,11 @@ impl HttpConfig {
                 .parse()
                 .unwrap(),
         };
+
+        if config.http_addr.port() != 8080 {
+            tracing::warn!("Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
+        }
+
         tracing::info!(
             "✔️ Http config loaded from env. Running on {}",
             config.http_addr
