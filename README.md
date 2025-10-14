@@ -5,7 +5,7 @@
 Monorepo containing:
 
 - `services/registry-gateway`: HTTP API service to interact with onchain `AccountRegistry`
-- `services/indexer`: Indexer for `AccountCreated` events serving inclusion proofs
+- `services/world-id-indexer`: Indexer for `AccountCreated` events serving inclusion proofs
 - `crates/world-id-core`: The core library of the World ID Protocol
 - `contracts/`: Onchain contracts
 
@@ -32,7 +32,7 @@ Use the provided Makefile:
 - `make rust-test`: `cargo test --workspace`
 - `make rust-fmt`: `cargo fmt --all`
 - `make rust-clippy`: `cargo clippy --workspace --all-targets -D warnings`
-- `make run-indexer`: Run `indexer`
+- `make run-indexer`: Run `world-id-indexer`
 - `make run-gateway`: Run `registry-gateway` (defaults to 127.0.0.1:4000)
 - `make sol-build`: `forge build` in `contracts/`
 - `make sol-test`: `forge test -vvv` in `contracts/`

@@ -9,7 +9,7 @@ sleep 1
 cd contracts
 TREE_DEPTH=30 forge script script/AccountRegistry.s.sol --broadcast --rpc-url 127.0.0.1:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 cd ..
-cargo run --release -p world-id-indexer -- --http --indexer > /tmp/authtree-indexer.log 2>&1 &
+cargo run --release -p world-id-indexer -- --http --indexer > /tmp/world-id-indexer.log 2>&1 &
 until curl -sSf http://localhost:8000 2>&1 | grep -vq "Failed to connect"; do
   echo "Waiting for world-id-indexer HTTP server on localhost:8000..."
   sleep 1

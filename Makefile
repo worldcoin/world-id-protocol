@@ -11,7 +11,7 @@ help:
 	@echo "  rust-test    - cargo test --workspace"
 	@echo "  rust-fmt     - cargo fmt --all"
 	@echo "  rust-clippy  - cargo clippy --workspace --all-targets -D warnings"
-	@echo "  run-indexer  - run ndexer"
+	@echo "  run-indexer  - run world-id-indexer"
 	@echo "  run-gateway  - run registry-gateway (PORT 4000 by default)"
 	@echo "  sol-build    - forge build (in contracts/)"
 	@echo "  sol-test     - forge test (in contracts/)"
@@ -41,7 +41,7 @@ rust-clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
 
 run-indexer:
-	cargo run -p indexer
+	cargo run -p world-id-indexer
 
 run-gateway:
 	cargo run -p registry-gateway
