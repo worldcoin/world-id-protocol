@@ -58,5 +58,5 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/bin /app/bin
 
 USER 100
-EXPOSE 8000
+EXPOSE 8080
 CMD ["/app/bin"]
