@@ -103,23 +103,7 @@ impl Hasher for PoseidonHasher {
     }
 }
 
-// Big tree is too slow for debug builds, so we use a smaller tree.
-static TREE_DEPTH: LazyLock<usize> = LazyLock::new(|| {
-    let override_depth = std::env::var("OVERRIDE_TREE_DEPTH")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok());
-
-    match override_depth {
-        Some(depth) => {
-            tracing::info!("Setting tree depth from OVERRIDE_TREE_DEPTH to {depth}");
-            depth
-        }
-        None => {
-            tracing::info!("Using default tree depth: 30");
-            30
-        }
-    }
-});
+static TREE_DEPTH: usize = 30;
 
 fn tree_capacity() -> usize {
     1usize << TREE_DEPTH
@@ -1053,9 +1037,11 @@ mod tests {
         let tree = MerkleTree::<PoseidonHasher>::new(10, U256::ZERO);
         let proof = tree.proof(0);
         let proof = proof.0.iter().collect::<Vec<_>>();
-        let poseidon00 = uint!(
-            15621590199821056450610068202457788725601603091791048810523422053872049975191_U256
+        assert!(
+            *proof[1]
+                == Branch::Left(uint!(
+                15621590199821056450610068202457788725601603091791048810523422053872049975191_U256
+            ))
         );
-        assert!(matches!(proof[1], Branch::Left(poseidon00)));
     }
 }
