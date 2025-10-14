@@ -402,16 +402,29 @@ impl CreateBatcherRunner {
                     let tracker = self.tracker.clone();
                     let ids_for_receipt = ids.clone();
                     tokio::spawn(async move {
-                        match builder.watch().await {
-                            Ok(_) => {
-                                tracker
-                                    .set_status_batch(
-                                        &ids_for_receipt,
-                                        RequestState::Finalized {
-                                            tx_hash: hash.clone(),
-                                        },
-                                    )
-                                    .await;
+                        match builder.get_receipt().await {
+                            Ok(receipt) => {
+                                if receipt.status() {
+                                    tracker
+                                        .set_status_batch(
+                                            &ids_for_receipt,
+                                            RequestState::Finalized {
+                                                tx_hash: hash.clone(),
+                                            },
+                                        )
+                                        .await;
+                                } else {
+                                    tracker
+                                        .set_status_batch(
+                                            &ids_for_receipt,
+                                            RequestState::Failed {
+                                                error: format!(
+                                                    "transaction reverted on-chain (tx: {hash})"
+                                                ),
+                                            },
+                                        )
+                                        .await;
+                                }
                             }
                             Err(err) => {
                                 tracker
@@ -675,16 +688,29 @@ impl OpsBatcherRunner {
                     let tracker = self.tracker.clone();
                     let ids_for_receipt = ids.clone();
                     tokio::spawn(async move {
-                        match builder.watch().await {
-                            Ok(_) => {
-                                tracker
-                                    .set_status_batch(
-                                        &ids_for_receipt,
-                                        RequestState::Finalized {
-                                            tx_hash: hash.clone(),
-                                        },
-                                    )
-                                    .await;
+                        match builder.get_receipt().await {
+                            Ok(receipt) => {
+                                if receipt.status() {
+                                    tracker
+                                        .set_status_batch(
+                                            &ids_for_receipt,
+                                            RequestState::Finalized {
+                                                tx_hash: hash.clone(),
+                                            },
+                                        )
+                                        .await;
+                                } else {
+                                    tracker
+                                        .set_status_batch(
+                                            &ids_for_receipt,
+                                            RequestState::Failed {
+                                                error: format!(
+                                                    "transaction reverted on-chain (tx: {hash})"
+                                                ),
+                                            },
+                                        )
+                                        .await;
+                                }
                             }
                             Err(err) => {
                                 tracker
