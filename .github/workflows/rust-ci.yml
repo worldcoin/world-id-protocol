@@ -152,7 +152,7 @@ jobs:
           docker logs ${{ matrix.service }}-container
 
       - name: Health check Docker container
-        run: curl -f http://0.0.0.0:8000/health
+        run: curl -f http://0.0.0.0:8080/health
 
       - name: Clean up
         run: |
