@@ -1,0 +1,9 @@
+target/
+.git/
+.claude/
+.DS_Store
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+node_modules/
+.env

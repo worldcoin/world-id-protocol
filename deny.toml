@@ -6,11 +6,10 @@ all-features = true
 unknown-registry = "deny"
 
 [bans]
-# TODO: add when ready
-#deny = [
-#    { name = "openssl-sys", reason = "increases complexity for foreign binding compilation and bundle size" },
-#    { name = "openssl", reason = "increases complexity for foreign binding compilation and bundle size" }
-#]
+deny = [
+    { name = "openssl-sys", reason = "increases complexity for foreign binding compilation and bundle size" },
+    { name = "openssl", reason = "increases complexity for foreign binding compilation and bundle size" }
+]
 
 [licenses]
 version = 2
