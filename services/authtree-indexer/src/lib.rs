@@ -11,7 +11,7 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use semaphore_rs_hasher::Hasher;
-use semaphore_rs_trees::imt::MerkleTree;
+use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use semaphore_rs_trees::proof::InclusionProof;
 use semaphore_rs_trees::Branch;
 use sqlx::migrate::Migrator;
@@ -103,40 +103,30 @@ impl Hasher for PoseidonHasher {
     }
 }
 
-// Big tree is too slow for debug builds, so we use a smaller tree.
-static TREE_DEPTH: LazyLock<usize> = LazyLock::new(|| {
-    let override_depth = std::env::var("OVERRIDE_TREE_DEPTH")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok());
+static TREE_DEPTH: usize = 30;
 
-    match override_depth {
-        Some(depth) => {
-            tracing::info!("Setting tree depth from OVERRIDE_TREE_DEPTH to {depth}");
-            depth
-        }
-        None => {
-            tracing::info!("Using default tree depth: 30");
-            30
-        }
-    }
-});
+fn tree_capacity() -> usize {
+    1usize << TREE_DEPTH
+}
 
 // Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
-static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher>>> =
-    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(*TREE_DEPTH, U256::ZERO)));
+static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
+    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
 
-async fn set_leaf_at_index(leaf_index: usize, value: U256) {
-    let mut tree = GLOBAL_TREE.write().await;
-    if leaf_index >= tree.num_leaves() {
-        // Out of range for fixed depth tree
-        tracing::error!(
+async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
+    if leaf_index >= tree_capacity() {
+        anyhow::bail!(
+            "leaf index {} out of range for tree depth {}",
             leaf_index,
-            capacity = tree.num_leaves(),
-            "leaf index out of range"
+            TREE_DEPTH
         );
-        return;
     }
-    tree.set(leaf_index, value);
+
+    let mut tree = GLOBAL_TREE.write().await;
+    take_mut::take(&mut *tree, |tree| {
+        tree.update_with_mutation(leaf_index, &value)
+    });
+    Ok(())
 }
 
 async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
@@ -161,11 +151,26 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
         leaves.push((leaf_index, leaf_val));
     }
 
-    let mut tree = GLOBAL_TREE.write().await;
-    tree.set_range(0, leaves.into_iter().map(|(_, v)| v));
+    let mut new_tree = MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO);
+    for (idx, value) in leaves {
+        if idx >= tree_capacity() {
+            anyhow::bail!(
+                "leaf index {} out of range while rebuilding tree (depth {})",
+                idx,
+                TREE_DEPTH
+            );
+        }
+        new_tree = new_tree.update_with_mutation(idx, &value);
+    }
+
+    let root = new_tree.root();
+    {
+        let mut tree = GLOBAL_TREE.write().await;
+        *tree = new_tree;
+    }
     tracing::info!(
-        root = %format!("0x{:x}", tree.root()),
-        depth = *TREE_DEPTH,
+        root = %format!("0x{:x}", root),
+        depth = TREE_DEPTH,
         "tree built from DB"
     );
     Ok(())
@@ -179,7 +184,7 @@ async fn update_tree_with_commitment(
         anyhow::bail!("account index cannot be zero");
     }
     let leaf_index = account_index.as_limbs()[0] as usize - 1;
-    set_leaf_at_index(leaf_index, new_commitment).await;
+    set_leaf_at_index(leaf_index, new_commitment).await?;
     Ok(())
 }
 
@@ -245,24 +250,23 @@ async fn http_get_proof(
         .collect();
 
     let leaf_index = account_index.as_limbs()[0] as usize - 1;
-    let tree = GLOBAL_TREE.read().await;
-    match tree.proof(leaf_index) {
-        Some(proof) => {
-            let resp = InclusionProofResponse::new(
-                account_index.as_limbs()[0],
-                leaf_index as u64,
-                tree.root(),
-                proof_to_vec(&proof),
-                authenticator_pubkeys,
-            );
-            (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
-        }
-        None => (
+    if leaf_index >= tree_capacity() {
+        return (
             axum::http::StatusCode::BAD_REQUEST,
             "leaf index out of range",
         )
-            .into_response(),
+            .into_response();
     }
+    let tree = GLOBAL_TREE.read().await;
+    let proof = tree.proof(leaf_index);
+    let resp = InclusionProofResponse::new(
+        account_index.as_limbs()[0],
+        leaf_index as u64,
+        tree.root(),
+        proof_to_vec(&proof),
+        authenticator_pubkeys,
+    );
+    (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
 }
 
 async fn http_health() -> impl IntoResponse {
@@ -1031,11 +1035,13 @@ mod tests {
     #[test]
     fn test_poseidon2_merkle_tree() {
         let tree = MerkleTree::<PoseidonHasher>::new(10, U256::ZERO);
-        let proof = tree.proof(0).unwrap();
+        let proof = tree.proof(0);
         let proof = proof.0.iter().collect::<Vec<_>>();
-        let poseidon00 = uint!(
-            15621590199821056450610068202457788725601603091791048810523422053872049975191_U256
+        assert!(
+            *proof[1]
+                == Branch::Left(uint!(
+                15621590199821056450610068202457788725601603091791048810523422053872049975191_U256
+            ))
         );
-        assert_eq!(*proof[1], Branch::Left(poseidon00));
     }
 }
