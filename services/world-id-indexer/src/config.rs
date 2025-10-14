@@ -66,7 +66,7 @@ pub struct HttpConfig {
 
 impl HttpConfig {
     pub fn from_env() -> Self {
-        Self {
+        let config = Self {
             http_addr: std::env::var("HTTP_ADDR")
                 .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
                 .parse()
@@ -75,7 +75,12 @@ impl HttpConfig {
                 .unwrap_or_else(|_| "1".to_string())
                 .parse()
                 .unwrap(),
-        }
+        };
+        tracing::info!(
+            "✔️ Http config loaded from env. Running on {}",
+            config.http_addr
+        );
+        config
     }
 }
 
@@ -90,7 +95,7 @@ pub struct IndexerConfig {
 
 impl IndexerConfig {
     pub fn from_env() -> Self {
-        Self {
+        let config = Self {
             rpc_url: std::env::var("RPC_URL")
                 .unwrap_or_else(|_| "http://localhost:8545".to_string()),
             ws_url: std::env::var("WS_URL").unwrap_or_else(|_| "ws://localhost:8545".to_string()),
@@ -106,7 +111,9 @@ impl IndexerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(64),
-        }
+        };
+        tracing::info!("✔️ Indexer config loaded from env");
+        config
     }
 }
 
