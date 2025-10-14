@@ -25,11 +25,10 @@ Monorepo containing:
 - Deployed by `world-id-gateway`'s wallet address: `0x777DF5A6ab04B47995f0750D5Ff188879DC60Ac7`
 - Deployed to World Chain Mainnet (Chain ID: `480`)
 
-| Contract          | Address                                      |
-| ----------------- | -------------------------------------------- |
-| `AccountRegistry` | `0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2` |
-|                   |                                              |
-|                   |                                              |
+| Contract                         | Address                                      |
+| -------------------------------- | -------------------------------------------- |
+| `AccountRegistry`                | `0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2` |
+| `CredentialSchemaIssuerRegistry` | `0xCE2460f072dF53f116647056eD4655ac3B19f6DF` |
 
 Optional:
 

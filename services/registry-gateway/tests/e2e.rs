@@ -61,7 +61,7 @@ fn deploy_registry(rpc_url: &str) -> String {
     let mut cmd = Command::new("forge");
     cmd.current_dir("../../contracts")
         .arg("script")
-        .arg("script/AccountRegistry.s.sol:CounterScript")
+        .arg("script/AccountRegistry.s.sol:DeployScript")
         .arg("--rpc-url")
         .arg(rpc_url)
         .arg("--broadcast")
