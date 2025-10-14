@@ -29,7 +29,7 @@ fn deploy_registry() -> String {
     let mut cmd = Command::new("forge");
     cmd.current_dir("../../contracts")
         .arg("script")
-        .arg("script/AccountRegistry.s.sol:CounterScript")
+        .arg("script/AccountRegistry.s.sol:DeployScript")
         .arg("--fork-url")
         .arg(ANVIL_HTTP_URL)
         .arg("--broadcast")
