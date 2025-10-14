@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Script, console} from "forge-std/Script.sol";
 import {AccountRegistry} from "../src/AccountRegistry.sol";
 
-contract CounterScript is Script {
+contract DeployScript is Script {
     AccountRegistry public accountRegistry;
 
     function setUp() public {}
