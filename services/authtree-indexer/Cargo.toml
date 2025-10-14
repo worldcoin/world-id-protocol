@@ -26,6 +26,7 @@ ark-bn254 = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
 clap = { version = "4", features = ["derive"] }
+take_mut = "0.2.2"
 
 [dev-dependencies]
 regex = "1.11.2"
