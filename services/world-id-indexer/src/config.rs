@@ -3,27 +3,30 @@ use std::str::FromStr;
 
 use alloy::primitives::Address;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum RunMode {
     /// Only run the indexer (sync chain data and write to DB)
-    IndexerOnly,
+    IndexerOnly { indexer_config: IndexerConfig },
     /// Only serve HTTP endpoint (requires pre-populated DB)
-    HttpOnly,
+    HttpOnly { http_config: HttpConfig },
     /// Run both indexer and HTTP server (default)
-    Both,
+    Both {
+        indexer_config: IndexerConfig,
+        http_config: HttpConfig,
+    },
 }
 
-impl FromStr for RunMode {
-    type Err = String;
+impl RunMode {
+    pub fn from_env() -> Self {
+        let str = std::env::var("RUN_MODE").unwrap_or_else(|_| "both".to_string());
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "indexer" | "indexer-only" => Ok(Self::IndexerOnly),
-            "http" | "http-only" => Ok(Self::HttpOnly),
-            "both" | "all" => Ok(Self::Both),
-            _ => Err(format!(
-                "Invalid run mode: '{s}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
-            )),
+        match str.to_lowercase().as_str() {
+            "indexer" | "indexer-only" => Self::IndexerOnly { indexer_config: IndexerConfig::from_env() },
+            "http" | "http-only" => Self::HttpOnly { http_config: HttpConfig::from_env() },
+            "both" | "all" => Self::Both { indexer_config: IndexerConfig::from_env(), http_config: HttpConfig::from_env() },
+            _ => panic!(
+                "Invalid run mode: '{str}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
+            ),
         }
     }
 }
@@ -52,14 +55,59 @@ impl FromStr for Environment {
 pub struct GlobalConfig {
     pub environment: Environment,
     pub run_mode: RunMode,
+    pub db_url: String,
+}
+
+#[derive(Debug)]
+pub struct HttpConfig {
+    pub http_addr: SocketAddr,
+    pub db_poll_interval_secs: u64,
+}
+
+impl HttpConfig {
+    pub fn from_env() -> Self {
+        Self {
+            http_addr: std::env::var("HTTP_ADDR")
+                .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
+                .parse()
+                .unwrap(),
+            db_poll_interval_secs: std::env::var("DB_POLL_INTERVAL_SECS")
+                .unwrap_or_else(|_| "1".to_string())
+                .parse()
+                .unwrap(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct IndexerConfig {
     pub rpc_url: String,
     pub ws_url: String,
     pub registry_address: Address,
-    pub db_url: String,
     pub start_block: u64,
     pub batch_size: u64,
-    pub http_addr: SocketAddr,
-    pub db_poll_interval_secs: u64,
+}
+
+impl IndexerConfig {
+    pub fn from_env() -> Self {
+        Self {
+            rpc_url: std::env::var("RPC_URL")
+                .unwrap_or_else(|_| "http://localhost:8545".to_string()),
+            ws_url: std::env::var("WS_URL").unwrap_or_else(|_| "ws://localhost:8545".to_string()),
+            registry_address: std::env::var("REGISTRY_ADDRESS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap(),
+            start_block: std::env::var("START_BLOCK")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
+            batch_size: std::env::var("BATCH_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(64),
+        }
+    }
 }
 
 impl GlobalConfig {
@@ -68,46 +116,14 @@ impl GlobalConfig {
             .unwrap_or_else(|_| "development".to_string())
             .parse()
             .unwrap();
-        let run_mode = std::env::var("RUN_MODE")
-            .unwrap_or_else(|_| "both".to_string())
-            .parse()
-            .unwrap();
-        let rpc_url =
-            std::env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
-        let registry_address = std::env::var("REGISTRY_ADDRESS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap();
+        let run_mode = RunMode::from_env();
+
         let db_url = std::env::var("DATABASE_URL").unwrap();
-        let start_block: u64 = std::env::var("START_BLOCK")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-        let batch_size: u64 = std::env::var("BATCH_SIZE")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(64);
-        let ws_url = std::env::var("WS_URL").unwrap_or_else(|_| "ws://localhost:8545".to_string());
-        let http_addr = std::env::var("HTTP_ADDR")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| "0.0.0.0:8080".parse().unwrap());
-        let db_poll_interval_secs: u64 = std::env::var("DB_POLL_INTERVAL_SECS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(1);
 
         Self {
             environment,
             run_mode,
-            rpc_url,
-            ws_url,
-            registry_address,
             db_url,
-            start_block,
-            batch_size,
-            http_addr,
-            db_poll_interval_secs,
         }
     }
 }

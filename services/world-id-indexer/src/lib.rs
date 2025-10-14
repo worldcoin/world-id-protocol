@@ -21,7 +21,7 @@ use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::InclusionProofResponse;
 
 mod config;
-use crate::config::RunMode;
+use crate::config::{HttpConfig, IndexerConfig, RunMode};
 pub use config::GlobalConfig;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
@@ -115,11 +115,7 @@ static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
 
 async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
     if leaf_index >= tree_capacity() {
-        anyhow::bail!(
-            "leaf index {} out of range for tree depth {}",
-            leaf_index,
-            TREE_DEPTH
-        );
+        anyhow::bail!("leaf index {leaf_index} out of range for tree depth {TREE_DEPTH}");
     }
 
     let mut tree = GLOBAL_TREE.write().await;
@@ -155,9 +151,7 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     for (idx, value) in leaves {
         if idx >= tree_capacity() {
             anyhow::bail!(
-                "leaf index {} out of range while rebuilding tree (depth {})",
-                idx,
-                TREE_DEPTH
+                "leaf index {idx} out of range while rebuilding tree (depth {TREE_DEPTH})",
             );
         }
         new_tree = new_tree.update_with_mutation(idx, &value);
@@ -297,43 +291,48 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     tracing::info!("🟢 Migrations synced successfully.");
 
     match cfg.run_mode {
-        RunMode::IndexerOnly => {
+        RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
-            run_indexer_only(cfg, pool).await
+            run_indexer_only(indexer_config, pool).await
         }
-        RunMode::HttpOnly => {
+        RunMode::HttpOnly { http_config } => {
             tracing::info!("Running in HTTP-ONLY mode (building tree from DB)");
             // Build tree from DB for HTTP-only mode
             let start_time = std::time::Instant::now();
             build_tree_from_db(&pool).await?;
             tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_http_only(cfg, pool).await
+            run_http_only(http_config, pool).await
         }
-        RunMode::Both => {
+        RunMode::Both {
+            indexer_config,
+            http_config,
+        } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
             // Build tree from DB for both mode
             let start_time = std::time::Instant::now();
             build_tree_from_db(&pool).await?;
             tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_both(cfg, pool).await
+            run_both(indexer_config, http_config, pool).await
         }
     }
 }
 
-async fn run_indexer_only(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()> {
+async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
     let provider =
-        ProviderBuilder::new().connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
+        ProviderBuilder::new().connect_http(indexer_cfg.rpc_url.parse().expect("invalid RPC URL"));
 
     // Determine starting block from checkpoint or env
-    let mut from = load_checkpoint(&pool).await?.unwrap_or(cfg.start_block);
+    let mut from = load_checkpoint(&pool)
+        .await?
+        .unwrap_or(indexer_cfg.start_block);
 
     // Backfill until head (update_tree = false for indexer-only mode)
     while let Err(err) = backfill(
         &provider,
         &pool,
-        cfg.registry_address,
+        indexer_cfg.registry_address,
         &mut from,
-        cfg.batch_size,
+        indexer_cfg.batch_size,
         false, // Don't update in-memory tree
     )
     .await
@@ -343,15 +342,22 @@ async fn run_indexer_only(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()>
     }
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&cfg.ws_url, &pool, cfg.registry_address, from, false).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        indexer_cfg.registry_address,
+        from,
+        false,
+    )
+    .await?;
 
     Ok(())
 }
 
-async fn run_http_only(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()> {
+async fn run_http_only(http_cfg: HttpConfig, pool: PgPool) -> anyhow::Result<()> {
     // Start DB poller for account updates
     let poller_pool = pool.clone();
-    let poll_interval = cfg.db_poll_interval_secs;
+    let poll_interval = http_cfg.db_poll_interval_secs;
     let poller_handle = tokio::spawn(async move {
         if let Err(e) = poll_db_changes(poller_pool, poll_interval).await {
             tracing::error!(?e, "DB poller failed");
@@ -359,31 +365,37 @@ async fn run_http_only(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()> {
     });
 
     // Start HTTP server
-    let http_result = start_http_server(cfg.http_addr, pool).await;
+    let http_result = start_http_server(http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
     http_result
 }
 
-async fn run_both(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()> {
+async fn run_both(
+    indexer_cfg: IndexerConfig,
+    http_cfg: HttpConfig,
+    pool: PgPool,
+) -> anyhow::Result<()> {
     let provider =
-        ProviderBuilder::new().connect_http(cfg.rpc_url.parse().expect("invalid RPC URL"));
+        ProviderBuilder::new().connect_http(indexer_cfg.rpc_url.parse().expect("invalid RPC URL"));
 
     // Start HTTP server
     let http_pool = pool.clone();
-    let http_addr = cfg.http_addr;
+    let http_addr = http_cfg.http_addr;
     let http_handle = tokio::spawn(async move { start_http_server(http_addr, http_pool).await });
 
     // Determine starting block from checkpoint or env
-    let mut from = load_checkpoint(&pool).await?.unwrap_or(cfg.start_block);
+    let mut from = load_checkpoint(&pool)
+        .await?
+        .unwrap_or(indexer_cfg.start_block);
 
     // Backfill until head (update_tree = true for both mode)
     while let Err(err) = backfill(
         &provider,
         &pool,
-        cfg.registry_address,
+        indexer_cfg.registry_address,
         &mut from,
-        cfg.batch_size,
+        indexer_cfg.batch_size,
         true, // Update in-memory tree directly from events
     )
     .await
@@ -393,7 +405,14 @@ async fn run_both(cfg: GlobalConfig, pool: PgPool) -> anyhow::Result<()> {
     }
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&cfg.ws_url, &pool, cfg.registry_address, from, true).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        indexer_cfg.registry_address,
+        from,
+        true,
+    )
+    .await?;
 
     http_handle.abort();
     Ok(())
@@ -610,7 +629,7 @@ pub fn decode_registry_event(lg: &alloy::rpc::types::Log) -> anyhow::Result<Regi
             lg,
         )?))
     } else {
-        anyhow::bail!("unknown event signature: {:?}", event_sig)
+        anyhow::bail!("unknown event signature: {event_sig:?}")
     }
 }
 
