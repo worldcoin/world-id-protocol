@@ -13,11 +13,11 @@ Monorepo containing:
 
 - Rust toolchain (`rustup`, `cargo`) – pinned via `rust-toolchain.toml`
 - Foundry (forge/cast/anvil): `curl -L https://foundry.paradigm.xyz | bash` then `foundryup`
-- Postgres (for the indexer) if you run `authtree-indexer`
+- For running the Rust services look at the specific READMEs of each service.
 
-## 🗃️ Adressbook
+## 🗃️ Addressbook
 
-**Staging**
+### Staging (World Chain Mainnet)
 
 > [!WARNING]  
 > These deployments are the current most up-to-date version, but this project is still WIP and deployments may change at any time.
@@ -29,10 +29,6 @@ Monorepo containing:
 | -------------------------------- | -------------------------------------------- |
 | `AccountRegistry`                | `0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2` |
 | `CredentialSchemaIssuerRegistry` | `0xCE2460f072dF53f116647056eD4655ac3B19f6DF` |
-
-Optional:
-
-- `direnv` or `.env` files via `dotenvy` for service env vars
 
 ## Make targets
 
