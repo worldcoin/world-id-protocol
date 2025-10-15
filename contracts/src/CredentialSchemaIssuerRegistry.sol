@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -10,7 +9,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
+contract CredentialSchemaIssuerRegistry is EIP712 {
     ////////////////////////////////////////////////////////////
     //                         Types                          //
     ////////////////////////////////////////////////////////////
@@ -67,13 +66,13 @@ contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor() EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {}
+    constructor() EIP712(EIP712_NAME, EIP712_VERSION) {}
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public onlyOwner {
+    function register(Pubkey memory pubkey, address signer) public {
         require(pubkey.x != 0 && pubkey.y != 0, "Registry: pubkey cannot be zero");
         require(signer != address(0), "Registry: signer cannot be zero address");
         require(_addressToId[signer] == 0, "Registry: signer already registered");
@@ -85,7 +84,7 @@ contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
         _nextId = issuerSchemaId + 1;
     }
 
-    function remove(uint256 issuerSchemaId, bytes calldata signature) public onlyOwner {
+    function remove(uint256 issuerSchemaId, bytes calldata signature) public {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
         bytes32 hash = _hashTypedDataV4(
@@ -102,7 +101,7 @@ contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
         delete idToSchemaUri[issuerSchemaId];
     }
 
-    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature) public onlyOwner {
+    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature) public {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
         require(!_isEmptyPubkey(newPubkey), "Registry: newPubkey cannot be zero");
@@ -118,7 +117,7 @@ contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
         _nonces[issuerSchemaId]++;
     }
 
-    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature) public onlyOwner {
+    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature) public {
         require(!_isEmptyPubkey(_idToPubkey[issuerSchemaId]), "Registry: id not registered");
         require(newSigner != address(0), "Registry: newSigner cannot be zero address");
         require(_addressToId[newSigner] == 0, "Registry: newSigner already registered");

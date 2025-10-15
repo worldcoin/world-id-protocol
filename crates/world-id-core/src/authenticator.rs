@@ -5,8 +5,14 @@ use std::io::Cursor;
 use std::sync::{Arc, OnceLock};
 
 use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
+use crate::account_registry::{
+    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
+};
 use crate::config::Config;
-use crate::types::{BaseField, CreateAccountRequest, InclusionProofResponse, RpRequest};
+use crate::types::{
+    BaseField, CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
+    InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
+};
 use crate::{Credential, Signer};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
@@ -38,8 +44,6 @@ static TREE_DEPTH: usize = 30;
 static QUERY_ZKEY_PATH: &str = "OPRFQueryProof.zkey";
 static NULLIFIER_ZKEY_PATH: &str = "OPRFNullifierProof.zkey";
 
-static REGISTRY: OnceLock<Arc<AccountRegistryInstance<DynProvider>>> = OnceLock::new();
-
 type UniquenessProof = (Groth16Proof, BaseField);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
@@ -49,6 +53,8 @@ pub struct Authenticator {
     pub config: Config,
     signer: Signer,
     packed_account_index: Option<U256>,
+    registry: OnceLock<Arc<AccountRegistryInstance<DynProvider>>>,
+    provider: OnceLock<DynProvider>,
 }
 
 impl Authenticator {
@@ -62,6 +68,8 @@ impl Authenticator {
             packed_account_index: None,
             signer,
             config,
+            registry: OnceLock::new(),
+            provider: OnceLock::new(),
         })
     }
 
@@ -95,9 +103,34 @@ impl Authenticator {
     /// # Errors
     /// Will error if the RPC URL is not valid.
     pub fn registry(&self) -> Result<Arc<AccountRegistryInstance<DynProvider>>> {
+        if let Some(registry) = self.registry.get() {
+            return Ok(Arc::clone(registry));
+        }
+
+        let provider = self.provider()?;
+        let contract = Arc::new(AccountRegistry::new(
+            *self.config.registry_address(),
+            provider.erased(),
+        ));
+
+        let _ = self.registry.set(Arc::clone(&contract));
+        Ok(self.registry.get().map_or(contract, Arc::clone))
+    }
+
+    /// Returns a reference to the Ethereum provider.
+    ///
+    /// # Errors
+    /// Will error if the provided RPC URL is not valid.
+    pub fn provider(&self) -> Result<DynProvider> {
+        if let Some(provider) = self.provider.get() {
+            return Ok(provider.clone());
+        }
+
         let provider = ProviderBuilder::new().connect_http(self.config.rpc_url().parse()?);
-        let contract = AccountRegistry::new(*self.config.registry_address(), provider.erased());
-        Ok(REGISTRY.get_or_init(|| Arc::new(contract)).clone())
+        let erased = provider.erased();
+
+        let _ = self.provider.set(erased.clone());
+        Ok(self.provider.get().map_or(erased, std::clone::Clone::clone))
     }
 
     /// Returns the packed account index for the holder's World ID.
@@ -230,6 +263,18 @@ impl Authenticator {
         poseidon2_16.permutation(&input)[1]
     }
 
+    /// Returns the signing nonce for the holder's World ID.
+    ///
+    /// # Errors
+    /// Will return an error if the registry contract call fails.
+    pub async fn signing_nonce(&mut self) -> Result<U256> {
+        let registry = self.registry()?;
+        Ok(registry
+            .signatureNonces(self.account_index().await?)
+            .call()
+            .await?)
+    }
+
     /// Generates a World ID Uniqueness Proof given a provided context.
     ///
     /// # Errors
@@ -295,7 +340,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
-    pub async fn create_account(&self, recovery_address: Option<Address>) -> Result<()> {
+    pub async fn create_account(&self, recovery_address: Option<Address>) -> Result<String> {
         let mut pubkey_batch = UserPublicKeyBatch {
             values: [EdwardsAffine::default(); 7],
         };
@@ -315,13 +360,287 @@ impl Authenticator {
             .send()
             .await?;
 
-        if !resp.status().is_success() {
-            return Err(eyre::eyre!(
-                "failed to create account: {:?}",
-                resp.text().await?
-            ));
-        }
+        let status = resp.status();
 
-        Ok(())
+        if status.is_success() {
+            let body: GatewayStatusResponse = resp.json().await?;
+            Ok(body.request_id)
+        } else {
+            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            Err(eyre::eyre!(
+                "failed to create account: status={status}, body={body_text}"
+            ))
+        }
+    }
+
+    /// Inserts a new authenticator to the account.
+    ///
+    /// # Errors
+    /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
+    pub async fn insert_authenticator(
+        &mut self,
+        new_authenticator_pubkey: EdDSAPublicKey,
+        new_authenticator_address: Address,
+        index: u32,
+    ) -> Result<String> {
+        let account_index = self.account_index().await?;
+        let nonce = self.signing_nonce().await?;
+        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
+        let old_offchain_signer_commitment = self.leaf_hash(&pk_batch);
+        pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
+        let new_offchain_signer_commitment = self.leaf_hash(&pk_batch);
+
+        // TODO: remove this once compression is merged
+        let mut compressed_bytes = Vec::new();
+        new_authenticator_pubkey
+            .pk
+            .serialize_compressed(&mut compressed_bytes)?;
+        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+
+        let eip712_domain = domain(
+            self.provider()?.get_chain_id().await?,
+            *self.config.registry_address(),
+        );
+
+        let signature = sign_insert_authenticator(
+            &self.signer.onchain_signer,
+            account_index,
+            new_authenticator_address,
+            U256::from(index),
+            compressed_pubkey,
+            new_offchain_signer_commitment.into(),
+            nonce,
+            &eip712_domain,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("failed to sign insert authenticator: {}", e))?;
+
+        let req = InsertAuthenticatorRequest {
+            account_index,
+            new_authenticator_address,
+            pubkey_id: U256::from(index),
+            new_authenticator_pubkey: compressed_pubkey,
+            old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
+            new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
+            sibling_nodes: merkle_membership
+                .siblings
+                .iter()
+                .map(std::convert::Into::into)
+                .collect(),
+            signature: signature.as_bytes().to_vec(),
+            nonce,
+        };
+
+        let resp = reqwest::Client::new()
+            .post(format!(
+                "{}/insert-authenticator",
+                self.config.gateway_url()
+            ))
+            .json(&req)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let body: GatewayStatusResponse = resp.json().await?;
+            Ok(body.request_id)
+        } else {
+            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            Err(eyre::eyre!(
+                "failed to insert authenticator: status={status}, body={body_text}"
+            ))
+        }
+    }
+
+    /// Updates an existing authenticator slot with a new authenticator.
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn update_authenticator(
+        &mut self,
+        old_authenticator_address: Address,
+        new_authenticator_address: Address,
+        new_authenticator_pubkey: EdDSAPublicKey,
+        index: u32,
+    ) -> Result<String> {
+        let account_index = self.account_index().await?;
+        let nonce = self.signing_nonce().await?;
+        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
+        let old_commitment: U256 = self.leaf_hash(&pk_batch).into();
+        pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
+        let new_commitment: U256 = self.leaf_hash(&pk_batch).into();
+
+        // TODO: remove this once compression is merged
+        let mut compressed_bytes = Vec::new();
+        new_authenticator_pubkey
+            .pk
+            .serialize_compressed(&mut compressed_bytes)?;
+        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+
+        let eip712_domain = domain(
+            self.provider()?.get_chain_id().await?,
+            *self.config.registry_address(),
+        );
+
+        let signature = sign_update_authenticator(
+            &self.signer.onchain_signer,
+            account_index,
+            old_authenticator_address,
+            new_authenticator_address,
+            U256::from(index),
+            compressed_pubkey,
+            new_commitment,
+            nonce,
+            &eip712_domain,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("failed to sign update authenticator: {}", e))?;
+
+        let sibling_nodes: Vec<U256> = merkle_membership
+            .siblings
+            .iter()
+            .map(|s| (*s).into())
+            .collect();
+
+        let req = UpdateAuthenticatorRequest {
+            account_index,
+            old_authenticator_address,
+            new_authenticator_address,
+            old_offchain_signer_commitment: old_commitment,
+            new_offchain_signer_commitment: new_commitment,
+            sibling_nodes,
+            signature: signature.as_bytes().to_vec(),
+            nonce,
+            pubkey_id: Some(U256::from(index)),
+            new_authenticator_pubkey: Some(compressed_pubkey),
+        };
+
+        let resp = reqwest::Client::new()
+            .post(format!(
+                "{}/update-authenticator",
+                self.config.gateway_url()
+            ))
+            .json(&req)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let gateway_resp: GatewayStatusResponse = resp.json().await?;
+            Ok(gateway_resp.request_id)
+        } else {
+            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            Err(eyre::eyre!(
+                "failed to update authenticator: status={status}, body={body_text}"
+            ))
+        }
+    }
+
+    /// Removes an authenticator from the account.
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn remove_authenticator(
+        &mut self,
+        authenticator_address: Address,
+        index: u32,
+    ) -> Result<String> {
+        let account_index = self.account_index().await?;
+        let nonce = self.signing_nonce().await?;
+        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
+        let old_commitment: U256 = self.leaf_hash(&pk_batch).into();
+        let existing_pubkey = pk_batch.values[index as usize];
+
+        let mut compressed_old = Vec::new();
+        existing_pubkey.serialize_compressed(&mut compressed_old)?;
+        let compressed_old_pubkey = U256::from_le_slice(&compressed_old);
+
+        pk_batch.values[index as usize] = EdwardsAffine::default();
+        let new_commitment: U256 = self.leaf_hash(&pk_batch).into();
+
+        let eip712_domain = domain(
+            self.provider()?.get_chain_id().await?,
+            *self.config.registry_address(),
+        );
+
+        let signature = sign_remove_authenticator(
+            &self.signer.onchain_signer,
+            account_index,
+            authenticator_address,
+            U256::from(index),
+            compressed_old_pubkey,
+            new_commitment,
+            nonce,
+            &eip712_domain,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("failed to sign remove authenticator: {}", e))?;
+
+        let sibling_nodes: Vec<U256> = merkle_membership
+            .siblings
+            .iter()
+            .map(|s| (*s).into())
+            .collect();
+
+        let req = RemoveAuthenticatorRequest {
+            account_index,
+            authenticator_address,
+            old_offchain_signer_commitment: old_commitment,
+            new_offchain_signer_commitment: new_commitment,
+            sibling_nodes,
+            signature: signature.as_bytes().to_vec(),
+            nonce,
+            pubkey_id: Some(U256::from(index)),
+            authenticator_pubkey: Some(compressed_old_pubkey),
+        };
+
+        let resp = reqwest::Client::new()
+            .post(format!(
+                "{}/remove-authenticator",
+                self.config.gateway_url()
+            ))
+            .json(&req)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let gateway_resp: GatewayStatusResponse = resp.json().await?;
+            Ok(gateway_resp.request_id)
+        } else {
+            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            Err(eyre::eyre!(
+                "failed to remove authenticator: status={status}, body={body_text}"
+            ))
+        }
+    }
+
+    /// Fetches the status of a previously submitted gateway request.
+    ///
+    /// # Errors
+    /// Returns an error if the gateway reports the request as missing or the status request fails.
+    pub async fn request_status(&self, request_id: &str) -> Result<GatewayStatusResponse> {
+        let resp = reqwest::Client::new()
+            .get(format!(
+                "{}/status/{}",
+                self.config.gateway_url(),
+                request_id
+            ))
+            .send()
+            .await?;
+
+        let status = resp.status();
+
+        if status.is_success() {
+            let body: GatewayStatusResponse = resp.json().await?;
+            Ok(body)
+        } else if status == reqwest::StatusCode::NOT_FOUND {
+            Err(eyre::eyre!("gateway request {request_id} not found"))
+        } else {
+            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            Err(eyre::eyre!(
+                "failed to fetch status for {request_id}: status={status}, body={body_text}"
+            ))
+        }
     }
 }

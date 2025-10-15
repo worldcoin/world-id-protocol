@@ -37,9 +37,10 @@ async fn main() -> Result<()> {
     let mut authenticator = Authenticator::new(seed, config)?;
 
     // Some dummy recovery address
-    authenticator
+    let request_id = authenticator
         .create_account(Some(address!("4242424242424242424242424242424242424242")))
         .await?;
+    println!("create account queued with request id: {request_id}");
 
     sleep(Duration::from_secs(5)).await;
 

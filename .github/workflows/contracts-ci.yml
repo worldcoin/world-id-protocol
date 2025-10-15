@@ -1,14 +1,14 @@
 on:
-    push:
-      branches:
-        - main
-    pull_request:
-      paths:
-        - contracts/**/*
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - contracts/**/*
 
 permissions:
   contents: read
-  
+
 name: Contracts CI
 
 jobs:
