@@ -329,9 +329,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
         require(_pubkeyIdOf(packedAccountIndex) == uint32(pubkeyId), "Invalid pubkeyId");
 
         // Delete old authenticator
-        delete authenticatorAddressToPackedAccountIndex[
-            oldAuthenticatorAddress
-        ];
+        delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
