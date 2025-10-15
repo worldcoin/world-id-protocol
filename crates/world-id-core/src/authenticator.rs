@@ -105,7 +105,7 @@ impl Authenticator {
     /// Will error if the RPC URL is not valid.
     pub fn registry(&self) -> Result<Arc<AccountRegistryInstance<DynProvider>>> {
         if let Some(registry) = self.registry.get() {
-            return Ok(registry.clone());
+            return Ok(Arc::clone(registry));
         }
 
         let provider = self.provider()?;
@@ -114,12 +114,8 @@ impl Authenticator {
             provider.erased(),
         ));
 
-        let _ = self.registry.set(contract.clone());
-        Ok(self
-            .registry
-            .get()
-            .expect("registry must be set before returning")
-            .clone())
+        let _ = self.registry.set(Arc::clone(&contract));
+        Ok(self.registry.get().map_or(contract, Arc::clone))
     }
 
     /// Returns a reference to the Ethereum provider.
@@ -133,12 +129,9 @@ impl Authenticator {
 
         let provider = ProviderBuilder::new().connect_http(self.config.rpc_url().parse()?);
         let erased = provider.erased();
+
         let _ = self.provider.set(erased.clone());
-        Ok(self
-            .provider
-            .get()
-            .expect("provider must be set before returning")
-            .clone())
+        Ok(self.provider.get().map_or(erased, std::clone::Clone::clone))
     }
 
     /// Returns the packed account index for the holder's World ID.
