@@ -7,16 +7,55 @@ use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use regex::Regex;
 use registry_gateway::{spawn_gateway, GatewayConfig};
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use world_id_core::account_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
     sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
+};
+use world_id_core::types::{
+    GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
+
+async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let resp = client
+            .get(format!("{}/status/{}", base, request_id))
+            .send()
+            .await
+            .unwrap();
+        let status_code = resp.status();
+        if status_code == StatusCode::NOT_FOUND {
+            panic!("request {request_id} not found");
+        }
+        if !status_code.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            panic!(
+                "status check for {request_id} failed: {} body={}",
+                status_code, body_text
+            );
+        }
+        let body: GatewayStatusResponse = resp.json().await.unwrap();
+        match body.status {
+            GatewayRequestState::Finalized { tx_hash } => return tx_hash,
+            GatewayRequestState::Failed { error } => {
+                panic!("request {request_id} failed: {error}");
+            }
+            _ => {
+                if std::time::Instant::now() > deadline {
+                    panic!("timeout waiting for request {request_id} to finalize");
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+}
 
 fn default_sibling_nodes() -> Vec<String> {
     vec![
@@ -147,10 +186,20 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "create-account failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let create_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &create_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "create-account failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "create-account should return a finalized tx hash"
     );
 
     // Wait until createManyAccounts is reflected on-chain
@@ -208,18 +257,20 @@ async fn e2e_gateway_full_flow() {
     )
     .await
     .unwrap();
-    let sig_ins_hex = format!("0x{}", hex::encode(sig_ins.as_bytes()));
-    let body_ins = serde_json::json!({
-        "account_index": "0x1",
-        "new_authenticator_address": format!("0x{:x}", new_auth2),
-        "old_offchain_signer_commitment": "1",
-        "new_offchain_signer_commitment": "2",
-        "sibling_nodes": default_sibling_nodes(),
-        "signature": sig_ins_hex,
-        "nonce": format!("0x{:x}", nonce),
-        "pubkey_id": "0x1",
-        "new_authenticator_pubkey": "200",
-    });
+    let body_ins = InsertAuthenticatorRequest {
+        account_index: U256::from(1),
+        new_authenticator_address: new_auth2,
+        old_offchain_signer_commitment: U256::from(1),
+        new_offchain_signer_commitment: U256::from(2),
+        sibling_nodes: default_sibling_nodes()
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+        signature: sig_ins.as_bytes().to_vec(),
+        nonce,
+        pubkey_id: U256::from(1),
+        new_authenticator_pubkey: U256::from(200),
+    };
     // Issue request to gateway
     let resp = client
         .post(format!("{}/insert-authenticator", base))
@@ -227,10 +278,20 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "insert-authenticator failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let insert_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &insert_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "insert-authenticator failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "insert-authenticator should return a finalized tx hash"
     );
     // wait until mapping shows up
     let deadline2 = std::time::Instant::now() + Duration::from_secs(10);
@@ -264,28 +325,40 @@ async fn e2e_gateway_full_flow() {
     )
     .await
     .unwrap();
-    let sig_rem_hex = format!("0x{}", hex::encode(sig_rem.as_bytes()));
-    let body_rem = serde_json::json!({
-        "account_index": "0x1",
-        "authenticator_address": format!("0x{:x}", new_auth2),
-        "old_offchain_signer_commitment": "2",
-        "new_offchain_signer_commitment": "3",
-        "sibling_nodes": default_sibling_nodes(),
-        "signature": sig_rem_hex,
-        "nonce": format!("0x{:x}", nonce),
-        "pubkey_id": "0x1",
-        "authenticator_pubkey": "200",
-    });
+    let body_rem = RemoveAuthenticatorRequest {
+        account_index: U256::from(1),
+        authenticator_address: new_auth2,
+        old_offchain_signer_commitment: U256::from(2),
+        new_offchain_signer_commitment: U256::from(3),
+        sibling_nodes: default_sibling_nodes()
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+        signature: sig_rem.as_bytes().to_vec(),
+        nonce,
+        pubkey_id: Some(U256::from(1)),
+        authenticator_pubkey: Some(U256::from(200)),
+    };
     let resp = client
         .post(format!("{}/remove-authenticator", base))
         .json(&body_rem)
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "remove-authenticator failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let remove_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &remove_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "remove-authenticator failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "remove-authenticator should return a finalized tx hash"
     );
     // wait until mapping cleared
     let deadline3 = std::time::Instant::now() + Duration::from_secs(10);
@@ -320,27 +393,39 @@ async fn e2e_gateway_full_flow() {
     )
     .await
     .unwrap();
-    let sig_rec_hex = format!("0x{}", hex::encode(sig_rec.as_bytes()));
-    let body_rec = serde_json::json!({
-        "account_index": "0x1",
-        "new_authenticator_address": format!("0x{:x}", wallet_addr_new),
-        "old_offchain_signer_commitment": "3",
-        "new_offchain_signer_commitment": "4",
-        "sibling_nodes": default_sibling_nodes(),
-        "signature": sig_rec_hex,
-        "nonce": format!("0x{:x}", nonce),
-        "new_authenticator_pubkey": "300",
-    });
+    let body_rec = RecoverAccountRequest {
+        account_index: U256::from(1),
+        new_authenticator_address: wallet_addr_new,
+        old_offchain_signer_commitment: U256::from(3),
+        new_offchain_signer_commitment: U256::from(4),
+        sibling_nodes: default_sibling_nodes()
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+        signature: sig_rec.as_bytes().to_vec(),
+        nonce,
+        new_authenticator_pubkey: Some(U256::from(300)),
+    };
     let resp = client
         .post(format!("{}/recover-account", base))
         .json(&body_rec)
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "recover-account failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let recover_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &recover_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "recover-account failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "recover-account should return a finalized tx hash"
     );
     // wait mapping
     let deadline4 = std::time::Instant::now() + Duration::from_secs(10);
@@ -375,29 +460,41 @@ async fn e2e_gateway_full_flow() {
     )
     .await
     .unwrap();
-    let sig_upd_hex = format!("0x{}", hex::encode(sig_upd.as_bytes()));
-    let body_upd = serde_json::json!({
-        "account_index": "0x1",
-        "old_authenticator_address": format!("0x{:x}", wallet_addr_new),
-        "new_authenticator_address": format!("0x{:x}", new_auth4),
-        "old_offchain_signer_commitment": "4",
-        "new_offchain_signer_commitment": "5",
-        "sibling_nodes": default_sibling_nodes(),
-        "signature": sig_upd_hex,
-        "nonce": format!("0x{:x}", nonce),
-        "pubkey_id": "0x0",
-        "new_authenticator_pubkey": "400",
-    });
+    let body_upd = UpdateAuthenticatorRequest {
+        account_index: U256::from(1),
+        old_authenticator_address: wallet_addr_new,
+        new_authenticator_address: new_auth4,
+        old_offchain_signer_commitment: U256::from(4),
+        new_offchain_signer_commitment: U256::from(5),
+        sibling_nodes: default_sibling_nodes()
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+        signature: sig_upd.as_bytes().to_vec(),
+        nonce,
+        pubkey_id: Some(U256::from(0)),
+        new_authenticator_pubkey: Some(U256::from(400)),
+    };
     let resp = client
         .post(format!("{}/update-authenticator", base))
         .json(&body_upd)
         .send()
         .await
         .unwrap();
+    let status_code = resp.status();
+    if status_code != StatusCode::ACCEPTED {
+        let body = resp.text().await.unwrap_or_default();
+        panic!(
+            "update-authenticator failed: status={}, body={}",
+            status_code, body
+        );
+    }
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let update_request_id = accepted.request_id.clone();
+    let tx_hash = wait_for_finalized(&client, &base, &update_request_id).await;
     assert!(
-        resp.status().is_success(),
-        "update-authenticator failed: {:?}",
-        resp.text().await.unwrap()
+        !tx_hash.is_empty(),
+        "update-authenticator should return a finalized tx hash"
     );
     // wait mapping: old removed, new present
     let deadline5 = std::time::Instant::now() + Duration::from_secs(10);

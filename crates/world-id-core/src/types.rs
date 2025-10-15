@@ -86,96 +86,148 @@ pub struct CreateAccountRequest {
 
 /// The request to update an authenticator.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateAuthenticatorRequest {
     /// The account index.
-    pub account_index: String,
+    pub account_index: U256,
     /// The old authenticator address.
-    pub old_authenticator_address: String,
+    pub old_authenticator_address: Address,
     /// The new authenticator address.
-    pub new_authenticator_address: String,
+    pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: String,
+    pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: String,
+    pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    pub sibling_nodes: Vec<String>,
+    pub sibling_nodes: Vec<U256>,
     /// The signature.
-    pub signature: String,
+    pub signature: Vec<u8>,
     /// The nonce.
-    pub nonce: String,
+    pub nonce: U256,
     /// The pubkey id.
-    pub pubkey_id: Option<String>,
+    pub pubkey_id: Option<U256>,
     /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: Option<String>,
+    pub new_authenticator_pubkey: Option<U256>,
 }
 
 /// The request to insert an authenticator.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InsertAuthenticatorRequest {
     /// The account index.
-    pub account_index: String,
+    pub account_index: U256,
     /// The new authenticator address.
-    pub new_authenticator_address: String,
+    pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: String,
+    pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: String,
+    pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    pub sibling_nodes: Vec<String>,
+    pub sibling_nodes: Vec<U256>,
     /// The signature.
-    pub signature: String,
+    pub signature: Vec<u8>,
     /// The nonce.
-    pub nonce: String,
+    pub nonce: U256,
     /// The pubkey id.
-    pub pubkey_id: Option<String>,
+    pub pubkey_id: U256,
     /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: Option<String>,
+    pub new_authenticator_pubkey: U256,
 }
 
 /// The request to remove an authenticator.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RemoveAuthenticatorRequest {
     /// The account index.
-    pub account_index: String,
+    pub account_index: U256,
     /// The authenticator address.
-    pub authenticator_address: String,
+    pub authenticator_address: Address,
     /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: String,
+    pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: String,
+    pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    pub sibling_nodes: Vec<String>,
+    pub sibling_nodes: Vec<U256>,
     /// The signature.
-    pub signature: String,
+    pub signature: Vec<u8>,
     /// The nonce.
-    pub nonce: String,
+    pub nonce: U256,
     /// The pubkey id.
-    pub pubkey_id: Option<String>,
+    pub pubkey_id: Option<U256>,
     /// The authenticator pubkey.
-    pub authenticator_pubkey: Option<String>,
+    pub authenticator_pubkey: Option<U256>,
 }
 
 /// The request to recover an account.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RecoverAccountRequest {
     /// The account index.
-    pub account_index: String,
+    pub account_index: U256,
     /// The new authenticator address.
-    pub new_authenticator_address: String,
+    pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: String,
+    pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: String,
+    pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    pub sibling_nodes: Vec<String>,
+    pub sibling_nodes: Vec<U256>,
     /// The signature.
-    pub signature: String,
+    pub signature: Vec<u8>,
     /// The nonce.
-    pub nonce: String,
+    pub nonce: U256,
     /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: Option<String>,
+    pub new_authenticator_pubkey: Option<U256>,
+}
+
+/// Response returned by the registry gateway for state-changing requests.
+#[derive(Debug, Deserialize)]
+pub struct GatewayStatusResponse {
+    /// Identifier assigned by the gateway to the submitted request.
+    pub request_id: String,
+    /// The kind of operation that was submitted.
+    pub kind: GatewayRequestKind,
+    /// The current state of the request.
+    pub status: GatewayRequestState,
+}
+
+/// Kind of request tracked by the registry gateway.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayRequestKind {
+    /// Account creation request.
+    CreateAccount,
+    /// Authenticator update request.
+    UpdateAuthenticator,
+    /// Authenticator insertion request.
+    InsertAuthenticator,
+    /// Authenticator removal request.
+    RemoveAuthenticator,
+    /// Account recovery request.
+    RecoverAccount,
+}
+
+/// Tracking state for a registry gateway request.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum GatewayRequestState {
+    /// Request queued but not yet batched.
+    Queued,
+    /// Request currently being batched.
+    Batching,
+    /// Request submitted on-chain, hash available.
+    Submitted {
+        /// Transaction hash emitted when the request was submitted.
+        tx_hash: String,
+    },
+    /// Request finalized on-chain.
+    Finalized {
+        /// Transaction hash emitted when the request was finalized.
+        tx_hash: String,
+    },
+    /// Request failed during processing.
+    Failed {
+        /// Error message returned by the gateway.
+        error: String,
+    },
 }

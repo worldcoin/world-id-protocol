@@ -1,4 +1,11 @@
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use alloy::network::EthereumWallet;
 use alloy::primitives::address;
@@ -9,7 +16,7 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -17,7 +24,7 @@ use axum::{
 };
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tower_http::trace::TraceLayer;
 use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::{
@@ -62,6 +69,7 @@ struct AppState {
     provider: DynProvider,
     batcher: CreateBatcherHandle,
     ops_batcher: OpsBatcherHandle,
+    tracker: RequestTracker,
 }
 
 #[derive(Clone)]
@@ -74,9 +82,80 @@ struct OpsBatcherHandle {
     tx: mpsc::Sender<OpEnvelope>,
 }
 
+#[derive(Clone)]
+struct RequestTracker {
+    inner: Arc<RwLock<std::collections::HashMap<String, RequestRecord>>>,
+    seq: Arc<AtomicU64>,
+}
+
+impl RequestTracker {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            seq: Arc::new(AtomicU64::new(1)),
+        }
+    }
+
+    async fn new_request(&self, kind: RequestKind) -> String {
+        let id = self.seq.fetch_add(1, Ordering::Relaxed);
+        let id = format!("{id:016x}");
+        let record = RequestRecord {
+            kind,
+            status: RequestState::Queued,
+        };
+        self.inner.write().await.insert(id.clone(), record);
+        id
+    }
+
+    async fn set_status_batch(&self, ids: &[String], status: RequestState) {
+        let mut map = self.inner.write().await;
+        for id in ids {
+            if let Some(rec) = map.get_mut(id) {
+                rec.status = status.clone();
+            }
+        }
+    }
+
+    async fn set_status(&self, id: &str, status: RequestState) {
+        self.set_status_batch(&[id.to_string()], status).await;
+    }
+
+    async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
+        self.inner.read().await.get(id).cloned()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RequestKind {
+    CreateAccount,
+    UpdateAuthenticator,
+    InsertAuthenticator,
+    RemoveAuthenticator,
+    RecoverAccount,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+enum RequestState {
+    Queued,
+    Batching,
+    Submitted { tx_hash: String },
+    Finalized { tx_hash: String },
+    Failed { error: String },
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RequestRecord {
+    kind: RequestKind,
+    status: RequestState,
+}
+
 #[derive(Debug, Serialize)]
-struct TxResponse {
-    tx_hash: String,
+struct RequestStatusResponse {
+    request_id: String,
+    kind: RequestKind,
+    status: RequestState,
 }
 
 static DEFAULT_BATCH_MS: Lazy<u64> = Lazy::new(|| 1000);
@@ -104,6 +183,8 @@ pub enum ApiError {
     BadRequest(String),
     #[error("{0}")]
     Internal(String),
+    #[error("{0}")]
+    NotFound(String),
 }
 
 impl ApiError {
@@ -122,6 +203,7 @@ impl IntoResponse for ApiError {
         let (status, msg) = match self {
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
         };
         (status, Json(ErrorBody { error: msg })).into_response()
     }
@@ -129,21 +211,13 @@ impl IntoResponse for ApiError {
 
 type ApiResult<T> = Result<T, ApiError>;
 
-fn req_address(field: &str, s: &str) -> ApiResult<Address> {
-    parse_address(s).map_err(|e| ApiError::bad_req(field, e))
-}
 fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
     s.parse().map_err(|e| ApiError::bad_req(field, e))
-}
-fn req_bytes(field: &str, s: &str) -> ApiResult<Bytes> {
-    s.parse().map_err(|e| ApiError::bad_req(field, e))
-}
-fn req_u256_vec(field: &str, v: &[String]) -> ApiResult<Vec<U256>> {
-    v.iter().map(|s| req_u256(field, s)).collect()
 }
 
 fn build_app(registry_addr: Address, rpc_url: String, wallet_key: String, batch_ms: u64) -> Router {
     let provider = build_provider(&rpc_url, &wallet_key).expect("failed to build provider");
+    let tracker = RequestTracker::new();
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
@@ -151,6 +225,7 @@ fn build_app(registry_addr: Address, rpc_url: String, wallet_key: String, batch_
         registry_addr,
         Duration::from_millis(batch_ms),
         rx,
+        tracker.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -162,6 +237,7 @@ fn build_app(registry_addr: Address, rpc_url: String, wallet_key: String, batch_
         registry_addr,
         Duration::from_millis(batch_ms),
         orx,
+        tracker.clone(),
     );
     tokio::spawn(ops_runner.run());
 
@@ -170,12 +246,14 @@ fn build_app(registry_addr: Address, rpc_url: String, wallet_key: String, batch_
         provider,
         batcher,
         ops_batcher,
+        tracker,
     };
 
     Router::new()
         .route("/health", get(health))
         // account creation (batched)
         .route("/create-account", post(create_account))
+        .route("/status/:id", get(request_status))
         // single tx endpoints
         .route("/update-authenticator", post(update_authenticator))
         .route("/insert-authenticator", post(insert_authenticator))
@@ -237,8 +315,8 @@ async fn health() -> impl IntoResponse {
 
 #[derive(Debug)]
 struct CreateReqEnvelope {
+    id: String,
     req: CreateAccountRequest,
-    resp: oneshot::Sender<anyhow::Result<String>>, // tx hash hex
 }
 
 struct CreateBatcherRunner {
@@ -246,6 +324,7 @@ struct CreateBatcherRunner {
     provider: DynProvider,
     registry: Address,
     window: Duration,
+    tracker: RequestTracker,
 }
 
 impl CreateBatcherRunner {
@@ -254,12 +333,14 @@ impl CreateBatcherRunner {
         registry: Address,
         window: Duration,
         rx: mpsc::Receiver<CreateReqEnvelope>,
+        tracker: RequestTracker,
     ) -> Self {
         Self {
             rx,
             provider,
             registry,
             window,
+            tracker,
         }
     }
     async fn run(mut self) {
@@ -267,9 +348,7 @@ impl CreateBatcherRunner {
         let contract = AccountRegistry::new(self.registry, provider);
 
         loop {
-            // pull first item (await), then collect the rest within the window
-            let first = self.rx.recv().await;
-            let Some(first) = first else {
+            let Some(first) = self.rx.recv().await else {
                 tracing::info!("create batcher channel closed");
                 return;
             };
@@ -290,7 +369,11 @@ impl CreateBatcherRunner {
             .is_ok()
             {}
 
-            // Build aggregated params from batch
+            let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
+            self.tracker
+                .set_status_batch(&ids, RequestState::Batching)
+                .await;
+
             let mut recovery_addresses: Vec<Address> = Vec::new();
             let mut auths: Vec<Vec<Address>> = Vec::new();
             let mut pubkeys: Vec<Vec<U256>> = Vec::new();
@@ -304,18 +387,68 @@ impl CreateBatcherRunner {
             }
 
             let call = contract.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
-            let tx_res = call.send().await;
-            match tx_res {
-                Ok(pend) => {
-                    let hash = format!("0x{:x}", pend.tx_hash());
-                    for env in batch {
-                        let _ = env.resp.send(Ok(hash.clone()));
-                    }
+            match call.send().await {
+                Ok(builder) => {
+                    let hash = format!("0x{:x}", builder.tx_hash());
+                    self.tracker
+                        .set_status_batch(
+                            &ids,
+                            RequestState::Submitted {
+                                tx_hash: hash.clone(),
+                            },
+                        )
+                        .await;
+
+                    let tracker = self.tracker.clone();
+                    let ids_for_receipt = ids.clone();
+                    tokio::spawn(async move {
+                        match builder.get_receipt().await {
+                            Ok(receipt) => {
+                                if receipt.status() {
+                                    tracker
+                                        .set_status_batch(
+                                            &ids_for_receipt,
+                                            RequestState::Finalized {
+                                                tx_hash: hash.clone(),
+                                            },
+                                        )
+                                        .await;
+                                } else {
+                                    tracker
+                                        .set_status_batch(
+                                            &ids_for_receipt,
+                                            RequestState::Failed {
+                                                error: format!(
+                                                    "transaction reverted on-chain (tx: {hash})"
+                                                ),
+                                            },
+                                        )
+                                        .await;
+                                }
+                            }
+                            Err(err) => {
+                                tracker
+                                    .set_status_batch(
+                                        &ids_for_receipt,
+                                        RequestState::Failed {
+                                            error: format!("transaction confirmation error: {err}"),
+                                        },
+                                    )
+                                    .await;
+                            }
+                        }
+                    });
                 }
                 Err(err) => {
-                    for env in batch {
-                        let _ = env.resp.send(Err(anyhow::anyhow!(err.to_string())));
-                    }
+                    tracing::error!(error = %err, "create batch send failed");
+                    self.tracker
+                        .set_status_batch(
+                            &ids,
+                            RequestState::Failed {
+                                error: err.to_string(),
+                            },
+                        )
+                        .await;
                 }
             }
         }
@@ -372,8 +505,8 @@ enum OpKind {
 
 #[derive(Debug)]
 struct OpEnvelope {
+    id: String,
     kind: OpKind,
-    resp: oneshot::Sender<anyhow::Result<String>>, // tx hash hex
 }
 
 struct OpsBatcherRunner {
@@ -381,6 +514,7 @@ struct OpsBatcherRunner {
     provider: DynProvider,
     registry: Address,
     window: Duration,
+    tracker: RequestTracker,
 }
 
 impl OpsBatcherRunner {
@@ -389,12 +523,14 @@ impl OpsBatcherRunner {
         registry: Address,
         window: Duration,
         rx: mpsc::Receiver<OpEnvelope>,
+        tracker: RequestTracker,
     ) -> Self {
         Self {
             rx,
             provider,
             registry,
             window,
+            tracker,
         }
     }
 
@@ -423,6 +559,11 @@ impl OpsBatcherRunner {
             .await
             .is_ok()
             {}
+
+            let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
+            self.tracker
+                .set_status_batch(&ids, RequestState::Batching)
+                .await;
 
             let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
             for env in &batch {
@@ -533,268 +674,331 @@ impl OpsBatcherRunner {
 
             let res = mc.aggregate3(calls).send().await;
             match res {
-                Ok(pend) => {
-                    let hash = format!("0x{:x}", pend.tx_hash());
-                    for env in batch {
-                        let _ = env.resp.send(Ok(hash.clone()));
-                    }
-                    continue;
+                Ok(builder) => {
+                    let hash = format!("0x{:x}", builder.tx_hash());
+                    self.tracker
+                        .set_status_batch(
+                            &ids,
+                            RequestState::Submitted {
+                                tx_hash: hash.clone(),
+                            },
+                        )
+                        .await;
+
+                    let tracker = self.tracker.clone();
+                    let ids_for_receipt = ids.clone();
+                    tokio::spawn(async move {
+                        match builder.get_receipt().await {
+                            Ok(receipt) => {
+                                if receipt.status() {
+                                    tracker
+                                        .set_status_batch(
+                                            &ids_for_receipt,
+                                            RequestState::Finalized {
+                                                tx_hash: hash.clone(),
+                                            },
+                                        )
+                                        .await;
+                                } else {
+                                    tracker
+                                        .set_status_batch(
+                                            &ids_for_receipt,
+                                            RequestState::Failed {
+                                                error: format!(
+                                                    "transaction reverted on-chain (tx: {hash})"
+                                                ),
+                                            },
+                                        )
+                                        .await;
+                                }
+                            }
+                            Err(err) => {
+                                tracker
+                                    .set_status_batch(
+                                        &ids_for_receipt,
+                                        RequestState::Failed {
+                                            error: format!("transaction confirmation error: {err}"),
+                                        },
+                                    )
+                                    .await;
+                            }
+                        }
+                    });
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "multicall3 send failed");
-                    let err = anyhow::anyhow!(e.to_string());
-                    for env in batch {
-                        let _ = env.resp.send(Err(anyhow::anyhow!(err.to_string())));
-                    }
+                    self.tracker
+                        .set_status_batch(
+                            &ids,
+                            RequestState::Failed {
+                                error: e.to_string(),
+                            },
+                        )
+                        .await;
                 }
             }
         }
     }
 }
 
-fn parse_address(s: &str) -> anyhow::Result<Address> {
-    s.parse()
-        .map_err(|e| anyhow::anyhow!("invalid address: {}", e))
-}
-
 async fn create_account(
     State(state): State<AppState>,
     Json(req): Json<CreateAccountRequest>,
-) -> impl IntoResponse {
-    let (tx, rx) = oneshot::channel();
-    let env = CreateReqEnvelope { req, resp: tx };
-    if let Err(_e) = state.batcher.tx.send(env).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error":"batcher unavailable"})),
-        )
-            .into_response();
+) -> ApiResult<impl IntoResponse> {
+    let id = state.tracker.new_request(RequestKind::CreateAccount).await;
+
+    let env = CreateReqEnvelope {
+        id: id.clone(),
+        req,
+    };
+
+    if state.batcher.tx.send(env).await.is_err() {
+        state
+            .tracker
+            .set_status(
+                &id,
+                RequestState::Failed {
+                    error: "batcher unavailable".into(),
+                },
+            )
+            .await;
+        return Err(ApiError::Internal("batcher unavailable".into()));
     }
-    match tokio::time::timeout(Duration::from_secs(30), rx).await {
-        Ok(Ok(Ok(hash))) => (StatusCode::OK, Json(TxResponse { tx_hash: hash })).into_response(),
-        Ok(Ok(Err(err))) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": err.to_string()})),
-        )
-            .into_response(),
-        Ok(Err(_canceled)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error":"batcher canceled"})),
-        )
-            .into_response(),
-        Err(_elapsed) => (
-            StatusCode::ACCEPTED,
-            Json(serde_json::json!({"status":"pending"})),
-        )
-            .into_response(),
-    }
+
+    let record = state
+        .tracker
+        .snapshot(&id)
+        .await
+        .expect("request must exist immediately after insertion");
+
+    let body = RequestStatusResponse {
+        request_id: id,
+        kind: record.kind,
+        status: record.status,
+    };
+
+    Ok((StatusCode::ACCEPTED, Json(body)))
 }
 
 async fn update_authenticator(
     State(state): State<AppState>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    let id = state
+        .tracker
+        .new_request(RequestKind::UpdateAuthenticator)
+        .await;
+
     let env = OpEnvelope {
+        id: id.clone(),
         kind: OpKind::Update {
-            account_index: req_u256("account_index", &req.account_index)?,
-            old_authenticator_address: req_address(
-                "old_authenticator_address",
-                &req.old_authenticator_address,
-            )?,
-            new_authenticator_address: req_address(
-                "new_authenticator_address",
-                &req.new_authenticator_address,
-            )?,
-            old_commit: req_u256(
-                "old_offchain_signer_commitment",
-                &req.old_offchain_signer_commitment,
-            )?,
-            new_commit: req_u256(
-                "new_offchain_signer_commitment",
-                &req.new_offchain_signer_commitment,
-            )?,
-            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
-            signature: req_bytes("signature", &req.signature)?,
-            nonce: req_u256("nonce", &req.nonce)?,
-            pubkey_id: req
-                .pubkey_id
-                .as_deref()
-                .map(|s| req_u256("pubkey_id", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
-            new_pubkey: req
-                .new_authenticator_pubkey
-                .as_deref()
-                .map(|s| req_u256("new_authenticator_pubkey", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
+            account_index: req.account_index,
+            old_authenticator_address: req.old_authenticator_address,
+            new_authenticator_address: req.new_authenticator_address,
+            old_commit: req.old_offchain_signer_commitment,
+            new_commit: req.new_offchain_signer_commitment,
+            sibling_nodes: req.sibling_nodes.clone(),
+            signature: Bytes::from(req.signature.clone()),
+            nonce: req.nonce,
+            pubkey_id: req.pubkey_id.unwrap_or(U256::from(0u64)),
+            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
         },
-        resp: oneshot::channel().0, // placeholder, replaced below
     };
-    let (tx, rx) = oneshot::channel();
-    let env = OpEnvelope { resp: tx, ..env };
-    state
-        .ops_batcher
-        .tx
-        .send(env)
+
+    if state.ops_batcher.tx.send(env).await.is_err() {
+        state
+            .tracker
+            .set_status(
+                &id,
+                RequestState::Failed {
+                    error: "ops batcher unavailable".into(),
+                },
+            )
+            .await;
+        return Err(ApiError::Internal("ops batcher unavailable".into()));
+    }
+
+    let record = state
+        .tracker
+        .snapshot(&id)
         .await
-        .map_err(|_| ApiError::Internal("ops batcher unavailable".into()))?;
-    let res = tokio::time::timeout(Duration::from_secs(30), rx)
-        .await
-        .map_err(|_| ApiError::Internal("ops batch timeout".into()))?;
-    let inner = res.map_err(|_| ApiError::Internal("ops batch canceled".into()))?;
-    let hash = inner.map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((StatusCode::OK, Json(TxResponse { tx_hash: hash })))
+        .expect("request must exist immediately after insertion");
+
+    let body = RequestStatusResponse {
+        request_id: id,
+        kind: record.kind,
+        status: record.status,
+    };
+
+    Ok((StatusCode::ACCEPTED, Json(body)))
 }
 
 async fn insert_authenticator(
     State(state): State<AppState>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let (tx, rx) = oneshot::channel();
+    let id = state
+        .tracker
+        .new_request(RequestKind::InsertAuthenticator)
+        .await;
     let env = OpEnvelope {
+        id: id.clone(),
         kind: OpKind::Insert {
-            account_index: req_u256("account_index", &req.account_index)?,
-            new_authenticator_address: req_address(
-                "new_authenticator_address",
-                &req.new_authenticator_address,
-            )?,
-            old_commit: req_u256(
-                "old_offchain_signer_commitment",
-                &req.old_offchain_signer_commitment,
-            )?,
-            new_commit: req_u256(
-                "new_offchain_signer_commitment",
-                &req.new_offchain_signer_commitment,
-            )?,
-            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
-            signature: req_bytes("signature", &req.signature)?,
-            nonce: req_u256("nonce", &req.nonce)?,
-            pubkey_id: req
-                .pubkey_id
-                .as_deref()
-                .map(|s| req_u256("pubkey_id", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
-            new_pubkey: req
-                .new_authenticator_pubkey
-                .as_deref()
-                .map(|s| req_u256("new_authenticator_pubkey", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
+            account_index: req.account_index,
+            new_authenticator_address: req.new_authenticator_address,
+            old_commit: req.old_offchain_signer_commitment,
+            new_commit: req.new_offchain_signer_commitment,
+            sibling_nodes: req.sibling_nodes.clone(),
+            signature: Bytes::from(req.signature.clone()),
+            nonce: req.nonce,
+            pubkey_id: req.pubkey_id,
+            new_pubkey: req.new_authenticator_pubkey,
         },
-        resp: tx,
     };
-    state
-        .ops_batcher
-        .tx
-        .send(env)
+
+    if state.ops_batcher.tx.send(env).await.is_err() {
+        state
+            .tracker
+            .set_status(
+                &id,
+                RequestState::Failed {
+                    error: "ops batcher unavailable".into(),
+                },
+            )
+            .await;
+        return Err(ApiError::Internal("ops batcher unavailable".into()));
+    }
+
+    let record = state
+        .tracker
+        .snapshot(&id)
         .await
-        .map_err(|_| ApiError::Internal("ops batcher unavailable".into()))?;
-    let res = tokio::time::timeout(Duration::from_secs(30), rx)
-        .await
-        .map_err(|_| ApiError::Internal("ops batch timeout".into()))?;
-    let inner = res.map_err(|_| ApiError::Internal("ops batch canceled".into()))?;
-    let hash = inner.map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((StatusCode::OK, Json(TxResponse { tx_hash: hash })))
+        .expect("request must exist immediately after insertion");
+
+    let body = RequestStatusResponse {
+        request_id: id,
+        kind: record.kind,
+        status: record.status,
+    };
+
+    Ok((StatusCode::ACCEPTED, Json(body)))
 }
 
 async fn remove_authenticator(
     State(state): State<AppState>,
     Json(req): Json<RemoveAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let (tx, rx) = oneshot::channel();
+    let id = state
+        .tracker
+        .new_request(RequestKind::RemoveAuthenticator)
+        .await;
     let env = OpEnvelope {
+        id: id.clone(),
         kind: OpKind::Remove {
-            account_index: req_u256("account_index", &req.account_index)?,
-            authenticator_address: req_address(
-                "authenticator_address",
-                &req.authenticator_address,
-            )?,
-            old_commit: req_u256(
-                "old_offchain_signer_commitment",
-                &req.old_offchain_signer_commitment,
-            )?,
-            new_commit: req_u256(
-                "new_offchain_signer_commitment",
-                &req.new_offchain_signer_commitment,
-            )?,
-            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
-            signature: req_bytes("signature", &req.signature)?,
-            nonce: req_u256("nonce", &req.nonce)?,
-            pubkey_id: req
-                .pubkey_id
-                .as_deref()
-                .map(|s| req_u256("pubkey_id", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
-            authenticator_pubkey: req
-                .authenticator_pubkey
-                .as_deref()
-                .map(|s| req_u256("authenticator_pubkey", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
+            account_index: req.account_index,
+            authenticator_address: req.authenticator_address,
+            old_commit: req.old_offchain_signer_commitment,
+            new_commit: req.new_offchain_signer_commitment,
+            sibling_nodes: req.sibling_nodes.clone(),
+            signature: Bytes::from(req.signature.clone()),
+            nonce: req.nonce,
+            pubkey_id: req.pubkey_id.unwrap_or(U256::from(0u64)),
+            authenticator_pubkey: req.authenticator_pubkey.unwrap_or(U256::from(0u64)),
         },
-        resp: tx,
     };
-    state
-        .ops_batcher
-        .tx
-        .send(env)
+
+    if state.ops_batcher.tx.send(env).await.is_err() {
+        state
+            .tracker
+            .set_status(
+                &id,
+                RequestState::Failed {
+                    error: "ops batcher unavailable".into(),
+                },
+            )
+            .await;
+        return Err(ApiError::Internal("ops batcher unavailable".into()));
+    }
+
+    let record = state
+        .tracker
+        .snapshot(&id)
         .await
-        .map_err(|_| ApiError::Internal("ops batcher unavailable".into()))?;
-    let res = tokio::time::timeout(Duration::from_secs(30), rx)
-        .await
-        .map_err(|_| ApiError::Internal("ops batch timeout".into()))?;
-    let inner = res.map_err(|_| ApiError::Internal("ops batch canceled".into()))?;
-    let hash = inner.map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((StatusCode::OK, Json(TxResponse { tx_hash: hash })))
+        .expect("request must exist immediately after insertion");
+
+    let body = RequestStatusResponse {
+        request_id: id,
+        kind: record.kind,
+        status: record.status,
+    };
+
+    Ok((StatusCode::ACCEPTED, Json(body)))
 }
 
 async fn recover_account(
     State(state): State<AppState>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let (tx, rx) = oneshot::channel();
+    let id = state.tracker.new_request(RequestKind::RecoverAccount).await;
     let env = OpEnvelope {
+        id: id.clone(),
         kind: OpKind::Recover {
-            account_index: req_u256("account_index", &req.account_index)?,
-            new_authenticator_address: req_address(
-                "new_authenticator_address",
-                &req.new_authenticator_address,
-            )?,
-            old_commit: req_u256(
-                "old_offchain_signer_commitment",
-                &req.old_offchain_signer_commitment,
-            )?,
-            new_commit: req_u256(
-                "new_offchain_signer_commitment",
-                &req.new_offchain_signer_commitment,
-            )?,
-            sibling_nodes: req_u256_vec("sibling_nodes", &req.sibling_nodes)?,
-            signature: req_bytes("signature", &req.signature)?,
-            nonce: req_u256("nonce", &req.nonce)?,
-            new_pubkey: req
-                .new_authenticator_pubkey
-                .as_deref()
-                .map(|s| req_u256("new_authenticator_pubkey", s))
-                .transpose()?
-                .unwrap_or(U256::from(0u64)),
+            account_index: req.account_index,
+            new_authenticator_address: req.new_authenticator_address,
+            old_commit: req.old_offchain_signer_commitment,
+            new_commit: req.new_offchain_signer_commitment,
+            sibling_nodes: req.sibling_nodes.clone(),
+            signature: Bytes::from(req.signature.clone()),
+            nonce: req.nonce,
+            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
         },
-        resp: tx,
     };
-    state
-        .ops_batcher
-        .tx
-        .send(env)
+
+    if state.ops_batcher.tx.send(env).await.is_err() {
+        state
+            .tracker
+            .set_status(
+                &id,
+                RequestState::Failed {
+                    error: "ops batcher unavailable".into(),
+                },
+            )
+            .await;
+        return Err(ApiError::Internal("ops batcher unavailable".into()));
+    }
+
+    let record = state
+        .tracker
+        .snapshot(&id)
         .await
-        .map_err(|_| ApiError::Internal("ops batcher unavailable".into()))?;
-    let res = tokio::time::timeout(Duration::from_secs(30), rx)
+        .expect("request must exist immediately after insertion");
+
+    let body = RequestStatusResponse {
+        request_id: id,
+        kind: record.kind,
+        status: record.status,
+    };
+
+    Ok((StatusCode::ACCEPTED, Json(body)))
+}
+
+async fn request_status(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<impl IntoResponse> {
+    let record = state
+        .tracker
+        .snapshot(&id)
         .await
-        .map_err(|_| ApiError::Internal("ops batch timeout".into()))?;
-    let inner = res.map_err(|_| ApiError::Internal("ops batch canceled".into()))?;
-    let hash = inner.map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((StatusCode::OK, Json(TxResponse { tx_hash: hash })))
+        .ok_or_else(|| ApiError::NotFound("request not found".into()))?;
+
+    let body = RequestStatusResponse {
+        request_id: id,
+        kind: record.kind,
+        status: record.status,
+    };
+
+    Ok((StatusCode::OK, Json(body)))
 }
 
 #[derive(Debug, Deserialize)]
