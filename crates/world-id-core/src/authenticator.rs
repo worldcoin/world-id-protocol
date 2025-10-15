@@ -403,7 +403,7 @@ impl Authenticator {
         );
 
         let signature = sign_insert_authenticator(
-            &self.signer.onchain_signer,
+            &self.signer.onchain_signer(),
             account_index,
             new_authenticator_address,
             U256::from(index),
@@ -483,7 +483,7 @@ impl Authenticator {
         );
 
         let signature = sign_update_authenticator(
-            &self.signer.onchain_signer,
+            &self.signer.onchain_signer(),
             account_index,
             old_authenticator_address,
             new_authenticator_address,
@@ -564,7 +564,7 @@ impl Authenticator {
         );
 
         let signature = sign_remove_authenticator(
-            &self.signer.onchain_signer,
+            &self.signer.onchain_signer(),
             account_index,
             authenticator_address,
             U256::from(index),

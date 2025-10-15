@@ -68,7 +68,8 @@ contract CredentialIssuerRegistryTest is Test {
 
         vm.expectEmit();
         emit CredentialSchemaIssuerRegistry.IssuerSchemaRegistered(1, pubkey, signer);
-        registry.register(pubkey, signer);
+        uint256 issuerSchemaId = registry.register(pubkey, signer);
+        assertEq(issuerSchemaId, 1);
 
         assertEq(registry.nextIssuerSchemaId(), 2);
         assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), pubkey));

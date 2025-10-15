@@ -8,7 +8,7 @@ use secrecy::{ExposeSecret, SecretBox};
 /// Both keys are zeroized on drop.
 #[derive(Debug)]
 pub struct Signer {
-    /// An on-chain `SECP256K1` private key. This key is used to sign operations that are validated on-chain (see `AccountRegistry` or CredentialSchemaIssuerRegistry`).
+    /// An on-chain `SECP256K1` private key. This key is used to sign operations that are validated on-chain (see `AccountRegistry` or `CredentialSchemaIssuerRegistry`).
     onchain_signer: PrivateKeySigner,
     /// An off-chain `EdDSA` private key. This key is used to sign operations that are validated off-chain, primarily within Zero-Knowledge Circuits.
     offchain_signer: SecretBox<EdDSAPrivateKey>,
@@ -30,10 +30,9 @@ impl Signer {
         })
     }
 
-    /// Returns a reference to the internal signer.
-    #[allow(unused)]
-    pub const fn onchain_signer(&self) -> &PrivateKeySigner {
-        &self.onchain_signer
+    /// Returns a mutable reference to the internal signer.
+    pub const fn onchain_signer(&mut self) -> &mut PrivateKeySigner {
+        &mut self.onchain_signer
     }
 
     /// Returns a reference to the internal offchain signer.
