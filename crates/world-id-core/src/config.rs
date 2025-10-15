@@ -51,7 +51,7 @@ impl Config {
         &self.registry_address
     }
 
-    /// The URL of the `authtree-indexer` service to use. The indexer is used to fetch inclusion proofs from the `AccountRegistry` contract.
+    /// The URL of the `world-id-indexer` service to use. The indexer is used to fetch inclusion proofs from the `AccountRegistry` contract.
     #[must_use]
     pub const fn indexer_url(&self) -> &String {
         &self.indexer_url

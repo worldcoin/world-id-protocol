@@ -103,6 +103,62 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2.0.13
         with:
           command: check ${{ matrix.checks }}
+
+  docker:
+    name: Test Docker build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - world-id-indexer
+    services:
+      postgres:
+        image: postgres:17
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        id: docker_build
+        with:
+          push: false
+          load: true
+          tags: ${{ matrix.service }}:latest
+          cache-from: type=gha
+          cache-to: "type=gha,mode=max"
+          platforms: linux/amd64
+          build-args: SERVICE_NAME=${{ matrix.service }}
+
+      - name: Run Docker container
+        run: |
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
+
+          # Wait for the application to start
+          sleep 10
+
+          # Output logs to GitHub action
+          docker logs ${{ matrix.service }}-container
+
+      - name: Health check Docker container
+        run: curl -f http://0.0.0.0:8080/health
+
+      - name: Clean up
+        run: |
+          docker stop ${{ matrix.service }}-container
+          docker rm ${{ matrix.service }}-container
+
 # TODO: add docs check when relevant
 #   docs:
 #     name: Check docs

@@ -29,7 +29,7 @@ fn deploy_registry() -> String {
     let mut cmd = Command::new("forge");
     cmd.current_dir("../../contracts")
         .arg("script")
-        .arg("script/AccountRegistry.s.sol:CounterScript")
+        .arg("script/AccountRegistry.s.sol:DeployScript")
         .arg("--fork-url")
         .arg(ANVIL_HTTP_URL)
         .arg("--broadcast")
@@ -66,7 +66,7 @@ fn cast_create_account(registry: &str, recovery: &str, auth: &str, commitment: &
         .arg(registry)
         .arg("createAccount(address,address[],uint256)")
         .arg(recovery)
-        .arg(format!("[{}]", auth))
+        .arg(format!("[{auth}]"))
         .arg(commitment);
     let output = cmd.output().expect("failed to run cast send");
     assert!(
@@ -105,7 +105,7 @@ async fn e2e_backfill_and_live_sync() {
         .await
         .unwrap();
     // Ensure schema exists before any queries
-    authtree_indexer::init_db(&pool).await.unwrap();
+    world_id_indexer::init_db(&pool).await.unwrap();
 
     // // Killall anvil processes
     Command::new("pkill")
@@ -148,20 +148,22 @@ async fn e2e_backfill_and_live_sync() {
     std::env::set_var("BATCH_SIZE", "1000");
 
     let indexer_task = tokio::spawn(async move {
-        authtree_indexer::run_from_env().await.unwrap();
+        world_id_indexer::run_indexer(world_id_indexer::GlobalConfig::from_env())
+            .await
+            .unwrap();
     });
 
     // Allow time for backfill (poll until >= 2)
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         let c = query_count(&pool).await;
-        println!("Backfill count: {}", c);
+        println!("Backfill count: {c}");
         if c >= 2 {
             assert!(c == 2, "backfill count is not 2");
             break;
         }
         if std::time::Instant::now() > deadline {
-            panic!("timeout waiting for backfill; count {}", c);
+            panic!("timeout waiting for backfill; count {c}");
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -184,13 +186,13 @@ async fn e2e_backfill_and_live_sync() {
     let deadline2 = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         let c2 = query_count(&pool).await;
-        println!("Live sync count: {}", c2);
+        println!("Live sync count: {c2}");
         if c2 >= 4 {
             assert!(c2 == 4, "live sync count is not 4");
             break;
         }
         if std::time::Instant::now() > deadline2 {
-            panic!("timeout waiting for live sync; count {}", c2);
+            panic!("timeout waiting for live sync; count {c2}");
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -198,7 +200,7 @@ async fn e2e_backfill_and_live_sync() {
     // Verify proof endpoint is working
     let client = reqwest::Client::builder().build().unwrap();
     let base = "http://127.0.0.1:8080";
-    let resp = client.get(format!("{}/proof/1", base)).send().await;
+    let resp = client.get(format!("{base}/proof/1")).send().await;
 
     assert!(resp.is_ok(), "proof request failed");
     let resp = resp.unwrap();
