@@ -16,7 +16,12 @@ contract Verifier is Ownable {
 
     event AccountRegistryUpdated(address oldAccountRegistry, address newAccountRegistry);
 
-    function verify(bytes memory, /* proof */ uint256 credentialIssuerId, uint256 authenticatorRoot)
+    function verify(
+        bytes memory,
+        /* proof */
+        uint256 credentialIssuerId,
+        uint256 authenticatorRoot
+    )
         external
         view
         returns (bool)
