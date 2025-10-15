@@ -44,9 +44,6 @@ static TREE_DEPTH: usize = 30;
 static QUERY_ZKEY_PATH: &str = "OPRFQueryProof.zkey";
 static NULLIFIER_ZKEY_PATH: &str = "OPRFNullifierProof.zkey";
 
-static REGISTRY: OnceLock<Arc<AccountRegistryInstance<DynProvider>>> = OnceLock::new();
-static PROVIDER: OnceLock<DynProvider> = OnceLock::new();
-
 type UniquenessProof = (Groth16Proof, BaseField);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
@@ -56,6 +53,8 @@ pub struct Authenticator {
     pub config: Config,
     signer: AuthenticatorSigner,
     packed_account_index: Option<U256>,
+    registry: OnceLock<Arc<AccountRegistryInstance<DynProvider>>>,
+    provider: OnceLock<DynProvider>,
 }
 
 impl Authenticator {
@@ -69,6 +68,8 @@ impl Authenticator {
             packed_account_index: None,
             signer,
             config,
+            registry: OnceLock::new(),
+            provider: OnceLock::new(),
         })
     }
 
@@ -102,9 +103,20 @@ impl Authenticator {
     /// # Errors
     /// Will error if the RPC URL is not valid.
     pub fn registry(&self) -> Result<Arc<AccountRegistryInstance<DynProvider>>> {
+        if let Some(registry) = self.registry.get() {
+            return Ok(registry.clone());
+        }
+
         let provider = self.provider()?;
-        let contract = AccountRegistry::new(*self.config.registry_address(), provider.erased());
-        Ok(REGISTRY.get_or_init(|| Arc::new(contract)).clone())
+        let contract =
+            Arc::new(AccountRegistry::new(*self.config.registry_address(), provider.erased()));
+
+        let _ = self.registry.set(contract.clone());
+        Ok(self
+            .registry
+            .get()
+            .expect("registry must be set before returning")
+            .clone())
     }
 
     /// Returns a reference to the Ethereum provider.
@@ -112,8 +124,18 @@ impl Authenticator {
     /// # Errors
     /// Will error if the provided RPC URL is not valid.
     pub fn provider(&self) -> Result<DynProvider> {
+        if let Some(provider) = self.provider.get() {
+            return Ok(provider.clone());
+        }
+
         let provider = ProviderBuilder::new().connect_http(self.config.rpc_url().parse()?);
-        Ok(PROVIDER.get_or_init(|| provider.erased()).clone())
+        let erased = provider.erased();
+        let _ = self.provider.set(erased.clone());
+        Ok(self
+            .provider
+            .get()
+            .expect("provider must be set before returning")
+            .clone())
     }
 
     /// Returns the packed account index for the holder's World ID.
