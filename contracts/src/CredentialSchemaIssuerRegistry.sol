@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -10,7 +9,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
+contract CredentialSchemaIssuerRegistry is EIP712 {
     ////////////////////////////////////////////////////////////
     //                         Types                          //
     ////////////////////////////////////////////////////////////
@@ -67,7 +66,7 @@ contract CredentialSchemaIssuerRegistry is EIP712, Ownable {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor() EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {}
+    constructor() EIP712(EIP712_NAME, EIP712_VERSION) {}
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //
