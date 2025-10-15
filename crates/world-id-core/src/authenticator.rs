@@ -108,8 +108,10 @@ impl Authenticator {
         }
 
         let provider = self.provider()?;
-        let contract =
-            Arc::new(AccountRegistry::new(*self.config.registry_address(), provider.erased()));
+        let contract = Arc::new(AccountRegistry::new(
+            *self.config.registry_address(),
+            provider.erased(),
+        ));
 
         let _ = self.registry.set(contract.clone());
         Ok(self
