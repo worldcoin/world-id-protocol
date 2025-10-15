@@ -348,7 +348,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
-    pub async fn create_account(&self, recovery_address: Option<Address>) -> Result<()> {
+    pub async fn create_account(&self, recovery_address: Option<Address>) -> Result<String> {
         let mut pubkey_batch = UserPublicKeyBatch {
             values: [EdwardsAffine::default(); 7],
         };
@@ -368,14 +368,17 @@ impl Authenticator {
             .send()
             .await?;
 
-        if !resp.status().is_success() {
-            return Err(eyre::eyre!(
-                "failed to create account: {:?}",
-                resp.text().await?
-            ));
-        }
+        let status = resp.status();
 
-        Ok(())
+        if status.is_success() {
+            let body: GatewayStatusResponse = resp.json().await?;
+            Ok(body.request_id)
+        } else {
+            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            Err(eyre::eyre!(
+                "failed to create account: status={status}, body={body_text}"
+            ))
+        }
     }
 
     /// Inserts a new authenticator to the account.
