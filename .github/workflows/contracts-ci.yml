@@ -1,14 +1,14 @@
 on:
-    push:
-      branches:
-        - main
-    pull_request:
-      paths:
-        - contracts/**/*
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - contracts/**/*
 
 permissions:
   contents: read
-  
+
 name: Contracts CI
 
 jobs:
@@ -27,6 +27,9 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: 1.2.2
+          components: forge
 
       - name: Run tests
         run: forge test -vvv
