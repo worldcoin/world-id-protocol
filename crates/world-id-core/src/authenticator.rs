@@ -7,24 +7,23 @@ use std::sync::{Arc, OnceLock};
 use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::config::Config;
 use crate::types::{BaseField, CreateAccountRequest, InclusionProofResponse, RpRequest};
-use crate::Credential;
+use crate::{Credential, Signer};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::providers::{DynProvider, Provider};
-use alloy::signers::local::PrivateKeySigner;
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
 use ark_serde_compat::groth16::Groth16Proof;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
+use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::Result;
 use oprf_client::zk::Groth16Material;
 use oprf_client::{MerkleMembership, NullifierArgs, OprfQuery, UserKeyMaterial};
 use oprf_types::crypto::UserPublicKeyBatch;
 use oprf_types::{MerkleRoot, RpId, ShareEpoch};
 use poseidon2::Poseidon2;
-use secrecy::{ExposeSecret, SecretBox};
+use secrecy::ExposeSecret;
 use std::str::FromStr;
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -48,7 +47,7 @@ type UniquenessProof = (Groth16Proof, BaseField);
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
-    signer: AuthenticatorSigner,
+    signer: Signer,
     packed_account_index: Option<U256>,
 }
 
@@ -58,7 +57,7 @@ impl Authenticator {
     /// # Errors
     /// Will error if the provided seed is not valid.
     pub fn new(seed: &[u8], config: Config) -> Result<Self> {
-        let signer = AuthenticatorSigner::from_seed_bytes(seed)?;
+        let signer = Signer::from_seed_bytes(seed)?;
         Ok(Self {
             packed_account_index: None,
             signer,
@@ -324,52 +323,5 @@ impl Authenticator {
         }
 
         Ok(())
-    }
-}
-
-/// The inner signer which can sign requests for both on-chain and off-chain operations on behalf of the authenticator.
-///
-/// Both keys are zeroized on drop.
-#[derive(Debug)]
-pub struct AuthenticatorSigner {
-    /// An on-chain SECP256K1 private key.
-    onchain_signer: PrivateKeySigner,
-    /// An off-chain `EdDSA` private key.
-    offchain_signer: SecretBox<EdDSAPrivateKey>,
-}
-
-impl AuthenticatorSigner {
-    /// Initializes a new signer from an input seed.
-    pub fn from_seed_bytes(seed: &[u8]) -> Result<Self> {
-        if seed.len() != 32 {
-            return Err(eyre::eyre!("seed must be 32 bytes"));
-        }
-        let bytes: [u8; 32] = seed.try_into()?;
-        let onchain_signer = PrivateKeySigner::from_bytes(&bytes.into())?;
-        let offchain_signer = SecretBox::new(Box::new(EdDSAPrivateKey::from_bytes(bytes)));
-
-        Ok(Self {
-            onchain_signer,
-            offchain_signer,
-        })
-    }
-
-    /// Returns a reference to the internal signer.
-    #[allow(unused)]
-    pub const fn onchain_signer(&self) -> &PrivateKeySigner {
-        &self.onchain_signer
-    }
-
-    /// Returns a reference to the internal offchain signer.
-    pub const fn offchain_signer_private_key(&self) -> &SecretBox<EdDSAPrivateKey> {
-        &self.offchain_signer
-    }
-
-    pub const fn onchain_signer_address(&self) -> Address {
-        self.onchain_signer.address()
-    }
-
-    pub fn offchain_signer_pubkey(&self) -> EdDSAPublicKey {
-        self.offchain_signer.expose_secret().public()
     }
 }

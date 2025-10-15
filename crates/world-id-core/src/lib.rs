@@ -22,6 +22,16 @@ pub mod config;
 mod credential;
 pub use credential::Credential;
 
+#[cfg(feature = "issuer")]
+mod issuer;
+#[cfg(feature = "issuer")]
+pub use issuer::Issuer;
+
+#[cfg(any(feature = "authenticator", feature = "issuer"))]
+mod signer;
+#[cfg(any(feature = "authenticator", feature = "issuer"))]
+pub(crate) use signer::Signer;
+
 /// Generic re-usable types
 pub mod types;
 pub use types::BaseField;
