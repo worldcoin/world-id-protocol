@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {Skyscraper} from "../hash/Skyscraper.sol";
 import {Poseidon2T2} from "../hash/Poseidon2.sol";
 
 uint256 constant SNARK_SCALAR_FIELD =
@@ -46,7 +45,6 @@ library InternalLeanIMT {
      * @return The hash of the two inputs.
      */
     function hash(uint256 a, uint256 b) internal pure returns (uint256) {
-        // return Skyscraper.compress(a, b);
         return Poseidon2T2.compress([a, b]);
     }
 
