@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract CredentialIssuerRegistryTest is Test {
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
@@ -11,7 +12,16 @@ contract CredentialIssuerRegistryTest is Test {
     CredentialSchemaIssuerRegistry private registry;
 
     function setUp() public {
-        registry = new CredentialSchemaIssuerRegistry();
+        // Deploy implementation
+        CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry();
+
+        // Deploy proxy
+        bytes memory initData = abi.encodeWithSelector(
+            CredentialSchemaIssuerRegistry.initialize.selector
+        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+
+        registry = CredentialSchemaIssuerRegistry(address(proxy));
     }
 
     function _generatePubkey(string memory str) public pure returns (CredentialSchemaIssuerRegistry.Pubkey memory) {

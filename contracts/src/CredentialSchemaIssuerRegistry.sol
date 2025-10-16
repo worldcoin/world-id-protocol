@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is EIP712 {
+contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable {
     ////////////////////////////////////////////////////////////
     //                         Types                          //
     ////////////////////////////////////////////////////////////
@@ -25,7 +26,7 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
 
     mapping(uint256 => Pubkey) private _idToPubkey;
     mapping(address => uint256) private _addressToId;
-    uint256 private _nextId = 1;
+    uint256 private _nextId;
     mapping(uint256 => uint256) private _nonces;
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
@@ -66,7 +67,18 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor() EIP712(EIP712_NAME, EIP712_VERSION) {}
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev Initializes the contract.
+     */
+    function initialize() public initializer {
+        __EIP712_init(EIP712_NAME, EIP712_VERSION);
+        _nextId = 1;
+    }
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //

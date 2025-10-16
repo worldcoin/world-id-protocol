@@ -3,11 +3,11 @@ pragma solidity ^0.8.13;
 
 import {BinaryIMT, BinaryIMTData} from "./tree/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-contract AccountRegistry is EIP712, Ownable2Step {
+contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable {
     using BinaryIMT for BinaryIMTData;
 
     ////////////////////////////////////////////////////////////
@@ -21,7 +21,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
     mapping(uint256 => uint256) public accountRecoveryCounter;
 
     BinaryIMTData public tree;
-    uint256 public nextAccountIndex = 1;
+    uint256 public nextAccountIndex;
 
     // Root history tracking
     mapping(uint256 => uint256) public rootToTimestamp;
@@ -103,8 +103,21 @@ contract AccountRegistry is EIP712, Ownable2Step {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor(uint256 treeDepth) EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev Initializes the contract.
+     * @param treeDepth The depth of the Merkle tree.
+     */
+    function initialize(uint256 treeDepth) public initializer {
+        __EIP712_init(EIP712_NAME, EIP712_VERSION);
+        __Ownable_init(msg.sender);
+        __Ownable2Step_init();
         tree.initWithDefaultZeroes(treeDepth);
+        nextAccountIndex = 1;
     }
 
     ////////////////////////////////////////////////////////////
