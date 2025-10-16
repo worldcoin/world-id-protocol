@@ -16,8 +16,8 @@ jobs:
     strategy:
       matrix:
         service:
-          - world-id-indexer
-          - world-id-gateway
+          - indexer
+          - gateway
     permissions:
       contents: read
       id-token: write
@@ -32,10 +32,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          images: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           tags: |
             type=raw,value=latest
-            type=ref,event=pr
             type=sha
 
       - name: Set up Docker Buildx
@@ -58,11 +57,11 @@ jobs:
           cache-from: type=gha
           cache-to: "type=gha,mode=max"
           platforms: linux/amd64
-          build-args: SERVICE_NAME=${{ matrix.service }}
+          build-args: SERVICE_NAME=world-id-${{ matrix.service }}
 
       - name: Attest
         uses: actions/attest-build-provenance@v1
         with:
           push-to-registry: true
-          subject-name: ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          subject-name: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           subject-digest: ${{ steps.docker_build.outputs.digest }}

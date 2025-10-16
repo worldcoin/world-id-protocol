@@ -20,8 +20,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let _ = dotenvy::dotenv();
-    tracing::info!("Starting registry-gateway");
-    println!("Starting registry-gateway");
+    tracing::info!("Starting world-id-gateway");
+    println!("Starting world-id-gateway");
 
     world_id_gateway::run().await
 }
