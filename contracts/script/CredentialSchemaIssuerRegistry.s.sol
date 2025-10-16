@@ -18,15 +18,10 @@ contract DeployCredentialSchemaIssuerRegistryScript is Script {
         CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry{salt: bytes32(uint256(0))}();
 
         // Encode initializer call
-        bytes memory initData = abi.encodeWithSelector(
-            CredentialSchemaIssuerRegistry.initialize.selector
-        );
+        bytes memory initData = abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector);
 
         // Deploy proxy
-        proxy = new ERC1967Proxy{salt: bytes32(uint256(0))}(
-            address(implementation),
-            initData
-        );
+        proxy = new ERC1967Proxy{salt: bytes32(uint256(0))}(address(implementation), initData);
 
         registry = CredentialSchemaIssuerRegistry(address(proxy));
 

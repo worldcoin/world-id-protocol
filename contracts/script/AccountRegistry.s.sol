@@ -20,16 +20,10 @@ contract DeployScript is Script {
         AccountRegistry implementation = new AccountRegistry{salt: bytes32(uint256(0))}();
 
         // Encode initializer call
-        bytes memory initData = abi.encodeWithSelector(
-            AccountRegistry.initialize.selector,
-            treeDepth
-        );
+        bytes memory initData = abi.encodeWithSelector(AccountRegistry.initialize.selector, treeDepth);
 
         // Deploy proxy
-        proxy = new ERC1967Proxy{salt: bytes32(uint256(0))}(
-            address(implementation),
-            initData
-        );
+        proxy = new ERC1967Proxy{salt: bytes32(uint256(0))}(address(implementation), initData);
 
         accountRegistry = AccountRegistry(address(proxy));
 

@@ -21,11 +21,7 @@ contract Verifier is Ownable {
         /* proof */
         uint256 credentialIssuerId,
         uint256 authenticatorRoot
-    )
-        external
-        view
-        returns (bool)
-    {
+    ) external view returns (bool) {
         require(accountRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
 
         CredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =

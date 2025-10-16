@@ -31,10 +31,7 @@ contract AccountRegistryTest is Test {
         AccountRegistry implementation = new AccountRegistry();
 
         // Deploy proxy
-        bytes memory initData = abi.encodeWithSelector(
-            AccountRegistry.initialize.selector,
-            30
-        );
+        bytes memory initData = abi.encodeWithSelector(AccountRegistry.initialize.selector, 30);
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         accountRegistry = AccountRegistry(address(proxy));

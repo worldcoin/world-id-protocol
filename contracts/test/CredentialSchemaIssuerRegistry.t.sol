@@ -16,9 +16,7 @@ contract CredentialIssuerRegistryTest is Test {
         CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry();
 
         // Deploy proxy
-        bytes memory initData = abi.encodeWithSelector(
-            CredentialSchemaIssuerRegistry.initialize.selector
-        );
+        bytes memory initData = abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector);
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         registry = CredentialSchemaIssuerRegistry(address(proxy));
@@ -47,9 +45,8 @@ contract CredentialIssuerRegistryTest is Test {
         CredentialSchemaIssuerRegistry.Pubkey memory newPubkey,
         CredentialSchemaIssuerRegistry.Pubkey memory oldPubkey
     ) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(registry.UPDATE_PUBKEY_TYPEHASH(), id, newPubkey, oldPubkey, registry.nonceOf(id))
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(registry.UPDATE_PUBKEY_TYPEHASH(), id, newPubkey, oldPubkey, registry.nonceOf(id)));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
