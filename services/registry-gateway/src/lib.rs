@@ -9,7 +9,6 @@ use std::{
 
 use alloy::network::EthereumWallet;
 use alloy::primitives::address;
-use alloy::signers::local::PrivateKeySigner;
 use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
@@ -22,7 +21,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tower_http::trace::TraceLayer;
@@ -32,16 +30,11 @@ use world_id_core::types::{
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 
+pub use crate::config::GatewayConfig;
+
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
-#[derive(Clone, Debug)]
-pub struct GatewayConfig {
-    pub registry_addr: Address,
-    pub rpc_url: String,
-    pub wallet_key: String,
-    pub batch_ms: u64,
-    pub listen_addr: SocketAddr,
-}
+mod config;
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -158,8 +151,6 @@ struct RequestStatusResponse {
     status: RequestState,
 }
 
-static DEFAULT_BATCH_MS: Lazy<u64> = Lazy::new(|| 1000);
-
 alloy::sol! {
     #[allow(missing_docs)]
     #[sol(rpc)]
@@ -170,10 +161,11 @@ alloy::sol! {
     }
 }
 
-fn build_provider(rpc_url: &str, wallet_key: &str) -> anyhow::Result<DynProvider> {
-    let wallet = EthereumWallet::from(wallet_key.parse::<PrivateKeySigner>()?);
+fn build_provider(rpc_url: &str, ethereum_wallet: EthereumWallet) -> anyhow::Result<DynProvider> {
     let url = Url::parse(rpc_url)?;
-    let provider = ProviderBuilder::new().wallet(wallet).connect_http(url);
+    let provider = ProviderBuilder::new()
+        .wallet(ethereum_wallet)
+        .connect_http(url);
     Ok(provider.erased())
 }
 
@@ -215,8 +207,13 @@ fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
     s.parse().map_err(|e| ApiError::bad_req(field, e))
 }
 
-fn build_app(registry_addr: Address, rpc_url: String, wallet_key: String, batch_ms: u64) -> Router {
-    let provider = build_provider(&rpc_url, &wallet_key).expect("failed to build provider");
+fn build_app(
+    registry_addr: Address,
+    rpc_url: String,
+    ethereum_wallet: EthereumWallet,
+    batch_ms: u64,
+) -> Router {
+    let provider = build_provider(&rpc_url, ethereum_wallet).expect("failed to build provider");
     let tracker = RequestTracker::new();
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -263,11 +260,19 @@ fn build_app(registry_addr: Address, rpc_url: String, wallet_key: String, batch_
         .route("/is-valid-root", get(is_valid_root))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
+        .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
+            30,
+        )))
 }
 
-// Public API: spawn the gateway server and return a handle with shutdown.
-pub async fn spawn_gateway(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
-    let app = build_app(cfg.registry_addr, cfg.rpc_url, cfg.wallet_key, cfg.batch_ms);
+/// For tests only: spawn the gateway server and return a handle with shutdown.
+pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
+    let app = build_app(
+        cfg.registry_addr,
+        cfg.rpc_url,
+        cfg.ethereum_wallet,
+        cfg.batch_ms,
+    );
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
     let addr = listener.local_addr()?;
@@ -285,26 +290,17 @@ pub async fn spawn_gateway(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> 
 }
 
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
-pub async fn run_from_env() -> anyhow::Result<()> {
-    let rpc_url = std::env::var("RPC_URL").unwrap_or("http://localhost:8545".to_string());
-    let wallet_key = std::env::var("WALLET_KEY").expect("WALLET_KEY (hex privkey) is required");
-    let registry_addr: Address = std::env::var("REGISTRY_ADDRESS")
-        .expect("REGISTRY_ADDRESS is required")
-        .parse()
-        .expect("invalid REGISTRY_ADDRESS");
-    let batch_ms: u64 = std::env::var("RG_BATCH_MS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(*DEFAULT_BATCH_MS);
-    let port: u16 = std::env::var("RG_PORT")
-        .or_else(|_| std::env::var("PORT"))
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(8081);
-    let listen_addr = SocketAddr::from(([127, 0, 0, 1], port));
-
-    let app = build_app(registry_addr, rpc_url, wallet_key, batch_ms);
-    let listener = tokio::net::TcpListener::bind(listen_addr).await?;
+pub async fn run() -> anyhow::Result<()> {
+    let cfg = GatewayConfig::from_env();
+    let app = build_app(
+        cfg.registry_addr,
+        cfg.rpc_url,
+        cfg.ethereum_wallet,
+        cfg.batch_ms,
+    );
+    tracing::info!("✔️ Config is ready. Initializing HTTP server...");
+    let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
+    tracing::info!("✔️ HTTP server listening on {}", cfg.listen_addr);
     axum::serve(listener, app).await?;
     Ok(())
 }
