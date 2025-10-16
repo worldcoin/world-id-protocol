@@ -111,6 +111,7 @@ jobs:
       matrix:
         service:
           - world-id-indexer
+          - world-id-gateway
     services:
       postgres:
         image: postgres:17
@@ -143,7 +144,7 @@ jobs:
 
       - name: Run Docker container
         run: |
-          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env RG_HTTP_ADDR=0.0.0.0:8080 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
 
           # Wait for the application to start
           sleep 10

@@ -101,8 +101,7 @@ pub struct IndexerConfig {
 impl IndexerConfig {
     pub fn from_env() -> Self {
         let config = Self {
-            rpc_url: std::env::var("RPC_URL")
-                .unwrap_or_else(|_| "http://localhost:8545".to_string()),
+            rpc_url: std::env::var("RPC_URL").expect("RPC_URL is required"),
             ws_url: std::env::var("WS_URL").unwrap_or_else(|_| "ws://localhost:8545".to_string()),
             registry_address: std::env::var("REGISTRY_ADDRESS")
                 .ok()

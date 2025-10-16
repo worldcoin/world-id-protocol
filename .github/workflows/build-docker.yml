@@ -17,6 +17,7 @@ jobs:
       matrix:
         service:
           - world-id-indexer
+          - world-id-gateway
     permissions:
       contents: read
       id-token: write

@@ -5447,29 +5447,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3160422bbd54dd5ecfdca71e5fd59b7b8fe2b1697ab2baf64f6d05dcc66d298"
 
 [[package]]
-name = "registry-gateway"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "anyhow",
- "axum 0.7.9",
- "dotenvy",
- "hex",
- "once_cell",
- "parking_lot",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tower-http 0.5.2",
- "tracing",
- "tracing-subscriber 0.3.20",
- "world-id-core",
-]
-
-[[package]]
 name = "reqwest"
 version = "0.12.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6914,6 +6891,7 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "pin-project-lite",
+ "tokio",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -7890,6 +7868,29 @@ dependencies = [
  "tracing-subscriber 0.3.20",
  "uuid",
  "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git)",
+]
+
+[[package]]
+name = "world-id-gateway"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "axum 0.7.9",
+ "dotenvy",
+ "hex",
+ "once_cell",
+ "parking_lot",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+ "world-id-core",
 ]
 
 [[package]]
