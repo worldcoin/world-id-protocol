@@ -23,5 +23,5 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Starting registry-gateway");
     println!("Starting registry-gateway");
 
-    registry_gateway::run().await
+    world_id_gateway::run().await
 }

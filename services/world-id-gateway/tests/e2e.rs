@@ -7,7 +7,6 @@ use alloy::primitives::{address, Address, U256};
 use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use regex::Regex;
-use registry_gateway::{spawn_gateway_for_tests, GatewayConfig};
 use reqwest::{Client, StatusCode};
 use world_id_core::account_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
@@ -17,6 +16,7 @@ use world_id_core::types::{
     GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
