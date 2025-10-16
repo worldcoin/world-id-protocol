@@ -110,8 +110,8 @@ jobs:
     strategy:
       matrix:
         service:
-          - world-id-indexer
-          - world-id-gateway
+          - indexer
+          - gateway
     services:
       postgres:
         image: postgres:17
@@ -140,7 +140,7 @@ jobs:
           cache-from: type=gha
           cache-to: "type=gha,mode=max"
           platforms: linux/amd64
-          build-args: SERVICE_NAME=${{ matrix.service }}
+          build-args: SERVICE_NAME=world-id-${{ matrix.service }}
 
       - name: Run Docker container
         run: |
