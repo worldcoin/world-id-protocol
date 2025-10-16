@@ -6,8 +6,9 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable {
+contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
 
     ////////////////////////////////////////////////////////////
@@ -567,4 +568,25 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         emit RecoveryAddressUpdated(accountIndex, oldRecoveryAddress, newRecoveryAddress);
     }
+
+    ////////////////////////////////////////////////////////////
+    //                    Upgrade Authorization               //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Authorize upgrade to a new implementation
+     * @param newImplementation Address of the new implementation contract
+     * @notice Only the contract owner can authorize upgrades
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    ////////////////////////////////////////////////////////////
+    //                    Storage Gap                         //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Storage gap to allow for future upgrades without storage collisions
+     * This reserves 50 storage slots for future state variables
+     */
+    uint256[50] private __gap;
 }
