@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(
-            |_| "registry_gateway=info,axum=info,tower_http=info".into(),
+            |_| "world_id_gateway=info,axum=info,tower_http=info".into(),
         )))
         .with(
             tracing_subscriber::fmt::layer()

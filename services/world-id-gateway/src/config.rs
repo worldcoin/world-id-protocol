@@ -23,6 +23,10 @@ impl GatewayConfig {
             .parse()
             .unwrap();
 
+        if listen_addr.port() != 8080 {
+            tracing::warn!("Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
+        }
+
         let wallet_sk =
             std::env::var("WALLET_PRIVATE_KEY").expect("WALLET_PRIVATE_KEY (hex) is required");
         let ethereum_wallet = EthereumWallet::from(wallet_sk.parse::<PrivateKeySigner>().unwrap());

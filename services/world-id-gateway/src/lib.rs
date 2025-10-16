@@ -214,6 +214,7 @@ fn build_app(
     batch_ms: u64,
 ) -> Router {
     let provider = build_provider(&rpc_url, ethereum_wallet).expect("failed to build provider");
+    tracing::info!("✔️ RPC Provider built");
     let tracker = RequestTracker::new();
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -237,6 +238,8 @@ fn build_app(
         tracker.clone(),
     );
     tokio::spawn(ops_runner.run());
+
+    tracing::info!("✔️ Ops batcher initialized");
 
     let state = AppState {
         registry_addr,
@@ -292,13 +295,13 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> anyhow::Result<()> {
     let cfg = GatewayConfig::from_env();
+    tracing::info!("✔️ Config is ready. Building app...");
     let app = build_app(
         cfg.registry_addr,
         cfg.rpc_url,
         cfg.ethereum_wallet,
         cfg.batch_ms,
     );
-    tracing::info!("✔️ Config is ready. Initializing HTTP server...");
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
     tracing::info!("✔️ HTTP server listening on {}", cfg.listen_addr);
     axum::serve(listener, app).await?;
