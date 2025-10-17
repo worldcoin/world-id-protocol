@@ -31,7 +31,8 @@ impl Signer {
     }
 
     /// Returns a mutable reference to the internal signer.
-    pub const fn onchain_signer(&mut self) -> &mut PrivateKeySigner {
+    #[allow(clippy::missing_const_for_fn)] // requires a mutable
+    pub fn onchain_signer(&mut self) -> &mut PrivateKeySigner {
         &mut self.onchain_signer
     }
 
