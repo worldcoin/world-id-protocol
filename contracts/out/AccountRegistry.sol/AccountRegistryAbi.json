@@ -1,6 +1,6 @@
 [
   {
-    "type": "constructor",
+    "type": "constructor2",
     "inputs": [
       {
         "name": "treeDepth",
