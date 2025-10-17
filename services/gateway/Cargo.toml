@@ -1,5 +1,5 @@
 [package]
-name = "registry-gateway"
+name = "world-id-gateway"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -25,9 +25,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-tower-http = { version = "0.5", features = ["trace"] }
+tower-http = { version = "0.5", features = ["trace", "timeout"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
 
 [dev-dependencies]
 world-id-core = { path = "../../crates/world-id-core" }

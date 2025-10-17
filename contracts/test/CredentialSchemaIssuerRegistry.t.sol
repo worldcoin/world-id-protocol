@@ -73,7 +73,7 @@ contract CredentialIssuerRegistryTest is Test {
 
         assertEq(registry.nextIssuerSchemaId(), 2);
         assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), pubkey));
-        assertEq(registry.addressToIssuerSchemaId(signer), 1);
+        assertEq(registry.getSignerForIssuerSchemaId(1), signer);
     }
 
     function testUpdatePubkeyFlow() public {
@@ -104,8 +104,18 @@ contract CredentialIssuerRegistryTest is Test {
         emit CredentialSchemaIssuerRegistry.IssuerSchemaSignerUpdated(1, oldSigner, newSigner);
         registry.updateSigner(1, newSigner, sig);
 
-        assertEq(registry.addressToIssuerSchemaId(oldSigner), 0);
-        assertEq(registry.addressToIssuerSchemaId(newSigner), 1);
+        assertEq(registry.getSignerForIssuerSchemaId(1), newSigner);
+    }
+
+    function testUpdateSignerToSameSigner() public {
+        uint256 signerPk = 0xAAA3;
+        address signer = vm.addr(signerPk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory sig = _signUpdateSigner(signerPk, 1, signer);
+        vm.expectRevert(bytes("Registry: newSigner is already the assigned signer"));
+        registry.updateSigner(1, signer, sig);
+        assertEq(registry.getSignerForIssuerSchemaId(1), signer);
     }
 
     function testRemoveFlow() public {
@@ -121,7 +131,7 @@ contract CredentialIssuerRegistryTest is Test {
         registry.remove(1, sig);
 
         assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), CredentialSchemaIssuerRegistry.Pubkey(0, 0)));
-        assertEq(registry.addressToIssuerSchemaId(signer), 0);
+        assertEq(registry.getSignerForIssuerSchemaId(1), address(0));
     }
 
     function _signUpdateIssuerSchemaUri(uint256 sk, uint256 issuerSchemaId, string memory schemaUri)
