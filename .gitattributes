@@ -1,1 +1,1 @@
-contracts/out/*.json linguist-generated
+contracts/out/**/*.json linguist-generated
