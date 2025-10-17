@@ -75,7 +75,7 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public {
+    function register(Pubkey memory pubkey, address signer) public returns (uint256) {
         require(pubkey.x != 0 && pubkey.y != 0, "Registry: pubkey cannot be zero");
         require(signer != address(0), "Registry: signer cannot be zero address");
 
@@ -84,6 +84,7 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
         _idToAddress[issuerSchemaId] = signer;
         emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer);
         _nextId = issuerSchemaId + 1;
+        return issuerSchemaId;
     }
 
     function remove(uint256 issuerSchemaId, bytes calldata signature) public {

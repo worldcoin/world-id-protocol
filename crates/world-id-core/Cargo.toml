@@ -50,7 +50,7 @@ witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git"}
 eyre = "0.6"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git", optional = true }
 reqwest = { workspace = true, optional = true }
-secrecy = "0.10.3"
+secrecy = { version = "0.10.3", optional = true }
 
 [features]
 default = ["authenticator"]
@@ -63,9 +63,15 @@ authenticator = [
     "dep:groth16",
     "dep:oprf-client",
     "dep:oprf-types",
-    "dep:reqwest"
+    "dep:reqwest",
+    "dep:secrecy"
 ]
+
+issuer = ["alloy/signer-local", "dep:secrecy"]
 
 rp = ["dep:oprf-types"]
 
 cli = ["dep:oprf-test"]
+
+[dev-dependencies]
+alloy-node-bindings = "1.0.38"

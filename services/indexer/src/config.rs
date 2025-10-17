@@ -101,12 +101,12 @@ pub struct IndexerConfig {
 impl IndexerConfig {
     pub fn from_env() -> Self {
         let config = Self {
-            rpc_url: std::env::var("RPC_URL").expect("RPC_URL is required"),
-            ws_url: std::env::var("WS_URL").unwrap_or_else(|_| "ws://localhost:8545".to_string()),
+            rpc_url: std::env::var("RPC_URL").expect("RPC_URL must be set."),
+            ws_url: std::env::var("WS_URL").expect("WS_URL must be set."),
             registry_address: std::env::var("REGISTRY_ADDRESS")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap(),
+                .expect("REGISTRY_ADDRESS must be set."),
             start_block: std::env::var("START_BLOCK")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -127,9 +127,10 @@ impl GlobalConfig {
             .unwrap_or_else(|_| "development".to_string())
             .parse()
             .unwrap();
+
         let run_mode = RunMode::from_env();
 
-        let db_url = std::env::var("DATABASE_URL").unwrap();
+        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set.");
 
         Self {
             environment,
