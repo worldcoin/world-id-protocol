@@ -1,7 +1,6 @@
 [package]
 name = "world-id-core"
 version = "0.1.0"
-build = "build.rs"
 license.workspace = true
 edition.workspace = true
 
