@@ -72,3 +72,6 @@ issuer = ["alloy/signer-local", "dep:secrecy"]
 rp = ["dep:oprf-types"]
 
 cli = ["dep:oprf-test"]
+
+[dev-dependencies]
+alloy-node-bindings = "1.0.38"

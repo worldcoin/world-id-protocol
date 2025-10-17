@@ -7860,6 +7860,7 @@ name = "world-id-core"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-node-bindings",
  "anyhow",
  "ark-babyjubjub",
  "ark-bn254 0.5.0",
