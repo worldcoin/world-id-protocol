@@ -2,9 +2,13 @@
 //!
 //! Read more in: <https://docs.world.org/world-id>
 
-#![deny(clippy::all, clippy::pedantic, clippy::nursery, missing_docs)]
-#![warn(dead_code)] // FIXME: Move to deny once the library has full functionality
-
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    missing_docs,
+    dead_code
+)]
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]
@@ -20,7 +24,7 @@ pub use authenticator::Authenticator;
 pub mod config;
 
 mod credential;
-pub use credential::Credential;
+pub use credential::{Credential, CredentialVersion};
 
 #[cfg(feature = "issuer")]
 mod issuer;

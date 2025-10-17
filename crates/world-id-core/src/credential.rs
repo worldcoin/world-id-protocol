@@ -1,26 +1,3 @@
-//! A credential is generally a verifiable digital statement about a subject. It is
-//! the canonical object: everything a verifier needs for proofs and authorization.
-//!
-//! Design Principles:
-//! - A credential clearly separates:
-//!   - **Assertion** (the claim being made)
-//!   - **Issuer** (who attests to it / vouches for it)
-//!   - **Subject** (who it is about)
-//!   - **Presenter binding** (who can present it)
-//! - Credentials are **usable across authenticators** without leaking correlate-able identifiers to RPs.
-//! - Revocation, expiry, and re-issuance are **first-class lifecycle properties**.
-//! - Flexibility: credentials may take different formats but share **common metadata** (validity, issuer, trust, type).
-//!
-//! All credentials have an issuer and schema, identified with the `issuer_schema_id` field. This identifier
-//! is registered in the `CredentialSchemaIssuerRegistry` contract. It represents a particular schema issued by
-//! a particular issuer. Some schemas are intended to be global (e.g. representing an ICAO-compliant passport) and
-//! some issuer-specific. Schemas should be registered in the `CredentialSchemaIssuerRegistry` contract and should be
-//! publicly accessible.
-//!
-//! We want to encourage schemas to be widely distributed and adopted. If everyone uses the same passport schema,
-//! for example, the Protocol will have better interoperability across passport credential issuers, reducing the
-//! burden on holders (to make sense of which passport they have), and similarly, RPs.
-
 use crate::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::{PrimeField, Zero};
@@ -56,6 +33,26 @@ static MAX_CLAIMS: usize = 16;
 ///
 /// In the case of World ID these statements are about humans, with the most common
 /// credentials being Orb verification or document verification.
+///
+/// Design Principles:
+/// - A credential clearly separates:
+///    - **Assertion** (the claim being made)
+///    - **Issuer** (who attests to it / vouches for it)
+///   - **Subject** (who it is about)
+///   - **Presenter binding** (who can present it)
+/// - Credentials are **usable across authenticators** without leaking correlate-able identifiers to RPs.
+/// - Revocation, expiry, and re-issuance are **first-class lifecycle properties**.
+/// - Flexibility: credentials may take different formats but share **common metadata** (validity, issuer, trust, type).
+///
+/// All credentials have an issuer and schema, identified with the `issuer_schema_id` field. This identifier
+/// is registered in the `CredentialSchemaIssuerRegistry` contract. It represents a particular schema issued by
+/// a particular issuer. Some schemas are intended to be global (e.g. representing an ICAO-compliant passport) and
+/// some issuer-specific. Schemas should be registered in the `CredentialSchemaIssuerRegistry` contract and should be
+/// publicly accessible.
+///
+/// We want to encourage schemas to be widely distributed and adopted. If everyone uses the same passport schema,
+/// for example, the Protocol will have better interoperability across passport credential issuers, reducing the
+/// burden on holders (to make sense of which passport they have), and similarly, RPs.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Credential {
     /// Version representation of this structure

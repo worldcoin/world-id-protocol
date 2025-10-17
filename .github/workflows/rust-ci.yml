@@ -34,6 +34,17 @@ jobs:
         run: |
           make sol-build
 
+      - name: Ensure committed contract ABIs are up to date
+        run: |
+          set -euo pipefail
+          changed="$(git status --short -- 'contracts/out/*.json' 'contracts/out/**/*.json')"
+          if [ -n "$changed" ]; then
+            echo "The following contract ABIs are out of date or untracked:"
+            echo "$changed"
+            git --no-pager diff -- 'contracts/out/*.json' 'contracts/out/**/*.json' || true
+            exit 1
+          fi
+
       - name: Check code formatting
         run: cargo fmt -- --check
 
