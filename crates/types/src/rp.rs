@@ -1,3 +1,5 @@
+#![allow(clippy::unreadable_literal)]
+
 use std::{fmt, str::FromStr};
 
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
@@ -10,12 +12,14 @@ pub struct RpId(u128);
 
 impl RpId {
     /// Converts the RP id to an u128
-    pub fn into_inner(self) -> u128 {
+    #[must_use]
+    pub const fn into_inner(self) -> u128 {
         self.0
     }
 
     /// Creates a new `RpId` by wrapping a `u128`
-    pub fn new(value: u128) -> Self {
+    #[must_use]
+    pub const fn new(value: u128) -> Self {
         Self(value)
     }
 }

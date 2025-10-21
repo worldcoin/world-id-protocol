@@ -1,3 +1,16 @@
+//! This crate contains the raw base types (without implementation) for the World ID Protocol.
+//!
+//! It implements basic primitives such as field elements, proofs, the format of requests and responses, etc.
+//!
+//! Importantly, this crates keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    missing_docs,
+    dead_code
+)]
+
 use std::{
     fmt,
     io::{Cursor, Read, Write},
@@ -9,28 +22,40 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ruint::aliases::U256;
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
+/// Module containing the quintessential proof type.
 pub mod proof;
 pub use proof::WorldIdProof;
 
+/// Module containing types related specific to relying parties.
 pub mod rp;
 
-/// The base field (curve field `Fq`) over which the elliptic curve is defined for the curve that is used to
-/// sign credentials in the World ID Protocol. The World ID Protocol currently uses the `BabyJubJub` curve.
+/// The base field (curve field `Fq`) over which the elliptic curve is
+/// defined for the curve that is used to sign credentials in the World ID Protocol.
+///
+/// The World ID Protocol currently uses the `BabyJubJub` curve.
 pub type BaseField = ark_babyjubjub::Fq;
 
 /// Represents a Merkle root hash for any of the trees in the World ID Protocol.
 ///
-/// The inner type is a base field element from BabyJubJub for convenience instead of a scalar field element on BN254.
+/// The inner type is a base field element from `BabyJubJub` for convenience instead of a scalar field element on BN254.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct FieldElement(BaseField);
 
 impl FieldElement {
+    /// Serializes the field element into a compressed byte vector.
+    ///
+    /// # Errors
+    /// Will return an error if the serialization unexpectedly fails.
     pub fn serialize_compressed<W: Write>(&self, writer: &mut W) -> Result<(), TypeError> {
         self.0
             .serialize_compressed(writer)
             .map_err(|e| TypeError::Serialization(e.to_string()))
     }
 
+    /// Deserializes a field element from a compressed byte vector.
+    ///
+    /// # Errors
+    /// Will return an error if the provided input is not a valid compressed field element (e.g. not on the curve).
     pub fn deserialize_compressed<R: Read>(bytes: &mut R) -> Result<Self, TypeError> {
         let field_element = BaseField::deserialize_compressed(bytes)
             .map_err(|e| TypeError::Deserialization(e.to_string()))?;
@@ -54,7 +79,7 @@ impl From<U256> for FieldElement {
 
 impl From<FieldElement> for U256 {
     fn from(value: FieldElement) -> Self {
-        U256::from_limbs(value.0.into_bigint().0)
+        Self::from_limbs(value.0.into_bigint().0)
     }
 }
 
@@ -104,10 +129,13 @@ impl<'de> Deserialize<'de> for FieldElement {
     }
 }
 
+/// Generic errors that may occur with basic serialization and deserialization.
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum TypeError {
+    /// Error that occurs when serializing a value. Generally not expected.
     #[error("Serialization error: {0}")]
     Serialization(String),
+    /// Error that occurs when deserializing a value. This can happen often when not providing valid inputs.
     #[error("Deserialization error: {0}")]
     Deserialization(String),
 }

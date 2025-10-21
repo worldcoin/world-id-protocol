@@ -6,14 +6,25 @@ use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serializ
 
 use crate::{FieldElement, TypeError};
 
+/// Represents a base World ID proof.
+///
+/// Both the Query Proof (π1) and the Nullifier Proof (π2) are World ID Proofs.
+///
+/// Internally, the World ID Proofs are Groth16 ZKPs. In the World ID Protocol,
+/// the Merkle Root that proves inclusion into the set of World ID accounts (`AccountRegistry`)
+/// is also encoded as part of the proof.
 #[derive(Debug, Default, Clone)]
 pub struct WorldIdProof {
+    /// The Groth16 ZKP
     pub zkp: ark_groth16::Proof<Bn254>,
+    /// The hash of the root of the Merkle tree that proves inclusion into the set of World ID accounts (`AccountRegistry`).
     pub merkle_root: FieldElement,
 }
 
 impl WorldIdProof {
-    pub fn new(zkp: ark_groth16::Proof<Bn254>, merkle_root: FieldElement) -> Self {
+    /// Initialize a new proof.
+    #[must_use]
+    pub const fn new(zkp: ark_groth16::Proof<Bn254>, merkle_root: FieldElement) -> Self {
         Self { zkp, merkle_root }
     }
 
@@ -54,8 +65,17 @@ impl WorldIdProof {
 
         Ok(bytes)
     }
-
+    /// Deserializes a proof from a compressed byte vector.
+    ///
+    /// # Errors
+    /// Will return an error if the provided input is not a valid compressed proof. For example, invalid field points.
     pub fn from_compressed_bytes(bytes: &[u8]) -> Result<Self, TypeError> {
+        if bytes.len() != 160 {
+            return Err(TypeError::Deserialization(
+                "Invalid proof length. Expected 160 bytes.".to_string(),
+            ));
+        }
+
         let mut reader = Cursor::new(bytes);
         let a = G1Affine::deserialize_compressed(&mut reader)
             .map_err(|e| TypeError::Deserialization(e.to_string()))?;
@@ -124,6 +144,7 @@ mod tests {
 
     /// This proof is taken from the `semaphore-rs` crate as a test case.
     #[test]
+    #[allow(clippy::similar_names)]
     fn test_real_proof() {
         // Point A (G1)
         let a_x = Fq::from_be_bytes_mod_order(
