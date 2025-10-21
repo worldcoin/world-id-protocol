@@ -13,6 +13,13 @@ use alloy::primitives::Address;
 /// sign credentials in the World ID Protocol. The World ID Protocol currently uses the `BabyJubJub` curve.
 pub type BaseField = ark_babyjubjub::Fq;
 
+/// The account index is the unique identifier for a World ID Account.
+/// It is the index of the user in the `AccountRegistry` Merkle Tree.
+///
+/// The account index is used to issue credentials and generate proofs. RPs never learn the account index
+/// for privacy reasons.
+pub type AccountIndex = U256;
+
 /// The response from an inclusion proof request.
 #[derive(Serialize, Deserialize)]
 pub struct InclusionProofResponse {
