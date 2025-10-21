@@ -1,14 +1,9 @@
 use std::{fs::File, time::Duration};
 
 use alloy::primitives::address;
-use ark_ff::UniformRand;
 use eyre::Result;
 use tokio::time::sleep;
-use world_id_core::{
-    config::Config,
-    types::{BaseField, RpRequest},
-    Authenticator, Credential,
-};
+use world_id_core::{config::Config, types::RpRequest, Authenticator, BaseField, Credential};
 
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
