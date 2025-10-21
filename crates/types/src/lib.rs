@@ -2,7 +2,7 @@
 //!
 //! It implements basic primitives such as field elements, proofs, the format of requests and responses, etc.
 //!
-//! Importantly, this crates keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
+//! Importantly, this crate keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
 #![deny(
     clippy::all,
     clippy::pedantic,
@@ -26,7 +26,7 @@ use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serializ
 pub mod proof;
 pub use proof::WorldIdProof;
 
-/// Module containing types related specific to relying parties.
+/// Module containing types specifically related to relying parties.
 pub mod rp;
 
 /// The base field (curve field `Fq`) over which the elliptic curve is
