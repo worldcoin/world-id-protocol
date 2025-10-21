@@ -51,7 +51,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
 
         // Verify state before upgrade
         assertEq(registry.nextIssuerSchemaId(), 2);
-        assertEq(registry.addressToIssuerSchemaId(signer), 1);
+        assertEq(registry.getSignerForIssuerSchemaId(1), signer);
         CredentialSchemaIssuerRegistry.Pubkey memory storedPubkey = registry.issuerSchemaIdToPubkey(1);
         assertEq(storedPubkey.x, 1);
         assertEq(storedPubkey.y, 2);
@@ -67,7 +67,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
 
         // Verify storage was preserved
         assertEq(registryV2.nextIssuerSchemaId(), 2);
-        assertEq(registryV2.addressToIssuerSchemaId(signer), 1);
+        assertEq(registryV2.getSignerForIssuerSchemaId(1), signer);
         CredentialSchemaIssuerRegistry.Pubkey memory storedPubkeyV2 = registryV2.issuerSchemaIdToPubkey(1);
         assertEq(storedPubkeyV2.x, 1);
         assertEq(storedPubkeyV2.y, 2);
@@ -82,7 +82,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         address newSigner = address(0x456);
         registryV2.register(newPubkey, newSigner);
         assertEq(registryV2.nextIssuerSchemaId(), 3);
-        assertEq(registryV2.addressToIssuerSchemaId(newSigner), 2);
+        assertEq(registryV2.getSignerForIssuerSchemaId(2), newSigner);
     }
 
     function test_UpgradeFailsForNonOwner() public {
@@ -150,6 +150,6 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
 
         // This should succeed (register is public)
         registry.register(pubkey, signer);
-        assertEq(registry.addressToIssuerSchemaId(signer), 1);
+        assertEq(registry.getSignerForIssuerSchemaId(1), signer);
     }
 }
