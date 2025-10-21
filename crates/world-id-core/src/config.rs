@@ -51,13 +51,13 @@ impl Config {
         &self.registry_address
     }
 
-    /// The URL of the `authtree-indexer` service to use. The indexer is used to fetch inclusion proofs from the `AccountRegistry` contract.
+    /// The URL of the `world-id-indexer` service to use. The indexer is used to fetch inclusion proofs from the `AccountRegistry` contract.
     #[must_use]
     pub const fn indexer_url(&self) -> &String {
         &self.indexer_url
     }
 
-    /// The URL of the `registry-gateway` service to use. The gateway is used to perform operations on the `AccountRegistry` contract
+    /// The URL of the `world-id-gateway` service to use. The gateway is used to perform operations on the `AccountRegistry` contract
     /// without leaking a wallet address.
     #[must_use]
     pub const fn gateway_url(&self) -> &String {

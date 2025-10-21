@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Script, console} from "forge-std/Script.sol";
 import {AccountRegistry} from "../src/AccountRegistry.sol";
 
-contract CounterScript is Script {
+contract DeployScript is Script {
     AccountRegistry public accountRegistry;
 
     function setUp() public {}
@@ -12,8 +12,8 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        uint256 treeDepth = uint256(vm.envUint("TREE_DEPTH"));
-        accountRegistry = new AccountRegistry(treeDepth);
+        uint256 treeDepth = uint256(vm.envOr("TREE_DEPTH", uint256(30)));
+        accountRegistry = new AccountRegistry{salt: bytes32(uint256(0))}(treeDepth);
 
         vm.stopBroadcast();
 

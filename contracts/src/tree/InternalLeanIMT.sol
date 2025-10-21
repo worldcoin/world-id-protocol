@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {Skyscraper} from "../hash/Skyscraper.sol";
 import {Poseidon2T2} from "../hash/Poseidon2.sol";
 
 uint256 constant SNARK_SCALAR_FIELD =
@@ -31,9 +30,7 @@ error LeafDoesNotExist();
 /// it is updated based on the number of leaves in the tree. This approach
 /// results in the calculation of significantly fewer hashes, making the tree more efficient.
 library InternalLeanIMT {
-    function _initialize(LeanIMTData storage self, uint256 depth, uint256 size, uint256[] calldata sideNodes)
-        external
-    {
+    function _initialize(LeanIMTData storage self, uint256 depth, uint256 size, uint256[] calldata sideNodes) external {
         self.depth = depth;
         self.size = size;
         for (uint256 i = 0; i < sideNodes.length; i++) {
@@ -48,7 +45,6 @@ library InternalLeanIMT {
      * @return The hash of the two inputs.
      */
     function hash(uint256 a, uint256 b) internal pure returns (uint256) {
-        // return Skyscraper.compress(a, b);
         return Poseidon2T2.compress([a, b]);
     }
 

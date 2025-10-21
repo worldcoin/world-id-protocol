@@ -4,8 +4,8 @@
 
 Monorepo containing:
 
-- `services/registry-gateway`: HTTP API service to interact with onchain `AccountRegistry`
-- `services/authtree-indexer`: Indexer for `AccountCreated` events serving inclusion proofs
+- `services/gateway`: HTTP API service to interact with onchain `AccountRegistry`
+- `services/indexer`: Indexer for `AccountCreated` events serving inclusion proofs
 - `crates/world-id-core`: The core library of the World ID Protocol
 - `contracts/`: Onchain contracts
 
@@ -13,11 +13,24 @@ Monorepo containing:
 
 - Rust toolchain (`rustup`, `cargo`) – pinned via `rust-toolchain.toml`
 - Foundry (forge/cast/anvil): `curl -L https://foundry.paradigm.xyz | bash` then `foundryup`
-- Postgres (for the indexer) if you run `authtree-indexer`
+- For running the Rust services look at the specific READMEs of each service.
 
-Optional:
+## 🗃️ Addressbook
 
-- `direnv` or `.env` files via `dotenvy` for service env vars
+### Staging (World Chain Mainnet)
+
+> [!WARNING]  
+> These deployments are the current most up-to-date version, but this project is still WIP and deployments may change at any time.
+
+- Deployed by `world-id-gateway`'s wallet address: `0x777DF5A6ab04B47995f0750D5Ff188879DC60Ac7`
+- Deployed to World Chain Mainnet (Chain ID: `480`)
+
+| Contract / Service               | Address                                               |
+| -------------------------------- | ----------------------------------------------------- |
+| `AccountRegistry`                | `0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2`          |
+| `CredentialSchemaIssuerRegistry` | `0xCd987d2C973B099FD291Bf5AF332031Dc980a96B`          |
+| `world-id-indexer`               | `https://world-id-indexer.stage-crypto.worldcoin.org` |
+| `world-id-gateway`               | `https://world-id-gateway.stage-crypto.worldcoin.org` |
 
 ## Make targets
 
@@ -32,60 +45,11 @@ Use the provided Makefile:
 - `make rust-test`: `cargo test --workspace`
 - `make rust-fmt`: `cargo fmt --all`
 - `make rust-clippy`: `cargo clippy --workspace --all-targets -D warnings`
-- `make run-indexer`: Run `authtree-indexer`
-- `make run-gateway`: Run `registry-gateway` (defaults to 127.0.0.1:4000)
+- `make run-indexer`: Run `world-id-indexer`
+- `make run-gateway`: Run `world-id-gateway` (defaults to 127.0.0.1:4000)
 - `make sol-build`: `forge build` in `contracts/`
 - `make sol-test`: `forge test -vvv` in `contracts/`
 - `make sol-fmt`: `forge fmt` in `contracts/`
-
-## Running services
-
-### registry-gateway
-
-Environment variables:
-
-- `RPC_URL` (required): HTTP RPC endpoint
-- `WALLET_KEY` (required): Hex private key for sending txs
-- `REGISTRY_ADDRESS` (required): `AccountRegistry` address (0x…)
-- `RG_BATCH_MS` (optional, default 1000): Batch window
-- `RG_PORT` or `PORT` (optional, default 4000): Listen port
-- `RUST_LOG` (optional): e.g. `registry_gateway=debug,axum=info`
-
-Run:
-
-```
-make run-gateway
-```
-
-Endpoints:
-
-- `GET /health`
-- `POST /create-account` (batched)
-- `POST /update-authenticator`
-- `POST /insert-authenticator`
-- `POST /remove-authenticator`
-- `POST /recover-account`
-- `GET /is-valid-root?root=<u256>`
-
-### authtree-indexer
-
-Environment variables:
-
-- `RPC_URL` (required): HTTP RPC endpoint
-- `REGISTRY_ADDRESS` (optional, default 0x0…0): Contract address
-- `DATABASE_URL` or `PG_URL` (required): Postgres connection string
-- `START_BLOCK` (optional, default 0): Initial block to backfill from
-- `BATCH_SIZE` (optional, default 5000): Backfill chunk size
-- `WS_URL` (optional): Websocket RPC; when provided, follows new logs live after backfill
-- `RUST_LOG` (optional): e.g. `authtree_indexer=info`
-
-Run:
-
-```
-make run-indexer
-```
-
-The indexer will backfill `AccountCreated` events into Postgres tables defined under `services/authtree-indexer/migrations`, then optionally follow live via WS if `WS_URL` is set.
 
 ## Solidity contracts
 
