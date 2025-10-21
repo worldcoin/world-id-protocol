@@ -1,8 +1,13 @@
-use std::{fmt, str::FromStr};
+use std::{
+    fmt,
+    io::{Cursor, Read, Write},
+    str::FromStr,
+};
 
 use ark_ff::PrimeField;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ruint::aliases::U256;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 pub mod proof;
 pub use proof::WorldIdProof;
@@ -16,19 +21,24 @@ pub type BaseField = ark_babyjubjub::Fq;
 /// Represents a Merkle root hash for any of the trees in the World ID Protocol.
 ///
 /// The inner type is a base field element from BabyJubJub for convenience instead of a scalar field element on BN254.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
-)]
-#[serde(transparent)]
-pub struct MerkleRoot(
-    #[serde(
-        serialize_with = "ark_serde_compat::serialize_babyjubjub_base",
-        deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base"
-    )]
-    ark_babyjubjub::Fq,
-);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct FieldElement(BaseField);
 
-impl FromStr for MerkleRoot {
+impl FieldElement {
+    pub fn serialize_compressed<W: Write>(&self, writer: &mut W) -> Result<(), TypeError> {
+        self.0
+            .serialize_compressed(writer)
+            .map_err(|e| TypeError::Serialization(e.to_string()))
+    }
+
+    pub fn deserialize_compressed<R: Read>(bytes: &mut R) -> Result<Self, TypeError> {
+        let field_element = BaseField::deserialize_compressed(bytes)
+            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+        Ok(Self(field_element))
+    }
+}
+
+impl FromStr for FieldElement {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -36,27 +46,62 @@ impl FromStr for MerkleRoot {
     }
 }
 
-impl From<U256> for MerkleRoot {
+impl From<U256> for FieldElement {
     fn from(value: U256) -> Self {
-        Self(ark_babyjubjub::Fq::new(ark_ff::BigInt(value.into_limbs())))
+        Self(BaseField::new(ark_ff::BigInt(value.into_limbs())))
     }
 }
 
-impl From<MerkleRoot> for U256 {
-    fn from(value: MerkleRoot) -> Self {
+impl From<FieldElement> for U256 {
+    fn from(value: FieldElement) -> Self {
         U256::from_limbs(value.0.into_bigint().0)
     }
 }
 
-impl From<ark_babyjubjub::Fq> for MerkleRoot {
-    fn from(value: ark_babyjubjub::Fq) -> Self {
+impl From<BaseField> for FieldElement {
+    fn from(value: BaseField) -> Self {
         Self(value)
     }
 }
 
-impl fmt::Display for MerkleRoot {
+impl fmt::Display for FieldElement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0.to_string())
+        // Convert to U256 to display the numeric value in big-endian hex
+        let u256: U256 = (*self).into();
+        write!(f, "{u256:#066x}")
+    }
+}
+
+impl Serialize for FieldElement {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&self.to_string())
+        } else {
+            let mut writer = Vec::new();
+            self.serialize_compressed(&mut writer)
+                .map_err(S::Error::custom)?;
+            serializer.serialize_bytes(&writer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for FieldElement {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+            let s = s.trim_start_matches("0x");
+            let u256 = U256::from_str_radix(s, 16).map_err(D::Error::custom)?;
+            Ok(Self::from(u256))
+        } else {
+            let bytes = Vec::<u8>::deserialize(deserializer)?;
+            Self::deserialize_compressed(&mut Cursor::new(bytes)).map_err(D::Error::custom)
+        }
     }
 }
 
@@ -66,4 +111,82 @@ pub enum TypeError {
     Serialization(String),
     #[error("Deserialization error: {0}")]
     Deserialization(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ruint::uint;
+
+    #[test]
+    fn test_field_element_encoding() {
+        let root = FieldElement::from(uint!(
+            0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+        ));
+
+        assert_eq!(
+            serde_json::to_string(&root).unwrap(),
+            "\"0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2\""
+        );
+
+        assert_eq!(
+            root.0,
+            BaseField::try_from(uint!(
+                0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+            ))
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_field_element_decoding() {
+        let root = FieldElement::from(uint!(
+            0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+        ));
+
+        assert_eq!(
+            serde_json::from_str::<FieldElement>(
+                "\"0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2\""
+            )
+            .unwrap(),
+            root
+        );
+    }
+
+    #[test]
+    fn test_field_element_binary_encoding_roundtrip() {
+        let root = FieldElement::from(uint!(
+            0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+        ));
+
+        let mut buffer = Vec::new();
+        ciborium::into_writer(&root, &mut buffer).unwrap();
+
+        let decoded: FieldElement = ciborium::from_reader(&buffer[..]).unwrap();
+
+        assert_eq!(root, decoded);
+    }
+
+    #[test]
+    fn test_field_element_binary_encoding_format() {
+        let root = FieldElement::from(uint!(
+            0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+        ));
+
+        // Serialize to CBOR (binary format)
+        let mut buffer = Vec::new();
+        ciborium::into_writer(&root, &mut buffer).unwrap();
+
+        assert_eq!(buffer.len(), 34); // CBOR header (2 bytes) + field element (32 bytes)
+        assert_eq!(buffer[0], 0x58); // CBOR byte string, 1-byte length follows
+        assert_eq!(buffer[1], 0x20); // Length = 32 bytes
+
+        let field_bytes = &buffer[2..];
+        assert_eq!(field_bytes.len(), 32);
+
+        let expected_le_bytes =
+            hex::decode("c224d31e05d194f1b7ac32eaa4dbfce39a43a3f050cf422f21ac917bce23d211")
+                .unwrap();
+        assert_eq!(field_bytes, expected_le_bytes.as_slice());
+    }
 }

@@ -4,16 +4,16 @@ use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{BaseField, MerkleRoot, TypeError};
+use crate::{FieldElement, TypeError};
 
 #[derive(Debug, Default, Clone)]
 pub struct WorldIdProof {
     pub zkp: ark_groth16::Proof<Bn254>,
-    pub merkle_root: MerkleRoot,
+    pub merkle_root: FieldElement,
 }
 
 impl WorldIdProof {
-    pub fn new(zkp: ark_groth16::Proof<Bn254>, merkle_root: MerkleRoot) -> Self {
+    pub fn new(zkp: ark_groth16::Proof<Bn254>, merkle_root: FieldElement) -> Self {
         Self { zkp, merkle_root }
     }
 
@@ -64,9 +64,8 @@ impl WorldIdProof {
         let c = G1Affine::deserialize_compressed(&mut reader)
             .map_err(|e| TypeError::Deserialization(e.to_string()))?;
 
-        let merkle_root: MerkleRoot = BaseField::deserialize_compressed(&mut reader)
-            .map_err(|e| TypeError::Deserialization(e.to_string()))?
-            .into();
+        let merkle_root: FieldElement = FieldElement::deserialize_compressed(&mut reader)
+            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
 
         Ok(Self {
             zkp: ark_groth16::Proof { a, b, c },
@@ -98,6 +97,7 @@ impl<'de> Deserialize<'de> for WorldIdProof {
 
 #[cfg(test)]
 mod tests {
+    use crate::BaseField;
     use ark_bn254::{Fq, Fq2};
     use ark_ff::PrimeField;
     use ruint::uint;

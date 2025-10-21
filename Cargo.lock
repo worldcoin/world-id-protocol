@@ -7934,6 +7934,7 @@ dependencies = [
  "ark-groth16 0.5.0",
  "ark-serde-compat",
  "ark-serialize 0.5.0",
+ "ciborium",
  "hex",
  "ruint",
  "serde",
