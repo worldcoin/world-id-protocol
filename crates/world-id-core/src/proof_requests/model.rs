@@ -105,7 +105,7 @@ pub struct AuthenticatorRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CredentialRequest {
-    /// Credential type
+    /// Issuer schema id
     /// TODO consider splitting into credential type and issuer id to support queries for multiple issuers of same type
     pub issuer_schema_id: String,
     /// Optional signal
@@ -129,7 +129,7 @@ pub struct AuthenticatorResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
-    /// Credential type string this item refers to
+    /// Issuer schema id string this item refers to
     pub issuer_schema_id: String,
     /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -315,7 +315,7 @@ impl AuthenticatorResponse {
         serde_json::to_string_pretty(self)
     }
 
-    /// Return the list of successful credential types (no error)
+    /// Return the list of successful issuer schema ids (no error)
     #[must_use]
     pub fn successful_credentials(&self) -> Vec<&str> {
         self.responses
@@ -913,7 +913,7 @@ mod tests {
 
         let err = AuthenticatorRequest::from_json(json).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("duplicate credential type"));
+        assert!(msg.contains("duplicate issuer schema id"));
     }
 
     #[test]

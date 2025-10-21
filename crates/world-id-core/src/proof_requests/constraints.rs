@@ -37,14 +37,14 @@ pub enum ConstraintExpr<'a> {
 #[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum ConstraintNode<'a> {
-    /// Credential type string
+    /// Issuer schema id string
     Type(Cow<'a, str>),
     /// Expressions
     Expr(ConstraintExpr<'a>),
 }
 
 impl ConstraintExpr<'_> {
-    /// Evaluate the constraint against a predicate that reports whether a credential type was provided successfully
+    /// Evaluate the constraint against a predicate that reports whether a issuer schema id was provided successfully
     pub fn evaluate<F>(&self, has_type: &F) -> bool
     where
         F: Fn(&str) -> bool,
