@@ -106,14 +106,13 @@ pub struct AuthenticatorRequest {
 #[serde(deny_unknown_fields)]
 pub struct CredentialRequest {
     /// Credential type
-    #[serde(rename = "type")]
-    pub credential_type: String,
+    /// TODO consider splitting into credential type and issuer id to support queries for multiple issuers of same type
+    pub issuer_schema_id: String,
     /// Optional signal
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
 }
 
-/// Authenticator response per docs spec
 /// Authenticator response per docs spec
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -131,8 +130,7 @@ pub struct AuthenticatorResponse {
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
     /// Credential type string this item refers to
-    #[serde(rename = "type")]
-    pub credential_type: String,
+    pub issuer_schema_id: String,
     /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<String>,
@@ -155,7 +153,7 @@ impl AuthenticatorResponse {
             .responses
             .iter()
             .filter(|item| item.error.is_none())
-            .map(|item| item.credential_type.as_str())
+            .map(|item| item.issuer_schema_id.as_str())
             .collect();
         constraints.evaluate(&|t| provided.contains(t))
     }
@@ -178,7 +176,7 @@ impl AuthenticatorRequest {
         let requested: std::collections::HashSet<&str> = self
             .requests
             .iter()
-            .map(|r| r.credential_type.as_str())
+            .map(|r| r.issuer_schema_id.as_str())
             .collect();
 
         // Predicate: only select if both available and requested
@@ -191,7 +189,7 @@ impl AuthenticatorRequest {
             return if self
                 .requests
                 .iter()
-                .all(|r| available.contains(r.credential_type.as_str()))
+                .all(|r| available.contains(r.issuer_schema_id.as_str()))
             {
                 Some(self.requests.iter().collect())
             } else {
@@ -207,7 +205,7 @@ impl AuthenticatorRequest {
         let result: Vec<&CredentialRequest> = self
             .requests
             .iter()
-            .filter(|r| selected_set.contains(r.credential_type.as_str()))
+            .filter(|r| selected_set.contains(r.issuer_schema_id.as_str()))
             .collect();
         Some(result)
     }
@@ -240,16 +238,16 @@ impl AuthenticatorRequest {
             .responses
             .iter()
             .filter(|r| r.error.is_none())
-            .map(|r| r.credential_type.as_str())
+            .map(|r| r.issuer_schema_id.as_str())
             .collect();
 
         match &self.constraints {
-            // None => all requested credential types are required
+            // None => all requested credential (via issuer_schema_id) are required
             None => {
                 for req in &self.requests {
-                    if !provided.contains(req.credential_type.as_str()) {
+                    if !provided.contains(req.issuer_schema_id.as_str()) {
                         return Err(ValidationError::MissingCredential(
-                            req.credential_type.clone(),
+                            req.issuer_schema_id.clone(),
                         ));
                     }
                 }
@@ -274,17 +272,17 @@ impl AuthenticatorRequest {
     /// Parse from JSON
     ///
     /// # Errors
-    /// Returns an error if the JSON is invalid or contains duplicate credential types.
+    /// Returns an error if the JSON is invalid or contains duplicate issuer schema ids.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let v: Self = serde_json::from_str(json)?;
-        // Enforce unique credential types within a single request
+        // Enforce unique issuer schema ids within a single request
         let mut seen: HashSet<&str> = HashSet::new();
         for r in &v.requests {
-            let t = r.credential_type.as_str();
+            let t = r.issuer_schema_id.as_str();
             if !seen.insert(t) {
                 return Err(serde_json::Error::custom(format!(
-                    "duplicate credential type: {}",
-                    r.credential_type
+                    "duplicate issuer schema id: {}",
+                    r.issuer_schema_id
                 )));
             }
         }
@@ -323,7 +321,7 @@ impl AuthenticatorResponse {
         self.responses
             .iter()
             .filter(|r| r.error.is_none())
-            .map(|r| r.credential_type.as_str())
+            .map(|r| r.issuer_schema_id.as_str())
             .collect()
     }
 }
@@ -365,21 +363,21 @@ mod tests {
             version: Version::V1,
             responses: vec![
                 ResponseItem {
-                    credential_type: "orb".into(),
+                    issuer_schema_id: "orb".into(),
                     proof: Some("0x0".into()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    credential_type: "passport".into(),
+                    issuer_schema_id: "passport".into(),
                     proof: Some("0x0".into()),
                     nullifier: Some("nil_2".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    credential_type: "gov-id".into(),
+                    issuer_schema_id: "gov-id".into(),
                     proof: None,
                     nullifier: None,
                     session_id: None,
@@ -425,11 +423,11 @@ mod tests {
             encoded_action: "act_...".into(),
             requests: vec![
                 CredentialRequest {
-                    credential_type: "orb".into(),
+                    issuer_schema_id: "orb".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "passport".into(),
+                    issuer_schema_id: "passport".into(),
                     signal: None,
                 },
             ],
@@ -441,14 +439,14 @@ mod tests {
             version: Version::V1,
             responses: vec![
                 ResponseItem {
-                    credential_type: "orb".into(),
+                    issuer_schema_id: "orb".into(),
                     proof: Some("0x".into()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    credential_type: "passport".into(),
+                    issuer_schema_id: "passport".into(),
                     proof: Some("0x".into()),
                     nullifier: None,
                     session_id: None,
@@ -462,7 +460,7 @@ mod tests {
             id: "req_1".into(),
             version: Version::V1,
             responses: vec![ResponseItem {
-                credential_type: "orb".into(),
+                issuer_schema_id: "orb".into(),
                 proof: Some("0x".into()),
                 nullifier: None,
                 session_id: None,
@@ -493,7 +491,7 @@ mod tests {
             app_id: "app_1".into(),
             encoded_action: "act_...".into(),
             requests: vec![CredentialRequest {
-                credential_type: "orb".into(),
+                issuer_schema_id: "orb".into(),
                 signal: None,
             }],
             constraints: Some(deep),
@@ -503,7 +501,7 @@ mod tests {
             id: "req_2".into(),
             version: Version::V1,
             responses: vec![ResponseItem {
-                credential_type: "orb".into(),
+                issuer_schema_id: "orb".into(),
                 proof: Some("0x".into()),
                 nullifier: None,
                 session_id: None,
@@ -551,39 +549,39 @@ mod tests {
             encoded_action: "act".into(),
             requests: vec![
                 CredentialRequest {
-                    credential_type: "t0".into(),
+                    issuer_schema_id: "t0".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t1".into(),
+                    issuer_schema_id: "t1".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t2".into(),
+                    issuer_schema_id: "t2".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t3".into(),
+                    issuer_schema_id: "t3".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t4".into(),
+                    issuer_schema_id: "t4".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t5".into(),
+                    issuer_schema_id: "t5".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t6".into(),
+                    issuer_schema_id: "t6".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t7".into(),
+                    issuer_schema_id: "t7".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t8".into(),
+                    issuer_schema_id: "t8".into(),
                     signal: None,
                 },
             ],
@@ -596,21 +594,21 @@ mod tests {
             version: Version::V1,
             responses: vec![
                 ResponseItem {
-                    credential_type: "t0".into(),
+                    issuer_schema_id: "t0".into(),
                     proof: Some("0x".into()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    credential_type: "t1".into(),
+                    issuer_schema_id: "t1".into(),
                     proof: Some("0x".into()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    credential_type: "t5".into(),
+                    issuer_schema_id: "t5".into(),
                     proof: Some("0x".into()),
                     nullifier: None,
                     session_id: None,
@@ -660,43 +658,43 @@ mod tests {
             encoded_action: "act".into(),
             requests: vec![
                 CredentialRequest {
-                    credential_type: "t0".into(),
+                    issuer_schema_id: "t0".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t1".into(),
+                    issuer_schema_id: "t1".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t2".into(),
+                    issuer_schema_id: "t2".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t3".into(),
+                    issuer_schema_id: "t3".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t4".into(),
+                    issuer_schema_id: "t4".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t5".into(),
+                    issuer_schema_id: "t5".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t6".into(),
+                    issuer_schema_id: "t6".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t7".into(),
+                    issuer_schema_id: "t7".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t8".into(),
+                    issuer_schema_id: "t8".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "t9".into(),
+                    issuer_schema_id: "t9".into(),
                     signal: None,
                 },
             ],
@@ -708,7 +706,7 @@ mod tests {
             id: "req_nodes_too_many".into(),
             version: Version::V1,
             responses: vec![ResponseItem {
-                credential_type: "t0".into(),
+                issuer_schema_id: "t0".into(),
                 proof: Some("0x".into()),
                 nullifier: None,
                 session_id: None,
@@ -738,14 +736,14 @@ mod tests {
         let req = AuthenticatorRequest::from_json(json).unwrap();
         assert_eq!(req.id, "req_18c0f7f03e7d");
         assert_eq!(req.requests.len(), 1);
-        assert_eq!(req.requests[0].credential_type, "gov-id");
+        assert_eq!(req.requests[0].issuer_schema_id, "gov-id");
 
         // Build matching successful response
         let resp = AuthenticatorResponse {
             id: req.id.clone(),
             version: Version::V1,
             responses: vec![ResponseItem {
-                credential_type: "gov-id".into(),
+                issuer_schema_id: "gov-id".into(),
                 proof: Some("0x".into()),
                 nullifier: Some("nil_1".into()),
                 session_id: None,
@@ -780,14 +778,14 @@ mod tests {
             version: Version::V1,
             responses: vec![
                 ResponseItem {
-                    credential_type: "orb".into(),
+                    issuer_schema_id: "orb".into(),
                     proof: Some("0x".into()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    credential_type: "gov-id".into(),
+                    issuer_schema_id: "gov-id".into(),
                     proof: None,
                     nullifier: None,
                     session_id: None,
@@ -831,14 +829,14 @@ mod tests {
             version: Version::V1,
             responses: vec![
                 ResponseItem {
-                    credential_type: "orb".into(),
+                    issuer_schema_id: "orb".into(),
                     proof: Some("0x".into()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    credential_type: "passport".into(),
+                    issuer_schema_id: "passport".into(),
                     proof: Some("0x".into()),
                     nullifier: Some("nil_2".into()),
                     session_id: None,
@@ -898,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn request_rejects_duplicate_credential_types_on_parse() {
+    fn request_rejects_duplicate_issuer_schema_ids_on_parse() {
         let json = r#"{
   "id": "req_dup",
   "version": 1,
@@ -930,11 +928,11 @@ mod tests {
             encoded_action: "act".into(),
             requests: vec![
                 CredentialRequest {
-                    credential_type: "orb".into(),
+                    issuer_schema_id: "orb".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "passport".into(),
+                    issuer_schema_id: "passport".into(),
                     signal: None,
                 },
             ],
@@ -945,8 +943,8 @@ mod tests {
             ["orb", "passport"].into_iter().collect();
         let sel_ok = req.credentials_to_prove(&available_ok).unwrap();
         assert_eq!(sel_ok.len(), 2);
-        assert_eq!(sel_ok[0].credential_type, "orb");
-        assert_eq!(sel_ok[1].credential_type, "passport");
+        assert_eq!(sel_ok[0].issuer_schema_id, "orb");
+        assert_eq!(sel_ok[1].issuer_schema_id, "passport");
 
         let available_missing: std::collections::HashSet<&str> = std::iter::once("orb").collect();
         assert!(req.credentials_to_prove(&available_missing).is_none());
@@ -965,15 +963,15 @@ mod tests {
             encoded_action: "act".into(),
             requests: vec![
                 CredentialRequest {
-                    credential_type: "orb".into(),
+                    issuer_schema_id: "orb".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "passport".into(),
+                    issuer_schema_id: "passport".into(),
                     signal: None,
                 },
                 CredentialRequest {
-                    credential_type: "national-id".into(),
+                    issuer_schema_id: "national-id".into(),
                     signal: None,
                 },
             ],
@@ -994,16 +992,16 @@ mod tests {
         let available1: std::collections::HashSet<&str> = ["orb", "passport"].into_iter().collect();
         let sel1 = req.credentials_to_prove(&available1).unwrap();
         assert_eq!(sel1.len(), 2);
-        assert_eq!(sel1[0].credential_type, "orb");
-        assert_eq!(sel1[1].credential_type, "passport");
+        assert_eq!(sel1[0].issuer_schema_id, "orb");
+        assert_eq!(sel1[1].issuer_schema_id, "passport");
 
         // Available has orb + national-id → should pick [orb, national-id]
         let available2: std::collections::HashSet<&str> =
             ["orb", "national-id"].into_iter().collect();
         let sel2 = req.credentials_to_prove(&available2).unwrap();
         assert_eq!(sel2.len(), 2);
-        assert_eq!(sel2[0].credential_type, "orb");
-        assert_eq!(sel2[1].credential_type, "national-id");
+        assert_eq!(sel2[0].issuer_schema_id, "orb");
+        assert_eq!(sel2[1].issuer_schema_id, "national-id");
 
         // Missing orb → cannot satisfy "all" → None
         let available3: std::collections::HashSet<&str> = std::iter::once("passport").collect();
