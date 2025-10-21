@@ -38,4 +38,4 @@ pub(crate) use signer::Signer;
 
 /// Generic re-usable types
 pub mod types;
-pub use types::BaseField;
+pub use world_id_types::BaseField;

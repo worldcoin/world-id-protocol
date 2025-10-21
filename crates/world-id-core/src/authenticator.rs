@@ -10,10 +10,10 @@ use crate::account_registry::{
 };
 use crate::config::Config;
 use crate::types::{
-    BaseField, CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
+    CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
 };
-use crate::{Credential, Signer};
+use crate::{BaseField, Credential, Signer};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::providers::{DynProvider, Provider};

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/world-id-core",
+    "crates/types",
     "services/indexer",
     "services/gateway",
 ]
@@ -15,8 +16,10 @@ license = "MIT"
 anyhow = "1"
 # TODO: update to crates.io
 ark-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
-ark-bn254 = { version = "0.5" }
-ark-ff = { version = "0.5" }
+ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+ark-groth16 = "0.5"
 ark-serialize = "0.5"
 hex = {version = "0.4" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
@@ -27,3 +30,4 @@ thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+world-id-types = {version = "0.1.0", path = "crates/types"}

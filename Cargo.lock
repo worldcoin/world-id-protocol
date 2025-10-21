@@ -7869,6 +7869,7 @@ dependencies = [
  "tracing-subscriber 0.3.20",
  "uuid",
  "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git)",
+ "world-id-types",
 ]
 
 [[package]]
@@ -7921,6 +7922,23 @@ dependencies = [
  "tracing-subscriber 0.3.20",
  "url",
  "world-id-core",
+]
+
+[[package]]
+name = "world-id-types"
+version = "0.1.0"
+dependencies = [
+ "ark-babyjubjub",
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
+ "ark-serde-compat",
+ "ark-serialize 0.5.0",
+ "hex",
+ "ruint",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

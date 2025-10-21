@@ -1,5 +1,6 @@
 use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
+use world_id_types::BaseField;
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 use alloy::signers::k256::ecdsa::Signature;
@@ -8,10 +9,6 @@ use oprf_types::crypto::RpNullifierKey;
 
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
-
-/// The base field over which the elliptic curve is defined for the curve that is used to
-/// sign credentials in the World ID Protocol. The World ID Protocol currently uses the `BabyJubJub` curve.
-pub type BaseField = ark_babyjubjub::Fq;
 
 /// The response from an inclusion proof request.
 #[derive(Serialize, Deserialize)]

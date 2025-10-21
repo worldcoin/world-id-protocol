@@ -1,0 +1,195 @@
+use std::io::Cursor;
+
+use ark_bn254::{Bn254, G1Affine, G2Affine};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::{BaseField, MerkleRoot, TypeError};
+
+#[derive(Debug, Default, Clone)]
+pub struct WorldIdProof {
+    pub zkp: ark_groth16::Proof<Bn254>,
+    pub merkle_root: MerkleRoot,
+}
+
+impl WorldIdProof {
+    pub fn new(zkp: ark_groth16::Proof<Bn254>, merkle_root: MerkleRoot) -> Self {
+        Self { zkp, merkle_root }
+    }
+
+    /// Serializes the proof into a compressed and packed byte vector.
+    ///
+    /// Uses `ark-serialize` to compress affine points as it guarantees correct formatting (elements are padded).
+    ///
+    /// # Errors
+    /// Will return an error if the serialization unexpectedly fails.
+    pub fn to_compressed_bytes(&self) -> Result<Vec<u8>, TypeError> {
+        let mut bytes = Vec::with_capacity(160);
+
+        // A = G1 (32 bytes compressed)
+        self.zkp
+            .a
+            .serialize_compressed(&mut bytes)
+            .map_err(|e| TypeError::Serialization(e.to_string()))?;
+
+        // B = G2 (64 bytes compressed)
+        self.zkp
+            .b
+            .serialize_compressed(&mut bytes)
+            .map_err(|e| TypeError::Serialization(e.to_string()))?;
+
+        // C = G1 (32 bytes compressed)
+        self.zkp
+            .c
+            .serialize_compressed(&mut bytes)
+            .map_err(|e| TypeError::Serialization(e.to_string()))?;
+
+        // Merkle root = Field element (32 bytes compressed)
+        self.merkle_root
+            .0
+            .serialize_compressed(&mut bytes)
+            .map_err(|e| TypeError::Serialization(e.to_string()))?;
+
+        debug_assert!(bytes.len() == 160);
+
+        Ok(bytes)
+    }
+
+    pub fn from_compressed_bytes(bytes: &[u8]) -> Result<Self, TypeError> {
+        let mut reader = Cursor::new(bytes);
+        let a = G1Affine::deserialize_compressed(&mut reader)
+            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+        let b = G2Affine::deserialize_compressed(&mut reader)
+            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+        let c = G1Affine::deserialize_compressed(&mut reader)
+            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+
+        let merkle_root: MerkleRoot = BaseField::deserialize_compressed(&mut reader)
+            .map_err(|e| TypeError::Deserialization(e.to_string()))?
+            .into();
+
+        Ok(Self {
+            zkp: ark_groth16::Proof { a, b, c },
+            merkle_root,
+        })
+    }
+}
+
+impl Serialize for WorldIdProof {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let compressed_bytes = self.to_compressed_bytes().map_err(S::Error::custom)?;
+        serializer.serialize_str(&hex::encode(compressed_bytes))
+    }
+}
+
+impl<'de> Deserialize<'de> for WorldIdProof {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let compressed_bytes =
+            hex::decode(String::deserialize(deserializer)?).map_err(D::Error::custom)?;
+        Self::from_compressed_bytes(&compressed_bytes).map_err(D::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ark_bn254::{Fq, Fq2};
+    use ark_ff::PrimeField;
+    use ruint::uint;
+
+    use super::*;
+
+    #[test]
+    fn test_encoding_round_trip() {
+        let proof = WorldIdProof::default();
+        let compressed_bytes = proof.to_compressed_bytes().unwrap();
+
+        assert_eq!(compressed_bytes.len(), 160);
+
+        let encoded = serde_json::to_string(&proof).unwrap();
+        assert_eq!(encoded, "\"00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000\"");
+
+        let proof_from = WorldIdProof::from_compressed_bytes(&compressed_bytes).unwrap();
+
+        assert_eq!(proof.merkle_root, proof_from.merkle_root);
+        assert_eq!(proof.zkp.a, proof_from.zkp.a);
+        assert_eq!(proof.zkp.b, proof_from.zkp.b);
+        assert_eq!(proof.zkp.c, proof_from.zkp.c);
+    }
+
+    /// This proof is taken from the `semaphore-rs` crate as a test case.
+    #[test]
+    fn test_real_proof() {
+        // Point A (G1)
+        let a_x = Fq::from_be_bytes_mod_order(
+            &uint!(0x15c1fc6907219676890dfe147ee6f10b580c7881dddacb1567b3bcbfc513a54d_U256)
+                .to_be_bytes::<32>(),
+        );
+        let a_y = Fq::from_be_bytes_mod_order(
+            &uint!(0x233afda3efff43a7631990d2e79470abcbae3ccad4b920476e64745bfe97bb0a_U256)
+                .to_be_bytes::<32>(),
+        );
+        let a = G1Affine::new(a_x, a_y);
+
+        // Point B (G2) - Swapping c0/c1 to match Ethereum convention
+        let b_x_c1 = Fq::from_be_bytes_mod_order(
+            &uint!(0xc8c7d7434c382d590d601d951c29c8463d555867db70f9e84f7741c81c2e1e6_U256)
+                .to_be_bytes::<32>(),
+        );
+        let b_x_c0 = Fq::from_be_bytes_mod_order(
+            &uint!(0x241d2ddf1c9e6670a24109a0e9c915cd6e07d0248a384dd38d3c91e9b0419f5f_U256)
+                .to_be_bytes::<32>(),
+        );
+        let b_y_c1 = Fq::from_be_bytes_mod_order(
+            &uint!(0xb23c5467a06eff56cc2c246ada1e7d5705afc4dc8b43fd5a6972c679a2019c5_U256)
+                .to_be_bytes::<32>(),
+        );
+        let b_y_c0 = Fq::from_be_bytes_mod_order(
+            &uint!(0x91ed6522f7924d3674d08966a008f947f9aa016a4100bb12f911326f3e1befd_U256)
+                .to_be_bytes::<32>(),
+        );
+        let b_x = Fq2::new(b_x_c0, b_x_c1);
+        let b_y = Fq2::new(b_y_c0, b_y_c1);
+        let b = G2Affine::new(b_x, b_y);
+
+        // Point C (G1)
+        let c_x = Fq::from_be_bytes_mod_order(
+            &uint!(0xacdf5a5996e00933206cbec48f3bbdcee2a4ca75f8db911c00001e5a0547487_U256)
+                .to_be_bytes::<32>(),
+        );
+        let c_y = Fq::from_be_bytes_mod_order(
+            &uint!(0x2446d6f1c1506837392a30fdc73d66fd89f4e1b1a5d14b93e2ad0c5f7b777520_U256)
+                .to_be_bytes::<32>(),
+        );
+        let c = G1Affine::new(c_x, c_y);
+
+        let zkp = ark_groth16::Proof { a, b, c };
+        let merkle_root = BaseField::from_be_bytes_mod_order(
+            &uint!(0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256)
+                .to_be_bytes::<32>(),
+        )
+        .into();
+        let proof = WorldIdProof::new(zkp, merkle_root);
+
+        // Test roundtrip serialization
+        let json_str = serde_json::to_string(&proof).unwrap();
+        let deserialized_proof: WorldIdProof = serde_json::from_str(&json_str).unwrap();
+
+        // Verify the roundtrip preserved all values
+        assert_eq!(proof.zkp.a, deserialized_proof.zkp.a);
+        assert_eq!(proof.zkp.b, deserialized_proof.zkp.b);
+        assert_eq!(proof.zkp.c, deserialized_proof.zkp.c);
+        assert_eq!(
+            BaseField::try_from(uint!(
+                8060603437403478431405594370235290687560488504242369439470699636878115808450_U256
+            ))
+            .unwrap(),
+            deserialized_proof.merkle_root.0
+        );
+    }
+}

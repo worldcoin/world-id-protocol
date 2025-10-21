@@ -6,7 +6,7 @@ use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::types::BaseField;
+use crate::BaseField;
 
 #[cfg(feature = "authenticator")]
 use oprf_client::CredentialsSignature;
