@@ -1,12 +1,12 @@
 use std::process::Command;
 use std::time::Duration;
 
+use alloy::network::EthereumWallet;
 use alloy::node_bindings::Anvil;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use regex::Regex;
-use registry_gateway::{spawn_gateway, GatewayConfig};
 use reqwest::{Client, StatusCode};
 use world_id_core::account_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
@@ -16,6 +16,7 @@ use world_id_core::types::{
     GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 
 const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -156,16 +157,21 @@ async fn e2e_gateway_full_flow() {
     let cfg = GatewayConfig {
         registry_addr: registry.parse().unwrap(),
         rpc_url: anvil.endpoint_url().to_string(),
-        wallet_key: GW_PRIVATE_KEY.to_string(),
+        ethereum_wallet: EthereumWallet::from(
+            GW_PRIVATE_KEY
+                .to_string()
+                .parse::<PrivateKeySigner>()
+                .unwrap(),
+        ),
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
     };
-    let gw = spawn_gateway(cfg).await.expect("spawn gateway");
+    let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
     // HTTP client
     let client = Client::builder().build().unwrap();
     wait_http_ready(&client).await;
-    let base = format!("http://127.0.0.1:{}", GW_PORT);
+    let base = format!("http://127.0.0.1:{GW_PORT}");
 
     // Build Alloy provider for on-chain assertions and chain id
     let provider = alloy::providers::ProviderBuilder::new()

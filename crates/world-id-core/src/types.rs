@@ -11,7 +11,7 @@ use alloy::primitives::Address;
 
 /// The base field over which the elliptic curve is defined for the curve that is used to
 /// sign credentials in the World ID Protocol. The World ID Protocol currently uses the `BabyJubJub` curve.
-pub type BaseField = ark_bn254::Fr;
+pub type BaseField = ark_babyjubjub::Fq;
 
 /// The response from an inclusion proof request.
 #[derive(Serialize, Deserialize)]

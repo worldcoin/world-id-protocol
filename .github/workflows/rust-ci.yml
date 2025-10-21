@@ -4,12 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths:
-      - crates/**/*
-      - services/**/*
-      - Cargo.toml
-      - Cargo.lock
-      - deny.toml
 
 permissions:
   contents: read
@@ -39,6 +33,17 @@ jobs:
       - name: Build contracts
         run: |
           make sol-build
+
+      - name: Ensure committed contract ABIs are up to date
+        run: |
+          set -euo pipefail
+          changed="$(git status --short -- 'contracts/out/*.json' 'contracts/out/**/*.json')"
+          if [ -n "$changed" ]; then
+            echo "The following contract ABIs are out of date or untracked:"
+            echo "$changed"
+            git --no-pager diff -- 'contracts/out/*.json' 'contracts/out/**/*.json' || true
+            exit 1
+          fi
 
       - name: Check code formatting
         run: cargo fmt -- --check
@@ -110,7 +115,8 @@ jobs:
     strategy:
       matrix:
         service:
-          - world-id-indexer
+          - indexer
+          - gateway
     services:
       postgres:
         image: postgres:17
@@ -139,11 +145,11 @@ jobs:
           cache-from: type=gha
           cache-to: "type=gha,mode=max"
           platforms: linux/amd64
-          build-args: SERVICE_NAME=${{ matrix.service }}
+          build-args: SERVICE_NAME=world-id-${{ matrix.service }}
 
       - name: Run Docker container
         run: |
-          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env RG_HTTP_ADDR=0.0.0.0:8080 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
 
           # Wait for the application to start
           sleep 10

@@ -4,8 +4,8 @@
 
 Monorepo containing:
 
-- `services/registry-gateway`: HTTP API service to interact with onchain `AccountRegistry`
-- `services/world-id-indexer`: Indexer for `AccountCreated` events serving inclusion proofs
+- `services/gateway`: HTTP API service to interact with onchain `AccountRegistry`
+- `services/indexer`: Indexer for `AccountCreated` events serving inclusion proofs
 - `crates/world-id-core`: The core library of the World ID Protocol
 - `contracts/`: Onchain contracts
 
@@ -28,8 +28,9 @@ Monorepo containing:
 | Contract / Service               | Address                                               |
 | -------------------------------- | ----------------------------------------------------- |
 | `AccountRegistry`                | `0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2`          |
-| `CredentialSchemaIssuerRegistry` | `0xCE2460f072dF53f116647056eD4655ac3B19f6DF`          |
+| `CredentialSchemaIssuerRegistry` | `0xCd987d2C973B099FD291Bf5AF332031Dc980a96B`          |
 | `world-id-indexer`               | `https://world-id-indexer.stage-crypto.worldcoin.org` |
+| `world-id-gateway`               | `https://world-id-gateway.stage-crypto.worldcoin.org` |
 
 ## Make targets
 
@@ -45,39 +46,10 @@ Use the provided Makefile:
 - `make rust-fmt`: `cargo fmt --all`
 - `make rust-clippy`: `cargo clippy --workspace --all-targets -D warnings`
 - `make run-indexer`: Run `world-id-indexer`
-- `make run-gateway`: Run `registry-gateway` (defaults to 127.0.0.1:4000)
+- `make run-gateway`: Run `world-id-gateway` (defaults to 127.0.0.1:4000)
 - `make sol-build`: `forge build` in `contracts/`
 - `make sol-test`: `forge test -vvv` in `contracts/`
 - `make sol-fmt`: `forge fmt` in `contracts/`
-
-## Running services
-
-### registry-gateway
-
-Environment variables:
-
-- `RPC_URL` (required): HTTP RPC endpoint
-- `WALLET_KEY` (required): Hex private key for sending txs
-- `REGISTRY_ADDRESS` (required): `AccountRegistry` address (0x…)
-- `RG_BATCH_MS` (optional, default 1000): Batch window
-- `RG_PORT` or `PORT` (optional, default 4000): Listen port
-- `RUST_LOG` (optional): e.g. `registry_gateway=debug,axum=info`
-
-Run:
-
-```
-make run-gateway
-```
-
-Endpoints:
-
-- `GET /health`
-- `POST /create-account` (batched)
-- `POST /update-authenticator`
-- `POST /insert-authenticator`
-- `POST /remove-authenticator`
-- `POST /recover-account`
-- `GET /is-valid-root?root=<u256>`
 
 ## Solidity contracts
 

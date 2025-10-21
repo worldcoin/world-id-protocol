@@ -1,5 +1,3 @@
-//! The Credential struct.
-
 use crate::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::{PrimeField, Zero};
@@ -17,6 +15,11 @@ use oprf_client::CredentialsSignature;
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum CredentialVersion {
+    /// Version 1 of the `Credential`. In addition to the specific attributes,
+    /// - Hashing function: `Poseidon2`
+    /// - Signature scheme: `EdDSA` on `BabyJubJub` Curve
+    /// - Curve (Base) Field (Fq): `BabyJubJub` Curve Field (also the BN254 Scalar Field)
+    /// - Scalar Field (Fr): `BabyJubJub` Scalar Field
     #[default]
     V1 = 1,
 }
@@ -25,10 +28,31 @@ static MAX_CLAIMS: usize = 16;
 
 /// Base representation of a `Credential` in the World ID Protocol.
 ///
-/// A credential is generally a verifiable digital statement about a subject.
+/// A credential is generally a verifiable digital statement about a subject. It is
+/// the canonical object: everything a verifier needs for proofs and authorization.
 ///
 /// In the case of World ID these statements are about humans, with the most common
 /// credentials being Orb verification or document verification.
+///
+/// Design Principles:
+/// - A credential clearly separates:
+///    - **Assertion** (the claim being made)
+///    - **Issuer** (who attests to it / vouches for it)
+///   - **Subject** (who it is about)
+///   - **Presenter binding** (who can present it)
+/// - Credentials are **usable across authenticators** without leaking correlate-able identifiers to RPs.
+/// - Revocation, expiry, and re-issuance are **first-class lifecycle properties**.
+/// - Flexibility: credentials may take different formats but share **common metadata** (validity, issuer, trust, type).
+///
+/// All credentials have an issuer and schema, identified with the `issuer_schema_id` field. This identifier
+/// is registered in the `CredentialSchemaIssuerRegistry` contract. It represents a particular schema issued by
+/// a particular issuer. Some schemas are intended to be global (e.g. representing an ICAO-compliant passport) and
+/// some issuer-specific. Schemas should be registered in the `CredentialSchemaIssuerRegistry` contract and should be
+/// publicly accessible.
+///
+/// We want to encourage schemas to be widely distributed and adopted. If everyone uses the same passport schema,
+/// for example, the Protocol will have better interoperability across passport credential issuers, reducing the
+/// burden on holders (to make sense of which passport they have), and similarly, RPs.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Credential {
     /// Version representation of this structure
@@ -54,12 +78,12 @@ pub struct Credential {
     #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
     #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
     pub associated_data_hash: BaseField,
-    /// The signature of the credential.
+    /// The signature of the credential (signed by the issuer's key)
     #[serde(serialize_with = "serialize_signature")]
     #[serde(deserialize_with = "deserialize_signature")]
     #[serde(default)]
     pub signature: Option<EdDSASignature>,
-    /// The issuer of the credential.
+    /// The issuer's public key of the credential.
     pub issuer: EdDSAPublicKey,
 }
 
@@ -71,6 +95,8 @@ impl Default for Credential {
 
 impl Credential {
     /// Initializes a new credential.
+    ///
+    /// Note default fields occupy a sentinel value of `BaseField::zero()`
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -148,9 +174,7 @@ impl Credential {
     #[must_use]
     pub fn get_cred_ds(&self) -> BaseField {
         match self.version {
-            CredentialVersion::V1 => {
-                BaseField::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ+DLBE-v1")
-            } // TODO: change back
+            CredentialVersion::V1 => BaseField::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
         }
     }
 
@@ -180,7 +204,6 @@ impl Credential {
     pub fn hash(&self) -> Result<BaseField, eyre::Error> {
         match self.version {
             CredentialVersion::V1 => {
-                // Hash the credential
                 let hasher = Poseidon2::<_, 8, 5>::default();
                 let mut input = [
                     self.get_cred_ds(),
@@ -246,6 +269,8 @@ impl TryFrom<Credential> for CredentialsSignature {
     }
 }
 
+/// Serializes the signature as compressed bytes (encoding r and s concatenated)
+/// where `r` is compressed to a single coordinate. Result is hex-encoded.
 #[allow(clippy::ref_option)]
 fn serialize_signature<S>(
     signature: &Option<EdDSASignature>,

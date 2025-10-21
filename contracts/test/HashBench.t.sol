@@ -6,23 +6,11 @@ import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 import {PoseidonT4} from "poseidon-solidity/PoseidonT4.sol";
 import {Poseidon2T2} from "../src/hash/Poseidon2.sol";
 import {Poseidon2T2Reference} from "../src/hash/Poseidon2Reference.sol";
-import {Skyscraper} from "../src/hash/Skyscraper.sol";
 
 contract LeanIMTTest is Test {
     uint256 constant HASH_COUNT = 1000;
 
     function setUp() public {}
-
-    function test_Skyscraper() public {
-        uint256 startGas = gasleft();
-        uint256 l = 1337;
-        uint256 r = 42;
-        for (uint256 i = 0; i < HASH_COUNT; i++) {
-            l = Skyscraper.compress(l, r);
-        }
-        uint256 endGas = gasleft();
-        console.log("Gas used: %s", (startGas - endGas) / HASH_COUNT);
-    }
 
     function test_PoseidonT3() public {
         uint256 startGas = gasleft();

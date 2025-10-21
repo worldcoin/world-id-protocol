@@ -12,7 +12,7 @@ help:
 	@echo "  rust-fmt     - cargo fmt --all"
 	@echo "  rust-clippy  - cargo clippy --workspace --all-targets -D warnings"
 	@echo "  run-indexer  - run world-id-indexer"
-	@echo "  run-gateway  - run registry-gateway (PORT 4000 by default)"
+	@echo "  run-gateway  - run world-id-gateway (PORT 4000 by default)"
 	@echo "  sol-build    - forge build (in contracts/)"
 	@echo "  sol-test     - forge test (in contracts/)"
 	@echo "  sol-fmt      - forge fmt (in contracts/)"
@@ -44,10 +44,12 @@ run-indexer:
 	cargo run -p world-id-indexer
 
 run-gateway:
-	cargo run -p registry-gateway
+	cargo run -p world-id-gateway
 
 sol-build:
-	cd contracts && forge build
+	cd contracts && forge build && \
+	forge inspect AccountRegistry abi --json > out/AccountRegistry.sol/AccountRegistryAbi.json && \
+	forge inspect CredentialSchemaIssuerRegistry abi --json > out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
 
 sol-test:
 	cd contracts && forge test -vvv

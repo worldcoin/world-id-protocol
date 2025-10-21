@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Skyscraper} from "./hash/Skyscraper.sol";
 import {Poseidon2T2} from "./hash/Poseidon2.sol";
 
 library TreeHelper {
     function hash(uint256 a, uint256 b) internal pure returns (uint256) {
-        // return Skyscraper.compress(a, b);
         return Poseidon2T2.compress([a, b]);
     }
 

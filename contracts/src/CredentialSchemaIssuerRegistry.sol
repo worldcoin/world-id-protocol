@@ -32,8 +32,11 @@ contract CredentialSchemaIssuerRegistry is
     ////////////////////////////////////////////////////////////
 
     mapping(uint256 => Pubkey) private _idToPubkey;
-    mapping(address => uint256) private _addressToId;
-    uint256 private _nextId;
+
+    // Stores the on-chain signer address for each issuerSchemaId, i.e. who is authorized to perform updates on the issuerSchemaId.
+    mapping(uint256 => address) private _idToAddress;
+
+    uint256 private _nextId = 1;
     mapping(uint256 => uint256) private _nonces;
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
@@ -93,16 +96,16 @@ contract CredentialSchemaIssuerRegistry is
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public {
+    function register(Pubkey memory pubkey, address signer) public returns (uint256) {
         require(pubkey.x != 0 && pubkey.y != 0, "Registry: pubkey cannot be zero");
         require(signer != address(0), "Registry: signer cannot be zero address");
-        require(_addressToId[signer] == 0, "Registry: signer already registered");
 
         uint256 issuerSchemaId = _nextId;
         _idToPubkey[issuerSchemaId] = pubkey;
-        _addressToId[signer] = issuerSchemaId;
+        _idToAddress[issuerSchemaId] = signer;
         emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer);
         _nextId = issuerSchemaId + 1;
+        return issuerSchemaId;
     }
 
     function remove(uint256 issuerSchemaId, bytes calldata signature) public {
@@ -112,13 +115,13 @@ contract CredentialSchemaIssuerRegistry is
             keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId]))
         );
         address signer = ECDSA.recover(hash, signature);
-        require(_addressToId[signer] == issuerSchemaId, "Registry: invalid signature");
+        require(_idToAddress[issuerSchemaId] == signer, "Registry: invalid signature");
 
         emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
 
         _nonces[issuerSchemaId]++;
         delete _idToPubkey[issuerSchemaId];
-        delete _addressToId[signer];
+        delete _idToAddress[issuerSchemaId];
         delete idToSchemaUri[issuerSchemaId];
     }
 
@@ -130,7 +133,7 @@ contract CredentialSchemaIssuerRegistry is
             keccak256(abi.encode(UPDATE_PUBKEY_TYPEHASH, issuerSchemaId, newPubkey, oldPubkey, _nonces[issuerSchemaId]))
         );
         address signer = ECDSA.recover(hash, signature);
-        require(_addressToId[signer] == issuerSchemaId, "Registry: invalid signature");
+        require(_idToAddress[issuerSchemaId] == signer, "Registry: invalid signature");
 
         _idToPubkey[issuerSchemaId] = newPubkey;
         emit IssuerSchemaPubkeyUpdated(issuerSchemaId, oldPubkey, newPubkey, signer);
@@ -141,16 +144,15 @@ contract CredentialSchemaIssuerRegistry is
     function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature) public {
         require(!_isEmptyPubkey(_idToPubkey[issuerSchemaId]), "Registry: id not registered");
         require(newSigner != address(0), "Registry: newSigner cannot be zero address");
-        require(_addressToId[newSigner] == 0, "Registry: newSigner already registered");
+        require(_idToAddress[issuerSchemaId] != newSigner, "Registry: newSigner is already the assigned signer");
 
         bytes32 hash = _hashTypedDataV4(
             keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId]))
         );
         address oldSigner = ECDSA.recover(hash, signature);
-        require(_addressToId[oldSigner] == issuerSchemaId, "Registry: invalid signature");
+        require(_idToAddress[issuerSchemaId] == oldSigner, "Registry: invalid signature");
 
-        _addressToId[newSigner] = issuerSchemaId;
-        delete _addressToId[oldSigner];
+        _idToAddress[issuerSchemaId] = newSigner;
         emit IssuerSchemaSignerUpdated(issuerSchemaId, oldSigner, newSigner);
 
         _nonces[issuerSchemaId]++;
@@ -176,7 +178,7 @@ contract CredentialSchemaIssuerRegistry is
         bytes32 hash =
             _hashTypedDataV4(keccak256(abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUri)));
         address signer = ECDSA.recover(hash, signature);
-        require(_addressToId[signer] == issuerSchemaId, "Registry: invalid signature");
+        require(_idToAddress[issuerSchemaId] == signer, "Registry: invalid signature");
 
         string memory oldSchemaUri = idToSchemaUri[issuerSchemaId];
         idToSchemaUri[issuerSchemaId] = schemaUri;
@@ -184,12 +186,22 @@ contract CredentialSchemaIssuerRegistry is
         emit IssuerSchemaUpdated(issuerSchemaId, oldSchemaUri, schemaUri);
     }
 
+    /**
+     * @dev Returns the off-chain pubkey for a specific issuerSchemaId which signs credentials and whose signature is verified on World ID ZKPs.
+     * @param issuerSchemaId The issuer-schema ID whose pubkey will be returned.
+     * @return The pubkey for the issuerSchemaId.
+     */
     function issuerSchemaIdToPubkey(uint256 issuerSchemaId) public view returns (Pubkey memory) {
         return _idToPubkey[issuerSchemaId];
     }
 
-    function addressToIssuerSchemaId(address signer) public view returns (uint256) {
-        return _addressToId[signer];
+    /**
+     * @dev Returns the on-chain signer address authorized to perform updates on a specific issuerSchemaId.
+     * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
+     * @return The on-chain signer address for the issuerSchemaId.
+     */
+    function getSignerForIssuerSchemaId(uint256 issuerSchemaId) public view returns (address) {
+        return _idToAddress[issuerSchemaId];
     }
 
     function nextIssuerSchemaId() public view returns (uint256) {
