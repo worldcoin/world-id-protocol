@@ -17,7 +17,7 @@ pub mod account_registry;
 #[cfg(feature = "authenticator")]
 mod authenticator;
 #[cfg(feature = "authenticator")]
-pub use authenticator::Authenticator;
+pub use authenticator::{Authenticator, AuthenticatorError};
 
 /// Global configuration to interact with the different components of the Protocol.
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
@@ -38,4 +38,4 @@ pub(crate) use signer::Signer;
 
 /// Generic re-usable types
 pub mod types;
-pub use types::BaseField;
+pub use types::{AccountIndex, BaseField};
