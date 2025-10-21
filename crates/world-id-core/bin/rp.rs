@@ -11,7 +11,8 @@ use ark_ff::UniformRand;
 use eyre::Result;
 use oprf_test::key_gen_sc_mock::KeyGenProxy;
 use serde_json::json;
-use world_id_core::types::{BaseField, RpRequest};
+use world_id_core::types::RpRequest;
+use world_id_core::BaseField;
 
 const DEFAULT_KEY_GEN_CONTRACT_ADDRESS: Address =
     address!("0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9");
