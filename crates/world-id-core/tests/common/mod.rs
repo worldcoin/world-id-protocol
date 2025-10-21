@@ -1,6 +1,5 @@
-#![cfg(feature = "issuer")]
+#![cfg(any(feature = "authenticator", feature = "issuer"))]
 
 mod anvil;
 
-pub use anvil::CredentialSchemaIssuerRegistry;
-pub use anvil::TestAnvil;
+pub use anvil::*;

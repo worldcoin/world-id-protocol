@@ -10,7 +10,7 @@ use crate::account_registry::{
 };
 use crate::config::Config;
 use crate::types::{
-    CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
+    AccountIndex, BaseField, CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
 };
 use crate::{BaseField, Credential, Signer};
@@ -151,6 +151,10 @@ impl Authenticator {
             .call()
             .await?;
 
+        if raw_index == U256::ZERO {
+            return Err(AuthenticatorError::AccountDoesNotExist.into());
+        }
+
         self.packed_account_index = Some(raw_index);
         Ok(raw_index)
     }
@@ -161,7 +165,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
-    pub async fn account_index(&mut self) -> Result<U256> {
+    pub async fn account_index(&mut self) -> Result<AccountIndex> {
         let packed_account_index = self.packed_account_index().await?;
         let tree_index = packed_account_index & MASK_ACCOUNT_INDEX;
         Ok(tree_index)
@@ -243,26 +247,6 @@ impl Authenticator {
         ))
     }
 
-    /// Computes the Merkle leaf for a given public key batch.
-    ///
-    /// # Errors
-    /// Will error if the provided public key batch is not valid.
-    #[allow(clippy::missing_panics_doc)]
-    #[must_use]
-    pub fn leaf_hash(&self, pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
-        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
-        let mut input = [ark_babyjubjub::Fq::ZERO; 16];
-        #[allow(clippy::unwrap_used)]
-        {
-            input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
-        }
-        for i in 0..7 {
-            input[i * 2 + 1] = pk.values[i].x;
-            input[i * 2 + 2] = pk.values[i].y;
-        }
-        poseidon2_16.permutation(&input)[1]
-    }
-
     /// Returns the signing nonce for the holder's World ID.
     ///
     /// # Errors
@@ -340,12 +324,18 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
-    pub async fn create_account(&self, recovery_address: Option<Address>) -> Result<String> {
+    pub async fn create_account(&mut self, recovery_address: Option<Address>) -> Result<String> {
+        // Check locally if the account already exists, the request will fail on-chain otherwise.
+        if self.packed_account_index().await.is_ok() {
+            return Err(AuthenticatorError::AccountAlreadyExists.into());
+        }
+
         let mut pubkey_batch = UserPublicKeyBatch {
             values: [EdwardsAffine::default(); 7],
         };
+
         pubkey_batch.values[0] = self.offchain_pubkey().pk;
-        let leaf_hash = self.leaf_hash(&pubkey_batch);
+        let leaf_hash = Self::leaf_hash(&pubkey_batch);
 
         let req = CreateAccountRequest {
             recovery_address,
@@ -386,9 +376,9 @@ impl Authenticator {
         let account_index = self.account_index().await?;
         let nonce = self.signing_nonce().await?;
         let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_offchain_signer_commitment = self.leaf_hash(&pk_batch);
+        let old_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
         pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
-        let new_offchain_signer_commitment = self.leaf_hash(&pk_batch);
+        let new_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
 
         // TODO: remove this once compression is merged
         let mut compressed_bytes = Vec::new();
@@ -466,9 +456,9 @@ impl Authenticator {
         let account_index = self.account_index().await?;
         let nonce = self.signing_nonce().await?;
         let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = self.leaf_hash(&pk_batch).into();
+        let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
         pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
-        let new_commitment: U256 = self.leaf_hash(&pk_batch).into();
+        let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
 
         // TODO: remove this once compression is merged
         let mut compressed_bytes = Vec::new();
@@ -548,7 +538,7 @@ impl Authenticator {
         let account_index = self.account_index().await?;
         let nonce = self.signing_nonce().await?;
         let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = self.leaf_hash(&pk_batch).into();
+        let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
         let existing_pubkey = pk_batch.values[index as usize];
 
         let mut compressed_old = Vec::new();
@@ -556,7 +546,7 @@ impl Authenticator {
         let compressed_old_pubkey = U256::from_le_slice(&compressed_old);
 
         pk_batch.values[index as usize] = EdwardsAffine::default();
-        let new_commitment: U256 = self.leaf_hash(&pk_batch).into();
+        let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
 
         let eip712_domain = domain(
             self.provider()?.get_chain_id().await?,
@@ -643,4 +633,37 @@ impl Authenticator {
             ))
         }
     }
+
+    /// Computes the Merkle leaf for a given public key batch.
+    ///
+    /// # Errors
+    /// Will error if the provided public key batch is not valid.
+    #[allow(clippy::missing_panics_doc)]
+    #[must_use]
+    fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
+        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
+        let mut input = [ark_babyjubjub::Fq::ZERO; 16];
+        #[allow(clippy::unwrap_used)]
+        {
+            input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
+        }
+        for i in 0..7 {
+            input[i * 2 + 1] = pk.values[i].x;
+            input[i * 2 + 2] = pk.values[i].y;
+        }
+        poseidon2_16.permutation(&input)[1]
+    }
+}
+
+/// Errors that can occur when interacting with the Authenticator.
+#[derive(Debug, thiserror::Error, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum AuthenticatorError {
+    /// This operation requires a registered account and an account is not registered
+    /// for this authenticator. Call `create_account` first to register it.
+    #[error("Account is not registered for this authenticator.")]
+    AccountDoesNotExist,
+
+    /// The account already exists for this authenticator. Call `account_index` to get the account index.
+    #[error("Account already exists for this authenticator.")]
+    AccountAlreadyExists,
 }
