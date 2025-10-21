@@ -10,7 +10,7 @@ use crate::account_registry::{
 };
 use crate::config::Config;
 use crate::types::{
-    AccountIndex, BaseField, CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
+    CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
 };
 use crate::{BaseField, Credential, Signer};
@@ -165,7 +165,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
-    pub async fn account_index(&mut self) -> Result<AccountIndex> {
+    pub async fn account_index(&mut self) -> Result<U256> {
         let packed_account_index = self.packed_account_index().await?;
         let tree_index = packed_account_index & MASK_ACCOUNT_INDEX;
         Ok(tree_index)
