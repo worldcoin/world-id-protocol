@@ -107,6 +107,7 @@ pub struct AuthenticatorRequest {
 pub struct CredentialRequest {
     /// Issuer schema id
     /// TODO consider splitting into credential type and issuer id to support queries for multiple issuers of same type
+    #[serde(rename = "type")]
     pub issuer_schema_id: String,
     /// Optional signal
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -130,6 +131,7 @@ pub struct AuthenticatorResponse {
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
     /// Issuer schema id string this item refers to
+    #[serde(rename = "type")]
     pub issuer_schema_id: String,
     /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
