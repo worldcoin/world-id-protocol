@@ -66,7 +66,6 @@ impl From<BaseField> for FieldElement {
 
 impl fmt::Display for FieldElement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Convert to U256 to display the numeric value in big-endian hex
         let u256: U256 = (*self).into();
         write!(f, "{u256:#066x}")
     }
@@ -116,6 +115,7 @@ pub enum TypeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_ff::{AdditiveGroup, Field};
     use ruint::uint;
 
     #[test]
@@ -135,6 +135,18 @@ mod tests {
                 0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
             ))
             .unwrap()
+        );
+
+        let fe = FieldElement::from(BaseField::ONE);
+        assert_eq!(
+            serde_json::to_string(&fe).unwrap(),
+            "\"0x0000000000000000000000000000000000000000000000000000000000000001\""
+        );
+
+        let md = FieldElement::from(BaseField::ZERO);
+        assert_eq!(
+            serde_json::to_string(&md).unwrap(),
+            "\"0x0000000000000000000000000000000000000000000000000000000000000000\""
         );
     }
 
