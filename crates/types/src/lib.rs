@@ -12,7 +12,7 @@
 )]
 
 use ark_babyjubjub::Fq;
-use ark_ff::{AdditiveGroup, Field};
+use ark_ff::{AdditiveGroup, Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ruint::aliases::U256;
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
@@ -45,6 +45,7 @@ impl FieldElement {
     pub const ZERO: Self = Self(Fq::ZERO);
     /// The multiplicative identity of the field.
     pub const ONE: Self = Self(Fq::ONE);
+
     /// Serializes the field element into a byte vector.
     ///
     /// # Errors
@@ -63,6 +64,13 @@ impl FieldElement {
         let field_element = Fq::deserialize_compressed(bytes)
             .map_err(|e| TypeError::Deserialization(e.to_string()))?;
         Ok(Self(field_element))
+    }
+
+    /// Deserializes a field element from a big-endian byte slice.
+    #[must_use]
+    pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
+        let field_element = Fq::from_be_bytes_mod_order(bytes);
+        Self(field_element)
     }
 }
 
@@ -94,6 +102,12 @@ impl fmt::Display for FieldElement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let u256: U256 = (*self).into();
         write!(f, "{u256:#066x}")
+    }
+}
+
+impl From<Fq> for FieldElement {
+    fn from(value: Fq) -> Self {
+        Self(value)
     }
 }
 

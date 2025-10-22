@@ -4,7 +4,7 @@ use alloy::primitives::address;
 use ark_ff::UniformRand;
 use eyre::Result;
 use tokio::time::sleep;
-use world_id_core::{config::Config, types::RpRequest, Authenticator, BaseField, Credential};
+use world_id_core::{config::Config, types::RpRequest, Authenticator, Credential, FieldElement};
 
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
     let rp_request: RpRequest = serde_json::from_reader(File::open(rp_request_path)?)?;
 
     let mut rng = rand::thread_rng();
-    let message_hash = BaseField::rand(&mut rng);
+    let message_hash: FieldElement = ark_babyjubjub::Fq::rand(&mut rng).into();
 
     let (proof, nullifier) = authenticator
         .generate_proof(message_hash, rp_request, credential)

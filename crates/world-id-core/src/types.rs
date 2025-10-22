@@ -1,6 +1,6 @@
 use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
-use world_id_types::BaseField;
+use world_id_types::FieldElement;
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 use alloy::signers::k256::ecdsa::Signature;
@@ -58,13 +58,9 @@ pub struct RpRequest {
     /// The current timestamp.
     pub current_time_stamp: u64,
     /// The action ID.
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
-    pub action_id: BaseField,
+    pub action_id: FieldElement,
     /// The nonce.
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
-    pub nonce: BaseField,
+    pub nonce: FieldElement,
 }
 
 /// The request to create a new World ID account.
