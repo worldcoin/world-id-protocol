@@ -1,9 +1,10 @@
 use alloy::network::EthereumWallet;
-use alloy::primitives::{Address, Bytes, TxKind};
+use alloy::primitives::{Address, Bytes, TxKind, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::sol;
+use alloy::sol_types::SolCall;
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
 
@@ -30,6 +31,12 @@ sol!(
     #[sol(rpc, ignore_unlinked)]
     AccountRegistry,
     "../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
+);
+
+sol!(
+    #[sol(rpc)]
+    ERC1967Proxy,
+    "../../contracts/out/ERC1967Proxy.sol/ERC1967Proxy.json"
 );
 
 pub struct TestAnvil {
@@ -87,11 +94,19 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        let instance = CredentialSchemaIssuerRegistry::deploy(provider)
+        let implementation = CredentialSchemaIssuerRegistry::deploy(provider.clone())
             .await
-            .context("failed to deploy CredentialSchemaIssuerRegistry")?;
+            .context("failed to deploy CredentialSchemaIssuerRegistry implementation")?;
 
-        Ok(*instance.address())
+        let implementation_address = *implementation.address();
+
+        let init_data = Bytes::from(CredentialSchemaIssuerRegistry::initializeCall {}.abi_encode());
+
+        let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
+            .await
+            .context("failed to deploy CredentialSchemaIssuerRegistry proxy")?;
+
+        Ok(*proxy.address())
     }
 
     /// Deploys the `AccountRegistry` contract using the supplied signer.
@@ -126,18 +141,23 @@ impl TestAnvil {
             binary_imt_address,
         )?;
 
-        // Encode constructor arguments (tree_depth)
-        let constructor_args = alloy::sol_types::SolValue::abi_encode(&tree_depth);
+        let implementation_address =
+            Self::deploy_contract(provider.clone(), account_registry_bytecode, Bytes::new())
+                .await
+                .context("failed to deploy AccountRegistry implementation")?;
 
-        let registry_address = Self::deploy_contract(
-            provider.clone(),
-            account_registry_bytecode,
-            constructor_args.into(),
-        )
-        .await
-        .context("failed to deploy AccountRegistry")?;
+        let init_data = Bytes::from(
+            AccountRegistry::initializeCall {
+                treeDepth: U256::from(tree_depth),
+            }
+            .abi_encode(),
+        );
 
-        Ok(registry_address)
+        let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
+            .await
+            .context("failed to deploy AccountRegistry proxy")?;
+
+        Ok(*proxy.address())
     }
 
     /// Links a library address into contract bytecode by replacing all placeholder references.
