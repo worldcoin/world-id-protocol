@@ -7879,7 +7879,10 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "aws-config",
+ "aws-sdk-kms",
  "axum 0.7.9",
+ "clap",
  "dotenvy",
  "hex",
  "once_cell",
