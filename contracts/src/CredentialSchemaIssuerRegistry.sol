@@ -13,6 +13,15 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
 contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+    error ImplementationNotInitialized();
+
+    modifier onlyInitialized() {
+        if (_getInitializedVersion() == 0) {
+            revert ImplementationNotInitialized();
+        }
+        _;
+    }
+
     ////////////////////////////////////////////////////////////
     //                         Types                          //
     ////////////////////////////////////////////////////////////
@@ -80,7 +89,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     /**
      * @dev Initializes the contract.
      */
-    function initialize() public initializer {
+    function initialize() public virtual initializer {
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
@@ -91,7 +100,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public returns (uint256) {
+    function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
         require(pubkey.x != 0 && pubkey.y != 0, "Registry: pubkey cannot be zero");
         require(signer != address(0), "Registry: signer cannot be zero address");
 
@@ -103,7 +112,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return issuerSchemaId;
     }
 
-    function remove(uint256 issuerSchemaId, bytes calldata signature) public {
+    function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
         bytes32 hash = _hashTypedDataV4(
@@ -120,7 +129,12 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         delete idToSchemaUri[issuerSchemaId];
     }
 
-    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature) public {
+    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+    {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
         require(!_isEmptyPubkey(newPubkey), "Registry: newPubkey cannot be zero");
@@ -136,7 +150,12 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _nonces[issuerSchemaId]++;
     }
 
-    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature) public {
+    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+    {
         require(!_isEmptyPubkey(_idToPubkey[issuerSchemaId]), "Registry: id not registered");
         require(newSigner != address(0), "Registry: newSigner cannot be zero address");
         require(_idToAddress[issuerSchemaId] != newSigner, "Registry: newSigner is already the assigned signer");
@@ -158,7 +177,14 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer+schema ID.
      * @return The schema URI for the issuerSchemaId.
      */
-    function getIssuerSchemaUri(uint256 issuerSchemaId) public view returns (string memory) {
+    function getIssuerSchemaUri(uint256 issuerSchemaId)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (string memory)
+    {
         return idToSchemaUri[issuerSchemaId];
     }
 
@@ -168,7 +194,12 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param schemaUri The new schema URI to set.
      * @param signature The signature of the issuer authorizing the update.
      */
-    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature) public {
+    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+    {
         require(issuerSchemaId != 0, "Schema ID not registered");
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 hash =
@@ -187,7 +218,14 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer-schema ID whose pubkey will be returned.
      * @return The pubkey for the issuerSchemaId.
      */
-    function issuerSchemaIdToPubkey(uint256 issuerSchemaId) public view returns (Pubkey memory) {
+    function issuerSchemaIdToPubkey(uint256 issuerSchemaId)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (Pubkey memory)
+    {
         return _idToPubkey[issuerSchemaId];
     }
 
@@ -196,19 +234,26 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
      * @return The on-chain signer address for the issuerSchemaId.
      */
-    function getSignerForIssuerSchemaId(uint256 issuerSchemaId) public view returns (address) {
+    function getSignerForIssuerSchemaId(uint256 issuerSchemaId)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (address)
+    {
         return _idToAddress[issuerSchemaId];
     }
 
-    function nextIssuerSchemaId() public view returns (uint256) {
+    function nextIssuerSchemaId() public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _nextId;
     }
 
-    function nonceOf(uint256 issuerSchemaId) public view returns (uint256) {
+    function nonceOf(uint256 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _nonces[issuerSchemaId];
     }
 
-    function _isEmptyPubkey(Pubkey memory pubkey) internal pure returns (bool) {
+    function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
         return pubkey.x == 0 && pubkey.y == 0;
     }
 
@@ -221,7 +266,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param newImplementation Address of the new implementation contract
      * @notice Only the contract owner can authorize upgrades
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
     ////////////////////////////////////////////////////////////
     //                    Storage Gap                         //
