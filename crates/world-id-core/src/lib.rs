@@ -24,6 +24,8 @@ pub use authenticator::{Authenticator, AuthenticatorError};
 pub mod config;
 
 pub use world_id_types::{Credential, CredentialVersion};
+
+#[cfg(any(feature = "authenticator", feature = "issuer"))]
 mod credential;
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 pub use credential::HashableCredential;

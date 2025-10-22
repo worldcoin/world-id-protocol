@@ -17,6 +17,7 @@ required-features = ["cli"]
 [[bin]]
 name = "issuer"
 path = "bin/issuer.rs"
+required-features = ["issuer"]
 
 [dependencies]
 alloy = { version = "1", features = ["sol-types", "rpc"], default-features = false }

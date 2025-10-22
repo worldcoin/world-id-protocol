@@ -30,8 +30,8 @@ pub enum CredentialVersion {
 /// - A credential clearly separates:
 ///    - **Assertion** (the claim being made)
 ///    - **Issuer** (who attests to it / vouches for it)
-///   - **Subject** (who it is about)
-///   - **Presenter binding** (who can present it)
+///    - **Subject** (who it is about)
+///    - **Presenter binding** (who can present it)
 /// - Credentials are **usable across authenticators** without leaking correlate-able identifiers to RPs.
 /// - Revocation, expiry, and re-issuance are **first-class lifecycle properties**.
 /// - Flexibility: credentials may take different formats but share **common metadata** (validity, issuer, trust, type).

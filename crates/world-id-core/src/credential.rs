@@ -1,4 +1,6 @@
-use crate::{EdDSAPrivateKey, EdDSAPublicKey};
+#[cfg(feature = "issuer")]
+use crate::EdDSAPrivateKey;
+use crate::EdDSAPublicKey;
 use eyre::bail;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 

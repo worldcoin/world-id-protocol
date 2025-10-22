@@ -8,7 +8,7 @@ use crate::FieldElement;
 ///
 /// This constrained is introduced to maintain proof performance reasonable even
 /// in devices with limited resources.
-pub static MAX_AUTHENTICATOR_KEYS: usize = 7;
+pub const MAX_AUTHENTICATOR_KEYS: usize = 7;
 
 /// A set of **off-chain** authenticator public keys for a World ID Account.
 ///
