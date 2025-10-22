@@ -23,16 +23,27 @@ use std::{
     str::FromStr,
 };
 
-/// Module containing the quintessential proof type.
-pub mod proof;
-pub use proof::WorldIdProof;
-
-/// Module containing types specifically related to relying parties.
-pub mod rp;
+/// Contains types related to the Authenticator.
+pub mod authenticator;
 
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
 pub use credential::{Credential, CredentialVersion};
+
+/// Contains base types for operations with Merkle trees.
+pub mod merkle;
+
+/// Contains the quintessential proof type.
+pub mod proof;
+pub use proof::WorldIdProof;
+
+/// Contains types specifically related to relying parties.
+pub mod rp;
+
+/// The scalar field used in the World ID Protocol.
+///
+/// This is the scalar field of the `BabyJubJub` curve.
+pub type ScalarField = ark_babyjubjub::Fr;
 
 /// Represents a field element of the base field (`Fq`) in the World ID Protocol.
 ///
