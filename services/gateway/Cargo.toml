@@ -16,6 +16,7 @@ alloy = { version = "1.0.22", default-features = false, features = ["json-rpc",
     "signer-aws"] }
 anyhow = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
+clap = { version = "4", features = ["derive", "env"] }
 world-id-core = { path = "../../crates/world-id-core" }
 dotenvy = "0.15"
 hex = "0.4"

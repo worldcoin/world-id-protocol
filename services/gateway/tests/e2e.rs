@@ -121,12 +121,10 @@ fn deploy_registry(rpc_url: &str) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     let re = Regex::new(r"AccountRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
-    let addr = re
-        .captures(&stdout)
+    re.captures(&stdout)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
-        .expect("failed to parse deployed address from script output");
-    addr
+        .expect("failed to parse deployed address from script output")
 }
 
 async fn wait_http_ready(client: &Client) {
@@ -165,6 +163,8 @@ async fn e2e_gateway_full_flow() {
         ),
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+        max_create_batch_size: 10,
+        max_ops_batch_size: 10,
     };
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 

@@ -8,7 +8,6 @@ use std::{
 };
 
 use alloy::network::EthereumWallet;
-use alloy::primitives::address;
 use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
@@ -32,9 +31,12 @@ use world_id_core::types::{
 
 pub use crate::config::GatewayConfig;
 
-const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
-
 mod config;
+mod create_batcher;
+mod ops_batcher;
+
+use create_batcher::{CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope};
+use ops_batcher::{OpEnvelope, OpKind, OpsBatcherHandle, OpsBatcherRunner};
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -66,30 +68,20 @@ struct AppState {
 }
 
 #[derive(Clone)]
-struct CreateBatcherHandle {
-    tx: mpsc::Sender<CreateReqEnvelope>,
-}
-
-#[derive(Clone)]
-struct OpsBatcherHandle {
-    tx: mpsc::Sender<OpEnvelope>,
-}
-
-#[derive(Clone)]
-struct RequestTracker {
+pub(crate) struct RequestTracker {
     inner: Arc<RwLock<std::collections::HashMap<String, RequestRecord>>>,
     seq: Arc<AtomicU64>,
 }
 
 impl RequestTracker {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             inner: Arc::new(RwLock::new(std::collections::HashMap::new())),
             seq: Arc::new(AtomicU64::new(1)),
         }
     }
 
-    async fn new_request(&self, kind: RequestKind) -> String {
+    pub(crate) async fn new_request(&self, kind: RequestKind) -> String {
         let id = self.seq.fetch_add(1, Ordering::Relaxed);
         let id = format!("{id:016x}");
         let record = RequestRecord {
@@ -100,7 +92,7 @@ impl RequestTracker {
         id
     }
 
-    async fn set_status_batch(&self, ids: &[String], status: RequestState) {
+    pub(crate) async fn set_status_batch(&self, ids: &[String], status: RequestState) {
         let mut map = self.inner.write().await;
         for id in ids {
             if let Some(rec) = map.get_mut(id) {
@@ -109,11 +101,11 @@ impl RequestTracker {
         }
     }
 
-    async fn set_status(&self, id: &str, status: RequestState) {
+    pub(crate) async fn set_status(&self, id: &str, status: RequestState) {
         self.set_status_batch(&[id.to_string()], status).await;
     }
 
-    async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
+    pub(crate) async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
         self.inner.read().await.get(id).cloned()
     }
 }
@@ -130,7 +122,7 @@ enum RequestKind {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
-enum RequestState {
+pub(crate) enum RequestState {
     Queued,
     Batching,
     Submitted { tx_hash: String },
@@ -149,16 +141,6 @@ struct RequestStatusResponse {
     request_id: String,
     kind: RequestKind,
     status: RequestState,
-}
-
-alloy::sol! {
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    contract Multicall3 {
-        struct Call3 { address target; bool allowFailure; bytes callData; }
-        struct Result { bool success; bytes returnData; }
-        function aggregate3(Call3[] calldata calls) payable returns (Result[] memory returnData);
-    }
 }
 
 fn build_provider(rpc_url: &str, ethereum_wallet: EthereumWallet) -> anyhow::Result<DynProvider> {
@@ -212,9 +194,11 @@ fn build_app(
     rpc_url: String,
     ethereum_wallet: EthereumWallet,
     batch_ms: u64,
+    max_create_batch_size: usize,
+    max_ops_batch_size: usize,
 ) -> Router {
     let provider = build_provider(&rpc_url, ethereum_wallet).expect("failed to build provider");
-    tracing::info!("✔️ RPC Provider built");
+    tracing::info!("RPC Provider built");
     let tracker = RequestTracker::new();
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -222,6 +206,7 @@ fn build_app(
         provider.clone(),
         registry_addr,
         Duration::from_millis(batch_ms),
+        max_create_batch_size,
         rx,
         tracker.clone(),
     );
@@ -234,12 +219,13 @@ fn build_app(
         provider.clone(),
         registry_addr,
         Duration::from_millis(batch_ms),
+        max_ops_batch_size,
         orx,
         tracker.clone(),
     );
     tokio::spawn(ops_runner.run());
 
-    tracing::info!("✔️ Ops batcher initialized");
+    tracing::info!("Ops batcher initialized");
 
     let state = AppState {
         registry_addr,
@@ -275,6 +261,8 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
         cfg.rpc_url,
         cfg.ethereum_wallet,
         cfg.batch_ms,
+        cfg.max_create_batch_size,
+        cfg.max_ops_batch_size,
     );
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
@@ -295,449 +283,23 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> anyhow::Result<()> {
     let cfg = GatewayConfig::from_env();
-    tracing::info!("✔️ Config is ready. Building app...");
+    tracing::info!("Config is ready. Building app...");
     let app = build_app(
         cfg.registry_addr,
         cfg.rpc_url,
         cfg.ethereum_wallet,
         cfg.batch_ms,
+        cfg.max_create_batch_size,
+        cfg.max_ops_batch_size,
     );
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
-    tracing::info!("✔️ HTTP server listening on {}", cfg.listen_addr);
+    tracing::info!("HTTP server listening on {}", cfg.listen_addr);
     axum::serve(listener, app).await?;
     Ok(())
 }
 
 async fn health() -> impl IntoResponse {
     (StatusCode::OK, Json(serde_json::json!({"status":"ok"})))
-}
-
-#[derive(Debug)]
-struct CreateReqEnvelope {
-    id: String,
-    req: CreateAccountRequest,
-}
-
-struct CreateBatcherRunner {
-    rx: mpsc::Receiver<CreateReqEnvelope>,
-    provider: DynProvider,
-    registry: Address,
-    window: Duration,
-    tracker: RequestTracker,
-}
-
-impl CreateBatcherRunner {
-    fn new(
-        provider: DynProvider,
-        registry: Address,
-        window: Duration,
-        rx: mpsc::Receiver<CreateReqEnvelope>,
-        tracker: RequestTracker,
-    ) -> Self {
-        Self {
-            rx,
-            provider,
-            registry,
-            window,
-            tracker,
-        }
-    }
-    async fn run(mut self) {
-        let provider = self.provider.clone();
-        let contract = AccountRegistry::new(self.registry, provider);
-
-        loop {
-            let Some(first) = self.rx.recv().await else {
-                tracing::info!("create batcher channel closed");
-                return;
-            };
-
-            let mut batch = vec![first];
-            let deadline = tokio::time::Instant::now() + self.window;
-            while tokio::time::timeout_at(deadline, async {
-                let next = self.rx.try_recv().ok();
-                if let Some(req) = next {
-                    batch.push(req);
-                    true
-                } else {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    true
-                }
-            })
-            .await
-            .is_ok()
-            {}
-
-            let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
-            self.tracker
-                .set_status_batch(&ids, RequestState::Batching)
-                .await;
-
-            let mut recovery_addresses: Vec<Address> = Vec::new();
-            let mut auths: Vec<Vec<Address>> = Vec::new();
-            let mut pubkeys: Vec<Vec<U256>> = Vec::new();
-            let mut commits: Vec<U256> = Vec::new();
-
-            for env in &batch {
-                recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
-                auths.push(env.req.authenticator_addresses.clone());
-                pubkeys.push(env.req.authenticator_pubkeys.clone());
-                commits.push(env.req.offchain_signer_commitment);
-            }
-
-            let call = contract.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
-            match call.send().await {
-                Ok(builder) => {
-                    let hash = format!("0x{:x}", builder.tx_hash());
-                    self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Submitted {
-                                tx_hash: hash.clone(),
-                            },
-                        )
-                        .await;
-
-                    let tracker = self.tracker.clone();
-                    let ids_for_receipt = ids.clone();
-                    tokio::spawn(async move {
-                        match builder.get_receipt().await {
-                            Ok(receipt) => {
-                                if receipt.status() {
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            RequestState::Finalized {
-                                                tx_hash: hash.clone(),
-                                            },
-                                        )
-                                        .await;
-                                } else {
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            RequestState::Failed {
-                                                error: format!(
-                                                    "transaction reverted on-chain (tx: {hash})"
-                                                ),
-                                            },
-                                        )
-                                        .await;
-                                }
-                            }
-                            Err(err) => {
-                                tracker
-                                    .set_status_batch(
-                                        &ids_for_receipt,
-                                        RequestState::Failed {
-                                            error: format!("transaction confirmation error: {err}"),
-                                        },
-                                    )
-                                    .await;
-                            }
-                        }
-                    });
-                }
-                Err(err) => {
-                    tracing::error!(error = %err, "create batch send failed");
-                    self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Failed {
-                                error: err.to_string(),
-                            },
-                        )
-                        .await;
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum OpKind {
-    Update {
-        account_index: U256,
-        old_authenticator_address: Address,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: U256,
-        new_pubkey: U256,
-    },
-    Insert {
-        account_index: U256,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: U256,
-        new_pubkey: U256,
-    },
-    Remove {
-        account_index: U256,
-        authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: U256,
-        authenticator_pubkey: U256,
-    },
-    Recover {
-        account_index: U256,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        new_pubkey: U256,
-    },
-}
-
-#[derive(Debug)]
-struct OpEnvelope {
-    id: String,
-    kind: OpKind,
-}
-
-struct OpsBatcherRunner {
-    rx: mpsc::Receiver<OpEnvelope>,
-    provider: DynProvider,
-    registry: Address,
-    window: Duration,
-    tracker: RequestTracker,
-}
-
-impl OpsBatcherRunner {
-    fn new(
-        provider: DynProvider,
-        registry: Address,
-        window: Duration,
-        rx: mpsc::Receiver<OpEnvelope>,
-        tracker: RequestTracker,
-    ) -> Self {
-        Self {
-            rx,
-            provider,
-            registry,
-            window,
-            tracker,
-        }
-    }
-
-    async fn run(mut self) {
-        let provider = self.provider.clone();
-        let contract = AccountRegistry::new(self.registry, provider.clone());
-        let mc = Multicall3::new(MULTICALL3_ADDR, provider);
-
-        loop {
-            let Some(first) = self.rx.recv().await else {
-                tracing::info!("ops batcher channel closed");
-                return;
-            };
-            let mut batch = vec![first];
-            let deadline = tokio::time::Instant::now() + self.window;
-            while tokio::time::timeout_at(deadline, async {
-                let next = self.rx.try_recv().ok();
-                if let Some(req) = next {
-                    batch.push(req);
-                    true
-                } else {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    true
-                }
-            })
-            .await
-            .is_ok()
-            {}
-
-            let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
-            self.tracker
-                .set_status_batch(&ids, RequestState::Batching)
-                .await;
-
-            let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
-            for env in &batch {
-                let data: alloy::primitives::Bytes = match &env.kind {
-                    OpKind::Update {
-                        account_index,
-                        old_authenticator_address,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        new_pubkey,
-                    } => contract
-                        .updateAuthenticator(
-                            *account_index,
-                            *old_authenticator_address,
-                            *new_authenticator_address,
-                            *pubkey_id,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Insert {
-                        account_index,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        new_pubkey,
-                    } => contract
-                        .insertAuthenticator(
-                            *account_index,
-                            *new_authenticator_address,
-                            *pubkey_id,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Remove {
-                        account_index,
-                        authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        authenticator_pubkey,
-                    } => contract
-                        .removeAuthenticator(
-                            *account_index,
-                            *authenticator_address,
-                            *pubkey_id,
-                            *authenticator_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Recover {
-                        account_index,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        new_pubkey,
-                    } => contract
-                        .recoverAccount(
-                            *account_index,
-                            *new_authenticator_address,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                };
-                calls.push(Multicall3::Call3 {
-                    target: self.registry,
-                    allowFailure: false,
-                    callData: data,
-                });
-            }
-
-            let res = mc.aggregate3(calls).send().await;
-            match res {
-                Ok(builder) => {
-                    let hash = format!("0x{:x}", builder.tx_hash());
-                    self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Submitted {
-                                tx_hash: hash.clone(),
-                            },
-                        )
-                        .await;
-
-                    let tracker = self.tracker.clone();
-                    let ids_for_receipt = ids.clone();
-                    tokio::spawn(async move {
-                        match builder.get_receipt().await {
-                            Ok(receipt) => {
-                                if receipt.status() {
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            RequestState::Finalized {
-                                                tx_hash: hash.clone(),
-                                            },
-                                        )
-                                        .await;
-                                } else {
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            RequestState::Failed {
-                                                error: format!(
-                                                    "transaction reverted on-chain (tx: {hash})"
-                                                ),
-                                            },
-                                        )
-                                        .await;
-                                }
-                            }
-                            Err(err) => {
-                                tracker
-                                    .set_status_batch(
-                                        &ids_for_receipt,
-                                        RequestState::Failed {
-                                            error: format!("transaction confirmation error: {err}"),
-                                        },
-                                    )
-                                    .await;
-                            }
-                        }
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "multicall3 send failed");
-                    self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Failed {
-                                error: e.to_string(),
-                            },
-                        )
-                        .await;
-                }
-            }
-        }
-    }
 }
 
 async fn create_account(
