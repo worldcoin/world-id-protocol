@@ -1,12 +1,11 @@
 use crate::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use ark_babyjubjub::EdwardsAffine;
-use ark_ff::{PrimeField, Zero};
 use eyre::bail;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::types::BaseField;
+use crate::FieldElement;
 
 #[cfg(feature = "authenticator")]
 use oprf_client::CredentialsSignature;
@@ -70,14 +69,10 @@ pub struct Credential {
     /// These are concrete statements that the issuer attests about the receiver.
     /// Could be just commitments to data (e.g. passport image) or
     /// the value directly (e.g. date of birth)
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base_sequence")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base_sequence")]
-    pub claims: Vec<BaseField>,
+    pub claims: Vec<FieldElement>,
     /// If needed, can be used as commitment to the underlying data.
     /// This can be useful to tie multiple proofs about the same data together.
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
-    pub associated_data_hash: BaseField,
+    pub associated_data_hash: FieldElement,
     /// The signature of the credential (signed by the issuer's key)
     #[serde(serialize_with = "serialize_signature")]
     #[serde(deserialize_with = "deserialize_signature")]
@@ -105,8 +100,8 @@ impl Credential {
             account_id: 0,
             genesis_issued_at: 0,
             expires_at: 0,
-            claims: vec![BaseField::zero(); MAX_CLAIMS],
-            associated_data_hash: BaseField::zero(),
+            claims: vec![FieldElement::ZERO; MAX_CLAIMS],
+            associated_data_hash: FieldElement::ZERO,
             signature: None,
             issuer: EdDSAPublicKey {
                 pk: EdwardsAffine::default(),
@@ -157,7 +152,9 @@ impl Credential {
         if index >= self.claims.len() {
             bail!("Index of claim out of bounds");
         }
-        self.claims[index] = claim.try_into()?;
+        self.claims[index] = claim
+            .try_into()
+            .map_err(|_| eyre::eyre!("Claim is not a valid field element"))?;
         Ok(self)
     }
 
@@ -166,15 +163,17 @@ impl Credential {
     /// # Errors
     /// Will error if the provided hash cannot be lowered into the field.
     pub fn associated_data_hash(mut self, associated_data_hash: U256) -> Result<Self, eyre::Error> {
-        self.associated_data_hash = associated_data_hash.try_into()?;
+        self.associated_data_hash = associated_data_hash
+            .try_into()
+            .map_err(|_| eyre::eyre!("Claim is not a valid field element"))?;
         Ok(self)
     }
 
     /// Get the credential domain separator for the given version.
     #[must_use]
-    pub fn get_cred_ds(&self) -> BaseField {
+    pub fn get_cred_ds(&self) -> FieldElement {
         match self.version {
-            CredentialVersion::V1 => BaseField::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
+            CredentialVersion::V1 => FieldElement::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
         }
     }
 
@@ -183,15 +182,17 @@ impl Credential {
     /// # Errors
     /// Will error if there are more claims than the maximum allowed.
     /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
-    pub fn claims_hash(&self) -> Result<BaseField, eyre::Error> {
+    pub fn claims_hash(&self) -> Result<FieldElement, eyre::Error> {
         let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
         if self.claims.len() > MAX_CLAIMS {
             bail!("There can be at most {MAX_CLAIMS} claims");
         }
-        let mut input = [BaseField::zero(); MAX_CLAIMS];
-        input[..self.claims.len()].copy_from_slice(&self.claims);
+        let mut input = [*FieldElement::ZERO; MAX_CLAIMS];
+        for (i, claim) in self.claims.iter().enumerate() {
+            input[i] = **claim;
+        }
         hasher.permutation_in_place(&mut input);
-        Ok(input[1])
+        Ok(input[1].into())
     }
 
     /// Computes the specifically designed hash of the credential for the given version.
@@ -201,22 +202,22 @@ impl Credential {
     /// # Errors
     /// - Will error if there are more claims than the maximum allowed.
     /// - Will error if the claims cannot be lowered into the field. Should not occur in practice.
-    pub fn hash(&self) -> Result<BaseField, eyre::Error> {
+    pub fn hash(&self) -> Result<FieldElement, eyre::Error> {
         match self.version {
             CredentialVersion::V1 => {
                 let hasher = Poseidon2::<_, 8, 5>::default();
                 let mut input = [
-                    self.get_cred_ds(),
+                    *self.get_cred_ds(),
                     self.issuer_schema_id.into(),
                     self.account_id.into(),
                     self.genesis_issued_at.into(),
                     self.expires_at.into(),
-                    self.claims_hash()?,
-                    self.associated_data_hash,
-                    BaseField::zero(),
+                    *self.claims_hash()?,
+                    *self.associated_data_hash,
+                    *FieldElement::ZERO,
                 ];
                 hasher.permutation_in_place(&mut input);
-                Ok(input[1])
+                Ok(input[1].into())
             }
         }
     }
@@ -226,7 +227,7 @@ impl Credential {
     /// # Errors
     /// Will error if the credential cannot be hashed.
     pub fn sign(mut self, signer: &EdDSAPrivateKey) -> Result<Self, eyre::Error> {
-        self.signature = Some(signer.sign(self.hash()?));
+        self.signature = Some(signer.sign(*self.hash()?));
         self.issuer = signer.public();
         Ok(self)
     }
@@ -246,7 +247,7 @@ impl Credential {
             ));
         }
         if let Some(signature) = &self.signature {
-            return Ok(self.issuer.verify(self.hash()?, signature));
+            return Ok(self.issuer.verify(*self.hash()?, signature));
         }
         Err(eyre::eyre!("Credential not signed"))
     }
@@ -259,7 +260,7 @@ impl TryFrom<Credential> for CredentialsSignature {
         Ok(Self {
             type_id: credential.issuer_schema_id.into(),
             issuer: credential.issuer.clone(),
-            hashes: [credential.claims_hash()?, credential.associated_data_hash],
+            hashes: [*credential.claims_hash()?, *credential.associated_data_hash],
             signature: credential
                 .signature
                 .ok_or_else(|| eyre::eyre!("Credential not signed"))?,
@@ -339,7 +340,7 @@ mod tests {
 
         let issuer_public_key = issuer_sk.public();
         let verified = issuer_public_key.verify(
-            credential.hash().unwrap(),
+            *credential.hash().unwrap(),
             credential.signature.as_ref().unwrap(),
         );
         assert!(verified);

@@ -1,6 +1,6 @@
 [package]
 name = "world-id-core"
-version = "0.1.0"
+version.workspace = true
 license.workspace = true
 edition.workspace = true
 
@@ -34,7 +34,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
+ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
 oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
 oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
@@ -50,6 +50,7 @@ eyre = "0.6"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git", optional = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10.3", optional = true }
+world-id-types = { workspace = true }
 
 [features]
 default = ["authenticator"]
