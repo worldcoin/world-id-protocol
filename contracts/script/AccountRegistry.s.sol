@@ -30,6 +30,6 @@ contract DeployScript is Script {
         vm.stopBroadcast();
 
         console.log("AccountRegistry implementation deployed to:", address(implementation));
-        console.log("AccountRegistry proxy deployed to:", address(proxy));
+        console.log("AccountRegistry deployed to:", address(proxy));
     }
 }
