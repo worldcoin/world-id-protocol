@@ -1,5 +1,6 @@
 use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
+use world_id_types::FieldElement;
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 use alloy::signers::k256::ecdsa::Signature;
@@ -8,17 +9,6 @@ use oprf_types::crypto::RpNullifierKey;
 
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
-
-/// The base field over which the elliptic curve is defined for the curve that is used to
-/// sign credentials in the World ID Protocol. The World ID Protocol currently uses the `BabyJubJub` curve.
-pub type BaseField = ark_babyjubjub::Fq;
-
-/// The account index is the unique identifier for a World ID Account.
-/// It is the index of the user in the `AccountRegistry` Merkle Tree.
-///
-/// The account index is used to issue credentials and generate proofs. RPs never learn the account index
-/// for privacy reasons.
-pub type AccountIndex = U256;
 
 /// The response from an inclusion proof request.
 #[derive(Serialize, Deserialize)]
@@ -68,13 +58,9 @@ pub struct RpRequest {
     /// The current timestamp.
     pub current_time_stamp: u64,
     /// The action ID.
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
-    pub action_id: BaseField,
+    pub action_id: FieldElement,
     /// The nonce.
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_base")]
-    pub nonce: BaseField,
+    pub nonce: FieldElement,
 }
 
 /// The request to create a new World ID account.

@@ -10,10 +10,10 @@ use crate::account_registry::{
 };
 use crate::config::Config;
 use crate::types::{
-    AccountIndex, BaseField, CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
+    CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
 };
-use crate::{Credential, Signer};
+use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::providers::{DynProvider, Provider};
@@ -44,7 +44,7 @@ static TREE_DEPTH: usize = 30;
 static QUERY_ZKEY_PATH: &str = "OPRFQueryProof.zkey";
 static NULLIFIER_ZKEY_PATH: &str = "OPRFNullifierProof.zkey";
 
-type UniquenessProof = (Groth16Proof, BaseField);
+type UniquenessProof = (Groth16Proof, FieldElement);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 #[derive(Debug)]
@@ -165,7 +165,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
-    pub async fn account_index(&mut self) -> Result<AccountIndex> {
+    pub async fn account_index(&mut self) -> Result<U256> {
         let packed_account_index = self.packed_account_index().await?;
         let tree_index = packed_account_index & MASK_ACCOUNT_INDEX;
         Ok(tree_index)
@@ -216,15 +216,23 @@ impl Authenticator {
         let url = format!("{}/proof/{}", self.config.indexer_url(), account_index);
         let response = reqwest::get(url).await?;
         let proof = response.json::<InclusionProofResponse>().await?;
-        let root: BaseField = proof.root.try_into()?;
-        let siblings_vec: Vec<BaseField> = proof
+        let root: FieldElement = proof
+            .root
+            .try_into()
+            .map_err(|_| eyre::eyre!("Root is not a valid field element"))?;
+        let siblings_vec: Vec<ark_babyjubjub::Fq> = proof
             .proof
             .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
-        let siblings: [BaseField; TREE_DEPTH] = siblings_vec.try_into().map_err(|v: Vec<_>| {
-            eyre::eyre!("Expected {} siblings, got {}", TREE_DEPTH, v.len())
-        })?;
+            .map(|s| {
+                s.try_into()
+                    .map_err(|_| eyre::eyre!("Sibling is not a valid field element"))
+            })
+            .collect::<Result<Vec<_>, eyre::Error>>()
+            .map_err(|_| eyre::eyre!("Siblings are not valid field elements"))?;
+        let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
+            siblings_vec.try_into().map_err(|v: Vec<_>| {
+                eyre::eyre!("Expected {} siblings, got {}", TREE_DEPTH, v.len())
+            })?;
 
         let mut pubkey_batch = UserPublicKeyBatch {
             values: [EdwardsAffine::default(); 7],
@@ -238,7 +246,7 @@ impl Authenticator {
 
         Ok((
             MerkleMembership {
-                root: MerkleRoot::from(root),
+                root: MerkleRoot::from(*root),
                 siblings,
                 depth: TREE_DEPTH as u64,
                 mt_index: proof.leaf_index,
@@ -268,7 +276,7 @@ impl Authenticator {
     #[allow(clippy::future_not_send)]
     pub async fn generate_proof(
         &mut self,
-        message_hash: BaseField,
+        message_hash: FieldElement,
         rp_request: RpRequest,
         credential: Credential,
     ) -> Result<UniquenessProof> {
@@ -283,8 +291,8 @@ impl Authenticator {
         let query = OprfQuery {
             rp_id: RpId::new(rp_request.rp_id.parse::<u128>()?),
             share_epoch: ShareEpoch::default(), // TODO
-            action: rp_request.action_id,
-            nonce: rp_request.nonce,
+            action: *rp_request.action_id,
+            nonce: *rp_request.nonce,
             current_time_stamp: rp_request.current_time_stamp, // TODO
             nonce_signature: rp_request.signature,
         };
@@ -309,7 +317,7 @@ impl Authenticator {
             query,
             groth16_material,
             key_material,
-            signal_hash: message_hash,
+            signal_hash: *message_hash,
             rp_nullifier_key: rp_request.rp_nullifier_key,
         };
 
@@ -317,7 +325,7 @@ impl Authenticator {
         let (proof, _public, nullifier) =
             oprf_client::nullifier(self.config.nullifier_oracle_urls(), 2, args, &mut rng).await?;
 
-        Ok((proof, nullifier))
+        Ok((proof, nullifier.into()))
     }
 
     /// Creates a new World ID account.
