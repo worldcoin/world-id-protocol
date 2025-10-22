@@ -11,16 +11,16 @@
     dead_code
 )]
 
+use ark_babyjubjub::Fq;
+use ark_ff::PrimeField;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ruint::aliases::U256;
+use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fmt,
     io::{Cursor, Read, Write},
     str::FromStr,
 };
-
-use ark_ff::PrimeField;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ruint::aliases::U256;
-use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 /// Module containing the quintessential proof type.
 pub mod proof;
@@ -29,24 +29,22 @@ pub use proof::WorldIdProof;
 /// Module containing types specifically related to relying parties.
 pub mod rp;
 
-/// The base field (curve field `Fq`) over which the elliptic curve is
-/// defined for the curve that is used to sign credentials in the World ID Protocol.
+/// Represents a field element of the base field (`Fq`) in the World ID Protocol.
 ///
-/// The World ID Protocol currently uses the `BabyJubJub` curve.
-pub type BaseField = ark_babyjubjub::Fq;
-
-/// Represents a Merkle root hash for any of the trees in the World ID Protocol.
+/// The World ID Protocol uses the `BabyJubJub` curve throughout. Note the
+/// base field of `BabyJubJub` is the scalar field of the BN254 curve.
 ///
-/// The inner type is a base field element from `BabyJubJub` for convenience instead of a scalar field element on BN254.
+/// This wrapper ensures consistent serialization and deserialization of field elements, where
+/// string-based serialization is done with hex encoding and binary serialization is done with byte vectors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct FieldElement(BaseField);
+pub struct FieldElement(Fq);
 
 impl FieldElement {
     /// Serializes the field element into a compressed byte vector.
     ///
     /// # Errors
     /// Will return an error if the serialization unexpectedly fails.
-    pub fn serialize_compressed<W: Write>(&self, writer: &mut W) -> Result<(), TypeError> {
+    pub fn serialize_as_bytes<W: Write>(&self, writer: &mut W) -> Result<(), TypeError> {
         self.0
             .serialize_compressed(writer)
             .map_err(|e| TypeError::Serialization(e.to_string()))
@@ -56,8 +54,8 @@ impl FieldElement {
     ///
     /// # Errors
     /// Will return an error if the provided input is not a valid compressed field element (e.g. not on the curve).
-    pub fn deserialize_compressed<R: Read>(bytes: &mut R) -> Result<Self, TypeError> {
-        let field_element = BaseField::deserialize_compressed(bytes)
+    pub fn deserialize_from_bytes<R: Read>(bytes: &mut R) -> Result<Self, TypeError> {
+        let field_element = Fq::deserialize_compressed(bytes)
             .map_err(|e| TypeError::Deserialization(e.to_string()))?;
         Ok(Self(field_element))
     }
