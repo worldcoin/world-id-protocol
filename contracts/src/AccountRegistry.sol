@@ -11,6 +11,15 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
 
+    error ImplementationNotInitialized();
+
+    modifier onlyInitialized() {
+        if (_getInitializedVersion() == 0) {
+            revert ImplementationNotInitialized();
+        }
+        _;
+    }
+
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
@@ -113,7 +122,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Initializes the contract.
      * @param treeDepth The depth of the Merkle tree.
      */
-    function initialize(uint256 treeDepth) public initializer {
+    function initialize(uint256 treeDepth) public virtual initializer {
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
@@ -128,21 +137,21 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     /**
      * @dev Returns the domain separator for the EIP712 structs.
      */
-    function domainSeparatorV4() public view returns (bytes32) {
+    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
 
     /**
      * @dev Returns the current tree root.
      */
-    function currentRoot() external view returns (uint256) {
+    function currentRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return tree.root;
     }
 
     /**
      * @dev Sets the validity window for historic roots. 0 means roots never expire.
      */
-    function setRootValidityWindow(uint256 newWindow) external onlyOwner {
+    function setRootValidityWindow(uint256 newWindow) external virtual onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
         rootValidityWindow = newWindow;
         emit RootValidityWindowUpdated(old, newWindow);
@@ -151,7 +160,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     /**
      * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
      */
-    function isValidRoot(uint256 root) external view returns (bool) {
+    function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
         uint256 ts = rootToTimestamp[root];
         if (ts == 0) return false;
         if (rootValidityWindow == 0) return true;
@@ -161,7 +170,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     /**
      * @dev Records the current tree root.
      */
-    function _recordCurrentRoot() internal {
+    function _recordCurrentRoot() internal virtual {
         uint256 root = tree.root;
         rootToTimestamp[root] = block.timestamp;
         emit RootRecorded(root, block.timestamp, rootEpoch++);
@@ -172,7 +181,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         uint256[] calldata siblingNodes
-    ) internal {
+    ) internal virtual {
         tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         _recordCurrentRoot();
     }
@@ -188,6 +197,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     function recoverAccountIndex(bytes32 messageHash, bytes memory signature)
         internal
         view
+        virtual
         returns (uint256 accountIndex, address signer, uint256 packedAccountIndex)
     {
         signer = ECDSA.recover(messageHash, signature);
@@ -198,12 +208,17 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(packedAccountIndex >> 224 == accountRecoveryCounter[accountIndex], "Invalid account recovery counter");
     }
 
-    function _pack(uint256 accountIndex, uint32 recoveryCounter, uint32 pubkeyId) internal pure returns (uint256) {
+    function _pack(uint256 accountIndex, uint32 recoveryCounter, uint32 pubkeyId)
+        internal
+        pure
+        virtual
+        returns (uint256)
+    {
         require(accountIndex >> 192 == 0, "accountIndex overflow");
         return (uint256(recoveryCounter) << 224) | (uint256(pubkeyId) << 192) | accountIndex;
     }
 
-    function _pubkeyIdOf(uint256 packed) internal pure returns (uint32) {
+    function _pubkeyIdOf(uint256 packed) internal pure virtual returns (uint32) {
         return uint32(packed >> 192);
     }
 
@@ -212,7 +227,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         address[] calldata authenticatorAddresses,
         uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
-    ) internal {
+    ) internal virtual {
         require(authenticatorAddresses.length > 0, "authenticatorAddresses length must be greater than 0");
         require(
             authenticatorAddresses.length == authenticatorPubkeys.length,
@@ -248,7 +263,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         address[] calldata authenticatorAddresses,
         uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
-    ) external {
+    ) external virtual onlyProxy onlyInitialized {
         _registerAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment);
         tree.insert(offchainSignerCommitment);
         _recordCurrentRoot();
@@ -265,7 +280,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         address[][] calldata authenticatorAddresses,
         uint256[][] calldata authenticatorPubkeys,
         uint256[] calldata offchainSignerCommitments
-    ) external {
+    ) external virtual onlyProxy onlyInitialized {
         require(recoveryAddresses.length > 0, "Length must be greater than 0");
         require(
             recoveryAddresses.length == authenticatorAddresses.length,
@@ -311,7 +326,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         bytes memory signature,
         uint256[] calldata siblingNodes,
         uint256 nonce
-    ) external {
+    ) external virtual onlyProxy onlyInitialized {
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(
             oldAuthenticatorAddress != newAuthenticatorAddress, "Old and new authenticator addresses cannot be the same"
@@ -379,7 +394,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         bytes memory signature,
         uint256[] calldata siblingNodes,
         uint256 nonce
-    ) external {
+    ) external virtual onlyProxy onlyInitialized {
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
 
@@ -437,7 +452,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         bytes memory signature,
         uint256[] calldata siblingNodes,
         uint256 nonce
-    ) external {
+    ) external virtual onlyProxy onlyInitialized {
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -494,7 +509,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         bytes memory signature,
         uint256[] calldata siblingNodes,
         uint256 nonce
-    ) external {
+    ) external virtual onlyProxy onlyInitialized {
         require(accountIndex > 0, "Account index must be greater than 0");
         require(nextAccountIndex > accountIndex, "Account does not exist");
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
@@ -547,7 +562,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         address newRecoveryAddress,
         bytes memory signature,
         uint256 nonce
-    ) external {
+    ) external virtual onlyProxy onlyInitialized {
         require(accountIndex > 0, "Account index must be greater than 0");
         require(nextAccountIndex > accountIndex, "Account does not exist");
 
@@ -578,7 +593,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @param newImplementation Address of the new implementation contract
      * @notice Only the contract owner can authorize upgrades
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
     ////////////////////////////////////////////////////////////
     //                    Storage Gap                         //
