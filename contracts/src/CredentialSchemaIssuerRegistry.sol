@@ -51,7 +51,7 @@ contract CredentialSchemaIssuerRegistry is
 
     string public constant REMOVE_ISSUER_SCHEMA_TYPEDEF = "RemoveIssuerSchema(uint256 issuerSchemaId,uint256 nonce)";
     string public constant UPDATE_PUBKEY_TYPEDEF =
-        "UpdateIssuerSchemaPubkey(uint256 issuerSchemaId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)";
+        "UpdateIssuerSchemaPubkey(uint256 issuerSchemaId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)Pubkey(uint256 x,uint256 y)";
     string public constant UPDATE_SIGNER_TYPEDEF =
         "UpdateIssuerSchemaSigner(uint256 issuerSchemaId,address newSigner,uint256 nonce)";
     string public constant UPDATE_ISSUER_SCHEMA_URI_TYPEDEF =
@@ -175,8 +175,9 @@ contract CredentialSchemaIssuerRegistry is
      */
     function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature) public {
         require(issuerSchemaId != 0, "Schema ID not registered");
+        bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 hash =
-            _hashTypedDataV4(keccak256(abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUri)));
+            _hashTypedDataV4(keccak256(abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUriHash)));
         address signer = ECDSA.recover(hash, signature);
         require(_idToAddress[issuerSchemaId] == signer, "Registry: invalid signature");
 

@@ -146,8 +146,9 @@ contract CredentialIssuerRegistryTest is Test {
         view
         returns (bytes memory)
     {
+        bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 structHash =
-            keccak256(abi.encode(registry.UPDATE_ISSUER_SCHEMA_URI_TYPEHASH(), issuerSchemaId, schemaUri));
+            keccak256(abi.encode(registry.UPDATE_ISSUER_SCHEMA_URI_TYPEHASH(), issuerSchemaId, schemaUriHash));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sk, digest);
         return abi.encodePacked(r, s, v);
