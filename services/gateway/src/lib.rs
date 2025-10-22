@@ -129,13 +129,83 @@ enum RequestKind {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ErrorCode {
+    /// Authenticator already exists for this account
+    AuthenticatorAlreadyExists,
+    /// Generic transaction revert
+    TransactionReverted,
+    /// Transaction confirmation error
+    ConfirmationError,
+    /// Batcher unavailable
+    BatcherUnavailable,
+    /// Other/unknown error
+    Unknown,
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+enum GatewayError {
+    #[error("Authenticator already exists")]
+    AuthenticatorAlreadyExists,
+    #[error("Transaction reverted on-chain (tx: {tx_hash})")]
+    TransactionReverted { tx_hash: String },
+    #[error("Transaction confirmation error: {message}")]
+    ConfirmationError { message: String },
+    #[error("Batcher unavailable")]
+    BatcherUnavailable,
+    #[error("Pre-flight check failed: {message}")]
+    PreFlightFailed { message: String },
+    #[error("{0}")]
+    Unknown(String),
+}
+
+impl GatewayError {
+    fn error_code(&self) -> ErrorCode {
+        match self {
+            GatewayError::AuthenticatorAlreadyExists => ErrorCode::AuthenticatorAlreadyExists,
+            GatewayError::TransactionReverted { .. } => ErrorCode::TransactionReverted,
+            GatewayError::ConfirmationError { .. } => ErrorCode::ConfirmationError,
+            GatewayError::BatcherUnavailable => ErrorCode::BatcherUnavailable,
+            GatewayError::PreFlightFailed { message } => {
+                // Parse the underlying error for pre-flight failures
+                Self::from_contract_error(message).error_code()
+            }
+            GatewayError::Unknown(_) => ErrorCode::Unknown,
+        }
+    }
+
+    fn from_contract_error(error: &str) -> Self {
+        let msg_lower = error.to_lowercase();
+
+        if msg_lower.contains("authenticator already exists") {
+            GatewayError::AuthenticatorAlreadyExists
+        } else {
+            GatewayError::Unknown(error.to_string())
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum RequestState {
     Queued,
     Batching,
     Submitted { tx_hash: String },
     Finalized { tx_hash: String },
-    Failed { error: String },
+    Failed {
+        error: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_code: Option<ErrorCode>,
+    },
+}
+
+impl RequestState {
+    fn failed_from_error(err: GatewayError) -> Self {
+        RequestState::Failed {
+            error: err.to_string(),
+            error_code: Some(err.error_code()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -413,25 +483,25 @@ impl CreateBatcherRunner {
                                         )
                                         .await;
                                 } else {
+                                    let err = GatewayError::TransactionReverted {
+                                        tx_hash: hash.clone(),
+                                    };
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::Failed {
-                                                error: format!(
-                                                    "transaction reverted on-chain (tx: {hash})"
-                                                ),
-                                            },
+                                            RequestState::failed_from_error(err),
                                         )
                                         .await;
                                 }
                             }
                             Err(err) => {
+                                let err = GatewayError::ConfirmationError {
+                                    message: err.to_string(),
+                                };
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::Failed {
-                                            error: format!("transaction confirmation error: {err}"),
-                                        },
+                                        RequestState::failed_from_error(err),
                                     )
                                     .await;
                             }
@@ -440,13 +510,9 @@ impl CreateBatcherRunner {
                 }
                 Err(err) => {
                     tracing::error!(error = %err, "create batch send failed");
+                    let err = GatewayError::Unknown(err.to_string());
                     self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Failed {
-                                error: err.to_string(),
-                            },
-                        )
+                        .set_status_batch(&ids, RequestState::failed_from_error(err))
                         .await;
                 }
             }
@@ -533,6 +599,127 @@ impl OpsBatcherRunner {
         }
     }
 
+    /// Simulate an operation to check if it would revert without spending gas
+    async fn simulate_operation(
+        contract: &AccountRegistry::AccountRegistryInstance<DynProvider>,
+        kind: &OpKind,
+    ) -> Result<(), String> {
+        match kind {
+            OpKind::Update {
+                account_index,
+                old_authenticator_address,
+                new_authenticator_address,
+                old_commit,
+                new_commit,
+                signature,
+                sibling_nodes,
+                nonce,
+                pubkey_id,
+                new_pubkey,
+            } => {
+                contract
+                    .updateAuthenticator(
+                        *account_index,
+                        *old_authenticator_address,
+                        *new_authenticator_address,
+                        *pubkey_id,
+                        *new_pubkey,
+                        *old_commit,
+                        *new_commit,
+                        signature.clone(),
+                        sibling_nodes.clone(),
+                        *nonce,
+                    )
+                    .call()
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            OpKind::Insert {
+                account_index,
+                new_authenticator_address,
+                old_commit,
+                new_commit,
+                signature,
+                sibling_nodes,
+                nonce,
+                pubkey_id,
+                new_pubkey,
+            } => {
+                contract
+                    .insertAuthenticator(
+                        *account_index,
+                        *new_authenticator_address,
+                        *pubkey_id,
+                        *new_pubkey,
+                        *old_commit,
+                        *new_commit,
+                        signature.clone(),
+                        sibling_nodes.clone(),
+                        *nonce,
+                    )
+                    .call()
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            OpKind::Remove {
+                account_index,
+                authenticator_address,
+                old_commit,
+                new_commit,
+                signature,
+                sibling_nodes,
+                nonce,
+                pubkey_id,
+                authenticator_pubkey,
+            } => {
+                contract
+                    .removeAuthenticator(
+                        *account_index,
+                        *authenticator_address,
+                        *pubkey_id,
+                        *authenticator_pubkey,
+                        *old_commit,
+                        *new_commit,
+                        signature.clone(),
+                        sibling_nodes.clone(),
+                        *nonce,
+                    )
+                    .call()
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            OpKind::Recover {
+                account_index,
+                new_authenticator_address,
+                old_commit,
+                new_commit,
+                signature,
+                sibling_nodes,
+                nonce,
+                new_pubkey,
+            } => {
+                contract
+                    .recoverAccount(
+                        *account_index,
+                        *new_authenticator_address,
+                        *new_pubkey,
+                        *old_commit,
+                        *new_commit,
+                        signature.clone(),
+                        sibling_nodes.clone(),
+                        *nonce,
+                    )
+                    .call()
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+        }
+    }
+
     async fn run(mut self) {
         let provider = self.provider.clone();
         let contract = AccountRegistry::new(self.registry, provider.clone());
@@ -543,12 +730,37 @@ impl OpsBatcherRunner {
                 tracing::info!("ops batcher channel closed");
                 return;
             };
+
+            // Simulate the first operation before starting a batch
+            if let Err(sim_error) = Self::simulate_operation(&contract, &first.kind).await {
+                tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
+                let err = GatewayError::PreFlightFailed {
+                    message: sim_error,
+                };
+                self.tracker
+                    .set_status(&first.id, RequestState::failed_from_error(err))
+                    .await;
+                continue; // Skip this operation and wait for the next one
+            }
+
             let mut batch = vec![first];
             let deadline = tokio::time::Instant::now() + self.window;
             while tokio::time::timeout_at(deadline, async {
                 let next = self.rx.try_recv().ok();
                 if let Some(req) = next {
-                    batch.push(req);
+                    // Simulate each additional operation before adding to batch
+                    if let Err(sim_error) = Self::simulate_operation(&contract, &req.kind).await {
+                        tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
+                        let err = GatewayError::PreFlightFailed {
+                            message: sim_error,
+                        };
+                        self.tracker
+                            .set_status(&req.id, RequestState::failed_from_error(err))
+                            .await;
+                        // Skip this operation but continue batching
+                    } else {
+                        batch.push(req);
+                    }
                     true
                 } else {
                     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -699,25 +911,25 @@ impl OpsBatcherRunner {
                                         )
                                         .await;
                                 } else {
+                                    let err = GatewayError::TransactionReverted {
+                                        tx_hash: hash.clone(),
+                                    };
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::Failed {
-                                                error: format!(
-                                                    "transaction reverted on-chain (tx: {hash})"
-                                                ),
-                                            },
+                                            RequestState::failed_from_error(err),
                                         )
                                         .await;
                                 }
                             }
                             Err(err) => {
+                                let err = GatewayError::ConfirmationError {
+                                    message: err.to_string(),
+                                };
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::Failed {
-                                            error: format!("transaction confirmation error: {err}"),
-                                        },
+                                        RequestState::failed_from_error(err),
                                     )
                                     .await;
                             }
@@ -726,13 +938,9 @@ impl OpsBatcherRunner {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "multicall3 send failed");
+                    let err = GatewayError::Unknown(e.to_string());
                     self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Failed {
-                                error: e.to_string(),
-                            },
-                        )
+                        .set_status_batch(&ids, RequestState::failed_from_error(err))
                         .await;
                 }
             }
@@ -756,9 +964,7 @@ async fn create_account(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "batcher unavailable".into(),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("batcher unavailable".into()));
@@ -811,6 +1017,7 @@ async fn update_authenticator(
                 &id,
                 RequestState::Failed {
                     error: "ops batcher unavailable".into(),
+                    error_code: Some(ErrorCode::BatcherUnavailable),
                 },
             )
             .await;
@@ -862,6 +1069,7 @@ async fn insert_authenticator(
                 &id,
                 RequestState::Failed {
                     error: "ops batcher unavailable".into(),
+                    error_code: Some(ErrorCode::BatcherUnavailable),
                 },
             )
             .await;
@@ -913,6 +1121,7 @@ async fn remove_authenticator(
                 &id,
                 RequestState::Failed {
                     error: "ops batcher unavailable".into(),
+                    error_code: Some(ErrorCode::BatcherUnavailable),
                 },
             )
             .await;
@@ -960,6 +1169,7 @@ async fn recover_account(
                 &id,
                 RequestState::Failed {
                     error: "ops batcher unavailable".into(),
+                    error_code: Some(ErrorCode::BatcherUnavailable),
                 },
             )
             .await;

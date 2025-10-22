@@ -527,3 +527,180 @@ async fn e2e_gateway_full_flow() {
     // Cleanup
     let _ = gw.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_authenticator_already_exists_error_code() {
+    let anvil = Anvil::new().fork(RPC_FORK_URL).try_spawn().unwrap();
+
+    let registry = deploy_registry(anvil.endpoint_url().to_string().as_str());
+
+    let signer = PrivateKeySigner::random();
+    let wallet_addr: Address = signer.address();
+
+    let cfg = GatewayConfig {
+        registry_addr: registry.parse().unwrap(),
+        rpc_url: anvil.endpoint_url().to_string(),
+        ethereum_wallet: EthereumWallet::from(
+            GW_PRIVATE_KEY
+                .to_string()
+                .parse::<PrivateKeySigner>()
+                .unwrap(),
+        ),
+        batch_ms: 200,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4102).into(),
+    };
+    let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+
+    // HTTP client
+    let client = Client::builder().build().unwrap();
+    let base = format!("http://127.0.0.1:4102");
+
+    // Wait for gateway to be ready
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Ok(resp) = client.get(format!("{}/health", base)).send().await {
+            if resp.status().is_success() {
+                break;
+            }
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("gateway not ready");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Build Alloy provider for on-chain assertions and chain id
+    let provider = alloy::providers::ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(signer.clone()))
+        .connect_http(anvil.endpoint_url());
+    let contract = AccountRegistry::new(registry.parse().unwrap(), provider.clone());
+
+    // Create an account with the wallet as authenticator
+    let body_create = serde_json::json!({
+        "recovery_address": wallet_addr.to_string(),
+        "authenticator_addresses": [wallet_addr.to_string()],
+        "authenticator_pubkeys": ["100"],
+        "offchain_signer_commitment": "1",
+    });
+    let resp = client
+        .post(format!("{}/create-account", base))
+        .json(&body_create)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let create_request_id = accepted.request_id.clone();
+    let _tx_hash = wait_for_finalized(&client, &base, &create_request_id).await;
+
+    // Wait until createManyAccounts is reflected on-chain
+    let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let packed_after = contract
+            .authenticatorAddressToPackedAccountIndex(wallet_addr)
+            .call()
+            .await
+            .unwrap();
+        if packed_after != U256::ZERO {
+            break;
+        }
+        if std::time::Instant::now() > deadline_ca {
+            panic!("timeout waiting for createManyAccounts mapping");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    let chain_id = provider.get_chain_id().await.unwrap();
+    let domain = ag_domain(chain_id, registry.parse::<Address>().unwrap());
+
+    // Try to insert the same authenticator again (wallet_addr is already an authenticator)
+    let nonce = U256::from(0);
+    let sig_ins = sign_insert_authenticator(
+        &signer,
+        U256::from(1),
+        wallet_addr, // Same address that's already an authenticator
+        U256::from(0),
+        U256::from(100),
+        U256::from(2),
+        nonce,
+        &domain,
+    )
+    .await
+    .unwrap();
+    let body_ins = InsertAuthenticatorRequest {
+        account_index: U256::from(1),
+        new_authenticator_address: wallet_addr,
+        old_offchain_signer_commitment: U256::from(1),
+        new_offchain_signer_commitment: U256::from(2),
+        sibling_nodes: default_sibling_nodes()
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+        signature: sig_ins.as_bytes().to_vec(),
+        nonce,
+        pubkey_id: U256::from(0),
+        new_authenticator_pubkey: U256::from(100),
+    };
+
+    let resp = client
+        .post(format!("{}/insert-authenticator", base))
+        .json(&body_ins)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let insert_request_id = accepted.request_id.clone();
+
+    // Wait for the request to fail
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let resp = client
+            .get(format!("{}/status/{}", base, insert_request_id))
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success());
+
+        let body: serde_json::Value = resp.json().await.unwrap();
+        dbg!(&body);
+
+        if let Some(status) = body.get("status") {
+            if status.get("state").and_then(|s| s.as_str()) == Some("failed") {
+                // Check that error_code is AUTHENTICATOR_ALREADY_EXISTS
+                let error_code = status.get("error_code").and_then(|c| c.as_str());
+                let error_msg = status.get("error").and_then(|e| e.as_str()).unwrap_or("");
+
+                assert_eq!(
+                    error_code,
+                    Some("AUTHENTICATOR_ALREADY_EXISTS"),
+                    "Expected AUTHENTICATOR_ALREADY_EXISTS error code, got {:?}. Error message: {}",
+                    error_code,
+                    error_msg
+                );
+
+                // Also verify the error message contains expected text
+                assert!(
+                    error_msg
+                        .to_lowercase()
+                        .contains("authenticator already exists"),
+                    "Error message should contain 'authenticator already exists', got: {}",
+                    error_msg
+                );
+
+                break;
+            }
+        }
+
+        if std::time::Instant::now() > deadline {
+            panic!(
+                "Timeout waiting for request to fail. Last status: {:?}",
+                body
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Cleanup
+    let _ = gw.shutdown().await;
+}
