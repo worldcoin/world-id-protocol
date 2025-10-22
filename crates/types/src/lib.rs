@@ -35,6 +35,7 @@ pub mod rp;
 /// The World ID Protocol uses the `BabyJubJub` curve throughout. Note the
 /// base field of `BabyJubJub` is the scalar field of the BN254 curve.
 ///
+/// 
 /// This wrapper ensures consistent serialization and deserialization of field elements, where
 /// string-based serialization is done with hex encoding and binary serialization is done with byte vectors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
