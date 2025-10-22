@@ -35,7 +35,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ark-serde-compat = { workspace = true }
-eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
+eddsa-babyjubjub = { workspace = true }
 oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
 oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
 oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
