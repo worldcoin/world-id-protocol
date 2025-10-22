@@ -24,6 +24,8 @@ pub use authenticator::{Authenticator, AuthenticatorError};
 pub mod config;
 
 mod credential;
+#[cfg(feature = "proof_requests")]
+pub mod proof_requests;
 pub use credential::{Credential, CredentialVersion};
 
 #[cfg(feature = "issuer")]

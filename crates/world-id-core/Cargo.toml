@@ -50,9 +50,14 @@ eyre = "0.6"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git", optional = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10.3", optional = true }
+base64 = { version = "0.22", optional = true }
+time = { version = "0.3", features = ["parsing", "formatting", "serde", "macros"], optional = true }
+sha2 = { version = "0.10", optional = true }
+serde_repr = { version = "0.1" }
 
 [features]
 default = ["authenticator"]
+proof_requests = ["dep:base64", "dep:time", "dep:sha2"]
 
 authenticator = [
     "alloy/contract",

@@ -57,7 +57,7 @@ static MAX_CLAIMS: usize = 16;
 pub struct Credential {
     /// Version representation of this structure
     pub version: CredentialVersion,
-    /// Unique credential type id that is used to lookup of verifying information
+    /// Unique issuer schema id that is used to lookup of verifying information
     pub issuer_schema_id: u64,
     /// World ID to which the credential is issued. This ID comes from the `AccountRegistry`.
     pub account_id: u64,

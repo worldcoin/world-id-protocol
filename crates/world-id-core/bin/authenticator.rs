@@ -4,6 +4,7 @@ use alloy::primitives::address;
 use ark_ff::UniformRand;
 use eyre::Result;
 use tokio::time::sleep;
+
 use world_id_core::{
     config::Config,
     types::{BaseField, RpRequest},
