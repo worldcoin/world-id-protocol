@@ -118,7 +118,7 @@ impl<'de> Deserialize<'de> for WorldIdProof {
 #[cfg(test)]
 mod tests {
     use crate::BaseField;
-    use ark_bn254::{Fq, Fq2};
+    use ark_bn254::Fq2;
     use ark_ff::PrimeField;
     use ruint::uint;
 
@@ -147,47 +147,23 @@ mod tests {
     #[allow(clippy::similar_names)]
     fn test_real_proof() {
         // Point A (G1)
-        let a_x = Fq::from_be_bytes_mod_order(
-            &uint!(0x15c1fc6907219676890dfe147ee6f10b580c7881dddacb1567b3bcbfc513a54d_U256)
-                .to_be_bytes::<32>(),
-        );
-        let a_y = Fq::from_be_bytes_mod_order(
-            &uint!(0x233afda3efff43a7631990d2e79470abcbae3ccad4b920476e64745bfe97bb0a_U256)
-                .to_be_bytes::<32>(),
-        );
-        let a = G1Affine::new(a_x, a_y);
+        let a_x = uint!(0x15c1fc6907219676890dfe147ee6f10b580c7881dddacb1567b3bcbfc513a54d_U256);
+        let a_y = uint!(0x233afda3efff43a7631990d2e79470abcbae3ccad4b920476e64745bfe97bb0a_U256);
+        let a = G1Affine::new(a_x.try_into().unwrap(), a_y.try_into().unwrap());
 
         // Point B (G2) - Swapping c0/c1 to match Ethereum convention
-        let b_x_c1 = Fq::from_be_bytes_mod_order(
-            &uint!(0xc8c7d7434c382d590d601d951c29c8463d555867db70f9e84f7741c81c2e1e6_U256)
-                .to_be_bytes::<32>(),
-        );
-        let b_x_c0 = Fq::from_be_bytes_mod_order(
-            &uint!(0x241d2ddf1c9e6670a24109a0e9c915cd6e07d0248a384dd38d3c91e9b0419f5f_U256)
-                .to_be_bytes::<32>(),
-        );
-        let b_y_c1 = Fq::from_be_bytes_mod_order(
-            &uint!(0xb23c5467a06eff56cc2c246ada1e7d5705afc4dc8b43fd5a6972c679a2019c5_U256)
-                .to_be_bytes::<32>(),
-        );
-        let b_y_c0 = Fq::from_be_bytes_mod_order(
-            &uint!(0x91ed6522f7924d3674d08966a008f947f9aa016a4100bb12f911326f3e1befd_U256)
-                .to_be_bytes::<32>(),
-        );
-        let b_x = Fq2::new(b_x_c0, b_x_c1);
-        let b_y = Fq2::new(b_y_c0, b_y_c1);
+        let b_x_c1 = uint!(0xc8c7d7434c382d590d601d951c29c8463d555867db70f9e84f7741c81c2e1e6_U256);
+        let b_x_c0 = uint!(0x241d2ddf1c9e6670a24109a0e9c915cd6e07d0248a384dd38d3c91e9b0419f5f_U256);
+        let b_y_c1 = uint!(0xb23c5467a06eff56cc2c246ada1e7d5705afc4dc8b43fd5a6972c679a2019c5_U256);
+        let b_y_c0 = uint!(0x91ed6522f7924d3674d08966a008f947f9aa016a4100bb12f911326f3e1befd_U256);
+        let b_x = Fq2::new(b_x_c0.try_into().unwrap(), b_x_c1.try_into().unwrap());
+        let b_y = Fq2::new(b_y_c0.try_into().unwrap(), b_y_c1.try_into().unwrap());
         let b = G2Affine::new(b_x, b_y);
 
         // Point C (G1)
-        let c_x = Fq::from_be_bytes_mod_order(
-            &uint!(0xacdf5a5996e00933206cbec48f3bbdcee2a4ca75f8db911c00001e5a0547487_U256)
-                .to_be_bytes::<32>(),
-        );
-        let c_y = Fq::from_be_bytes_mod_order(
-            &uint!(0x2446d6f1c1506837392a30fdc73d66fd89f4e1b1a5d14b93e2ad0c5f7b777520_U256)
-                .to_be_bytes::<32>(),
-        );
-        let c = G1Affine::new(c_x, c_y);
+        let c_x = uint!(0xacdf5a5996e00933206cbec48f3bbdcee2a4ca75f8db911c00001e5a0547487_U256);
+        let c_y = uint!(0x2446d6f1c1506837392a30fdc73d66fd89f4e1b1a5d14b93e2ad0c5f7b777520_U256);
+        let c = G1Affine::new(c_x.try_into().unwrap(), c_y.try_into().unwrap());
 
         let zkp = ark_groth16::Proof { a, b, c };
         let merkle_root = BaseField::from_be_bytes_mod_order(
@@ -199,6 +175,8 @@ mod tests {
 
         // Test roundtrip serialization
         let json_str = serde_json::to_string(&proof).unwrap();
+        dbg!(&json_str);
+        assert_eq!(json_str[306..], *"1ac917bce23d211\""); // assert hex encoding of merkle root
         let deserialized_proof: WorldIdProof = serde_json::from_str(&json_str).unwrap();
 
         // Verify the roundtrip preserved all values
