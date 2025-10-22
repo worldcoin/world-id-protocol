@@ -7,12 +7,14 @@ use std::{
     time::Duration,
 };
 
-use alloy::network::EthereumWallet;
+use alloy::network::{EthereumWallet, TxSigner};
 use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
+    signers::{aws::AwsSigner, local::PrivateKeySigner},
     transports::http::reqwest::Url,
 };
+use aws_config::BehaviorVersion;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -29,7 +31,7 @@ use world_id_core::types::{
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 
-pub use crate::config::GatewayConfig;
+pub use crate::config::{GatewayConfig, SignerConfig};
 
 mod config;
 mod create_batcher;
@@ -143,6 +145,35 @@ struct RequestStatusResponse {
     status: RequestState,
 }
 
+async fn build_wallet(signer_config: SignerConfig, rpc_url: &str) -> anyhow::Result<EthereumWallet> {
+    match signer_config {
+        SignerConfig::PrivateKey(pk) => {
+            let signer = pk
+                .parse::<PrivateKeySigner>()
+                .map_err(|e| anyhow::anyhow!("invalid private key: {}", e))?;
+            Ok(EthereumWallet::from(signer))
+        }
+        SignerConfig::AwsKms(key_id) => {
+            tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
+
+            // Create a temporary provider to fetch the chain ID
+            let url = Url::parse(rpc_url)?;
+            let temp_provider = ProviderBuilder::new().connect_http(url);
+            let chain_id = temp_provider.get_chain_id().await?;
+            tracing::info!("Fetched chain_id: {}", chain_id);
+
+            // Initialize AWS KMS signer with the chain ID
+            let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+            let client = aws_sdk_kms::Client::new(&config);
+            let aws_signer = AwsSigner::new(client, key_id, Some(chain_id))
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {}", e))?;
+            tracing::info!("AWS KMS signer initialized with address: {}", aws_signer.address());
+            Ok(EthereumWallet::from(aws_signer))
+        }
+    }
+}
+
 fn build_provider(rpc_url: &str, ethereum_wallet: EthereumWallet) -> anyhow::Result<DynProvider> {
     let url = Url::parse(rpc_url)?;
     let provider = ProviderBuilder::new()
@@ -189,15 +220,16 @@ fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
     s.parse().map_err(|e| ApiError::bad_req(field, e))
 }
 
-fn build_app(
+async fn build_app(
     registry_addr: Address,
     rpc_url: String,
-    ethereum_wallet: EthereumWallet,
+    signer_config: SignerConfig,
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
-) -> Router {
-    let provider = build_provider(&rpc_url, ethereum_wallet).expect("failed to build provider");
+) -> anyhow::Result<Router> {
+    let ethereum_wallet = build_wallet(signer_config, &rpc_url).await?;
+    let provider = build_provider(&rpc_url, ethereum_wallet)?;
     tracing::info!("RPC Provider built");
     let tracker = RequestTracker::new();
     let (tx, rx) = mpsc::channel(1024);
@@ -235,7 +267,7 @@ fn build_app(
         tracker,
     };
 
-    Router::new()
+    Ok(Router::new()
         .route("/health", get(health))
         // account creation (batched)
         .route("/create-account", post(create_account))
@@ -251,19 +283,21 @@ fn build_app(
         .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
-        )))
+        ))))
 }
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
+    let signer_config = cfg.signer_config()?;
     let app = build_app(
         cfg.registry_addr,
         cfg.rpc_url,
-        cfg.ethereum_wallet,
+        signer_config,
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
-    );
+    )
+    .await?;
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
     let addr = listener.local_addr()?;
@@ -283,15 +317,17 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> anyhow::Result<()> {
     let cfg = GatewayConfig::from_env();
+    let signer_config = cfg.signer_config()?;
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
         cfg.registry_addr,
         cfg.rpc_url,
-        cfg.ethereum_wallet,
+        signer_config,
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
-    );
+    )
+    .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
     tracing::info!("HTTP server listening on {}", cfg.listen_addr);
     axum::serve(listener, app).await?;

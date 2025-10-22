@@ -1,7 +1,14 @@
 use std::net::SocketAddr;
 
-use alloy::{network::EthereumWallet, primitives::Address, signers::local::PrivateKeySigner};
+use alloy::primitives::Address;
+use anyhow;
 use clap::Parser;
+
+#[derive(Clone, Debug)]
+pub enum SignerConfig {
+    PrivateKey(String),
+    AwsKms(String),
+}
 
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -15,8 +22,14 @@ pub struct GatewayConfig {
     pub rpc_url: String,
 
     /// The signer wallet private key (hex) that will submit transactions (pays for gas)
-    #[arg(long, env = "WALLET_PRIVATE_KEY", value_parser = parse_wallet)]
-    pub ethereum_wallet: EthereumWallet,
+    /// Mutually exclusive with AWS_KMS_KEY_ID
+    #[arg(long, env = "WALLET_PRIVATE_KEY")]
+    pub wallet_private_key: Option<String>,
+
+    /// AWS KMS Key ID for signing transactions
+    /// Mutually exclusive with WALLET_PRIVATE_KEY
+    #[arg(long, env = "AWS_KMS_KEY_ID")]
+    pub aws_kms_key_id: Option<String>,
 
     /// Batch window in milliseconds (i.e. how long to wait before submitting a batch of transactions)
     #[arg(long, env = "BATCH_MS", default_value = "1000")]
@@ -35,13 +48,6 @@ pub struct GatewayConfig {
     pub listen_addr: SocketAddr,
 }
 
-fn parse_wallet(s: &str) -> Result<EthereumWallet, String> {
-    let signer = s
-        .parse::<PrivateKeySigner>()
-        .map_err(|e| format!("invalid private key: {}", e))?;
-    Ok(EthereumWallet::from(signer))
-}
-
 impl GatewayConfig {
     pub fn from_env() -> Self {
         let config = Self::parse();
@@ -51,5 +57,18 @@ impl GatewayConfig {
         }
 
         config
+    }
+
+    pub fn signer_config(&self) -> anyhow::Result<SignerConfig> {
+        match (&self.wallet_private_key, &self.aws_kms_key_id) {
+            (Some(pk), None) => Ok(SignerConfig::PrivateKey(pk.clone())),
+            (None, Some(key_id)) => Ok(SignerConfig::AwsKms(key_id.clone())),
+            (Some(_), Some(_)) => Err(anyhow::anyhow!(
+                "Cannot specify both WALLET_PRIVATE_KEY and AWS_KMS_KEY_ID"
+            )),
+            (None, None) => Err(anyhow::anyhow!(
+                "Must specify either WALLET_PRIVATE_KEY or AWS_KMS_KEY_ID"
+            )),
+        }
     }
 }

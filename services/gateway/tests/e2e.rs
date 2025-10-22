@@ -1,7 +1,6 @@
 use std::process::Command;
 use std::time::Duration;
 
-use alloy::network::EthereumWallet;
 use alloy::node_bindings::Anvil;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::Provider;
@@ -155,12 +154,8 @@ async fn e2e_gateway_full_flow() {
     let cfg = GatewayConfig {
         registry_addr: registry.parse().unwrap(),
         rpc_url: anvil.endpoint_url().to_string(),
-        ethereum_wallet: EthereumWallet::from(
-            GW_PRIVATE_KEY
-                .to_string()
-                .parse::<PrivateKeySigner>()
-                .unwrap(),
-        ),
+        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
+        aws_kms_key_id: None,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
