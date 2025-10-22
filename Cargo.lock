@@ -7940,6 +7940,7 @@ dependencies = [
  "ark-serde-compat",
  "ark-serialize 0.5.0",
  "ciborium",
+ "eddsa-babyjubjub",
  "hex",
  "ruint",
  "serde",

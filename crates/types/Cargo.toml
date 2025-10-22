@@ -13,6 +13,7 @@ ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serde-compat = { workspace = true }
 ark-serialize = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }

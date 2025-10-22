@@ -1,5 +1,6 @@
 use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
+#[cfg(any(feature = "authenticator", feature = "rp"))]
 use world_id_types::FieldElement;
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]

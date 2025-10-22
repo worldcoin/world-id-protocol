@@ -23,12 +23,27 @@ use std::{
     str::FromStr,
 };
 
-/// Module containing the quintessential proof type.
+/// Contains types related to the Authenticator.
+pub mod authenticator;
+
+/// Base definition of a "Credential" in the World ID Protocol.
+pub mod credential;
+pub use credential::{Credential, CredentialVersion};
+
+/// Contains base types for operations with Merkle trees.
+pub mod merkle;
+
+/// Contains the quintessential proof type.
 pub mod proof;
 pub use proof::WorldIdProof;
 
-/// Module containing types specifically related to relying parties.
+/// Contains types specifically related to relying parties.
 pub mod rp;
+
+/// The scalar field used in the World ID Protocol.
+///
+/// This is the scalar field of the `BabyJubJub` curve.
+pub type ScalarField = ark_babyjubjub::Fr;
 
 /// Represents a field element of the base field (`Fq`) in the World ID Protocol.
 ///
@@ -88,12 +103,13 @@ impl DerefMut for FieldElement {
 }
 
 impl FromStr for FieldElement {
-    type Err = String;
+    type Err = TypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim_start_matches("0x");
-        let u256 = U256::from_str_radix(s, 16)
-            .map_err(|_| "not a valid hex-encoded number".to_string())?;
+        let u256 = U256::from_str_radix(s, 16).map_err(|_| {
+            TypeError::Deserialization("not a valid hex-encoded number".to_string())
+        })?;
         u256.try_into()
     }
 }
@@ -112,13 +128,9 @@ impl From<Fq> for FieldElement {
 }
 
 impl TryFrom<U256> for FieldElement {
-    type Error = String;
+    type Error = TypeError;
     fn try_from(value: U256) -> Result<Self, Self::Error> {
-        Ok(Self(
-            value
-                .try_into()
-                .map_err(|_| "not a valid field element".to_string())?,
-        ))
+        Ok(Self(value.try_into().map_err(|_| TypeError::NotInField)?))
     }
 }
 
@@ -180,6 +192,12 @@ pub enum TypeError {
     /// Error that occurs when deserializing a value. This can happen often when not providing valid inputs.
     #[error("Deserialization error: {0}")]
     Deserialization(String),
+    /// Number is equal or larger than the target field modulus.
+    #[error("Provided value is not in the field")]
+    NotInField,
+    /// Index is out of bounds.
+    #[error("Provided index is out of bounds")]
+    OutOfBounds,
 }
 
 #[cfg(test)]

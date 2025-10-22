@@ -21,6 +21,7 @@ ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
+eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
 hex = {version = "0.4" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
 poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }

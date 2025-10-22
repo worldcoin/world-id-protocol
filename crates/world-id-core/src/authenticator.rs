@@ -9,6 +9,7 @@ use crate::account_registry::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
 use crate::config::Config;
+use crate::credential::credential_to_credentials_signature;
 use crate::types::{
     CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
@@ -312,7 +313,7 @@ impl Authenticator {
 
         // TODO: check rp nullifier key
         let args = NullifierArgs {
-            credential_signature: credential.try_into()?,
+            credential_signature: credential_to_credentials_signature(credential)?,
             merkle_membership,
             query,
             groth16_material,
