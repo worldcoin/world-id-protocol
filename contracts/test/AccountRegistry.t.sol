@@ -5,6 +5,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {AccountRegistry} from "../src/AccountRegistry.sol";
 import {TreeHelper} from "../src/TreeHelper.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract AccountRegistryTest is Test {
     using BinaryIMT for BinaryIMTData;
@@ -25,7 +26,16 @@ contract AccountRegistryTest is Test {
 
     function setUp() public {
         recoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY);
-        accountRegistry = new AccountRegistry(30);
+
+        // Deploy implementation
+        AccountRegistry implementation = new AccountRegistry();
+
+        // Deploy proxy
+        bytes memory initData = abi.encodeWithSelector(AccountRegistry.initialize.selector, 30);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+
+        accountRegistry = AccountRegistry(address(proxy));
+
         alternateRecoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY_ALT);
         AUTHENTICATOR_ADDRESS1 = vm.addr(AUTH1_PRIVATE_KEY);
         AUTHENTICATOR_ADDRESS2 = vm.addr(AUTH2_PRIVATE_KEY);

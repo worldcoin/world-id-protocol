@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is EIP712 {
+contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     ////////////////////////////////////////////////////////////
     //                         Types                          //
     ////////////////////////////////////////////////////////////
@@ -69,7 +72,20 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor() EIP712(EIP712_NAME, EIP712_VERSION) {}
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev Initializes the contract.
+     */
+    function initialize() public initializer {
+        __EIP712_init(EIP712_NAME, EIP712_VERSION);
+        __Ownable_init(msg.sender);
+        __Ownable2Step_init();
+        _nextId = 1;
+    }
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //
@@ -195,4 +211,25 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
     function _isEmptyPubkey(Pubkey memory pubkey) internal pure returns (bool) {
         return pubkey.x == 0 && pubkey.y == 0;
     }
+
+    ////////////////////////////////////////////////////////////
+    //                    Upgrade Authorization               //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Authorize upgrade to a new implementation
+     * @param newImplementation Address of the new implementation contract
+     * @notice Only the contract owner can authorize upgrades
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    ////////////////////////////////////////////////////////////
+    //                    Storage Gap                         //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Storage gap to allow for future upgrades without storage collisions
+     * This reserves 50 storage slots for future state variables
+     */
+    uint256[50] private __gap;
 }

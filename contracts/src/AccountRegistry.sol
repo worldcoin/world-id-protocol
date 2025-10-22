@@ -3,11 +3,12 @@ pragma solidity ^0.8.13;
 
 import {BinaryIMT, BinaryIMTData} from "./tree/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-contract AccountRegistry is EIP712, Ownable2Step {
+contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
 
     ////////////////////////////////////////////////////////////
@@ -21,7 +22,7 @@ contract AccountRegistry is EIP712, Ownable2Step {
     mapping(uint256 => uint256) public accountRecoveryCounter;
 
     BinaryIMTData public tree;
-    uint256 public nextAccountIndex = 1;
+    uint256 public nextAccountIndex;
 
     // Root history tracking
     mapping(uint256 => uint256) public rootToTimestamp;
@@ -103,8 +104,21 @@ contract AccountRegistry is EIP712, Ownable2Step {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor(uint256 treeDepth) EIP712(EIP712_NAME, EIP712_VERSION) Ownable(msg.sender) {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev Initializes the contract.
+     * @param treeDepth The depth of the Merkle tree.
+     */
+    function initialize(uint256 treeDepth) public initializer {
+        __EIP712_init(EIP712_NAME, EIP712_VERSION);
+        __Ownable_init(msg.sender);
+        __Ownable2Step_init();
         tree.initWithDefaultZeroes(treeDepth);
+        nextAccountIndex = 1;
     }
 
     ////////////////////////////////////////////////////////////
@@ -554,4 +568,25 @@ contract AccountRegistry is EIP712, Ownable2Step {
 
         emit RecoveryAddressUpdated(accountIndex, oldRecoveryAddress, newRecoveryAddress);
     }
+
+    ////////////////////////////////////////////////////////////
+    //                    Upgrade Authorization               //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Authorize upgrade to a new implementation
+     * @param newImplementation Address of the new implementation contract
+     * @notice Only the contract owner can authorize upgrades
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    ////////////////////////////////////////////////////////////
+    //                    Storage Gap                         //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Storage gap to allow for future upgrades without storage collisions
+     * This reserves 50 storage slots for future state variables
+     */
+    uint256[50] private __gap;
 }
