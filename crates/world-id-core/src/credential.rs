@@ -79,6 +79,7 @@ impl HashableCredential for Credential {
         }
     }
 
+    #[cfg(feature = "issuer")]
     fn sign(self, signer: &EdDSAPrivateKey) -> Result<Self, eyre::Error> {
         let mut credential = self;
         credential.signature = Some(signer.sign(*credential.hash()?));
