@@ -145,7 +145,10 @@ struct RequestStatusResponse {
     status: RequestState,
 }
 
-async fn build_wallet(signer_config: SignerConfig, rpc_url: &str) -> anyhow::Result<EthereumWallet> {
+async fn build_wallet(
+    signer_config: SignerConfig,
+    rpc_url: &str,
+) -> anyhow::Result<EthereumWallet> {
     match signer_config {
         SignerConfig::PrivateKey(pk) => {
             let signer = pk
@@ -168,7 +171,10 @@ async fn build_wallet(signer_config: SignerConfig, rpc_url: &str) -> anyhow::Res
             let aws_signer = AwsSigner::new(client, key_id, Some(chain_id))
                 .await
                 .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {}", e))?;
-            tracing::info!("AWS KMS signer initialized with address: {}", aws_signer.address());
+            tracing::info!(
+                "AWS KMS signer initialized with address: {}",
+                aws_signer.address()
+            );
             Ok(EthereumWallet::from(aws_signer))
         }
     }

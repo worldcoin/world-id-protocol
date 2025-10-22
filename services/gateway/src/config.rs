@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
 use alloy::primitives::Address;
-use anyhow;
 use clap::Parser;
 
 #[derive(Clone, Debug)]
