@@ -12,12 +12,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is
-    Initializable,
-    EIP712Upgradeable,
-    Ownable2StepUpgradeable,
-    UUPSUpgradeable
-{
+contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     ////////////////////////////////////////////////////////////
     //                         Types                          //
     ////////////////////////////////////////////////////////////
