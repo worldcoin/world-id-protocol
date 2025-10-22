@@ -84,7 +84,7 @@ impl WorldIdProof {
         let c = G1Affine::deserialize_compressed(&mut reader)
             .map_err(|e| TypeError::Deserialization(e.to_string()))?;
 
-        let merkle_root: FieldElement = FieldElement::deserialize_compressed(&mut reader)
+        let merkle_root: FieldElement = FieldElement::deserialize_from_bytes(&mut reader)
             .map_err(|e| TypeError::Deserialization(e.to_string()))?;
 
         Ok(Self {
@@ -117,9 +117,7 @@ impl<'de> Deserialize<'de> for WorldIdProof {
 
 #[cfg(test)]
 mod tests {
-    use crate::BaseField;
     use ark_bn254::Fq2;
-    use ark_ff::PrimeField;
     use ruint::uint;
 
     use super::*;
@@ -166,11 +164,10 @@ mod tests {
         let c = G1Affine::new(c_x.try_into().unwrap(), c_y.try_into().unwrap());
 
         let zkp = ark_groth16::Proof { a, b, c };
-        let merkle_root = BaseField::from_be_bytes_mod_order(
-            &uint!(0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256)
-                .to_be_bytes::<32>(),
-        )
-        .into();
+        let merkle_root = FieldElement::try_from(uint!(
+            0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+        ))
+        .unwrap();
         let proof = WorldIdProof::new(zkp, merkle_root);
 
         // Test roundtrip serialization
@@ -184,11 +181,11 @@ mod tests {
         assert_eq!(proof.zkp.b, deserialized_proof.zkp.b);
         assert_eq!(proof.zkp.c, deserialized_proof.zkp.c);
         assert_eq!(
-            BaseField::try_from(uint!(
+            FieldElement::try_from(uint!(
                 8060603437403478431405594370235290687560488504242369439470699636878115808450_U256
             ))
             .unwrap(),
-            deserialized_proof.merkle_root.0
+            deserialized_proof.merkle_root
         );
     }
 }

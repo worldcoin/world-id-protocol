@@ -4,7 +4,7 @@ use std::{fmt, str::FromStr};
 
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::BaseField;
+use crate::FieldElement;
 
 /// The id of a relying party.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -50,7 +50,7 @@ impl From<u128> for RpId {
     }
 }
 
-impl From<RpId> for BaseField {
+impl From<RpId> for FieldElement {
     fn from(value: RpId) -> Self {
         Self::from(value.0)
     }

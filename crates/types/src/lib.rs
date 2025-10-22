@@ -12,13 +12,14 @@
 )]
 
 use ark_babyjubjub::Fq;
-use ark_ff::PrimeField;
+use ark_ff::{AdditiveGroup, Field};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ruint::aliases::U256;
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fmt,
     io::{Cursor, Read, Write},
+    ops::{Deref, DerefMut},
     str::FromStr,
 };
 
@@ -40,7 +41,11 @@ pub mod rp;
 pub struct FieldElement(Fq);
 
 impl FieldElement {
-    /// Serializes the field element into a compressed byte vector.
+    /// The additive identity of the field.
+    pub const ZERO: Self = Self(Fq::ZERO);
+    /// The multiplicative identity of the field.
+    pub const ONE: Self = Self(Fq::ONE);
+    /// Serializes the field element into a byte vector.
     ///
     /// # Errors
     /// Will return an error if the serialization unexpectedly fails.
@@ -50,10 +55,10 @@ impl FieldElement {
             .map_err(|e| TypeError::Serialization(e.to_string()))
     }
 
-    /// Deserializes a field element from a compressed byte vector.
+    /// Deserializes a field element from a byte vector.
     ///
     /// # Errors
-    /// Will return an error if the provided input is not a valid compressed field element (e.g. not on the curve).
+    /// Will return an error if the provided input is not a valid field element (e.g. not on the curve).
     pub fn deserialize_from_bytes<R: Read>(bytes: &mut R) -> Result<Self, TypeError> {
         let field_element = Fq::deserialize_compressed(bytes)
             .map_err(|e| TypeError::Deserialization(e.to_string()))?;
@@ -61,29 +66,27 @@ impl FieldElement {
     }
 }
 
+impl Deref for FieldElement {
+    type Target = Fq;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for FieldElement {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl FromStr for FieldElement {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(ark_babyjubjub::Fq::from_str(s)?))
-    }
-}
-
-impl From<U256> for FieldElement {
-    fn from(value: U256) -> Self {
-        Self(BaseField::new(ark_ff::BigInt(value.into_limbs())))
-    }
-}
-
-impl From<FieldElement> for U256 {
-    fn from(value: FieldElement) -> Self {
-        Self::from_limbs(value.0.into_bigint().0)
-    }
-}
-
-impl From<BaseField> for FieldElement {
-    fn from(value: BaseField) -> Self {
-        Self(value)
+        let s = s.trim_start_matches("0x");
+        let u256 = U256::from_str_radix(s, 16)
+            .map_err(|_| "not a valid hex-encoded number".to_string())?;
+        u256.try_into()
     }
 }
 
@@ -91,6 +94,35 @@ impl fmt::Display for FieldElement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let u256: U256 = (*self).into();
         write!(f, "{u256:#066x}")
+    }
+}
+
+impl TryFrom<U256> for FieldElement {
+    type Error = String;
+    fn try_from(value: U256) -> Result<Self, Self::Error> {
+        Ok(Self(
+            value
+                .try_into()
+                .map_err(|_| "not a valid field element".to_string())?,
+        ))
+    }
+}
+
+impl From<FieldElement> for U256 {
+    fn from(value: FieldElement) -> Self {
+        <Self as From<Fq>>::from(value.0)
+    }
+}
+
+impl From<u64> for FieldElement {
+    fn from(value: u64) -> Self {
+        Self(Fq::from(value))
+    }
+}
+
+impl From<u128> for FieldElement {
+    fn from(value: u128) -> Self {
+        Self(Fq::from(value))
     }
 }
 
@@ -117,12 +149,10 @@ impl<'de> Deserialize<'de> for FieldElement {
     {
         if deserializer.is_human_readable() {
             let s = String::deserialize(deserializer)?;
-            let s = s.trim_start_matches("0x");
-            let u256 = U256::from_str_radix(s, 16).map_err(D::Error::custom)?;
-            Ok(Self::from(u256))
+            Self::from_str(&s).map_err(D::Error::custom)
         } else {
             let bytes = Vec::<u8>::deserialize(deserializer)?;
-            Self::deserialize_compressed(&mut Cursor::new(bytes)).map_err(D::Error::custom)
+            Self::deserialize_from_bytes(&mut Cursor::new(bytes)).map_err(D::Error::custom)
         }
     }
 }
@@ -141,14 +171,14 @@ pub enum TypeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_ff::{AdditiveGroup, Field};
     use ruint::uint;
 
     #[test]
     fn test_field_element_encoding() {
-        let root = FieldElement::from(uint!(
+        let root = FieldElement::try_from(uint!(
             0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
-        ));
+        ))
+        .unwrap();
 
         assert_eq!(
             serde_json::to_string(&root).unwrap(),
@@ -156,31 +186,31 @@ mod tests {
         );
 
         assert_eq!(
-            root.0,
-            BaseField::try_from(uint!(
-                0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
-            ))
-            .unwrap()
+            root.to_string(),
+            "0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2"
         );
 
-        let fe = FieldElement::from(BaseField::ONE);
+        let fe = FieldElement::ONE;
         assert_eq!(
             serde_json::to_string(&fe).unwrap(),
             "\"0x0000000000000000000000000000000000000000000000000000000000000001\""
         );
 
-        let md = FieldElement::from(BaseField::ZERO);
+        let md = FieldElement::ZERO;
         assert_eq!(
             serde_json::to_string(&md).unwrap(),
             "\"0x0000000000000000000000000000000000000000000000000000000000000000\""
         );
+
+        assert_eq!(*FieldElement::ONE, Fq::ONE);
     }
 
     #[test]
     fn test_field_element_decoding() {
-        let root = FieldElement::from(uint!(
+        let root = FieldElement::try_from(uint!(
             0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
-        ));
+        ))
+        .unwrap();
 
         assert_eq!(
             serde_json::from_str::<FieldElement>(
@@ -189,13 +219,22 @@ mod tests {
             .unwrap(),
             root
         );
+
+        assert_eq!(
+            FieldElement::from_str(
+                "0x0000000000000000000000000000000000000000000000000000000000000001"
+            )
+            .unwrap(),
+            FieldElement::ONE
+        );
     }
 
     #[test]
     fn test_field_element_binary_encoding_roundtrip() {
-        let root = FieldElement::from(uint!(
+        let root = FieldElement::try_from(uint!(
             0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
-        ));
+        ))
+        .unwrap();
 
         let mut buffer = Vec::new();
         ciborium::into_writer(&root, &mut buffer).unwrap();
@@ -207,9 +246,10 @@ mod tests {
 
     #[test]
     fn test_field_element_binary_encoding_format() {
-        let root = FieldElement::from(uint!(
+        let root = FieldElement::try_from(uint!(
             0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
-        ));
+        ))
+        .unwrap();
 
         // Serialize to CBOR (binary format)
         let mut buffer = Vec::new();
