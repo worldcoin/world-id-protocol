@@ -7956,6 +7956,7 @@ dependencies = [
  "ciborium",
  "eddsa-babyjubjub",
  "hex",
+ "k256",
  "ruint",
  "serde",
  "serde_json",
