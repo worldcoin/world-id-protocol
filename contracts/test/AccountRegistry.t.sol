@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {AccountRegistry} from "../src/AccountRegistry.sol";
-import {TreeHelper} from "../src/TreeHelper.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
