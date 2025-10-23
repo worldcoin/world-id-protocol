@@ -1,4 +1,4 @@
-use eddsa_babyjubjub::EdDSAPublicKey;
+use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use serde::{Deserialize, Serialize};
 
 use crate::FieldElement;
@@ -24,4 +24,15 @@ impl AuthenticatorPublicKeySet {
     pub fn to_field_elements(self) -> [[FieldElement; 2]; MAX_AUTHENTICATOR_KEYS] {
         self.0.map(|k| [k.pk.x.into(), k.pk.y.into()])
     }
+}
+
+/// Enables entities that sign messages within the Protocol for use with the ZK circuits.
+///
+/// This is in particular used by Authenticators to authorize requests for nullifier generation.
+pub trait ProtocolSigner {
+    /// Signs a message with the protocol signer using the `EdDSA` scheme (**off-chain** signer), for use
+    /// with the Protocol ZK circuits.
+    fn sign(&self, message: FieldElement) -> EdDSASignature
+    where
+        Self: Sized + Send + Sync;
 }

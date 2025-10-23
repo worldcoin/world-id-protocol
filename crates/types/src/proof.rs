@@ -4,7 +4,12 @@ use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{merkle::MerkleInclusionProof, Credential, FieldElement, TypeError};
+use crate::{
+    authenticator::AuthenticatorPublicKeySet,
+    merkle::MerkleInclusionProof,
+    rp::{RpId, RpNullifierKey},
+    Credential, FieldElement, TypeError,
+};
 
 /// Represents a base World ID proof.
 ///
@@ -115,13 +120,53 @@ impl<'de> Deserialize<'de> for WorldIdProof {
     }
 }
 
-/// The arguments required to generate a World ID Uniqueness Proof (also called presentation).
+/// The arguments required to generate a World ID Uniqueness Proof (also called a "Presentation").
 ///
 /// This request results in a final Nullifier Proof (π2), but a Query Proof (π1) must be
 /// generated in the process.
-pub struct ProofInput<const TREE_DEPTH: usize> {
-    credential: Credential,
-    inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+pub struct SingleProofInput<const TREE_DEPTH: usize> {
+    // SECTION: User Inputs
+    /// The credential of the user which will be proven in the World ID Proof.
+    pub credential: Credential,
+    /// The Merkle inclusion proof which proves ownership of the user's account in the `AccountRegistry` contract.
+    pub inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+    /// The complete set of authenticator public keys for the World ID Account.
+    pub key_set: AuthenticatorPublicKeySet,
+    /// The index of the public key which will be used to sign from the set of public keys.
+    pub key_index: u64,
+    /// The `r_seed` is a random seed used to generate the `rpSessionId`. The `rpSessionId` is a unique identifier
+    /// for the RP+User pair for a particular action, and it lets the user prove they are still the same
+    /// person in future proofs if the RP already has an `rpSessionId` for them.
+    pub rp_session_id_r_seed: FieldElement,
+
+    /// SECTION: RP Inputs
+
+    /// The ID of the RP requesting the proof.
+    pub rp_id: RpId,
+    /// The epoch of the `DLog` share (currently always `0`).
+    pub share_epoch: u128,
+    /// The specific hashed action for which the user is generating the proof. The output nullifier will
+    /// be unique for the combination of this action, the `rp_id` and the user.
+    pub action: FieldElement,
+    /// The unique identifier for this proof request. Provided by the RP.
+    pub nonce: FieldElement,
+    /// The timestamp from the RP's request.
+    /// TODO: Document why this is required.
+    pub current_timestamp: u64,
+    /// The RP's signature over the request. This is used to ensure the RP is legitimately requesting the proof
+    /// from the user and reduce phishing surface area.
+    ///
+    /// The signature is computed over `H(nonce || timestamp)`, ECDSA on the `secp256k1` curve.
+    ///
+    /// TODO: Refactor what is actually signed.
+    pub rp_signature: k256::ecdsa::Signature,
+    /// The public key of the RP used to verify the computed nullifier.
+    ///
+    /// TODO: This requires more details.
+    pub rp_nullifier_key: RpNullifierKey,
+    /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
+    /// to ensure the integrity of the proof. For example, in a voting application, the signal could
+    /// be used to encode the user's vote.
     pub signal_hash: FieldElement,
 }
 

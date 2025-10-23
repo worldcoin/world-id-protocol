@@ -84,6 +84,19 @@ impl<'de> Deserialize<'de> for RpId {
     }
 }
 
+/// The public key of a relying party, used to verify computed nullifiers.
+///
+/// Constructed by multiplying the `BabyJubJub` generator with the secret shared among the OPRF peers.
+///
+/// TODO: Refactor to use `EdDSAPublicKey` instead and serialize compressed.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct RpNullifierKey(
+    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_affine")]
+    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_affine")]
+    ark_babyjubjub::EdwardsAffine,
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
