@@ -1,80 +1,13 @@
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use regex::Regex;
+use alloy::network::EthereumWallet;
+use alloy::primitives::{address, Address, U256};
+use alloy::providers::ProviderBuilder;
 use sqlx::{postgres::PgPoolOptions, PgPool};
+use test_utils::anvil::TestAnvil;
+use world_id_core::account_registry::AccountRegistry;
 
-const ANVIL_PORT: u16 = 8547;
-const ANVIL_HTTP_URL: &str = "http://127.0.0.1:8547";
-const ANVIL_WS_URL: &str = "ws://127.0.0.1:8547";
-const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
-const RECOVERY_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
-
-fn start_anvil() -> std::process::Child {
-    // TODO: improve this and make use of alloy's Anvil provider (like in the other e2e test)
-    let mut cmd = Command::new("anvil");
-    cmd.arg("-p")
-        .arg(ANVIL_PORT.to_string())
-        .arg("--host")
-        .arg("127.0.0.1")
-        .arg("--mnemonic")
-        .arg(ANVIL_MNEMONIC)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    cmd.spawn().expect("failed to start anvil")
-}
-
-fn deploy_registry() -> String {
-    // Use the Foundry script to handle linking and deployment
-    let mut cmd = Command::new("forge");
-    cmd.current_dir("../../contracts")
-        .arg("script")
-        .arg("script/AccountRegistry.s.sol:DeployScript")
-        .arg("--fork-url")
-        .arg(ANVIL_HTTP_URL)
-        .arg("--broadcast")
-        .arg("--mnemonics")
-        .arg(ANVIL_MNEMONIC)
-        .arg("--mnemonic-indexes")
-        .arg("0")
-        .arg("-vvvv");
-    let output = cmd.output().expect("failed to run forge script");
-    assert!(
-        output.status.success(),
-        "forge script failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let re = Regex::new(r"AccountRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
-    let addr = re
-        .captures(&stdout)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .expect("failed to parse deployed address from script output");
-    addr
-}
-
-fn cast_create_account(registry: &str, recovery: &str, auth: &str, commitment: &str) {
-    let mut cmd = Command::new("cast");
-    cmd.arg("send")
-        .arg("--rpc-url")
-        .arg(ANVIL_HTTP_URL)
-        .arg("--mnemonic")
-        .arg(ANVIL_MNEMONIC)
-        .arg("--mnemonic-index")
-        .arg("0")
-        .arg(registry)
-        .arg("createAccount(address,address[],uint256)")
-        .arg(recovery)
-        .arg(format!("[{auth}]"))
-        .arg(commitment);
-    let output = cmd.output().expect("failed to run cast send");
-    assert!(
-        output.status.success(),
-        "cast send failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
+const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 
 async fn query_count(pool: &PgPool) -> i64 {
     let rec: (i64,) = sqlx::query_as("select count(*) from account_created_events")
@@ -107,42 +40,64 @@ async fn e2e_backfill_and_live_sync() {
     // Ensure schema exists before any queries
     world_id_indexer::init_db(&pool).await.unwrap();
 
-    // // Killall anvil processes
-    Command::new("pkill")
-        .arg("-f")
-        .arg("anvil")
-        .output()
-        .unwrap();
-
     // Reset DB
     reset_db(&pool).await;
 
-    // Start anvil
-    let mut anvil = start_anvil();
-    // Give anvil a moment
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    // Start local anvil instance and deploy the AccountRegistry
+    let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+    let deployer = anvil
+        .signer(0)
+        .expect("failed to obtain deployer signer from anvil");
+    let registry_addr = anvil
+        .deploy_account_registry(deployer.clone())
+        .await
+        .expect("failed to deploy AccountRegistry");
+    let rpc_url = anvil.endpoint().to_string();
+    let ws_url = anvil.ws_endpoint().to_string();
 
-    // Deploy registry
-    let registry_addr = deploy_registry();
+    let registry_contract = AccountRegistry::new(
+        registry_addr,
+        ProviderBuilder::new()
+            .wallet(EthereumWallet::from(deployer.clone()))
+            .connect_http(rpc_url.parse().expect("invalid anvil endpoint url")),
+    );
 
     // Pre-insert a couple accounts before starting indexer (backfill test)
-    cast_create_account(
-        &registry_addr,
-        RECOVERY_ADDRESS,
-        "0x0000000000000000000000000000000000000011",
-        "1",
-    );
-    cast_create_account(
-        &registry_addr,
-        RECOVERY_ADDRESS,
-        "0x0000000000000000000000000000000000000012",
-        "2",
-    );
+    let pre_accounts = [
+        (
+            address!("0x0000000000000000000000000000000000000011"),
+            11u64,
+            1u64,
+        ),
+        (
+            address!("0x0000000000000000000000000000000000000012"),
+            12u64,
+            2u64,
+        ),
+    ];
+
+    for (auth_addr, pubkey, commitment) in pre_accounts {
+        registry_contract
+            .createAccount(
+                RECOVERY_ADDRESS,
+                vec![auth_addr],
+                vec![U256::from(pubkey)],
+                U256::from(commitment),
+            )
+            .send()
+            .await
+            .expect("failed to submit createAccount transaction")
+            .get_receipt()
+            .await
+            .expect("createAccount transaction failed");
+    }
+
+    let registry_hex = format!("{registry_addr:#x}");
 
     // Prepare indexer config and run in background with WS follow
-    std::env::set_var("RPC_URL", ANVIL_HTTP_URL);
-    std::env::set_var("WS_URL", ANVIL_WS_URL);
-    std::env::set_var("REGISTRY_ADDRESS", &registry_addr);
+    std::env::set_var("RPC_URL", &rpc_url);
+    std::env::set_var("WS_URL", &ws_url);
+    std::env::set_var("REGISTRY_ADDRESS", &registry_hex);
     std::env::set_var("DATABASE_URL", &db_url);
     std::env::set_var("START_BLOCK", "0");
     std::env::set_var("BATCH_SIZE", "1000");
@@ -169,18 +124,34 @@ async fn e2e_backfill_and_live_sync() {
     }
 
     // Live insert more accounts while WS stream is active
-    cast_create_account(
-        &registry_addr,
-        RECOVERY_ADDRESS,
-        "0x0000000000000000000000000000000000000013",
-        "3",
-    );
-    cast_create_account(
-        &registry_addr,
-        RECOVERY_ADDRESS,
-        "0x0000000000000000000000000000000000000014",
-        "4",
-    );
+    let live_accounts = [
+        (
+            address!("0x0000000000000000000000000000000000000013"),
+            13u64,
+            3u64,
+        ),
+        (
+            address!("0x0000000000000000000000000000000000000014"),
+            14u64,
+            4u64,
+        ),
+    ];
+
+    for (auth_addr, pubkey, commitment) in live_accounts {
+        registry_contract
+            .createAccount(
+                RECOVERY_ADDRESS,
+                vec![auth_addr],
+                vec![U256::from(pubkey)],
+                U256::from(commitment),
+            )
+            .send()
+            .await
+            .expect("failed to submit live createAccount transaction")
+            .get_receipt()
+            .await
+            .expect("live createAccount transaction failed");
+    }
 
     // Wait for live sync
     let deadline2 = std::time::Instant::now() + Duration::from_secs(15);
@@ -210,7 +181,6 @@ async fn e2e_backfill_and_live_sync() {
 
     // Cleanup
     indexer_task.abort();
-    let _ = anvil.kill();
-    anvil.wait().unwrap();
+    drop(anvil);
     reset_db(&pool).await;
 }

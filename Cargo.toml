@@ -2,6 +2,7 @@
 members = [
     "crates/world-id-core",
     "crates/types",
+    "crates/test-utils",
     "services/indexer",
     "services/gateway",
 ]
