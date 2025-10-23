@@ -11,37 +11,53 @@ use eyre::{Context, ContextCompat, Result};
 sol!(
     #[sol(rpc, ignore_unlinked)]
     CredentialSchemaIssuerRegistry,
-    "../../contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistry.json"
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistry.json"
+    )
 );
 
 sol!(
     #[sol(rpc)]
     Poseidon2T2,
-    "../../contracts/out/Poseidon2.sol/Poseidon2T2.json"
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/Poseidon2.sol/Poseidon2T2.json"
+    )
 );
 
 sol!(
     #[sol(rpc, ignore_unlinked)]
     BinaryIMT,
-    "../../contracts/out/BinaryIMT.sol/BinaryIMT.json"
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/BinaryIMT.sol/BinaryIMT.json"
+    )
 );
 
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     AccountRegistry,
-    "../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
+    )
 );
 
 sol!(
     #[sol(rpc)]
     ERC1967Proxy,
-    "../../contracts/out/ERC1967Proxy.sol/ERC1967Proxy.json"
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/ERC1967Proxy.sol/ERC1967Proxy.json"
+    )
 );
 
 pub struct TestAnvil {
     instance: AnvilInstance,
     rpc_url: String,
+    ws_url: String,
 }
 
 impl TestAnvil {
@@ -49,20 +65,39 @@ impl TestAnvil {
 
     /// Spawns a fresh `anvil` instance configured for integration tests.
     pub fn spawn() -> Result<Self> {
-        let instance = Anvil::new()
+        Self::spawn_from_builder(Anvil::new())
+    }
+
+    /// Spawns an anvil instance forked from the provided RPC endpoint.
+    pub fn spawn_fork(fork_url: &str) -> Result<Self> {
+        Self::spawn_from_builder(Anvil::new().fork(fork_url))
+    }
+
+    fn spawn_from_builder(builder: Anvil) -> Result<Self> {
+        let instance = builder
             .mnemonic(Self::MNEMONIC)
             .block_time(1)
             .try_spawn()
             .context("failed to start anvil")?;
 
         let rpc_url = instance.endpoint().to_string();
+        let ws_url = instance.ws_endpoint();
 
-        Ok(Self { instance, rpc_url })
+        Ok(Self {
+            instance,
+            rpc_url,
+            ws_url,
+        })
     }
 
     /// Returns the RPC endpoint URL exposed by the running `anvil` instance.
     pub fn endpoint(&self) -> &str {
         &self.rpc_url
+    }
+
+    /// Returns the WebSocket endpoint URL exposed by the running `anvil` instance.
+    pub fn ws_endpoint(&self) -> &str {
+        &self.ws_url
     }
 
     /// Returns a [`PrivateKeySigner`] derived from the deterministic mnemonic at the provided index.
@@ -124,7 +159,10 @@ impl TestAnvil {
 
         // Step 2: Link Poseidon2T2 and deploy BinaryIMT library
         let binary_imt_bytecode = Self::link_library(
-            include_str!("../../../../contracts/out/BinaryIMT.sol/BinaryIMT.json"),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../contracts/out/BinaryIMT.sol/BinaryIMT.json"
+            )),
             "src/hash/Poseidon2.sol:Poseidon2T2",
             *poseidon.address(),
         )?;
@@ -136,7 +174,10 @@ impl TestAnvil {
 
         // Step 3: Link BinaryIMT and deploy AccountRegistry
         let account_registry_bytecode = Self::link_library(
-            include_str!("../../../../contracts/out/AccountRegistry.sol/AccountRegistry.json"),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
+            )),
             "src/tree/BinaryIMT.sol:BinaryIMT",
             binary_imt_address,
         )?;

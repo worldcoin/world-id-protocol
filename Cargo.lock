@@ -6622,6 +6622,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-utils"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-node-bindings",
+ "eyre",
+ "hex",
+ "serde_json",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7865,6 +7876,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -7892,6 +7904,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tower-http 0.5.2",
@@ -7922,6 +7935,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "take_mut",
+ "test-utils",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",

@@ -77,3 +77,4 @@ cli = ["dep:oprf-test"]
 [dev-dependencies]
 alloy-node-bindings = "1.0.38"
 alloy = { version = "1", features = ["rpc-types"] }
+test-utils = { path = "../test-utils" }

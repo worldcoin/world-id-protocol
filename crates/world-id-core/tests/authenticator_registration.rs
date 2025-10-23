@@ -1,7 +1,6 @@
 #![cfg(feature = "authenticator")]
 
-mod common;
-use common::TestAnvil;
+use test_utils::anvil::TestAnvil;
 use world_id_core::{config::Config, Authenticator, AuthenticatorError};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

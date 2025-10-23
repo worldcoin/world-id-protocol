@@ -28,5 +28,6 @@ http = "1"
 take_mut = "0.2.2"
 
 [dev-dependencies]
+test-utils = { path = "../../crates/test-utils" }
 regex = "1.11.2"
 reqwest = { workspace = true }
