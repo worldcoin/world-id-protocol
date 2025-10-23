@@ -45,6 +45,9 @@ pub mod rp;
 /// This is the scalar field of the `BabyJubJub` curve.
 pub type ScalarField = ark_babyjubjub::Fr;
 
+/// The depth of the Merkle tree used in the World ID Protocol for the `AccountRegistry` contract.
+pub const TREE_DEPTH: usize = 30;
+
 /// Represents a field element of the base field (`Fq`) in the World ID Protocol.
 ///
 /// The World ID Protocol uses the `BabyJubJub` curve throughout. Note the

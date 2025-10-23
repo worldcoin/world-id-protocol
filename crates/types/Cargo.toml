@@ -19,7 +19,7 @@ ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-k256 = { version = "0.13", default-features = false, features = ["signature"] }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 
 [dev-dependencies]
 ciborium = "0.2.2"
