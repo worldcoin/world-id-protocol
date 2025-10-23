@@ -337,8 +337,8 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_rem.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(U256::from(1)),
-        authenticator_pubkey: Some(U256::from(200)),
+        pubkey_id: U256::from(1),
+        authenticator_pubkey: U256::from(200),
     };
     let resp = client
         .post(format!("{}/remove-authenticator", base))
@@ -405,7 +405,7 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_rec.as_bytes().to_vec(),
         nonce,
-        new_authenticator_pubkey: Some(U256::from(300)),
+        new_authenticator_pubkey: U256::from(300),
     };
     let resp = client
         .post(format!("{}/recover-account", base))
@@ -473,8 +473,8 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_upd.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(U256::from(0)),
-        new_authenticator_pubkey: Some(U256::from(400)),
+        pubkey_id: U256::from(0),
+        new_authenticator_pubkey: U256::from(400),
     };
     let resp = client
         .post(format!("{}/update-authenticator", base))

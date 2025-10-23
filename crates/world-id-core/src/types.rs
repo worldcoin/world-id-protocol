@@ -99,9 +99,9 @@ pub struct UpdateAuthenticatorRequest {
     /// The nonce.
     pub nonce: U256,
     /// The pubkey id.
-    pub pubkey_id: Option<U256>,
+    pub pubkey_id: U256,
     /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: Option<U256>,
+    pub new_authenticator_pubkey: U256,
 }
 
 /// The request to insert an authenticator.
@@ -147,9 +147,9 @@ pub struct RemoveAuthenticatorRequest {
     /// The nonce.
     pub nonce: U256,
     /// The pubkey id.
-    pub pubkey_id: Option<U256>,
+    pub pubkey_id: U256,
     /// The authenticator pubkey.
-    pub authenticator_pubkey: Option<U256>,
+    pub authenticator_pubkey: U256,
 }
 
 /// The request to recover an account.
@@ -171,7 +171,7 @@ pub struct RecoverAccountRequest {
     /// The nonce.
     pub nonce: U256,
     /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: Option<U256>,
+    pub new_authenticator_pubkey: U256,
 }
 
 /// Response returned by the registry gateway for state-changing requests.

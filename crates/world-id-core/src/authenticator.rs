@@ -1,7 +1,6 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
-use std::io::Cursor;
 use std::sync::{Arc, OnceLock};
 
 use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
@@ -22,7 +21,7 @@ use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
 use ark_serde_compat::groth16::Groth16Proof;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::Result;
 use oprf_client::zk::Groth16Material;
@@ -240,9 +239,10 @@ impl Authenticator {
         };
 
         for i in 0..proof.authenticator_pubkeys.len() {
-            pubkey_batch.values[i] = EdwardsAffine::deserialize_compressed(Cursor::new(
-                proof.authenticator_pubkeys[i].as_le_slice(),
-            ))?;
+            pubkey_batch.values[i] = EdDSAPublicKey::from_compressed_bytes(
+                proof.authenticator_pubkeys[i].to_be_bytes(),
+            )?
+            .pk;
         }
 
         Ok((
@@ -388,13 +388,8 @@ impl Authenticator {
         let old_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
         pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
         let new_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
-
-        // TODO: remove this once compression is merged
-        let mut compressed_bytes = Vec::new();
-        new_authenticator_pubkey
-            .pk
-            .serialize_compressed(&mut compressed_bytes)?;
-        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+        let new_authenticator_pubkey =
+            U256::from_be_bytes(new_authenticator_pubkey.to_compressed_bytes()?);
 
         let eip712_domain = domain(
             self.provider()?.get_chain_id().await?,
@@ -406,7 +401,7 @@ impl Authenticator {
             account_index,
             new_authenticator_address,
             U256::from(index),
-            compressed_pubkey,
+            new_authenticator_pubkey,
             new_offchain_signer_commitment.into(),
             nonce,
             &eip712_domain,
@@ -418,7 +413,7 @@ impl Authenticator {
             account_index,
             new_authenticator_address,
             pubkey_id: U256::from(index),
-            new_authenticator_pubkey: compressed_pubkey,
+            new_authenticator_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
             sibling_nodes: merkle_membership
@@ -468,13 +463,8 @@ impl Authenticator {
         let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
         pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
         let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
-
-        // TODO: remove this once compression is merged
-        let mut compressed_bytes = Vec::new();
-        new_authenticator_pubkey
-            .pk
-            .serialize_compressed(&mut compressed_bytes)?;
-        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+        let new_authenticator_pubkey =
+            U256::from_be_bytes(new_authenticator_pubkey.to_compressed_bytes()?);
 
         let eip712_domain = domain(
             self.provider()?.get_chain_id().await?,
@@ -487,7 +477,7 @@ impl Authenticator {
             old_authenticator_address,
             new_authenticator_address,
             U256::from(index),
-            compressed_pubkey,
+            new_authenticator_pubkey,
             new_commitment,
             nonce,
             &eip712_domain,
@@ -510,8 +500,8 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(U256::from(index)),
-            new_authenticator_pubkey: Some(compressed_pubkey),
+            pubkey_id: U256::from(index),
+            new_authenticator_pubkey,
         };
 
         let resp = reqwest::Client::new()
@@ -548,11 +538,10 @@ impl Authenticator {
         let nonce = self.signing_nonce().await?;
         let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
-        let existing_pubkey = pk_batch.values[index as usize];
-
-        let mut compressed_old = Vec::new();
-        existing_pubkey.serialize_compressed(&mut compressed_old)?;
-        let compressed_old_pubkey = U256::from_le_slice(&compressed_old);
+        let existing_pubkey = EdDSAPublicKey {
+            pk: pk_batch.values[index as usize],
+        };
+        let authenticator_pubkey = U256::from_be_bytes(existing_pubkey.to_compressed_bytes()?);
 
         pk_batch.values[index as usize] = EdwardsAffine::default();
         let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
@@ -567,7 +556,7 @@ impl Authenticator {
             account_index,
             authenticator_address,
             U256::from(index),
-            compressed_old_pubkey,
+            authenticator_pubkey,
             new_commitment,
             nonce,
             &eip712_domain,
@@ -589,8 +578,8 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(U256::from(index)),
-            authenticator_pubkey: Some(compressed_old_pubkey),
+            pubkey_id: U256::from(index),
+            authenticator_pubkey,
         };
 
         let resp = reqwest::Client::new()

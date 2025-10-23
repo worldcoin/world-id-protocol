@@ -121,6 +121,7 @@ pub fn credential_to_credentials_signature(
     })
 }
 
+#[cfg(feature = "issuer")]
 #[cfg(test)]
 mod tests {
     use super::*;
