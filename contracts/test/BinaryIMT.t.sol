@@ -5,7 +5,6 @@ import {Test, console} from "forge-std/Test.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
 import {InternalBinaryIMT} from "../src/tree/InternalBinaryIMT.sol";
 import {console} from "forge-std/console.sol";
-import {TreeHelper} from "../src/TreeHelper.sol";
 
 contract BinaryIMTTest is Test {
     using BinaryIMT for BinaryIMTData;
