@@ -4,7 +4,7 @@ use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{FieldElement, TypeError};
+use crate::{merkle::MerkleInclusionProof, Credential, FieldElement, TypeError};
 
 /// Represents a base World ID proof.
 ///
@@ -113,6 +113,16 @@ impl<'de> Deserialize<'de> for WorldIdProof {
             hex::decode(String::deserialize(deserializer)?).map_err(D::Error::custom)?;
         Self::from_compressed_bytes(&compressed_bytes).map_err(D::Error::custom)
     }
+}
+
+/// The arguments required to generate a World ID Uniqueness Proof (also called presentation).
+///
+/// This request results in a final Nullifier Proof (π2), but a Query Proof (π1) must be
+/// generated in the process.
+pub struct ProofInput<const TREE_DEPTH: usize> {
+    credential: Credential,
+    inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+    pub signal_hash: FieldElement,
 }
 
 #[cfg(test)]
