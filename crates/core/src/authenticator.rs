@@ -26,13 +26,12 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::Result;
 use oprf_client::zk::Groth16Material;
-use oprf_client::{EdDSASignature, MerkleMembership, NullifierArgs, OprfQuery, UserKeyMaterial};
+use oprf_client::{MerkleMembership, NullifierArgs, OprfQuery, UserKeyMaterial};
 use oprf_types::crypto::UserPublicKeyBatch;
 use oprf_types::{MerkleRoot, RpId, ShareEpoch};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
-use world_id_primitives::authenticator::ProtocolSigner;
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -41,7 +40,7 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
-const TREE_DEPTH: usize = 30;
+static TREE_DEPTH: usize = 30;
 
 static QUERY_ZKEY_PATH: &str = "OPRFQueryProof.zkey";
 static NULLIFIER_ZKEY_PATH: &str = "OPRFNullifierProof.zkey";
@@ -662,15 +661,6 @@ impl Authenticator {
             input[i * 2 + 2] = pk.values[i].y;
         }
         poseidon2_16.permutation(&input)[1]
-    }
-}
-
-impl ProtocolSigner for Authenticator {
-    fn sign(&self, message: FieldElement) -> EdDSASignature {
-        self.signer
-            .offchain_signer_private_key()
-            .expose_secret()
-            .sign(*message)
     }
 }
 
