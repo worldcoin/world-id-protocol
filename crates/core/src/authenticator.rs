@@ -32,7 +32,7 @@ use oprf_types::{MerkleRoot, RpId, ShareEpoch};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
-use world_id_primitives::authenticator::ProtocolSigner;
+pub use world_id_primitives::authenticator::ProtocolSigner;
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -41,7 +41,7 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
-const TREE_DEPTH: usize = 30;
+static TREE_DEPTH: usize = 30;
 
 static QUERY_ZKEY_PATH: &str = "OPRFQueryProof.zkey";
 static NULLIFIER_ZKEY_PATH: &str = "OPRFNullifierProof.zkey";

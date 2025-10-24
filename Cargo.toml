@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "crates/world-id-core",
-    "crates/types",
+    "crates/core",
+    "crates/primitives",
     "crates/test-utils",
     "services/indexer",
     "services/gateway",
@@ -32,4 +32,5 @@ thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-world-id-types = {version = "0.1.0", path = "crates/types"}
+world-id-core = { path = "crates/core"}
+world-id-primitives = { path = "crates/primitives"}

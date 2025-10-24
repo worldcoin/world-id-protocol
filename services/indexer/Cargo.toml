@@ -10,7 +10,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-world-id-core = { path = "../../crates/world-id-core" }
 poseidon2 = { workspace = true }
 alloy = { version = "1.0.22", default-features = false, features = ["rpc-types", "provider-ws"] }
 dotenvy = "0.15"
@@ -26,6 +25,7 @@ ark-bn254 = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
 take_mut = "0.2.2"
+world-id-core = { workspace = true }
 
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }

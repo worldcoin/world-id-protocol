@@ -1,6 +1,6 @@
 [package]
-name = "world-id-types"
-description = "Contains the raw base types without implementation for the World ID Protocol."
+name = "world-id-primitives"
+description = "Contains the raw base primitives (without implementations) for the World ID Protocol."
 version.workspace = true
 license.workspace = true
 edition.workspace = true

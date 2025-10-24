@@ -1,7 +1,7 @@
 use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
 #[cfg(any(feature = "authenticator", feature = "rp"))]
-use world_id_types::FieldElement;
+use world_id_primitives::FieldElement;
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 use alloy::signers::k256::ecdsa::Signature;

@@ -7883,7 +7883,7 @@ dependencies = [
  "tracing-subscriber 0.3.20",
  "uuid",
  "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git)",
- "world-id-types",
+ "world-id-primitives",
 ]
 
 [[package]]
@@ -7944,7 +7944,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "world-id-types"
+name = "world-id-primitives"
 version = "0.1.0"
 dependencies = [
  "ark-babyjubjub",

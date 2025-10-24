@@ -51,7 +51,7 @@ eyre = "0.6"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git", optional = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10.3", optional = true }
-world-id-types = { workspace = true }
+world-id-primitives = { workspace = true }
 
 [features]
 default = ["authenticator"]

@@ -23,7 +23,7 @@ pub use authenticator::{Authenticator, AuthenticatorError};
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 pub mod config;
 
-pub use world_id_types::{Credential, CredentialVersion};
+pub use world_id_primitives::{Credential, CredentialVersion};
 
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 mod credential;
@@ -42,4 +42,9 @@ pub(crate) use signer::Signer;
 
 /// Generic re-usable types
 pub mod types;
-pub use world_id_types::FieldElement;
+pub use world_id_primitives::FieldElement;
+
+/// Re-export of all the World ID primitives
+pub mod primitives {
+    pub use world_id_primitives::*;
+}
