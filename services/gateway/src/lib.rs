@@ -403,8 +403,8 @@ async fn update_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id: req.pubkey_id.unwrap_or(U256::from(0u64)),
-            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            pubkey_id: req.pubkey_id,
+            new_pubkey: req.new_authenticator_pubkey,
         },
     };
 
@@ -505,8 +505,8 @@ async fn remove_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id: req.pubkey_id.unwrap_or(U256::from(0u64)),
-            authenticator_pubkey: req.authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            pubkey_id: req.pubkey_id,
+            authenticator_pubkey: req.authenticator_pubkey,
         },
     };
 
@@ -553,7 +553,7 @@ async fn recover_account(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            new_pubkey: req.new_authenticator_pubkey,
         },
     };
 
