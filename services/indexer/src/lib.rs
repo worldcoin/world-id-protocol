@@ -18,7 +18,11 @@ use sqlx::migrate::Migrator;
 use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
 use world_id_core::account_registry::AccountRegistry;
-use world_id_core::types::InclusionProofResponse;
+use world_id_primitives::{
+    authenticator::MAX_AUTHENTICATOR_KEYS,
+    merkle::{AccountInclusionProof, MerkleInclusionProof},
+    FieldElement, TREE_DEPTH,
+};
 
 mod config;
 use crate::config::{HttpConfig, IndexerConfig, RunMode};
@@ -102,8 +106,6 @@ impl Hasher for PoseidonHasher {
         input[0].into()
     }
 }
-
-static TREE_DEPTH: usize = 30;
 
 fn tree_capacity() -> usize {
     1usize << TREE_DEPTH
@@ -251,15 +253,38 @@ async fn http_get_proof(
         )
             .into_response();
     }
+    // Validate the number of authenticator keys
+    if authenticator_pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "Account has {} authenticator keys, which exceeds the maximum of {}",
+                authenticator_pubkeys.len(),
+                MAX_AUTHENTICATOR_KEYS
+            ),
+        )
+            .into_response();
+    }
+
     let tree = GLOBAL_TREE.read().await;
     let proof = tree.proof(leaf_index);
-    let resp = InclusionProofResponse::new(
-        account_index.as_limbs()[0],
+
+    // Convert proof siblings to FieldElement array
+    let siblings_vec: Vec<FieldElement> = proof_to_vec(&proof)
+        .into_iter()
+        .map(|u| u.try_into().unwrap())
+        .collect();
+    let siblings: [FieldElement; TREE_DEPTH] = siblings_vec.try_into().unwrap();
+
+    let merkle_proof = MerkleInclusionProof::new(
+        tree.root().try_into().unwrap(),
         leaf_index as u64,
-        tree.root(),
-        proof_to_vec(&proof),
-        authenticator_pubkeys,
+        account_index.as_limbs()[0],
+        siblings,
     );
+
+    let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
+        .expect("authenticator_pubkeys already validated");
     (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
 }
 
