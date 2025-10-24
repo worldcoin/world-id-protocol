@@ -11,8 +11,8 @@ use crate::account_registry::{
 use crate::config::Config;
 use crate::credential::credential_to_credentials_signature;
 use crate::types::{
-    CreateAccountRequest, GatewayStatusResponse, InclusionProofResponse,
-    InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
+    AccountInclusionProof, CreateAccountRequest, GatewayStatusResponse, InsertAuthenticatorRequest,
+    RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
 };
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
@@ -216,41 +216,27 @@ impl Authenticator {
         let account_index = self.account_index().await?;
         let url = format!("{}/proof/{}", self.config.indexer_url(), account_index);
         let response = reqwest::get(url).await?;
-        let proof = response.json::<InclusionProofResponse>().await?;
-        let root: FieldElement = proof
-            .root
-            .try_into()
-            .map_err(|_| eyre::eyre!("Root is not a valid field element"))?;
-        let siblings_vec: Vec<ark_babyjubjub::Fq> = proof
-            .proof
-            .into_iter()
-            .map(|s| {
-                s.try_into()
-                    .map_err(|_| eyre::eyre!("Sibling is not a valid field element"))
-            })
-            .collect::<Result<Vec<_>, eyre::Error>>()
-            .map_err(|_| eyre::eyre!("Siblings are not valid field elements"))?;
-        let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
-            siblings_vec.try_into().map_err(|v: Vec<_>| {
-                eyre::eyre!("Expected {} siblings, got {}", TREE_DEPTH, v.len())
-            })?;
+        let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
+
+        let inclusion_proof = response.proof;
+        let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 
         let mut pubkey_batch = UserPublicKeyBatch {
             values: [EdwardsAffine::default(); 7],
         };
 
-        for i in 0..proof.authenticator_pubkeys.len() {
+        for i in 0..response.authenticator_pubkeys.len() {
             pubkey_batch.values[i] = EdwardsAffine::deserialize_compressed(Cursor::new(
-                proof.authenticator_pubkeys[i].as_le_slice(),
+                response.authenticator_pubkeys[i].as_le_slice(),
             ))?;
         }
 
         Ok((
             MerkleMembership {
-                root: MerkleRoot::from(*root),
+                root: MerkleRoot::from(*inclusion_proof.root),
                 siblings,
                 depth: TREE_DEPTH as u64,
-                mt_index: proof.leaf_index,
+                mt_index: inclusion_proof.leaf_index,
             },
             pubkey_batch,
         ))
