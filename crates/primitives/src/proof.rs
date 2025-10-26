@@ -105,7 +105,7 @@ impl Serialize for WorldIdProof {
         S: Serializer,
     {
         let compressed_bytes = self.to_compressed_bytes().map_err(S::Error::custom)?;
-        serializer.serialize_str(&hex::encode(compressed_bytes))
+        serializer.serialize_str(format!("zk_{}", hex::encode(compressed_bytes)).as_str())
     }
 }
 
@@ -114,8 +114,11 @@ impl<'de> Deserialize<'de> for WorldIdProof {
     where
         D: Deserializer<'de>,
     {
-        let compressed_bytes =
-            hex::decode(String::deserialize(deserializer)?).map_err(D::Error::custom)?;
+        let zkp = String::deserialize(deserializer)?;
+        let zkp = zkp
+            .strip_prefix("zk_")
+            .ok_or_else(|| D::Error::custom("Invalid ZKP prefix"))?;
+        let compressed_bytes = hex::decode(zkp).map_err(D::Error::custom)?;
         Self::from_compressed_bytes(&compressed_bytes).map_err(D::Error::custom)
     }
 }
@@ -185,7 +188,7 @@ mod tests {
         assert_eq!(compressed_bytes.len(), 160);
 
         let encoded = serde_json::to_string(&proof).unwrap();
-        assert_eq!(encoded, "\"00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000\"");
+        assert_eq!(encoded, "\"zk_00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000\"");
 
         let proof_from = WorldIdProof::from_compressed_bytes(&compressed_bytes).unwrap();
 

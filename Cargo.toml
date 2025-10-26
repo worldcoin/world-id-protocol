@@ -14,6 +14,7 @@ version = "0.1.0"
 license = "MIT"
 
 [workspace.dependencies]
+alloy = { version = "1", default-features = false }
 anyhow = "1"
 # TODO: update to crates.io
 ark-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }

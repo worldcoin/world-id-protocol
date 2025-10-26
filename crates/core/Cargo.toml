@@ -20,7 +20,7 @@ path = "bin/issuer.rs"
 required-features = ["issuer"]
 
 [dependencies]
-alloy = { version = "1", features = ["sol-types", "rpc"], default-features = false }
+alloy = { workspace = true, features = ["sol-types", "rpc"] }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 poseidon2 = { workspace = true }
@@ -76,5 +76,5 @@ cli = ["dep:oprf-test"]
 
 [dev-dependencies]
 alloy-node-bindings = "1.0.38"
-alloy = { version = "1", features = ["rpc-types"] }
+alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }

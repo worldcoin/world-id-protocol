@@ -55,7 +55,6 @@ dependencies = [
  "alloy-contract",
  "alloy-core",
  "alloy-eips",
- "alloy-genesis",
  "alloy-json-rpc",
  "alloy-network",
  "alloy-node-bindings",
@@ -247,7 +246,6 @@ dependencies = [
  "alloy-serde",
  "alloy-trie",
  "serde",
- "serde_with",
 ]
 
 [[package]]
@@ -7948,6 +7946,7 @@ dependencies = [
 name = "world-id-primitives"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "ark-babyjubjub",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
