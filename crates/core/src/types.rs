@@ -1,4 +1,3 @@
-use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
 pub use world_id_primitives::merkle::AccountInclusionProof;
 #[cfg(any(feature = "authenticator", feature = "rp"))]
@@ -8,9 +7,6 @@ use world_id_primitives::FieldElement;
 use alloy::signers::k256::ecdsa::Signature;
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 use oprf_types::crypto::RpNullifierKey;
-
-#[cfg(feature = "authenticator")]
-use alloy::primitives::Address;
 
 /// The request to register an action for an RP.
 #[cfg(any(feature = "authenticator", feature = "rp"))]
@@ -28,116 +24,6 @@ pub struct RpRequest {
     pub action_id: FieldElement,
     /// The nonce.
     pub nonce: FieldElement,
-}
-
-/// The request to create a new World ID account.
-#[cfg(feature = "authenticator")]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateAccountRequest {
-    /// The recovery address.
-    pub recovery_address: Option<Address>,
-    /// The addresses of the authenticators.
-    pub authenticator_addresses: Vec<Address>,
-    /// The compressed public keys of the authenticators.
-    pub authenticator_pubkeys: Vec<U256>,
-    /// The offchain signer commitment.
-    pub offchain_signer_commitment: U256,
-}
-
-/// The request to update an authenticator.
-#[cfg(feature = "authenticator")]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UpdateAuthenticatorRequest {
-    /// The account index.
-    pub account_index: U256,
-    /// The old authenticator address.
-    pub old_authenticator_address: Address,
-    /// The new authenticator address.
-    pub new_authenticator_address: Address,
-    /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: U256,
-    /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: U256,
-    /// The sibling nodes.
-    pub sibling_nodes: Vec<U256>,
-    /// The signature.
-    pub signature: Vec<u8>,
-    /// The nonce.
-    pub nonce: U256,
-    /// The pubkey id.
-    pub pubkey_id: Option<U256>,
-    /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: Option<U256>,
-}
-
-/// The request to insert an authenticator.
-#[cfg(feature = "authenticator")]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct InsertAuthenticatorRequest {
-    /// The account index.
-    pub account_index: U256,
-    /// The new authenticator address.
-    pub new_authenticator_address: Address,
-    /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: U256,
-    /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: U256,
-    /// The sibling nodes.
-    pub sibling_nodes: Vec<U256>,
-    /// The signature.
-    pub signature: Vec<u8>,
-    /// The nonce.
-    pub nonce: U256,
-    /// The pubkey id.
-    pub pubkey_id: U256,
-    /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: U256,
-}
-
-/// The request to remove an authenticator.
-#[cfg(feature = "authenticator")]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RemoveAuthenticatorRequest {
-    /// The account index.
-    pub account_index: U256,
-    /// The authenticator address.
-    pub authenticator_address: Address,
-    /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: U256,
-    /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: U256,
-    /// The sibling nodes.
-    pub sibling_nodes: Vec<U256>,
-    /// The signature.
-    pub signature: Vec<u8>,
-    /// The nonce.
-    pub nonce: U256,
-    /// The pubkey id.
-    pub pubkey_id: Option<U256>,
-    /// The authenticator pubkey.
-    pub authenticator_pubkey: Option<U256>,
-}
-
-/// The request to recover an account.
-#[cfg(feature = "authenticator")]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RecoverAccountRequest {
-    /// The account index.
-    pub account_index: U256,
-    /// The new authenticator address.
-    pub new_authenticator_address: Address,
-    /// The old offchain signer commitment.
-    pub old_offchain_signer_commitment: U256,
-    /// The new offchain signer commitment.
-    pub new_offchain_signer_commitment: U256,
-    /// The sibling nodes.
-    pub sibling_nodes: Vec<U256>,
-    /// The signature.
-    pub signature: Vec<u8>,
-    /// The nonce.
-    pub nonce: U256,
-    /// The new authenticator pubkey.
-    pub new_authenticator_pubkey: Option<U256>,
 }
 
 /// Response returned by the registry gateway for state-changing requests.

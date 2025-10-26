@@ -10,10 +10,7 @@ use crate::account_registry::{
 };
 use crate::config::Config;
 use crate::credential::credential_to_credentials_signature;
-use crate::types::{
-    AccountInclusionProof, CreateAccountRequest, GatewayStatusResponse, InsertAuthenticatorRequest,
-    RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
-};
+use crate::types::{AccountInclusionProof, GatewayStatusResponse, RpRequest};
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
@@ -33,6 +30,9 @@ use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
 pub use world_id_primitives::authenticator::ProtocolSigner;
+use world_id_primitives::authenticator::{
+    AuthenticatorPublicKeySet, CreateAccountRequest, MAX_AUTHENTICATOR_KEYS,
+};
 pub use world_id_primitives::TREE_DEPTH;
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -325,18 +325,14 @@ impl Authenticator {
             return Err(AuthenticatorError::AccountAlreadyExists.into());
         }
 
-        let mut pubkey_batch = UserPublicKeyBatch {
-            values: [EdwardsAffine::default(); 7],
-        };
-
-        pubkey_batch.values[0] = self.offchain_pubkey().pk;
-        let leaf_hash = Self::leaf_hash(&pubkey_batch);
+        let key_set = AuthenticatorPublicKeySet::default().set_key(0, self.offchain_pubkey())?;
+        let commitment = key_set.to_chain_commitment();
 
         let req = CreateAccountRequest {
             recovery_address,
             authenticator_addresses: vec![self.signer.onchain_signer_address()],
-            authenticator_pubkeys: vec![self.offchain_pubkey_compressed()?],
-            offchain_signer_commitment: leaf_hash.into(),
+            authenticator_pubkeys: key_set,
+            offchain_signer_commitment: commitment.into(),
         };
 
         let resp = reqwest::Client::new()
@@ -647,6 +643,32 @@ impl Authenticator {
             input[i * 2 + 2] = pk.values[i].y;
         }
         poseidon2_16.permutation(&input)[1]
+    }
+}
+
+/// Enables computation of a commitment for a key set.
+pub trait HashableKeySet {
+    /// Computes the commitment to the entire key set. This commitment is registered
+    /// on-chain in the `AccountRegistry` contract to maintain integrity.
+    ///
+    /// The commitment is equivalent to the leaf hash of a Merkle tree built out of the keys.
+    fn to_chain_commitment(&self) -> FieldElement;
+}
+
+impl HashableKeySet for AuthenticatorPublicKeySet {
+    fn to_chain_commitment(&self) -> FieldElement {
+        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
+        let mut input = [ark_babyjubjub::Fq::ZERO; 16];
+        // TODO: Review
+        #[allow(clippy::unwrap_used)]
+        {
+            input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
+        }
+        for i in 0..MAX_AUTHENTICATOR_KEYS {
+            input[i * 2 + 1] = self.0[i].pk.x;
+            input[i * 2 + 2] = self.0[i].pk.y;
+        }
+        poseidon2_16.permutation(&input)[1].into()
     }
 }
 
