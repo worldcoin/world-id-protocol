@@ -1,5 +1,6 @@
 use ruint::aliases::U256;
 use serde::{self, Deserialize, Serialize};
+pub use world_id_primitives::merkle::AccountInclusionProof;
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 use world_id_primitives::FieldElement;
 
@@ -10,41 +11,6 @@ use oprf_types::crypto::RpNullifierKey;
 
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
-
-/// The response from an inclusion proof request.
-#[derive(Serialize, Deserialize)]
-pub struct InclusionProofResponse {
-    /// TODO: Add proper documentation.
-    pub account_index: u64,
-    /// The index of the leaf in the tree.
-    pub leaf_index: u64,
-    /// The hash root of the tree.
-    pub root: U256,
-    /// The entire proof of inclusion for all the nodes in the path.
-    pub proof: Vec<U256>,
-    /// The authenticator public keys for the account.
-    pub authenticator_pubkeys: Vec<U256>,
-}
-
-impl InclusionProofResponse {
-    /// Instantiates a new inclusion proof response.
-    #[must_use]
-    pub const fn new(
-        account_index: u64,
-        leaf_index: u64,
-        root: U256,
-        proof: Vec<U256>,
-        authenticator_pubkeys: Vec<U256>,
-    ) -> Self {
-        Self {
-            account_index,
-            leaf_index,
-            root,
-            proof,
-            authenticator_pubkeys,
-        }
-    }
-}
 
 /// The request to register an action for an RP.
 #[cfg(any(feature = "authenticator", feature = "rp"))]

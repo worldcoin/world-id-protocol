@@ -26,6 +26,7 @@ axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
 take_mut = "0.2.2"
 world-id-core = { workspace = true }
+world-id-primitives = { workspace = true }
 
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
