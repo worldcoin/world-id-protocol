@@ -24,9 +24,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tower_http::trace::TraceLayer;
-#[cfg(feature = "openapi")]
 use utoipa::{IntoParams, OpenApi, ToSchema};
-#[cfg(feature = "openapi")]
 use utoipa_swagger_ui::SwaggerUi;
 use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::{
@@ -122,8 +120,7 @@ impl RequestTracker {
     }
 }
 
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 enum RequestKind {
     CreateAccount,
@@ -133,8 +130,7 @@ enum RequestKind {
     RecoverAccount,
 }
 
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum RequestState {
     Queued,
@@ -144,23 +140,20 @@ enum RequestState {
     Failed { error: String },
 }
 
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 struct RequestRecord {
     kind: RequestKind,
     status: RequestState,
 }
 
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct RequestStatusResponse {
     request_id: String,
     kind: RequestKind,
     status: RequestState,
 }
 
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct HealthResponse {
     status: String,
 }
@@ -199,8 +192,7 @@ impl ApiError {
     }
 }
 
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct ErrorBody {
     error: String,
 }
@@ -264,7 +256,7 @@ fn build_app(
         tracker,
     };
 
-    let app = Router::new()
+    Router::new()
         .route("/health", get(health))
         // account creation (batched)
         .route("/create-account", post(create_account))
@@ -276,12 +268,9 @@ fn build_app(
         .route("/recover-account", post(recover_account))
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
-        .with_state(state);
-
-    #[cfg(feature = "openapi")]
-    let app = app.merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()));
-
-    app.layer(TraceLayer::new_for_http())
+        .with_state(state)
+        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
         )))
@@ -327,16 +316,14 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg_attr(
-    feature = "openapi",
-    utoipa::path(
+#[utoipa::path(
     get,
     path = "/health",
     responses(
         (status = 200, description = "General status check for the server", body = HealthResponse)
     ),
     tag = "Gateway"
-))]
+)]
 async fn health() -> impl IntoResponse {
     (StatusCode::OK, Json(serde_json::json!({"status":"ok"})))
 }
@@ -1029,15 +1016,13 @@ async fn request_status(
     Ok((StatusCode::OK, Json(body)))
 }
 
-#[cfg_attr(feature = "openapi", derive(IntoParams, ToSchema))]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 struct IsValidRootQuery {
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[schema(value_type = String, format = "decimal")]
     root: String,
 }
 
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct IsValidRootResponse {
     valid: bool,
 }
@@ -1056,7 +1041,6 @@ async fn is_valid_root(
     Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
 }
 
-#[cfg(feature = "openapi")]
 #[utoipa::path(
     post,
     path = "/create-account",
@@ -1070,7 +1054,6 @@ async fn is_valid_root(
 /// Documented above function via utoipa path macro.
 async fn _doc_create_account(_: State<AppState>, _: Json<CreateAccountRequest>) {}
 
-#[cfg(feature = "openapi")]
 #[utoipa::path(
     get,
     path = "/status/{id}",
@@ -1085,7 +1068,6 @@ async fn _doc_create_account(_: State<AppState>, _: Json<CreateAccountRequest>) 
 )]
 async fn _doc_request_status(_: State<AppState>, _: Path<String>) {}
 
-#[cfg(feature = "openapi")]
 #[utoipa::path(
     post,
     path = "/update-authenticator",
@@ -1098,7 +1080,6 @@ async fn _doc_request_status(_: State<AppState>, _: Path<String>) {}
 )]
 async fn _doc_update_authenticator(_: State<AppState>, _: Json<UpdateAuthenticatorRequest>) {}
 
-#[cfg(feature = "openapi")]
 #[utoipa::path(
     post,
     path = "/insert-authenticator",
@@ -1111,7 +1092,6 @@ async fn _doc_update_authenticator(_: State<AppState>, _: Json<UpdateAuthenticat
 )]
 async fn _doc_insert_authenticator(_: State<AppState>, _: Json<InsertAuthenticatorRequest>) {}
 
-#[cfg(feature = "openapi")]
 #[utoipa::path(
     post,
     path = "/remove-authenticator",
@@ -1124,7 +1104,6 @@ async fn _doc_insert_authenticator(_: State<AppState>, _: Json<InsertAuthenticat
 )]
 async fn _doc_remove_authenticator(_: State<AppState>, _: Json<RemoveAuthenticatorRequest>) {}
 
-#[cfg(feature = "openapi")]
 #[utoipa::path(
     post,
     path = "/recover-account",
@@ -1137,7 +1116,6 @@ async fn _doc_remove_authenticator(_: State<AppState>, _: Json<RemoveAuthenticat
 )]
 async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>) {}
 
-#[cfg(feature = "openapi")]
 #[utoipa::path(
     get,
     path = "/is-valid-root",
@@ -1150,7 +1128,6 @@ async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>
 )]
 async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidRootQuery>) {}
 
-#[cfg(feature = "openapi")]
 #[derive(OpenApi)]
 #[openapi(
     paths(
