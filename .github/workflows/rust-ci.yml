@@ -149,7 +149,8 @@ jobs:
 
       - name: Run Docker container
         run: |
-          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
+          # We run the indexer-only mode to avoid having to set up the RPC provider
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 --env RUN_MODE=indexer-only --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
 
           # Wait for the application to start
           sleep 10
