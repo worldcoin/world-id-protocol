@@ -84,10 +84,10 @@ pub struct CreateAccountRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_addresses: Vec<Address>,
     /// The compressed public keys of the authenticators.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
     pub authenticator_pubkeys: Vec<U256>,
     /// The offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub offchain_signer_commitment: U256,
 }
 
@@ -97,7 +97,7 @@ pub struct CreateAccountRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateAuthenticatorRequest {
     /// The account index.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub account_index: U256,
     /// The old authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -106,25 +106,25 @@ pub struct UpdateAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
     pub sibling_nodes: Vec<U256>,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
     /// The nonce.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub nonce: U256,
     /// The pubkey id.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub pubkey_id: Option<U256>,
     /// The new authenticator pubkey.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_authenticator_pubkey: Option<U256>,
 }
 
@@ -134,31 +134,31 @@ pub struct UpdateAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InsertAuthenticatorRequest {
     /// The account index.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub account_index: U256,
     /// The new authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
     pub sibling_nodes: Vec<U256>,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
     /// The nonce.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub nonce: U256,
     /// The pubkey id.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub pubkey_id: U256,
     /// The new authenticator pubkey.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_authenticator_pubkey: U256,
 }
 
@@ -168,31 +168,31 @@ pub struct InsertAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RemoveAuthenticatorRequest {
     /// The account index.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub account_index: U256,
     /// The authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub authenticator_address: Address,
     /// The old offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
     pub sibling_nodes: Vec<U256>,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
     /// The nonce.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub nonce: U256,
     /// The pubkey id.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub pubkey_id: Option<U256>,
     /// The authenticator pubkey.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub authenticator_pubkey: Option<U256>,
 }
 
@@ -202,28 +202,28 @@ pub struct RemoveAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RecoverAccountRequest {
     /// The account index.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub account_index: U256,
     /// The new authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
     pub sibling_nodes: Vec<U256>,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
     /// The nonce.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub nonce: U256,
     /// The new authenticator pubkey.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_authenticator_pubkey: Option<U256>,
 }
 

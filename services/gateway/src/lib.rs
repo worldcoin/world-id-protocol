@@ -1032,7 +1032,7 @@ async fn request_status(
 #[cfg_attr(feature = "openapi", derive(IntoParams, ToSchema))]
 #[derive(Debug, Deserialize)]
 struct IsValidRootQuery {
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     root: String,
 }
 
