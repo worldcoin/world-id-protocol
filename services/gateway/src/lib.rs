@@ -320,7 +320,7 @@ pub async fn run() -> anyhow::Result<()> {
     get,
     path = "/health",
     responses(
-        (status = 200, description = "TODO", body = HealthResponse)
+        (status = 200, description = "General status check for the server", body = HealthResponse)
     ),
     tag = "Gateway"
 )]
