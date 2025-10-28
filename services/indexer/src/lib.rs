@@ -534,7 +534,7 @@ async fn backfill_batch<P: Provider>(
     }
 
     save_checkpoint(pool, to_block).await?;
-    tracing::info!(
+    tracing::debug!(
         from = *from_block,
         to = to_block,
         "✔️ finished processing batch until block {to_block}"
