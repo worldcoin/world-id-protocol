@@ -468,21 +468,17 @@ pub async fn save_checkpoint(pool: &PgPool, block: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn backfill_batch<P: Provider>(
+async fn backfill_batch<P: Provider>(
     provider: &P,
     pool: &PgPool,
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
     update_tree: bool,
+    head: u64,
 ) -> anyhow::Result<()> {
-    // Determine current head
-    let head = provider.get_block_number().await?;
     if *from_block == 0 {
         *from_block = 1;
-    }
-    if *from_block > head {
-        return Ok(());
     }
 
     let to_block = (*from_block + batch_size - 1).min(head);
@@ -556,6 +552,7 @@ pub async fn backfill<P: Provider>(
     batch_size: u64,
     update_tree: bool,
 ) -> anyhow::Result<()> {
+    let mut head = provider.get_block_number().await?;
     loop {
         match backfill_batch(
             provider,
@@ -564,12 +561,20 @@ pub async fn backfill<P: Provider>(
             from_block,
             batch_size,
             update_tree,
+            head,
         )
         .await
         {
             Ok(()) => {
                 // Check if we're caught up to chain head
-                let head = provider.get_block_number().await?;
+                let new_head = provider.get_block_number().await;
+                if let Ok(new_head) = new_head {
+                    head = new_head;
+                } else {
+                    tracing::error!("failed to get current chain head; retrying after delay");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
                 if *from_block > head {
                     tracing::info!(
                         from = *from_block,
