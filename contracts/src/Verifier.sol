@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {CredentialSchemaIssuerRegistry} from "./CredentialSchemaIssuerRegistry.sol";
 import {AccountRegistry} from "./AccountRegistry.sol";
 import {IRpRegistry, Types} from "./interfaces/RpRegistry.sol";
@@ -12,7 +13,15 @@ import {IRpRegistry, Types} from "./interfaces/RpRegistry.sol";
  * @notice Verifies nullifier proofs for World ID credentials
  * @dev Coordinates verification between credential issuer registry, account registry, and RP registry
  */
-contract Verifier is Ownable2Step {
+contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
+    error ImplementationNotInitialized();
+
+    modifier onlyInitialized() {
+        if (_getInitializedVersion() == 0) {
+            revert ImplementationNotInitialized();
+        }
+        _;
+    }
     /// @notice Registry for credential schema and issuer management
     CredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
 
@@ -22,12 +31,19 @@ contract Verifier is Ownable2Step {
     /// @notice Registry for relying party nullifier proof verification
     IRpRegistry public rpRegistry;
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     /**
      * @notice Initializes the Verifier contract with required registries
      * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
      * @param _accountRegistry Address of the AccountRegistry contract
      */
-    constructor(address _credentialIssuerRegistry, address _accountRegistry) Ownable(msg.sender) {
+    function initialize(address _credentialIssuerRegistry, address _accountRegistry) public virtual initializer {
+        __Ownable_init(msg.sender);
+        __Ownable2Step_init();
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
         accountRegistry = AccountRegistry(_accountRegistry);
     }
@@ -81,7 +97,7 @@ contract Verifier is Ownable2Step {
         uint256 proofTimestamp,
         uint256 credentialIssuerId,
         Types.Groth16Proof calldata proof
-    ) external view returns (bool) {
+    ) external view virtual onlyProxy onlyInitialized returns (bool) {
         require(accountRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
 
         CredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =
@@ -109,7 +125,13 @@ contract Verifier is Ownable2Step {
      * @dev Only callable by the contract owner
      * @param _credentialSchemaIssuerRegistry The new credential schema issuer registry address
      */
-    function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry) external onlyOwner {
+    function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry)
+        external
+        virtual
+        onlyOwner
+        onlyProxy
+        onlyInitialized
+    {
         address oldCredentialSchemaIssuerRegistry = address(credentialSchemaIssuerRegistry);
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialSchemaIssuerRegistry);
         emit CredentialSchemaIssuerRegistryUpdated(oldCredentialSchemaIssuerRegistry, _credentialSchemaIssuerRegistry);
@@ -120,7 +142,7 @@ contract Verifier is Ownable2Step {
      * @dev Only callable by the contract owner
      * @param _accountRegistry The new account registry address
      */
-    function updateAccountRegistry(address _accountRegistry) external onlyOwner {
+    function updateAccountRegistry(address _accountRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldAccountRegistry = address(accountRegistry);
         accountRegistry = AccountRegistry(_accountRegistry);
         emit AccountRegistryUpdated(oldAccountRegistry, _accountRegistry);
@@ -131,9 +153,30 @@ contract Verifier is Ownable2Step {
      * @dev Only callable by the contract owner
      * @param _rpRegistry The new RP registry address
      */
-    function updateRpRegistry(address _rpRegistry) external onlyOwner {
+    function updateRpRegistry(address _rpRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldRpRegistry = address(rpRegistry);
         rpRegistry = IRpRegistry(_rpRegistry);
         emit RpRegistryUpdated(oldRpRegistry, _rpRegistry);
     }
+
+    ////////////////////////////////////////////////////////////
+    //                    Upgrade Authorization               //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Authorize upgrade to a new implementation
+     * @param newImplementation Address of the new implementation contract
+     * @notice Only the contract owner can authorize upgrades
+     */
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    ////////////////////////////////////////////////////////////
+    //                    Storage Gap                         //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Storage gap to allow for future upgrades without storage collisions
+     * This reserves 50 storage slots for future state variables
+     */
+    uint256[50] private __gap;
 }
