@@ -352,7 +352,7 @@ async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::R
         .unwrap_or(indexer_cfg.start_block);
 
     // Backfill until head (update_tree = false for indexer-only mode)
-    while let Err(err) = backfill(
+    backfill(
         &provider,
         &pool,
         indexer_cfg.registry_address,
@@ -360,11 +360,7 @@ async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::R
         indexer_cfg.batch_size,
         false, // Don't update in-memory tree
     )
-    .await
-    {
-        tracing::error!(?err, "backfill error; retrying after delay");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
+    .await?;
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
@@ -415,7 +411,7 @@ async fn run_both(
         .unwrap_or(indexer_cfg.start_block);
 
     // Backfill until head (update_tree = true for both mode)
-    while let Err(err) = backfill(
+    backfill(
         &provider,
         &pool,
         indexer_cfg.registry_address,
@@ -423,11 +419,7 @@ async fn run_both(
         indexer_cfg.batch_size,
         true, // Update in-memory tree directly from events
     )
-    .await
-    {
-        tracing::error!(?err, "backfill error; retrying after delay");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
+    .await?;
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
@@ -476,21 +468,17 @@ pub async fn save_checkpoint(pool: &PgPool, block: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn backfill<P: Provider>(
+async fn backfill_batch<P: Provider>(
     provider: &P,
     pool: &PgPool,
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
     update_tree: bool,
+    head: u64,
 ) -> anyhow::Result<()> {
-    // Determine current head
-    let head = provider.get_block_number().await?;
     if *from_block == 0 {
         *from_block = 1;
-    }
-    if *from_block > head {
-        return Ok(());
     }
 
     let to_block = (*from_block + batch_size - 1).min(head);
@@ -522,7 +510,7 @@ pub async fn backfill<P: Provider>(
     for lg in logs {
         match decode_registry_event(&lg) {
             Ok(event) => {
-                tracing::info!(?event, "decoded registry event");
+                tracing::debug!(?event, "decoded registry event");
                 let block_number = lg.block_number;
                 let tx_hash = lg.transaction_hash;
                 let log_index = lg.log_index;
@@ -546,7 +534,62 @@ pub async fn backfill<P: Provider>(
     }
 
     save_checkpoint(pool, to_block).await?;
+    tracing::debug!(
+        from = *from_block,
+        to = to_block,
+        "✔️ finished processing batch until block {to_block}"
+    );
     *from_block = to_block + 1;
+    Ok(())
+}
+
+/// Backfill the entire history of the registry.
+pub async fn backfill<P: Provider>(
+    provider: &P,
+    pool: &PgPool,
+    registry: Address,
+    from_block: &mut u64,
+    batch_size: u64,
+    update_tree: bool,
+) -> anyhow::Result<()> {
+    let mut head = provider.get_block_number().await?;
+    loop {
+        match backfill_batch(
+            provider,
+            pool,
+            registry,
+            from_block,
+            batch_size,
+            update_tree,
+            head,
+        )
+        .await
+        {
+            Ok(()) => {
+                // Check if we're caught up to chain head
+                let new_head = provider.get_block_number().await;
+                if let Ok(new_head) = new_head {
+                    head = new_head;
+                } else {
+                    tracing::error!("failed to get current chain head; retrying after delay");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+                if *from_block > head {
+                    tracing::info!(
+                        from = *from_block,
+                        head,
+                        "✅ backfill complete, caught up to chain head"
+                    );
+                    break;
+                }
+            }
+            Err(err) => {
+                tracing::error!(?err, "backfill error; retrying after delay");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
     Ok(())
 }
 
