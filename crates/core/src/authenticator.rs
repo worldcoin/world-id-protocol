@@ -21,14 +21,14 @@ use alloy::providers::{DynProvider, Provider};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
-use ark_serde_compat::groth16::Groth16Proof;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::Result;
-use oprf_client::zk::Groth16Material;
 use oprf_client::{EdDSASignature, MerkleMembership, NullifierArgs, OprfQuery, UserKeyMaterial};
 use oprf_types::crypto::UserPublicKeyBatch;
 use oprf_types::{MerkleRoot, RpId, ShareEpoch};
+use oprf_zk::groth16_serde::Groth16Proof;
+use oprf_zk::Groth16Material;
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
@@ -41,9 +41,6 @@ static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
-
-static QUERY_ZKEY_PATH: &str = "OPRFQueryProof.zkey";
-static NULLIFIER_ZKEY_PATH: &str = "OPRFNullifierProof.zkey";
 
 type UniquenessProof = (Groth16Proof, FieldElement);
 
@@ -235,7 +232,6 @@ impl Authenticator {
             MerkleMembership {
                 root: MerkleRoot::from(*inclusion_proof.root),
                 siblings,
-                depth: TREE_DEPTH as u64,
                 mt_index: inclusion_proof.leaf_index,
             },
             pubkey_batch,
@@ -264,6 +260,7 @@ impl Authenticator {
     pub async fn generate_proof(
         &mut self,
         message_hash: FieldElement,
+        id_commitment_r: FieldElement,
         rp_request: RpRequest,
         credential: Credential,
     ) -> Result<UniquenessProof> {
@@ -285,7 +282,8 @@ impl Authenticator {
         };
 
         // TODO: load once and from bytes
-        let groth16_material = Groth16Material::new(QUERY_ZKEY_PATH, NULLIFIER_ZKEY_PATH)?;
+        let query_material = Groth16Material::query_material()?;
+        let nullifier_material = Groth16Material::nullifier_material()?;
 
         let key_material = UserKeyMaterial {
             pk_batch,
@@ -302,15 +300,22 @@ impl Authenticator {
             credential_signature: credential_to_credentials_signature(credential)?,
             merkle_membership,
             query,
-            groth16_material,
             key_material,
-            signal_hash: *message_hash,
             rp_nullifier_key: rp_request.rp_nullifier_key,
+            signal_hash: *message_hash,
+            id_commitment_r: *id_commitment_r,
         };
 
         let mut rng = rand::thread_rng();
-        let (proof, _public, nullifier) =
-            oprf_client::nullifier(self.config.nullifier_oracle_urls(), 2, args, &mut rng).await?;
+        let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
+            self.config.nullifier_oracle_urls(),
+            2,
+            &query_material,
+            &nullifier_material,
+            args,
+            &mut rng,
+        )
+        .await?;
 
         Ok((proof, nullifier.into()))
     }

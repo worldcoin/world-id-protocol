@@ -37,9 +37,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
-oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
-oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
-oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
+oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "3055148" }
+oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "3055148" }
+oprf-zk = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "3055148" }
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 circom-types = { git = "https://github.com/TaceoLabs/co-snarks.git", default-features = false, optional = true }
@@ -64,6 +64,7 @@ authenticator = [
     "dep:groth16",
     "dep:oprf-client",
     "dep:oprf-types",
+    "dep:oprf-zk",
     "dep:reqwest",
     "dep:secrecy"
 ]
@@ -72,7 +73,7 @@ issuer = ["alloy/signer-local", "dep:secrecy"]
 
 rp = ["dep:oprf-types"]
 
-cli = ["dep:oprf-test"]
+cli = []
 
 [dev-dependencies]
 alloy-node-bindings = "1.0.38"

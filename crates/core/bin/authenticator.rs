@@ -52,9 +52,10 @@ async fn main() -> Result<()> {
 
     let mut rng = rand::thread_rng();
     let message_hash: FieldElement = ark_babyjubjub::Fq::rand(&mut rng).into();
+    let id_commitment_r: FieldElement = ark_babyjubjub::Fq::rand(&mut rng).into();
 
     let (proof, nullifier) = authenticator
-        .generate_proof(message_hash, rp_request, credential)
+        .generate_proof(message_hash, rp_request, credential, id_commitment_r)
         .await?;
 
     println!("proof: {:?}", proof);
