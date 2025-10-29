@@ -28,7 +28,7 @@ use groth16::{CircomReduction, ConstraintMatrices, Groth16, Proof, ProvingKey};
 use k256::sha2::Digest as _;
 use rand::{CryptoRng, Rng};
 use witness::Graph;
-use witness::{BlackBoxFunction, ruint::aliases::U256};
+use witness::{ruint::aliases::U256, BlackBoxFunction};
 
 use crate::groth16_serde::Groth16Proof;
 

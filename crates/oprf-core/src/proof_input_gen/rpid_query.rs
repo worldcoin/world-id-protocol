@@ -4,7 +4,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{UniformRand, Zero};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use rand::{CryptoRng, Rng};
-use rand_chacha::{ChaCha12Rng, rand_core::SeedableRng};
+use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
 use uuid::Uuid;
 
 use crate::{oprf::OprfClient, proof_input_gen::query::QueryProofInput};

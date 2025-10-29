@@ -1,7 +1,7 @@
 use ark_ec::CurveGroup;
 use ark_ff::{PrimeField, UniformRand};
 use rand::{CryptoRng, Rng};
-use rand_chacha::{ChaCha12Rng, rand_core::SeedableRng};
+use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
 use uuid::Uuid;
 
 use crate::{

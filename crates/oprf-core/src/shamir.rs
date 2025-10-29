@@ -1,6 +1,6 @@
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use rand::{Rng, seq::IteratorRandom};
+use rand::{seq::IteratorRandom, Rng};
 
 /// Share
 #[allow(unused)]

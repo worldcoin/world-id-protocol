@@ -3,7 +3,7 @@ use ark_ff::{PrimeField, UniformRand, Zero};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use poseidon2::Poseidon2;
 use rand::{CryptoRng, Rng};
-use rand_chacha::{ChaCha12Rng, rand_core::SeedableRng};
+use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
 use std::array;
 use uuid::Uuid;
 

@@ -4,9 +4,9 @@ use crate::{
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, UniformRand, Zero};
-use poseidon2::{Poseidon2, field_from_hex_string};
+use poseidon2::{field_from_hex_string, Poseidon2};
 use rand::{CryptoRng, Rng};
-use rand_chacha::{ChaCha12Rng, rand_core::SeedableRng};
+use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
 use std::array;
 
 type BaseField = ark_babyjubjub::Fq;
