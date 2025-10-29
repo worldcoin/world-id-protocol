@@ -4,13 +4,13 @@ use ark_babyjubjub::{EdwardsAffine, EdwardsProjective};
 use ark_ec::{CurveGroup, PrimeGroup};
 use ark_ff::UniformRand;
 use criterion::*;
-use oprf_core::{
+use rand::seq::IteratorRandom;
+use uuid::Uuid;
+use world_id_oprf_core::{
     ddlog_equality::{DLogEqualityCommitments, DLogEqualitySession},
     oprf::{OPrfKey, OPrfService, OprfClient},
     shamir::lagrange_from_coeff,
 };
-use rand::seq::IteratorRandom;
-use uuid::Uuid;
 
 fn oprf_bench(c: &mut Criterion) {
     c.bench_function("OPRF Client Query", |b| {

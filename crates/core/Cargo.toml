@@ -47,7 +47,7 @@ rand = { workspace = true }
 ark-ec = { workspace = true }
 uuid = { workspace = true }
 witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git"}
-eyre = "0.6"
+eyre = { workspace = true }
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git", optional = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10.3", optional = true }

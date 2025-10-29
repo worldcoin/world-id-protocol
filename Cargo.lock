@@ -7916,6 +7916,28 @@ dependencies = [
 [[package]]
 name = "witness"
 version = "0.2.0"
+source = "git+https://github.com/TaceoLabs/circom-witness-rs.git?rev=c8ce390#c8ce39065c158a7d58414212e3cc2ac671b1c088"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "byteorder",
+ "cxx",
+ "cxx-build",
+ "eyre",
+ "hex",
+ "num-bigint",
+ "num-traits",
+ "postcard",
+ "rand 0.8.5",
+ "ruint",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "witness"
+version = "0.2.0"
 source = "git+https://github.com/TaceoLabs/circom-witness-rs.git#cca9151dcebbda1c7aa28a63209ae8fa0fc44b72"
 dependencies = [
  "ark-bn254 0.5.0",
@@ -8053,6 +8075,32 @@ dependencies = [
  "thiserror 1.0.69",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "world-id-oprf-zk"
+version = "0.1.0"
+dependencies = [
+ "ark-babyjubjub",
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
+ "ark-serde-compat",
+ "circom-types",
+ "eyre",
+ "groth16",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+ "uuid",
+ "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git?rev=c8ce390)",
+ "world-id-oprf-core",
 ]
 
 [[package]]

@@ -42,8 +42,8 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
-static QUERY_ZKEY_PATH: &str = "OPRFQueryProof.zkey";
-static NULLIFIER_ZKEY_PATH: &str = "OPRFNullifierProof.zkey";
+static QUERY_ZKEY_PATH: &str = "circom/query.zkey";
+static NULLIFIER_ZKEY_PATH: &str = "circom/nullifier.zkey";
 
 type UniquenessProof = (Groth16Proof, FieldElement);
 
