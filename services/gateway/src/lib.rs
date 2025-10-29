@@ -284,7 +284,7 @@ async fn build_app(
         .route("/health", get(health))
         // account creation (batched)
         .route("/create-account", post(create_account))
-        .route("/status/:id", get(request_status))
+        .route("/status/{id}", get(request_status))
         // single tx endpoints
         .route("/update-authenticator", post(update_authenticator))
         .route("/insert-authenticator", post(insert_authenticator))
