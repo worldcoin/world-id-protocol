@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-alloy = { version = "1", default-features = false, features = ["rpc", "sol-types"] }
+alloy = { workspace = true, default-features = false, features = ["rpc", "sol-types"] }
 alloy-node-bindings = "1.0.38"
 eyre = "0.6"
 hex = { workspace = true }
