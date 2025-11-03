@@ -39,7 +39,9 @@ static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
 static QUERY_ZKEY_PATH: &str = "circom/query.zkey";
+static QUERY_GRAPH_PATH: &str = "circom/query_graph.bin";
 static NULLIFIER_ZKEY_PATH: &str = "circom/nullifier.zkey";
+static NULLIFIER_GRAPH_PATH: &str = "circom/nullifier_graph.bin";
 
 type UniquenessProof = (Groth16Proof, FieldElement);
 
@@ -280,7 +282,9 @@ impl Authenticator {
         };
 
         // TODO: load once and from bytes
-        let groth16_material = Groth16Material::new(QUERY_ZKEY_PATH, None, NULLIFIER_ZKEY_PATH)?;
+        let query_material = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH)?;
+        let nullifier_material =
+            Groth16Material::new(NULLIFIER_ZKEY_PATH, None, NULLIFIER_GRAPH_PATH)?;
 
         let key_material = UserKeyMaterial {
             pk_batch,
@@ -307,8 +311,8 @@ impl Authenticator {
         let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
             self.config.nullifier_oracle_urls(),
             2,
-            &groth16_material,
-            &groth16_material,
+            &query_material,
+            &nullifier_material,
             args,
             &mut rng,
         )
