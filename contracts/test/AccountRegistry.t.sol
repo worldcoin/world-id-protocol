@@ -381,18 +381,18 @@ contract AccountRegistryTest is Test {
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
-        address NEW_AUTHENTICATOR = address(0xBEEF);
+        address newAuthenticatorAddress = address(0xBEEF);
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         bytes memory signature = eip712Sign(
             accountRegistry.RECOVER_ACCOUNT_TYPEHASH(),
-            abi.encode(accountIndex, NEW_AUTHENTICATOR, newCommitment, newCommitment, nonce),
+            abi.encode(accountIndex, newAuthenticatorAddress, newCommitment, newCommitment, nonce),
             recoveryPrivateKey
         );
 
         accountRegistry.recoverAccount(
             accountIndex,
-            NEW_AUTHENTICATOR,
+            newAuthenticatorAddress,
             newCommitment,
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
@@ -409,8 +409,9 @@ contract AccountRegistryTest is Test {
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1) >> 224, 0);
         // New authenticator added with higher recovery counter
         assertEq(
-            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR)), uint192(accountIndex)
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)),
+            uint192(accountIndex)
         );
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR) >> 224, 1);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress) >> 224, 1);
     }
 }
