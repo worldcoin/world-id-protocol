@@ -226,4 +226,39 @@ contract CredentialIssuerRegistryTest is Test {
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
     }
+
+    function testRemoveDeletesSchemaUri() public {
+        uint256 signerPk = 0xAAA8;
+        address signer = vm.addr(signerPk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(signerPk, 1, "https://world.org/schemas/orb.json", 0);
+        registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
+        assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
+
+        bytes memory removeSig = _signRemove(signerPk, 1);
+        registry.remove(1, removeSig);
+
+        assertEq(registry.getIssuerSchemaUri(1), "");
+    }
+
+    function testCannotUpdateSchemaUriAfterRemoval() public {
+        uint256 signerPk = 0xAAA9;
+        address signer = vm.addr(signerPk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory removeSig = _signRemove(signerPk, 1);
+        registry.remove(1, removeSig);
+
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(signerPk, 1, "https://world.org/schemas/orb.json", 1);
+        vm.expectRevert(bytes("Registry: invalid signature"));
+        registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
+    }
+
+    function testCannotUpdateSchemaUriForNonExistentIssuer() public {
+        uint256 signerPk = 0xAAAA;
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(signerPk, 999, "https://world.org/schemas/orb.json", 0);
+        vm.expectRevert(bytes("Registry: invalid signature"));
+        registry.updateIssuerSchemaUri(999, "https://world.org/schemas/orb.json", updateSig);
+    }
 }
