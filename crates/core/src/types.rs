@@ -1,5 +1,8 @@
+#[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
+
 use serde::{self, Deserialize, Serialize};
+
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 pub use world_id_primitives::merkle::AccountInclusionProof;
