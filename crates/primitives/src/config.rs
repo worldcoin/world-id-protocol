@@ -1,13 +1,23 @@
-use alloy::primitives::Address;
 use serde::{Deserialize, Serialize};
 
+use alloy_primitives::Address;
+
+use crate::PrimitiveError;
+
 /// Global configuration to interact with the different components of the Protocol.
+///
+/// Used by Authenticators and RPs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
-    rpc_url: String,
+    /// A fully qualified RPC domain to perform on-chain call functions
+    rpc_url: String, // TODO: Make optional
+    /// The address of the `AccountRegistry` contract
     registry_address: Address,
+    /// Base URL of a deployed `world-id-indexer`. Used to fetch inclusion proofs from the `AccountRegistry`.
     indexer_url: String,
+    /// Base URL of a deployed `world-id-gateway`. Used to submit management operations on authenticators.
     gateway_url: String,
+    /// The Base URLs of all Nullifier Oracles to use
     nullifier_oracle_urls: Vec<String>,
 }
 
@@ -30,13 +40,13 @@ impl Config {
         }
     }
 
-    /// Loads a configuration from a JSON file.
+    /// Loads a configuration from JSON.
     ///
     /// # Errors
-    /// Will error if the file does not exist or is not valid JSON.
-    pub fn from_json(path: &str) -> anyhow::Result<Self> {
-        serde_json::from_str(&std::fs::read_to_string(path)?)
-            .map_err(|e| anyhow::anyhow!("failed to parse config: {e}"))
+    /// Will error if the JSON is not valid.
+    pub fn from_json(json_str: &str) -> Result<Self, PrimitiveError> {
+        serde_json::from_str(json_str)
+            .map_err(|e| PrimitiveError::Serialization(format!("failed to parse config: {e}")))
     }
 
     /// The RPC endpoint to perform RPC calls.

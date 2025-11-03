@@ -26,6 +26,10 @@ use std::{
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
+/// Contains the global configuration for interacting with the World ID Protocol.
+mod config;
+pub use config::Config;
+
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
 pub use credential::{Credential, CredentialVersion};
@@ -68,19 +72,19 @@ impl FieldElement {
     ///
     /// # Errors
     /// Will return an error if the serialization unexpectedly fails.
-    pub fn serialize_as_bytes<W: Write>(&self, writer: &mut W) -> Result<(), TypeError> {
+    pub fn serialize_as_bytes<W: Write>(&self, writer: &mut W) -> Result<(), PrimitiveError> {
         self.0
             .serialize_compressed(writer)
-            .map_err(|e| TypeError::Serialization(e.to_string()))
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))
     }
 
     /// Deserializes a field element from a byte vector.
     ///
     /// # Errors
     /// Will return an error if the provided input is not a valid field element (e.g. not on the curve).
-    pub fn deserialize_from_bytes<R: Read>(bytes: &mut R) -> Result<Self, TypeError> {
+    pub fn deserialize_from_bytes<R: Read>(bytes: &mut R) -> Result<Self, PrimitiveError> {
         let field_element = Fq::deserialize_compressed(bytes)
-            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
         Ok(Self(field_element))
     }
 
@@ -106,12 +110,12 @@ impl DerefMut for FieldElement {
 }
 
 impl FromStr for FieldElement {
-    type Err = TypeError;
+    type Err = PrimitiveError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim_start_matches("0x");
         let u256 = U256::from_str_radix(s, 16).map_err(|_| {
-            TypeError::Deserialization("not a valid hex-encoded number".to_string())
+            PrimitiveError::Deserialization("not a valid hex-encoded number".to_string())
         })?;
         u256.try_into()
     }
@@ -131,9 +135,11 @@ impl From<Fq> for FieldElement {
 }
 
 impl TryFrom<U256> for FieldElement {
-    type Error = TypeError;
+    type Error = PrimitiveError;
     fn try_from(value: U256) -> Result<Self, Self::Error> {
-        Ok(Self(value.try_into().map_err(|_| TypeError::NotInField)?))
+        Ok(Self(
+            value.try_into().map_err(|_| PrimitiveError::NotInField)?,
+        ))
     }
 }
 
@@ -188,7 +194,7 @@ impl<'de> Deserialize<'de> for FieldElement {
 
 /// Generic errors that may occur with basic serialization and deserialization.
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
-pub enum TypeError {
+pub enum PrimitiveError {
     /// Error that occurs when serializing a value. Generally not expected.
     #[error("Serialization error: {0}")]
     Serialization(String),

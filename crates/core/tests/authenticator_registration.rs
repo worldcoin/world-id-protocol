@@ -1,7 +1,8 @@
 #![cfg(feature = "authenticator")]
 
 use test_utils::anvil::TestAnvil;
-use world_id_core::{config::Config, Authenticator, AuthenticatorError};
+use world_id_core::{Authenticator, AuthenticatorError};
+use world_id_primitives::Config;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_register_issuer_schema() {

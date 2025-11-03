@@ -8,7 +8,7 @@ license.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-alloy = { version = "1.0.22", default-features = false, features = [
+alloy = { workspace = true, default-features = false, features = [
     "json-rpc",
     "node-bindings",
     "rpc-client",
