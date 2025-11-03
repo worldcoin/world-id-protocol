@@ -32,7 +32,6 @@ ark-serialize = { workspace = true }
 anyhow = { workspace = true }
 chrono = "0.4"
 ciborium = "0.2"
-eyre = "0.6"
 hex = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true }

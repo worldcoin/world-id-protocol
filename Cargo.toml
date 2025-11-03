@@ -41,7 +41,7 @@ k256 = { version = "0.13", default-features = false }
 num-bigint = "0.4"
 oprf-client = { path = "crates/oprf-client" }
 oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io
-oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io or deprecate
+oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io or remove
 oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io
 oprf-world-types = { path = "crates/oprf-world-types" }
 oprf-zk = { path = "crates/oprf-zk" }
