@@ -39,7 +39,7 @@ ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 oprf-client = { workspace = true, optional = true }
 oprf-types = { workspace = true, optional = true }
-oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "9b15783" }
+oprf-test = { workspace = true, optional = true }
 oprf-world-types = { workspace = true }
 oprf-zk = { workspace = true }
 serde_json = { workspace = true }

@@ -40,8 +40,9 @@ itertools = "0.14"
 k256 = { version = "0.13", default-features = false }
 num-bigint = "0.4"
 oprf-client = { path = "crates/oprf-client" }
-oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "9b15783" } # TODO: update to crates.io
-oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "9b15783" } # TODO: update to crates.io
+oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io
+oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io or deprecate
+oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io
 oprf-world-types = { path = "crates/oprf-world-types" }
 oprf-zk = { path = "crates/oprf-zk" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
