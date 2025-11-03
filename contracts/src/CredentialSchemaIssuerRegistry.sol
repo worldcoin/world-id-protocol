@@ -59,7 +59,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     string public constant UPDATE_SIGNER_TYPEDEF =
         "UpdateIssuerSchemaSigner(uint256 issuerSchemaId,address newSigner,uint256 nonce)";
     string public constant UPDATE_ISSUER_SCHEMA_URI_TYPEDEF =
-        "UpdateIssuerSchemaUri(uint256 issuerSchemaId,string schemaUri)";
+        "UpdateIssuerSchemaUri(uint256 issuerSchemaId,string schemaUri,uint256 nonce)";
 
     bytes32 public constant REMOVE_ISSUER_SCHEMA_TYPEHASH = keccak256(abi.encodePacked(REMOVE_ISSUER_SCHEMA_TYPEDEF));
     bytes32 public constant UPDATE_PUBKEY_TYPEHASH = keccak256(abi.encodePacked(UPDATE_PUBKEY_TYPEDEF));
@@ -201,9 +201,17 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         onlyInitialized
     {
         require(issuerSchemaId != 0, "Schema ID not registered");
+        require(
+            keccak256(bytes(schemaUri)) != keccak256(bytes(idToSchemaUri[issuerSchemaId])),
+            "Registry: schema URI is the same as the current one"
+        );
+
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
-        bytes32 hash =
-            _hashTypedDataV4(keccak256(abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUriHash)));
+        bytes32 hash = _hashTypedDataV4(
+            keccak256(
+                abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUriHash, _nonces[issuerSchemaId])
+            )
+        );
         address signer = ECDSA.recover(hash, signature);
         require(_idToAddress[issuerSchemaId] == signer, "Registry: invalid signature");
 
@@ -211,6 +219,8 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         idToSchemaUri[issuerSchemaId] = schemaUri;
 
         emit IssuerSchemaUpdated(issuerSchemaId, oldSchemaUri, schemaUri);
+
+        _nonces[issuerSchemaId]++;
     }
 
     /**

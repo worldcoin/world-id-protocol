@@ -142,14 +142,14 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.getSignerForIssuerSchemaId(1), address(0));
     }
 
-    function _signUpdateIssuerSchemaUri(uint256 sk, uint256 issuerSchemaId, string memory schemaUri)
+    function _signUpdateIssuerSchemaUri(uint256 sk, uint256 issuerSchemaId, string memory schemaUri, uint256 nonce)
         internal
         view
         returns (bytes memory)
     {
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 structHash =
-            keccak256(abi.encode(registry.UPDATE_ISSUER_SCHEMA_URI_TYPEHASH(), issuerSchemaId, schemaUriHash));
+            keccak256(abi.encode(registry.UPDATE_ISSUER_SCHEMA_URI_TYPEHASH(), issuerSchemaId, schemaUriHash, nonce));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sk, digest);
         return abi.encodePacked(r, s, v);
@@ -160,11 +160,21 @@ contract CredentialIssuerRegistryTest is Test {
         address signer = vm.addr(signerSk);
         registry.register(_generatePubkey("k"), signer);
 
-        bytes memory updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb.json");
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb.json", 0);
         vm.expectEmit();
         emit CredentialSchemaIssuerRegistry.IssuerSchemaUpdated(1, "", "https://world.org/schemas/orb.json");
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
+        assertEq(registry.nonceOf(1), 1);
+
+        updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb_new.json", 1);
+        vm.expectEmit();
+        emit CredentialSchemaIssuerRegistry.IssuerSchemaUpdated(
+            1, "https://world.org/schemas/orb.json", "https://world.org/schemas/orb_new.json"
+        );
+        registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb_new.json", updateSig);
+        assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb_new.json");
+        assertEq(registry.nonceOf(1), 2);
     }
 
     function testOnlyIssuerCanUpdateSchemaUri() public {
@@ -173,9 +183,47 @@ contract CredentialIssuerRegistryTest is Test {
         address signer = vm.addr(signerSk);
         registry.register(_generatePubkey("k"), signer);
 
-        bytes memory updateSig = _signUpdateIssuerSchemaUri(badSk, 1, "https://world.org/schemas/malicious.json");
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(badSk, 1, "https://world.org/schemas/malicious.json", 0);
         vm.expectRevert(bytes("Registry: invalid signature"));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/malicious.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "");
+    }
+
+    /**
+     * @dev Ensures that a previously valid message cannot be replayed to revert to a previous schema URI.
+     */
+    function testCannotReplayIssuerSchemaUri() public {
+        uint256 signerSk = 0xAAA6;
+        address signer = vm.addr(signerSk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb_old.json", 0);
+        registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb_old.json", updateSig);
+        assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb_old.json");
+
+        bytes memory updateSigNew = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb_new.json", 1);
+        registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb_new.json", updateSigNew);
+        assertEq(registry.nonceOf(1), 2);
+
+        // Replay the old update
+        vm.expectRevert(bytes("Registry: invalid signature"));
+        registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb_old.json", updateSig);
+        assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb_new.json");
+        assertEq(registry.nonceOf(1), 2);
+    }
+
+    function testCannotUpdateSchemaUriToSameSchemaUri() public {
+        uint256 signerSk = 0xAAA6;
+        address signer = vm.addr(signerSk);
+        registry.register(_generatePubkey("k"), signer);
+
+        bytes memory updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb.json", 0);
+        registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
+        assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
+
+        updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb.json", 1);
+        vm.expectRevert(bytes("Registry: schema URI is the same as the current one"));
+        registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
+        assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
     }
 }
