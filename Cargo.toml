@@ -1,8 +1,9 @@
 [workspace]
 members = [
     "crates/core",
-    "crates/oprf-core",
+    "crates/oprf-client",
     "crates/oprf-zk",
+    "crates/oprf-world-types",
     "crates/primitives",
     "crates/test-utils",
     "services/indexer",
@@ -19,36 +20,42 @@ homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
 
 [workspace.dependencies]
+alloy = { version = "1", default-features = false }
 anyhow = "1"
 ark-ec = "0.5"
-# TODO: update to crates.io
-ark-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
-ark-serde-compat = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
+ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.1" }
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
+circom-witness-rs = "0.2.0"
 circom-types = { git = "https://github.com/TaceoLabs/co-snarks.git", default-features = false }
 criterion = "0.7"
-eddsa-babyjubjub = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
+eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5" }
 eyre = "0.6"
 groth16 = { git = "https://github.com/TaceoLabs/groth16.git" }
 hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13", default-features = false }
 num-bigint = "0.4"
+oprf-client = { path = "crates/oprf-client" }
+oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "9b15783" } # TODO: update to crates.io
+oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "9b15783" } # TODO: update to crates.io
+oprf-world-types = { path = "crates/oprf-world-types" }
+oprf-zk = { path = "crates/oprf-zk" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
-poseidon2 = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "698f03f" }
+poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
 rand = "0.8"
 rand_chacha = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
+tokio = { version = "1", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1" }
 world-id-core = { path = "crates/core"}
 world-id-primitives = { path = "crates/primitives"}
-witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git", rev = "c8ce390" }
 zeroize = "1"

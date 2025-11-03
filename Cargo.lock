@@ -860,12 +860,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anes"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
-
-[[package]]
 name = "anstream"
 version = "0.6.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -920,17 +914,6 @@ name = "anyhow"
 version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
-
-[[package]]
-name = "ark-babyjubjub"
-version = "0.5.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-std 0.5.0",
-]
 
 [[package]]
 name = "ark-bn254"
@@ -1277,20 +1260,6 @@ dependencies = [
  "ark-std 0.5.0",
  "tracing",
  "tracing-subscriber 0.2.25",
-]
-
-[[package]]
-name = "ark-serde-compat"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
-dependencies = [
- "ark-babyjubjub",
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-groth16 0.5.0",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -2075,26 +2044,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230c5f1ca6a325a32553f8640d31ac9b49f2411e901e427570154868b46da4f7"
 
 [[package]]
-name = "bincode"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
-dependencies = [
- "bincode_derive",
- "serde",
- "unty",
-]
-
-[[package]]
-name = "bincode_derive"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
-dependencies = [
- "virtue",
-]
-
-[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2283,12 +2232,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cast"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
-
-[[package]]
 name = "cc"
 version = "1.2.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2382,6 +2325,29 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tracing",
+]
+
+[[package]]
+name = "circom-witness-rs"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c64a693d1d64c612611bb6faedec94cdcd28c9c5e5c5dfe30927ed73e1cab350"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "byteorder",
+ "cxx",
+ "cxx-build",
+ "eyre",
+ "hex",
+ "num-bigint",
+ "num-traits",
+ "postcard",
+ "rand 0.8.5",
+ "ruint",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2609,39 +2575,6 @@ name = "crc-catalog"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
-
-[[package]]
-name = "criterion"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1c047a62b0cc3e145fa84415a3191f628e980b194c2755aa12300a4e6cbd928"
-dependencies = [
- "anes",
- "cast",
- "ciborium",
- "clap",
- "criterion-plot",
- "itertools 0.13.0",
- "num-traits",
- "oorandom",
- "plotters",
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "tinytemplate",
- "walkdir",
-]
-
-[[package]]
-name = "criterion-plot"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b1bcc0dc7dfae599d84ad0b1a55f80cde8af3725da8313b528da95ef783e338"
-dependencies = [
- "cast",
- "itertools 0.13.0",
-]
 
 [[package]]
 name = "crossbeam-channel"
@@ -2987,25 +2920,6 @@ dependencies = [
  "serdect",
  "signature",
  "spki",
-]
-
-[[package]]
-name = "eddsa-babyjubjub"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
-dependencies = [
- "ark-babyjubjub",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serde-compat",
- "ark-serialize 0.5.0",
- "blake3",
- "eyre",
- "num-bigint",
- "poseidon2",
- "rand 0.8.5",
- "serde",
- "zeroize",
 ]
 
 [[package]]
@@ -4649,12 +4563,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4895175b425cb1f87721b59f0f286c2092bd4af812243672510e1ac53e2e0ad"
 
 [[package]]
-name = "oorandom"
-version = "11.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
-
-[[package]]
 name = "openssl-probe"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4740,50 +4648,69 @@ dependencies = [
 [[package]]
 name = "oprf-client"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
 dependencies = [
- "ark-babyjubjub",
- "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serde-compat",
- "circom-types",
- "eddsa-babyjubjub",
  "eyre",
  "futures",
  "groth16",
- "hex",
  "k256",
  "oprf-core",
  "oprf-types",
+ "oprf-world-types 0.1.0",
+ "oprf-zk 0.1.0",
  "rand 0.8.5",
  "reqwest",
  "serde_json",
+ "taceo-ark-babyjubjub",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "oprf-client"
+version = "0.1.0"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783#9b15783b31a3a30dcb54d197f2d363b7b24e9372"
+dependencies = [
+ "ark-ec 0.5.0",
+ "eyre",
+ "futures",
+ "groth16",
+ "k256",
+ "oprf-core",
+ "oprf-types",
+ "oprf-world-types 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
+ "oprf-zk 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
+ "rand 0.8.5",
+ "reqwest",
+ "serde_json",
+ "taceo-ark-babyjubjub",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
- "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git?branch=dev)",
 ]
 
 [[package]]
 name = "oprf-core"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783#9b15783b31a3a30dcb54d197f2d363b7b24e9372"
 dependencies = [
- "ark-babyjubjub",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
- "ark-serde-compat",
- "eddsa-babyjubjub",
+ "ark-serialize 0.5.0",
+ "blake3",
  "itertools 0.14.0",
  "num-bigint",
- "poseidon2",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "serde",
- "serde_json",
  "subtle",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-eddsa-babyjubjub",
+ "taceo-poseidon2",
  "thiserror 2.0.17",
  "uuid",
  "zeroize",
@@ -4792,77 +4719,89 @@ dependencies = [
 [[package]]
 name = "oprf-service"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783#9b15783b31a3a30dcb54d197f2d363b7b24e9372"
 dependencies = [
  "alloy",
- "ark-babyjubjub",
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-groth16 0.5.0",
- "ark-serde-compat",
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
  "axum 0.8.6",
- "bincode",
  "clap",
  "eyre",
  "futures",
  "git-version",
+ "groth16",
  "http 1.3.1",
  "humantime",
+ "itertools 0.14.0",
  "k256",
  "metrics",
  "nodes-telemetry",
  "oprf-core",
  "oprf-types",
+ "oprf-world-types 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
+ "oprf-zk 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
  "parking_lot",
  "rand 0.8.5",
- "reqwest",
  "rustls 0.23.32",
  "secrecy",
  "serde",
  "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
  "tower-http 0.6.6",
  "tracing",
  "uuid",
+ "witness",
  "zeroize",
 ]
 
 [[package]]
 name = "oprf-test"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783#9b15783b31a3a30dcb54d197f2d363b7b24e9372"
 dependencies = [
  "alloy",
- "ark-babyjubjub",
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "aws-config",
+ "aws-sdk-secretsmanager",
  "axum 0.8.6",
- "bincode",
  "circom-types",
  "clap",
- "eddsa-babyjubjub",
  "eyre",
  "futures",
  "groth16",
- "hex",
+ "itertools 0.14.0",
+ "k256",
  "nodes-telemetry",
- "oprf-client",
+ "oprf-client 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
  "oprf-core",
  "oprf-service",
  "oprf-types",
- "poseidon2",
+ "oprf-world-types 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
+ "oprf-zk 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
  "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "regex",
  "reqwest",
  "semaphore-rs-hasher",
  "semaphore-rs-trees",
  "serde",
+ "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-eddsa-babyjubjub",
+ "taceo-poseidon2",
+ "take_mut",
  "tokio",
  "tracing",
 ]
@@ -4870,17 +4809,98 @@ dependencies = [
 [[package]]
 name = "oprf-types"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783#9b15783b31a3a30dcb54d197f2d363b7b24e9372"
 dependencies = [
- "alloy",
- "ark-babyjubjub",
- "ark-ff 0.5.0",
- "ark-serde-compat",
- "eddsa-babyjubjub",
  "k256",
  "oprf-core",
+ "oprf-zk 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
  "serde",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
  "uuid",
+]
+
+[[package]]
+name = "oprf-world-types"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "k256",
+ "oprf-core",
+ "oprf-zk 0.1.0",
+ "serde",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-eddsa-babyjubjub",
+ "uuid",
+]
+
+[[package]]
+name = "oprf-world-types"
+version = "0.1.0"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783#9b15783b31a3a30dcb54d197f2d363b7b24e9372"
+dependencies = [
+ "alloy",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "k256",
+ "oprf-core",
+ "oprf-zk 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783)",
+ "serde",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-eddsa-babyjubjub",
+ "uuid",
+]
+
+[[package]]
+name = "oprf-zk"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
+ "circom-types",
+ "circom-witness-rs",
+ "eyre",
+ "groth16",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "reqwest",
+ "ruint",
+ "serde",
+ "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "oprf-zk"
+version = "0.1.0"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=9b15783#9b15783b31a3a30dcb54d197f2d363b7b24e9372"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
+ "circom-types",
+ "eyre",
+ "groth16",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "thiserror 2.0.17",
+ "tracing",
+ "witness",
 ]
 
 [[package]]
@@ -5068,50 +5088,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
-name = "plotters"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aeb6f403d7a4911efb1e33402027fc44f29b5bf6def3effcc22d7bb75f2b747"
-dependencies = [
- "num-traits",
- "plotters-backend",
- "plotters-svg",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "plotters-backend"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df42e13c12958a16b3f7f4386b9ab1f3e7933914ecea48da7139435263a4172a"
-
-[[package]]
-name = "plotters-svg"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
-dependencies = [
- "plotters-backend",
-]
-
-[[package]]
 name = "portable-atomic"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
-
-[[package]]
-name = "poseidon2"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=698f03f#698f03f92c5879f3328ce854a2e1deeff2069664"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "ark-std 0.5.0",
- "num-bigint",
- "num-traits",
-]
 
 [[package]]
 name = "postcard"
@@ -6639,6 +6619,64 @@ dependencies = [
 ]
 
 [[package]]
+name = "taceo-ark-babyjubjub"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f404332979db17b044cb8eb92bd471d993ed8713ffb08dc9b3f459414123a499"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+]
+
+[[package]]
+name = "taceo-ark-serde-compat"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "070074111809a0c9344738814302f6271bd79bb38cc1427e889c2b063e66e5e0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "serde",
+ "taceo-ark-babyjubjub",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "taceo-eddsa-babyjubjub"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791e41273cc025e07fbca9fcd1d143a3d8cbe3515de8aa6dab91549c9a0af245"
+dependencies = [
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "blake3",
+ "eyre",
+ "num-bigint",
+ "rand 0.8.5",
+ "serde",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-poseidon2",
+ "zeroize",
+]
+
+[[package]]
+name = "taceo-poseidon2"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce5f09fc2f1c68aafd3f544313fe7e34d33b35aa666bc9e6b7a22e94b9833140"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+ "num-bigint",
+ "num-traits",
+]
+
+[[package]]
 name = "take_mut"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6817,16 +6855,6 @@ checksum = "5d4f6d1145dcb577acf783d4e601bc1d76a13337bb54e6233add580b07344c8b"
 dependencies = [
  "displaydoc",
  "zerovec",
-]
-
-[[package]]
-name = "tinytemplate"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be4d6b5f19ff7664e8c98d03e2139cb510db9b0a60b55f8e8709b689d939b6bc"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -7265,12 +7293,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
-name = "unty"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
-
-[[package]]
 name = "url"
 version = "2.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7335,12 +7357,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "virtue"
-version = "0.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "vsimd"
@@ -7894,51 +7910,7 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 [[package]]
 name = "witness"
 version = "0.2.0"
-source = "git+https://github.com/TaceoLabs/circom-witness-rs.git?branch=dev#9b5432db79d5d632e9c34cfdf139563fbb17cb53"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "byteorder",
- "cxx",
- "cxx-build",
- "eyre",
- "hex",
- "num-bigint",
- "num-traits",
- "postcard",
- "rand 0.8.5",
- "ruint",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "witness"
-version = "0.2.0"
 source = "git+https://github.com/TaceoLabs/circom-witness-rs.git?rev=c8ce390#c8ce39065c158a7d58414212e3cc2ac671b1c088"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "byteorder",
- "cxx",
- "cxx-build",
- "eyre",
- "hex",
- "num-bigint",
- "num-traits",
- "postcard",
- "rand 0.8.5",
- "ruint",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "witness"
-version = "0.2.0"
-source = "git+https://github.com/TaceoLabs/circom-witness-rs.git#cca9151dcebbda1c7aa28a63209ae8fa0fc44b72"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -7964,36 +7936,37 @@ dependencies = [
  "alloy",
  "alloy-node-bindings",
  "anyhow",
- "ark-babyjubjub",
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
- "ark-serde-compat",
  "ark-serialize 0.5.0",
  "chrono",
  "ciborium",
  "circom-types",
- "eddsa-babyjubjub",
  "eyre",
  "groth16",
  "hex",
- "oprf-client",
+ "oprf-client 0.1.0",
  "oprf-test",
  "oprf-types",
- "poseidon2",
+ "oprf-world-types 0.1.0",
+ "oprf-zk 0.1.0",
  "rand 0.8.5",
  "reqwest",
  "ruint",
  "secrecy",
  "serde",
  "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-eddsa-babyjubjub",
+ "taceo-poseidon2",
  "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",
  "uuid",
- "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git)",
  "world-id-primitives",
 ]
 
@@ -8011,7 +7984,6 @@ dependencies = [
  "hex",
  "once_cell",
  "parking_lot",
- "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -8037,14 +8009,13 @@ dependencies = [
  "futures-util",
  "hex",
  "http 1.3.1",
- "poseidon2",
- "regex",
  "reqwest",
  "semaphore-rs-hasher",
  "semaphore-rs-trees",
  "serde",
  "serde_json",
  "sqlx",
+ "taceo-poseidon2",
  "take_mut",
  "test-utils",
  "tokio",
@@ -8056,70 +8027,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "world-id-oprf-core"
-version = "0.1.0"
-dependencies = [
- "ark-babyjubjub",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serde-compat",
- "criterion",
- "eddsa-babyjubjub",
- "itertools 0.14.0",
- "num-bigint",
- "poseidon2",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "serde",
- "subtle",
- "thiserror 1.0.69",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "world-id-oprf-zk"
-version = "0.1.0"
-dependencies = [
- "ark-babyjubjub",
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-groth16 0.5.0",
- "ark-serde-compat",
- "circom-types",
- "eyre",
- "groth16",
- "hex",
- "k256",
- "rand 0.8.5",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tracing",
- "uuid",
- "witness 0.2.0 (git+https://github.com/TaceoLabs/circom-witness-rs.git?rev=c8ce390)",
- "world-id-oprf-core",
-]
-
-[[package]]
 name = "world-id-primitives"
 version = "0.1.0"
 dependencies = [
- "ark-babyjubjub",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "ark-groth16 0.5.0",
- "ark-serde-compat",
  "ark-serialize 0.5.0",
  "ciborium",
- "eddsa-babyjubjub",
  "hex",
  "k256",
  "ruint",
  "serde",
  "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-eddsa-babyjubjub",
  "thiserror 1.0.69",
 ]
 

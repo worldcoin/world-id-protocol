@@ -1,10 +1,10 @@
 use ark_ec::CurveGroup;
-use serde::Serialize;
-use uuid::Uuid;
-use world_id_oprf_core::{
+use oprf_core::{
     dlog_equality::DLogEqualityProof,
     oprf::{BlindedOPrfResponse, BlindingFactor},
 };
+use serde::Serialize;
+use uuid::Uuid;
 
 use crate::proof_inputs::query::QueryProofInput;
 
@@ -17,9 +17,9 @@ pub struct NullifierProofInput<const MAX_DEPTH: usize> {
     #[serde(flatten)]
     pub query_input: QueryProofInput<MAX_DEPTH>,
     // Dlog Equality Proof
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
+    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_fq")]
     pub dlog_e: BaseField,
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_scalar")]
+    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_fr")]
     pub dlog_s: ScalarField,
     #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_affine")]
     pub oprf_pk: Affine,
@@ -29,10 +29,10 @@ pub struct NullifierProofInput<const MAX_DEPTH: usize> {
     #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_affine")]
     pub oprf_response: Affine,
     // SignalHash as in Semaphore
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
+    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_fq")]
     pub signal_hash: BaseField,
     // Commitment to the id
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_base")]
+    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_fq")]
     pub id_commitment_r: BaseField,
 }
 

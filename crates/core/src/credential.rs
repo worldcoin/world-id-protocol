@@ -8,7 +8,7 @@ use crate::{Credential, CredentialVersion, FieldElement};
 
 // TODO: Remove
 #[cfg(feature = "authenticator")]
-use oprf_client::CredentialsSignature;
+use oprf_world_types::CredentialsSignature;
 /// Introduces hashing and signing capabilities to the `Credential` type.
 pub trait HashableCredential {
     /// Get the claims hash of the credential.

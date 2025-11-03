@@ -21,14 +21,13 @@ use alloy::providers::{DynProvider, Provider};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
-use ark_serde_compat::groth16::Groth16Proof;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use eddsa_babyjubjub::EdDSAPublicKey;
+use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use eyre::Result;
-use oprf_client::zk::Groth16Material;
-use oprf_client::{EdDSASignature, MerkleMembership, NullifierArgs, OprfQuery, UserKeyMaterial};
-use oprf_types::crypto::UserPublicKeyBatch;
-use oprf_types::{MerkleRoot, RpId, ShareEpoch};
+use oprf_client::{NullifierArgs, OprfQuery};
+use oprf_types::{RpId, ShareEpoch};
+use oprf_world_types::{MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch};
+use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
@@ -235,7 +234,6 @@ impl Authenticator {
             MerkleMembership {
                 root: MerkleRoot::from(*inclusion_proof.root),
                 siblings,
-                depth: TREE_DEPTH as u64,
                 mt_index: inclusion_proof.leaf_index,
             },
             pubkey_batch,
@@ -285,7 +283,7 @@ impl Authenticator {
         };
 
         // TODO: load once and from bytes
-        let groth16_material = Groth16Material::new(QUERY_ZKEY_PATH, NULLIFIER_ZKEY_PATH)?;
+        let groth16_material = Groth16Material::new(QUERY_ZKEY_PATH, None, NULLIFIER_ZKEY_PATH)?;
 
         let key_material = UserKeyMaterial {
             pk_batch,
@@ -302,15 +300,22 @@ impl Authenticator {
             credential_signature: credential_to_credentials_signature(credential)?,
             merkle_membership,
             query,
-            groth16_material,
             key_material,
             signal_hash: *message_hash,
             rp_nullifier_key: rp_request.rp_nullifier_key,
+            id_commitment_r: ark_babyjubjub::Fq::ZERO, // FIXME: expose properly
         };
 
         let mut rng = rand::thread_rng();
-        let (proof, _public, nullifier) =
-            oprf_client::nullifier(self.config.nullifier_oracle_urls(), 2, args, &mut rng).await?;
+        let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
+            self.config.nullifier_oracle_urls(),
+            2,
+            &groth16_material,
+            &groth16_material,
+            args,
+            &mut rng,
+        )
+        .await?;
 
         Ok((proof, nullifier.into()))
     }

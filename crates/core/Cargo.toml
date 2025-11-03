@@ -37,18 +37,19 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
-oprf-client = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
-oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
-oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "698f03f" }
+oprf-client = { workspace = true, optional = true }
+oprf-types = { workspace = true, optional = true }
+oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", optional = true, rev = "9b15783" }
+oprf-world-types = { workspace = true }
+oprf-zk = { workspace = true }
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-circom-types = { git = "https://github.com/TaceoLabs/co-snarks.git", default-features = false, optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+circom-types = { workspace = true, optional = true }
 rand = { workspace = true }
 ark-ec = { workspace = true }
 uuid = { workspace = true }
-witness = { git = "https://github.com/TaceoLabs/circom-witness-rs.git"}
 eyre = { workspace = true }
-groth16 = { git = "https://github.com/TaceoLabs/groth16.git", optional = true }
+groth16 = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10.3", optional = true }
 world-id-primitives = { workspace = true }
