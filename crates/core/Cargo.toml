@@ -20,7 +20,10 @@ path = "bin/issuer.rs"
 required-features = ["issuer"]
 
 [dependencies]
-alloy = { version = "1", features = ["sol-types", "rpc"], default-features = false }
+alloy = { version = "1", features = [
+    "sol-types",
+    "rpc",
+], default-features = false }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 poseidon2 = { workspace = true }
@@ -29,6 +32,7 @@ ark-serialize = { workspace = true }
 anyhow = { workspace = true }
 chrono = "0.4"
 ciborium = "0.2"
+eyre = "0.6"
 hex = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true }
@@ -53,6 +57,7 @@ groth16 = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10.3", optional = true }
 world-id-primitives = { workspace = true }
+utoipa = { version = "5.4.0", optional = true }
 
 [features]
 default = ["authenticator"]
@@ -66,7 +71,7 @@ authenticator = [
     "dep:oprf-client",
     "dep:oprf-types",
     "dep:reqwest",
-    "dep:secrecy"
+    "dep:secrecy",
 ]
 
 issuer = ["alloy/signer-local", "dep:secrecy"]
@@ -75,7 +80,10 @@ rp = ["dep:oprf-types"]
 
 cli = ["dep:oprf-test"]
 
+# OpenAPI/Swagger docs
+openapi = ["dep:utoipa"]
+
 [dev-dependencies]
 alloy-node-bindings = "1.0.38"
-alloy = { version = "1", features = ["rpc-types"] }
+alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }

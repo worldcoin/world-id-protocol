@@ -3,7 +3,7 @@ use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{FieldElement, TypeError};
+use crate::{FieldElement, PrimitiveError};
 
 /// Version of the `Credential` object
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -138,11 +138,11 @@ impl Credential {
     ///
     /// # Errors
     /// Will error if the index is out of bounds.
-    pub fn claim(mut self, index: usize, claim: U256) -> Result<Self, TypeError> {
+    pub fn claim(mut self, index: usize, claim: U256) -> Result<Self, PrimitiveError> {
         if index >= self.claims.len() {
-            return Err(TypeError::OutOfBounds);
+            return Err(PrimitiveError::OutOfBounds);
         }
-        self.claims[index] = claim.try_into().map_err(|_| TypeError::NotInField)?;
+        self.claims[index] = claim.try_into().map_err(|_| PrimitiveError::NotInField)?;
         Ok(self)
     }
 
@@ -150,10 +150,13 @@ impl Credential {
     ///
     /// # Errors
     /// Will error if the provided hash cannot be lowered into the field.
-    pub fn associated_data_hash(mut self, associated_data_hash: U256) -> Result<Self, TypeError> {
+    pub fn associated_data_hash(
+        mut self,
+        associated_data_hash: U256,
+    ) -> Result<Self, PrimitiveError> {
         self.associated_data_hash = associated_data_hash
             .try_into()
-            .map_err(|_| TypeError::NotInField)?;
+            .map_err(|_| PrimitiveError::NotInField)?;
         Ok(self)
     }
 

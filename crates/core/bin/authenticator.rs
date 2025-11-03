@@ -4,7 +4,9 @@ use alloy::primitives::address;
 use ark_ff::UniformRand;
 use eyre::Result;
 use tokio::time::sleep;
-use world_id_core::{config::Config, types::RpRequest, Authenticator, Credential, FieldElement};
+use world_id_core::{
+    primitives::Config, types::RpRequest, Authenticator, Credential, FieldElement,
+};
 
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
@@ -27,7 +29,8 @@ fn install_tracing() {
 #[tokio::main]
 async fn main() -> Result<()> {
     install_tracing();
-    let config = Config::from_json("config.json").unwrap();
+    let json_config = std::fs::read_to_string("config.json").unwrap();
+    let config = Config::from_json(&json_config).unwrap();
 
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
     let mut authenticator = Authenticator::new(seed, config)?;

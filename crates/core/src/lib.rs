@@ -19,10 +19,6 @@ mod authenticator;
 #[cfg(feature = "authenticator")]
 pub use authenticator::{Authenticator, AuthenticatorError};
 
-/// Global configuration to interact with the different components of the Protocol.
-#[cfg(any(feature = "authenticator", feature = "issuer"))]
-pub mod config;
-
 pub use world_id_primitives::{Credential, CredentialVersion};
 
 #[cfg(any(feature = "authenticator", feature = "issuer"))]

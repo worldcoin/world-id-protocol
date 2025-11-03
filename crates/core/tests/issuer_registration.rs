@@ -3,8 +3,8 @@
 use alloy::primitives::U256;
 use eyre::Result;
 use test_utils::anvil::{CredentialSchemaIssuerRegistry, TestAnvil};
-use world_id_core::config::Config;
 use world_id_core::Issuer;
+use world_id_primitives::Config;
 
 /// Complete test for registering an issuer schema
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

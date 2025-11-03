@@ -8,7 +8,7 @@ use crate::{
     authenticator::AuthenticatorPublicKeySet,
     merkle::MerkleInclusionProof,
     rp::{RpId, RpNullifierKey},
-    Credential, FieldElement, TypeError,
+    Credential, FieldElement, PrimitiveError,
 };
 
 /// Represents a base World ID proof.
@@ -39,32 +39,32 @@ impl WorldIdProof {
     ///
     /// # Errors
     /// Will return an error if the serialization unexpectedly fails.
-    pub fn to_compressed_bytes(&self) -> Result<Vec<u8>, TypeError> {
+    pub fn to_compressed_bytes(&self) -> Result<Vec<u8>, PrimitiveError> {
         let mut bytes = Vec::with_capacity(160);
 
         // A = G1 (32 bytes compressed)
         self.zkp
             .a
             .serialize_compressed(&mut bytes)
-            .map_err(|e| TypeError::Serialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
 
         // B = G2 (64 bytes compressed)
         self.zkp
             .b
             .serialize_compressed(&mut bytes)
-            .map_err(|e| TypeError::Serialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
 
         // C = G1 (32 bytes compressed)
         self.zkp
             .c
             .serialize_compressed(&mut bytes)
-            .map_err(|e| TypeError::Serialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
 
         // Merkle root = Field element (32 bytes compressed)
         self.merkle_root
             .0
             .serialize_compressed(&mut bytes)
-            .map_err(|e| TypeError::Serialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
 
         debug_assert!(bytes.len() == 160);
 
@@ -74,23 +74,23 @@ impl WorldIdProof {
     ///
     /// # Errors
     /// Will return an error if the provided input is not a valid compressed proof. For example, invalid field points.
-    pub fn from_compressed_bytes(bytes: &[u8]) -> Result<Self, TypeError> {
+    pub fn from_compressed_bytes(bytes: &[u8]) -> Result<Self, PrimitiveError> {
         if bytes.len() != 160 {
-            return Err(TypeError::Deserialization(
+            return Err(PrimitiveError::Deserialization(
                 "Invalid proof length. Expected 160 bytes.".to_string(),
             ));
         }
 
         let mut reader = Cursor::new(bytes);
         let a = G1Affine::deserialize_compressed(&mut reader)
-            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
         let b = G2Affine::deserialize_compressed(&mut reader)
-            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
         let c = G1Affine::deserialize_compressed(&mut reader)
-            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
 
         let merkle_root: FieldElement = FieldElement::deserialize_from_bytes(&mut reader)
-            .map_err(|e| TypeError::Deserialization(e.to_string()))?;
+            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
 
         Ok(Self {
             zkp: ark_groth16::Proof { a, b, c },

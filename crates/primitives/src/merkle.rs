@@ -1,4 +1,4 @@
-use crate::{authenticator::MAX_AUTHENTICATOR_KEYS, FieldElement, TypeError};
+use crate::{authenticator::MAX_AUTHENTICATOR_KEYS, FieldElement, PrimitiveError};
 use ruint::aliases::U256;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -89,9 +89,9 @@ impl<const TREE_DEPTH: usize> AccountInclusionProof<TREE_DEPTH> {
     pub fn new(
         proof: MerkleInclusionProof<TREE_DEPTH>,
         authenticator_pubkeys: Vec<U256>,
-    ) -> Result<Self, TypeError> {
+    ) -> Result<Self, PrimitiveError> {
         if authenticator_pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
-            return Err(TypeError::OutOfBounds);
+            return Err(PrimitiveError::OutOfBounds);
         }
         Ok(Self {
             proof,

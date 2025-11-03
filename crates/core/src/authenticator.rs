@@ -8,7 +8,6 @@ use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::account_registry::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
-use crate::config::Config;
 use crate::credential::credential_to_credentials_signature;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayStatusResponse, InsertAuthenticatorRequest,
@@ -16,8 +15,7 @@ use crate::types::{
 };
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
-use alloy::providers::ProviderBuilder;
-use alloy::providers::{DynProvider, Provider};
+use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
@@ -31,8 +29,7 @@ use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
-pub use world_id_primitives::authenticator::ProtocolSigner;
-pub use world_id_primitives::TREE_DEPTH;
+pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);

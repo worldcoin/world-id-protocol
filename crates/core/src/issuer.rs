@@ -1,9 +1,10 @@
-use crate::{config::Config, issuer::CredentialSchemaIssuerRegistry::Pubkey, Signer};
+use crate::{issuer::CredentialSchemaIssuerRegistry::Pubkey, Signer};
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol, sol_types::SolEvent};
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::Result;
 use ruint::aliases::U256;
+use world_id_primitives::Config;
 
 sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
@@ -25,7 +26,7 @@ impl From<EdDSAPublicKey> for Pubkey {
 #[derive(Debug)]
 pub struct Issuer {
     signer: Signer,
-    /// General configuration for the Issuer.
+    /// General configuration for the Protocol.
     pub config: Config,
 }
 
