@@ -29,7 +29,7 @@ ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
-circom-witness-rs = "0.2.0"
+circom-witness-rs = "0.2.1"
 circom-types = { git = "https://github.com/TaceoLabs/co-snarks.git", default-features = false }
 criterion = "0.7"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5" }

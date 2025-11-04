@@ -3,15 +3,14 @@ use std::time::{Duration, SystemTime};
 use alloy::{
     primitives::{address, Address},
     providers::ProviderBuilder,
-    signers::k256::{self, ecdsa::signature::SignerMut},
+    signers::k256::{self, ecdsa::signature::SignerMut, SecretKey},
 };
 use ark_ff::BigInteger;
 use ark_ff::PrimeField;
 use ark_ff::UniformRand;
 use eyre::Result;
 use oprf_test::{
-    rp_registry_scripts::init_key_gen, EcDsaPubkeyCompressed, RpRegistry, MOCK_RP_SECRET_KEY,
-    TACEO_ADMIN_PRIVATE_KEY,
+    rp_registry_scripts::init_key_gen, EcDsaPubkeyCompressed, RpRegistry, TACEO_ADMIN_PRIVATE_KEY,
 };
 use oprf_types::crypto::RpNullifierKey;
 use serde_json::json;
@@ -27,7 +26,9 @@ async fn main() -> Result<()> {
     let chain_url = std::env::var("CHAIN_URL").unwrap_or("ws://localhost:8545".to_string());
     let action_id: FieldElement = ark_babyjubjub::Fq::rand(&mut rng).into();
 
-    let rp_pk = EcDsaPubkeyCompressed::try_from(MOCK_RP_SECRET_KEY.public_key())?;
+    let sk = SecretKey::random(&mut rng);
+
+    let rp_pk = EcDsaPubkeyCompressed::try_from(sk.public_key())?;
     let rp_id = init_key_gen(
         &chain_url,
         DEFAULT_KEY_GEN_CONTRACT_ADDRESS,
@@ -44,7 +45,7 @@ async fn main() -> Result<()> {
     let mut msg = Vec::new();
     msg.extend(nonce.into_bigint().to_bytes_le());
     msg.extend(current_time_stamp.to_le_bytes());
-    let signature = k256::ecdsa::SigningKey::from(MOCK_RP_SECRET_KEY.clone()).sign(&msg);
+    let signature = k256::ecdsa::SigningKey::from(sk.clone()).sign(&msg);
 
     // fetch rp nullifier key
     let provider = ProviderBuilder::new().connect_http(chain_url.parse()?);

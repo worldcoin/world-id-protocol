@@ -11,7 +11,7 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 poseidon2 = { workspace = true }
-alloy = { workspace = true, default-features = false, features = ["rpc-types", "provider-ws"] }
+alloy = { workspace = true, features = ["rpc-types", "provider-ws"] }
 dotenvy = "0.15"
 url = "2"
 hex = "0.4"
