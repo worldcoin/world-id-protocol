@@ -1,8 +1,8 @@
 use crate::{issuer::CredentialSchemaIssuerRegistry::Pubkey, Signer};
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol, sol_types::SolEvent};
 use ark_ff::PrimeField;
+use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::Result;
-use oprf_client::EdDSAPublicKey;
 use ruint::aliases::U256;
 use world_id_primitives::Config;
 

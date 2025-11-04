@@ -5,13 +5,13 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 poseidon2 = { workspace = true }
-alloy = { workspace = true, default-features = false, features = ["rpc-types", "provider-ws"] }
+alloy = { workspace = true, features = ["rpc-types", "provider-ws"] }
 dotenvy = "0.15"
 url = "2"
 hex = "0.4"
@@ -30,5 +30,4 @@ world-id-primitives = { workspace = true }
 
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
-regex = "1.11.2"
 reqwest = { workspace = true }

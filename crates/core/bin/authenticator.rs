@@ -60,8 +60,8 @@ async fn main() -> Result<()> {
         .generate_proof(message_hash, rp_request, credential)
         .await?;
 
-    println!("proof: {:?}", proof);
-    println!("nullifier: {:?}", nullifier);
+    println!("proof: {proof:?}");
+    println!("nullifier: {nullifier:?}");
 
     Ok(())
 }
