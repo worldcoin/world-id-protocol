@@ -40,15 +40,15 @@ library PackedAccountIndex {
 
     /**
      * @dev Packs account index, recovery counter, and pubkey ID into a single uint256.
-     * @param accountIndex The account index (192 bits, must fit in 192 bits).
-     * @param recoveryCounter The recovery counter (32 bits).
-     * @param pubkeyId The pubkey ID (32 bits).
+     * @param _accountIndex The account index (192 bits, must fit in 192 bits).
+     * @param _recoveryCounter The recovery counter (32 bits).
+     * @param _pubkeyId The pubkey ID (32 bits).
      * @return The packed value: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex].
      */
-    function pack(uint256 accountIndex, uint32 recoveryCounter, uint32 pubkeyId) public pure returns (uint256) {
-        if (accountIndex >> 192 != 0) {
+    function pack(uint256 _accountIndex, uint32 _recoveryCounter, uint32 _pubkeyId) public pure returns (uint256) {
+        if (_accountIndex >> 192 != 0) {
             revert AccountIndexOverflow();
         }
-        return (uint256(recoveryCounter) << 224) | (uint256(pubkeyId) << 192) | accountIndex;
+        return (uint256(_recoveryCounter) << 224) | (uint256(_pubkeyId) << 192) | _accountIndex;
     }
 }

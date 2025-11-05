@@ -16,11 +16,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     error ImplementationNotInitialized();
 
     /**
-     * @dev Thrown when a requsted on-chain signer address is already in use by another account. An on-chain signer address
+     * @dev Thrown when a requested on-chain signer address is already in use by another account as an authenticator. An on-chain signer address
      * can only be used by one account at a time.
-     * @param targetAddress The target address that is already in use.
+     * @param authenticatorAddress The target address that is already in use.
      */
-    error AddressAlreadyInUse(address targetAddress);
+    error AuthenticatorAddressAlreadyInUse(address authenticatorAddress);
 
     modifier onlyInitialized() {
         if (_getInitializedVersion() == 0) {
@@ -250,7 +250,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
                 uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
                 uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
                 if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
-                    revert AddressAlreadyInUse(authenticatorAddress);
+                    revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
                 }
             }
             authenticatorAddressToPackedAccountIndex[authenticatorAddress] =

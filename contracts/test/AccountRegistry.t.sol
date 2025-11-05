@@ -453,7 +453,9 @@ contract AccountRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.AddressAlreadyInUse.selector, authenticatorAddress1));
+        vm.expectRevert(
+            abi.encodeWithSelector(AccountRegistry.AuthenticatorAddressAlreadyInUse.selector, authenticatorAddress1)
+        );
         authenticatorPubkeys[0] = 2;
         accountRegistry.createAccount(
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
