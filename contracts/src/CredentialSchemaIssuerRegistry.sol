@@ -12,7 +12,12 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract CredentialSchemaIssuerRegistry is
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable
+{
     error ImplementationNotInitialized();
 
     modifier onlyInitialized() {
@@ -41,6 +46,8 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     mapping(uint256 => address) private _idToAddress;
 
     uint256 private _nextId = 1;
+
+    // issuerSchemaId -> nonce, used for prevent replay attacks on updates to schema and pubKeys
     mapping(uint256 => uint256) private _nonces;
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
@@ -100,7 +107,19 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
+    /**
+     * @dev Registers a new issuer schema.
+     * @param pubkey The public key of the issuer.
+     * @param signer The address of the signer.
+     * @return issuerSchemaId
+     */
+    function register(Pubkey memory pubkey, address signer)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256)
+    {
         require(pubkey.x != 0 && pubkey.y != 0, "Registry: pubkey cannot be zero");
         require(signer != address(0), "Registry: signer cannot be zero address");
 

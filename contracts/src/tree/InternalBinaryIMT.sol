@@ -282,10 +282,10 @@ library InternalBinaryIMT {
 
     /// @dev Updates a leaf in the tree.
     /// @param self: Tree data.
+    /// @param index: Index of the leaf.
     /// @param leaf: Leaf to be updated.
     /// @param newLeaf: New leaf.
     /// @param proofSiblings: Array of the sibling nodes of the proof of membership.
-    /// @param index: Index of the leaf.
     function _update(
         BinaryIMTData storage self,
         uint256 index,
