@@ -124,52 +124,40 @@ enum RequestKind {
     RecoverAccount,
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum ErrorCode {
-    /// Authenticator already exists for this account
-    AuthenticatorAlreadyExists,
-    /// Generic transaction revert
-    TransactionReverted,
-    /// Transaction confirmation error
-    ConfirmationError,
-    /// Batcher unavailable
-    BatcherUnavailable,
-    /// Other/unknown error
-    Unknown,
-}
-
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error, ToSchema)]
 pub(crate) enum GatewayError {
     #[error("Authenticator already exists")]
     AuthenticatorAlreadyExists,
-    #[error("Transaction reverted on-chain (tx: {tx_hash})")]
-    TransactionReverted { tx_hash: String },
-    #[error("Transaction confirmation error: {message}")]
-    ConfirmationError { message: String },
+    #[error("Transaction reverted on-chain (tx: {0})")]
+    TransactionReverted(String),
+    #[error("Transaction confirmation error: {0}")]
+    ConfirmationError(String),
     #[error("Batcher unavailable")]
     BatcherUnavailable,
-    #[error("Pre-flight check failed: {message}")]
-    PreFlightFailed { message: String },
+    #[error("Pre-flight check failed: {0}")]
+    PreFlightFailed(String),
     #[error("{0}")]
     Unknown(String),
 }
 
-impl GatewayError {
-    pub(crate) fn error_code(&self) -> ErrorCode {
-        match self {
-            GatewayError::AuthenticatorAlreadyExists => ErrorCode::AuthenticatorAlreadyExists,
-            GatewayError::TransactionReverted { .. } => ErrorCode::TransactionReverted,
-            GatewayError::ConfirmationError { .. } => ErrorCode::ConfirmationError,
-            GatewayError::BatcherUnavailable => ErrorCode::BatcherUnavailable,
-            GatewayError::PreFlightFailed { message } => {
-                // Parse the underlying error for pre-flight failures
-                Self::from_contract_error(message).error_code()
-            }
-            GatewayError::Unknown(_) => ErrorCode::Unknown,
-        }
+impl Serialize for GatewayError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let code = match self {
+            GatewayError::AuthenticatorAlreadyExists => "AUTHENTICATOR_ALREADY_EXISTS",
+            GatewayError::TransactionReverted(_) => "TRANSACTION_REVERTED",
+            GatewayError::ConfirmationError(_) => "CONFIRMATION_ERROR",
+            GatewayError::BatcherUnavailable => "BATCHER_UNAVAILABLE",
+            GatewayError::PreFlightFailed(_) => "PRE_FLIGHT_FAILED",
+            GatewayError::Unknown(_) => "UNKNOWN",
+        };
+        serializer.serialize_str(code)
     }
+}
 
+impl GatewayError {
     pub(crate) fn from_contract_error(error: &str) -> Self {
         let msg_lower = error.to_lowercase();
 
@@ -186,12 +174,16 @@ impl GatewayError {
 pub(crate) enum RequestState {
     Queued,
     Batching,
-    Submitted { tx_hash: String },
-    Finalized { tx_hash: String },
+    Submitted {
+        tx_hash: String,
+    },
+    Finalized {
+        tx_hash: String,
+    },
     Failed {
         error: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        error_code: Option<ErrorCode>,
+        error_code: Option<GatewayError>,
     },
 }
 
@@ -199,7 +191,7 @@ impl RequestState {
     pub(crate) fn failed_from_error(err: GatewayError) -> Self {
         RequestState::Failed {
             error: err.to_string(),
-            error_code: Some(err.error_code()),
+            error_code: Some(err),
         }
     }
 }
@@ -230,7 +222,7 @@ async fn build_wallet(
         SignerConfig::PrivateKey(pk) => {
             let signer = pk
                 .parse::<PrivateKeySigner>()
-                .map_err(|e| anyhow::anyhow!("invalid private key: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("invalid private key: {e}"))?;
             Ok(EthereumWallet::from(signer))
         }
         SignerConfig::AwsKms(key_id) => {
@@ -247,7 +239,7 @@ async fn build_wallet(
             let client = aws_sdk_kms::Client::new(&config);
             let aws_signer = AwsSigner::new(client, key_id, Some(chain_id))
                 .await
-                .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {e}"))?;
             tracing::info!(
                 "AWS KMS signer initialized with address: {}",
                 aws_signer.address()

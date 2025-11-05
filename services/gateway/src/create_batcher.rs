@@ -119,9 +119,7 @@ impl CreateBatcherRunner {
                                         )
                                         .await;
                                 } else {
-                                    let err = GatewayError::TransactionReverted {
-                                        tx_hash: hash.clone(),
-                                    };
+                                    let err = GatewayError::TransactionReverted(hash.clone());
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
@@ -131,9 +129,7 @@ impl CreateBatcherRunner {
                                 }
                             }
                             Err(err) => {
-                                let err = GatewayError::ConfirmationError {
-                                    message: err.to_string(),
-                                };
+                                let err = GatewayError::ConfirmationError(err.to_string());
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,

@@ -241,8 +241,11 @@ impl OpsBatcherRunner {
             // Simulate the first operation before starting a batch
             if let Err(sim_error) = Self::simulate_operation(&contract, &first.kind).await {
                 tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
-                let err = GatewayError::PreFlightFailed {
-                    message: sim_error,
+                // Parse the error to get a specific error code if possible
+                let err = GatewayError::from_contract_error(&sim_error);
+                let err = match err {
+                    GatewayError::Unknown(msg) => GatewayError::PreFlightFailed(msg),
+                    specific => specific,
                 };
                 self.tracker
                     .set_status(&first.id, RequestState::failed_from_error(err))
@@ -262,8 +265,11 @@ impl OpsBatcherRunner {
                         // Simulate each additional operation before adding to batch
                         if let Err(sim_error) = Self::simulate_operation(&contract, &req.kind).await {
                             tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
-                            let err = GatewayError::PreFlightFailed {
-                                message: sim_error,
+                            // Parse the error to get a specific error code if possible
+                            let err = GatewayError::from_contract_error(&sim_error);
+                            let err = match err {
+                                GatewayError::Unknown(msg) => GatewayError::PreFlightFailed(msg),
+                                specific => specific,
                             };
                             self.tracker
                                 .set_status(&req.id, RequestState::failed_from_error(err))
@@ -421,9 +427,7 @@ impl OpsBatcherRunner {
                                         )
                                         .await;
                                 } else {
-                                    let err = GatewayError::TransactionReverted {
-                                        tx_hash: hash.clone(),
-                                    };
+                                    let err = GatewayError::TransactionReverted(hash.clone());
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
@@ -433,9 +437,7 @@ impl OpsBatcherRunner {
                                 }
                             }
                             Err(err) => {
-                                let err = GatewayError::ConfirmationError {
-                                    message: err.to_string(),
-                                };
+                                let err = GatewayError::ConfirmationError(err.to_string());
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
