@@ -136,7 +136,7 @@
   },
   {
     "type": "function",
-    "name": "accountRecoveryCounter",
+    "name": "accountIndexToRecoveryCounter",
     "inputs": [
       {
         "name": "",
@@ -155,7 +155,26 @@
   },
   {
     "type": "function",
-    "name": "authenticatorAddressToPackedAccountIndex",
+    "name": "accountIndexToSignatureNonce",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "authenticatorAddressToPackedAccountData",
     "inputs": [
       {
         "name": "",
@@ -599,25 +618,6 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "signatureNonces",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1114,6 +1114,17 @@
   },
   {
     "type": "error",
+    "name": "AccountDoesNotExist",
+    "inputs": [
+      {
+        "name": "accountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "AddressEmptyCode",
     "inputs": [
       {
@@ -1126,6 +1137,33 @@
   {
     "type": "error",
     "name": "AuthenticatorAddressAlreadyInUse",
+    "inputs": [
+      {
+        "name": "authenticatorAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AuthenticatorDoesNotBelongToAccount",
+    "inputs": [
+      {
+        "name": "expectedAccountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualAccountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AuthenticatorDoesNotExist",
     "inputs": [
       {
         "name": "authenticatorAddress",
@@ -1179,6 +1217,11 @@
   },
   {
     "type": "error",
+    "name": "EmptyAddressArray",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "FailedCall",
     "inputs": []
   },
@@ -1191,6 +1234,112 @@
     "type": "error",
     "name": "InvalidInitialization",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MismatchedAccountIndex",
+    "inputs": [
+      {
+        "name": "expectedAccountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualAccountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedAuthenticatorSigner",
+    "inputs": [
+      {
+        "name": "expectedAuthenticatorAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actualAuthenticatorAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedPubkeyId",
+    "inputs": [
+      {
+        "name": "expectedPubkeyId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualPubkeyId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedRecoveryCounter",
+    "inputs": [
+      {
+        "name": "accountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expectedRecoveryCounter",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualRecoveryCounter",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedSignatureNonce",
+    "inputs": [
+      {
+        "name": "accountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expectedNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchingArrayLengths",
+    "inputs": [
+      {
+        "name": "array1Length",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "array2Length",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1221,6 +1370,33 @@
   },
   {
     "type": "error",
+    "name": "PubkeyIdOverflow",
+    "inputs": [
+      {
+        "name": "pubkeyId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "RecoveryAddressNotSet",
+    "inputs": [
+      {
+        "name": "accountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReusedAuthenticatorAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -1234,5 +1410,15 @@
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroRecoveredSignatureAddress",
+    "inputs": []
   }
 ]

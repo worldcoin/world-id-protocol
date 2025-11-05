@@ -28,10 +28,10 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    PackedAccountIndex,
+    PackedAccountData,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/PackedAccountIndex.sol/PackedAccountIndex.json"
+        "/../../contracts/out/PackedAccountData.sol/PackedAccountData.json"
     )
 );
 
@@ -181,12 +181,12 @@ impl TestAnvil {
                 .await
                 .context("failed to deploy BinaryIMT library")?;
 
-        // Step 3: Deploy PackedAccountIndex library (no dependencies)
-        let packed_account_index = PackedAccountIndex::deploy(provider.clone())
+        // Step 3: Deploy PackedAccountData library (no dependencies)
+        let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
-            .context("failed to deploy PackedAccountIndex library")?;
+            .context("failed to deploy PackedAccountData library")?;
 
-        // Step 4: Link both BinaryIMT and PackedAccountIndex to AccountRegistry
+        // Step 4: Link both BinaryIMT and PackedAccountData to AccountRegistry
         let account_registry_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
@@ -215,8 +215,8 @@ impl TestAnvil {
         bytecode_str = Self::link_bytecode_hex(
             account_registry_json,
             &bytecode_str,
-            "src/lib/PackedAccountIndex.sol:PackedAccountIndex",
-            *packed_account_index.address(),
+            "src/lib/PackedAccountData.sol:PackedAccountData",
+            *packed_account_data.address(),
         )?;
 
         // Decode the fully-linked bytecode

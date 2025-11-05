@@ -8,7 +8,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {PackedAccountIndex} from "./lib/PackedAccountIndex.sol";
+import {PackedAccountData} from "./lib/PackedAccountData.sol";
 
 contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
@@ -16,11 +16,107 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     error ImplementationNotInitialized();
 
     /**
+     * @dev Thrown when a requested account index does not exist.
+     * @param accountIndex The account index that does not exist.
+     */
+    error AccountDoesNotExist(uint256 accountIndex);
+
+    /**
      * @dev Thrown when a requested on-chain signer address is already in use by another account as an authenticator. An on-chain signer address
      * can only be used by one account at a time.
      * @param authenticatorAddress The target address that is already in use.
      */
     error AuthenticatorAddressAlreadyInUse(address authenticatorAddress);
+
+    /**
+     * @dev Thrown when a recovered signature address is the zero address.
+     */
+    error ZeroRecoveredSignatureAddress();
+
+    /**
+     * @dev Thrown when setting a recovery or authenticator address to the zero address.
+     */
+    error ZeroAddress();
+
+    /**
+     * @dev Thrown when the provided array lengths do not match.
+     * @param array1Length The length of the first array.
+     * @param array2Length The length of the second array.
+     */
+    error MismatchingArrayLengths(uint256 array1Length, uint256 array2Length);
+
+    /**
+     * @dev Thrown when the provided address array is empty.
+     */
+    error EmptyAddressArray();
+
+    /**
+     * @dev Thrown when the old and new authenticator addresses are the same.
+     */
+    error ReusedAuthenticatorAddress();
+
+    /**
+     * @dev Thrown when the account index does not match the expected value.
+     * @param expectedAccountIndex The expected account index.
+     * @param actualAccountIndex The actual account index.
+     */
+    error MismatchedAccountIndex(uint256 expectedAccountIndex, uint256 actualAccountIndex);
+
+    /**
+     * @dev Thrown when the recovered signature does match the expected authenticator address.
+     * @param expectedAuthenticatorAddress The expected authenticator address.
+     * @param actualAuthenticatorAddress The actual authenticator address.
+     */
+    error MismatchedAuthenticatorSigner(address expectedAuthenticatorAddress, address actualAuthenticatorAddress);
+
+    /**
+     * @dev Thrown when a pubkey ID does not match the expected value.
+     * @param expectedPubkeyId The expected pubkey ID.
+     * @param actualPubkeyId The actual pubkey ID.
+     */
+    error MismatchedPubkeyId(uint256 expectedPubkeyId, uint256 actualPubkeyId);
+
+    /**
+     * @dev Thrown when a nonce does not match the expected value.
+     * @param expectedNonce The expected nonce value.
+     * @param actualNonce The actual nonce value.
+     */
+    error MismatchedSignatureNonce(uint256 accountIndex, uint256 expectedNonce, uint256 actualNonce);
+
+    /**
+     * @dev Thrown when a recovery counter does not match the expected value.
+     * @param accountIndex The account index.
+     * @param expectedRecoveryCounter The expected recovery counter.
+     * @param actualRecoveryCounter The actual recovery counter.
+     */
+    error MismatchedRecoveryCounter(
+        uint256 accountIndex, uint256 expectedRecoveryCounter, uint256 actualRecoveryCounter
+    );
+
+    /**
+     * @dev Thrown when a pubkey ID overflows its uint32 limit.
+     * @param pubkeyId The pubkey ID that caused the overflow.
+     */
+    error PubkeyIdOverflow(uint256 pubkeyId);
+
+    /**
+     * @dev Thrown when a recovery address is not set for an account.
+     * @param accountIndex The account index with no recovery address.
+     */
+    error RecoveryAddressNotSet(uint256 accountIndex);
+
+    /**
+     * @dev Thrown when an authenticator does not exist.
+     * @param authenticatorAddress The authenticator address that does not exist.
+     */
+    error AuthenticatorDoesNotExist(address authenticatorAddress);
+
+    /**
+     * @dev Thrown when an authenticator does not belong to the specified account.
+     * @param expectedAccountIndex The expected account index.
+     * @param actualAccountIndex The actual account index from the authenticator.
+     */
+    error AuthenticatorDoesNotBelongToAccount(uint256 expectedAccountIndex, uint256 actualAccountIndex);
 
     modifier onlyInitialized() {
         if (_getInitializedVersion() == 0) {
@@ -36,14 +132,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     // accountIndex -> recoveryAddress, used for recovery of accounts
     mapping(uint256 => address) public accountIndexToRecoveryAddress;
 
-    // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
-    mapping(address => uint256) public authenticatorAddressToPackedAccountIndex;
-
     // accountIndex -> nonce, used for prevent replay attacks on updates to authenticators
-    mapping(uint256 => uint256) public signatureNonces;
+    mapping(uint256 => uint256) public accountIndexToSignatureNonce;
 
     // accountIndex -> recoveryCounter, used for prevent replay attacks on recovery of accounts
-    mapping(uint256 => uint256) public accountRecoveryCounter;
+    mapping(uint256 => uint256) public accountIndexToRecoveryCounter;
+
+    // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+    mapping(address => uint256) public authenticatorAddressToPackedAccountData;
 
     BinaryIMTData public tree;
     uint256 public nextAccountIndex;
@@ -205,38 +301,48 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Recovers the packed authenticator metadata for the signer of `messageHash`.
      * @param messageHash The message hash.
      * @param signature The signature.
-     * @return accountIndex Index of the account the signer belongs to.
      * @return signer Address recovered from the signature.
-     * @return packedAccountIndex Packed authenticator data for the signer.
+     * @return packedAccountData Packed authenticator data for the signer.
      */
-    function recoverAccountIndex(bytes32 messageHash, bytes memory signature)
+    function recoverAccountDataFromSignature(bytes32 messageHash, bytes memory signature)
         internal
         view
         virtual
-        returns (uint256 accountIndex, address signer, uint256 packedAccountIndex)
+        returns (address signer, uint256 packedAccountData)
     {
         signer = ECDSA.recover(messageHash, signature);
-        require(signer != address(0), "Invalid signature");
-        packedAccountIndex = authenticatorAddressToPackedAccountIndex[signer];
-        require(packedAccountIndex != 0, "Account does not exist");
-        accountIndex = uint256(uint192(packedAccountIndex));
-        require(packedAccountIndex >> 224 == accountRecoveryCounter[accountIndex], "Invalid account recovery counter");
+        if (signer == address(0)) {
+            revert ZeroRecoveredSignatureAddress();
+        }
+        packedAccountData = authenticatorAddressToPackedAccountData[signer];
+        if (packedAccountData == 0) {
+            revert AccountDoesNotExist(0);
+        }
+        uint256 accountIndex = PackedAccountData.accountIndex(packedAccountData);
+        uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
+        uint256 expectedRecoveryCounter = accountIndexToRecoveryCounter[accountIndex];
+        if (actualRecoveryCounter != expectedRecoveryCounter) {
+            revert MismatchedRecoveryCounter(accountIndex, expectedRecoveryCounter, actualRecoveryCounter);
+        }
     }
 
     /**
-     * @dev Validates that an authenticator address is not in use, or if it was previously used,
+     * @dev Validates that a new authenticator address is valid (not zero) and not in use, or if it was previously used,
      * the account has been recovered (recovery counter increased), making the address available again.
-     * @param authenticatorAddress The authenticator address to validate.
+     * @param newAuthenticatorAddress The new authenticator address to validate.
      */
-    function _validateAuthenticatorAddressNotInUse(address authenticatorAddress) internal view {
-        uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
+    function _validateNewAuthenticatorAddress(address newAuthenticatorAddress) internal view {
+        if (newAuthenticatorAddress == address(0)) {
+            revert ZeroAddress();
+        }
+        uint256 packedAccountData = authenticatorAddressToPackedAccountData[newAuthenticatorAddress];
         // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
         // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
-        if (packedAccountIndex != 0) {
-            uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
-            uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
-            if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
-                revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
+        if (packedAccountData != 0) {
+            uint256 existingAccountIndex = PackedAccountData.accountIndex(packedAccountData);
+            uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
+            if (existingRecoveryCounter >= accountIndexToRecoveryCounter[existingAccountIndex]) {
+                revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
             }
         }
     }
@@ -247,23 +353,21 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
     ) internal virtual {
-        require(authenticatorAddresses.length > 0, "authenticatorAddresses length must be greater than 0");
-        require(
-            authenticatorAddresses.length == authenticatorPubkeys.length,
-            "authenticatorAddresses and authenticatorPubkeys length mismatch"
-        );
-        require(recoveryAddress != address(0), "Recovery address cannot be the zero address");
+        if (authenticatorAddresses.length == 0) {
+            revert EmptyAddressArray();
+        }
+        if (authenticatorAddresses.length != authenticatorPubkeys.length) {
+            revert MismatchingArrayLengths(authenticatorAddresses.length, authenticatorPubkeys.length);
+        }
 
         uint256 accountIndex = nextAccountIndex;
         accountIndexToRecoveryAddress[accountIndex] = recoveryAddress;
 
         for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
-            require(authenticatorAddress != address(0), "Authenticator cannot be the zero address");
-
-            _validateAuthenticatorAddressNotInUse(authenticatorAddress);
-            authenticatorAddressToPackedAccountIndex[authenticatorAddress] =
-                PackedAccountIndex.pack(accountIndex, 0, uint32(i));
+            _validateNewAuthenticatorAddress(authenticatorAddress);
+            authenticatorAddressToPackedAccountData[authenticatorAddress] =
+                PackedAccountData.pack(accountIndex, uint32(0), uint32(i));
         }
 
         emit AccountCreated(
@@ -302,19 +406,19 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[][] calldata authenticatorPubkeys,
         uint256[] calldata offchainSignerCommitments
     ) external virtual onlyProxy onlyInitialized {
-        require(recoveryAddresses.length > 0, "Length must be greater than 0");
-        require(
-            recoveryAddresses.length == authenticatorAddresses.length,
-            "Recovery addresses and authenticator addresses length mismatch"
-        );
-        require(
-            recoveryAddresses.length == authenticatorPubkeys.length,
-            "Recovery addresses and authenticator pubkeys length mismatch"
-        );
-        require(
-            recoveryAddresses.length == offchainSignerCommitments.length,
-            "Recovery addresses and offchain signer commitments length mismatch"
-        );
+        if (recoveryAddresses.length == 0) {
+            revert EmptyAddressArray();
+        }
+
+        if (recoveryAddresses.length != authenticatorAddresses.length) {
+            revert MismatchingArrayLengths(recoveryAddresses.length, authenticatorAddresses.length);
+        }
+        if (recoveryAddresses.length != authenticatorPubkeys.length) {
+            revert MismatchingArrayLengths(recoveryAddresses.length, authenticatorPubkeys.length);
+        }
+        if (recoveryAddresses.length != offchainSignerCommitments.length) {
+            revert MismatchingArrayLengths(recoveryAddresses.length, offchainSignerCommitments.length);
+        }
 
         for (uint256 i = 0; i < recoveryAddresses.length; i++) {
             _registerAccount(
@@ -348,13 +452,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
-        require(
-            oldAuthenticatorAddress != newAuthenticatorAddress, "Old and new authenticator addresses cannot be the same"
-        );
-        require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
+        if (oldAuthenticatorAddress == newAuthenticatorAddress) {
+            revert ReusedAuthenticatorAddress();
+        }
+        if (uint256(uint32(pubkeyId)) != pubkeyId) {
+            revert PubkeyIdOverflow(pubkeyId);
+        }
 
-        require(uint256(uint32(pubkeyId)) == pubkeyId, "pubkeyId overflow");
+        _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -371,19 +476,29 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        (uint256 recoveredAccountIndex, address signer, uint256 packedAccountIndex) =
-            recoverAccountIndex(messageHash, signature);
-        require(accountIndex == recoveredAccountIndex, "Invalid account index");
-        require(signer == oldAuthenticatorAddress, "Invalid authenticator");
-        require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
-        require(PackedAccountIndex.pubkeyId(packedAccountIndex) == pubkeyId, "Invalid pubkeyId");
+        (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
+        uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
+        if (accountIndex != recoveredAccountIndex) {
+            revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
+        }
+        if (signer != oldAuthenticatorAddress) {
+            revert MismatchedAuthenticatorSigner(oldAuthenticatorAddress, signer);
+        }
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+        if (nonce != expectedNonce) {
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
+        }
+        uint256 actualPubkeyId = PackedAccountData.pubkeyId(packedAccountData);
+        if (actualPubkeyId != pubkeyId) {
+            revert MismatchedPubkeyId(pubkeyId, actualPubkeyId);
+        }
 
         // Delete old authenticator
-        delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
+        delete authenticatorAddressToPackedAccountData[oldAuthenticatorAddress];
 
         // Add new authenticator
-        authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+        authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
+            PackedAccountData.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AccountUpdated(
@@ -416,10 +531,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
-        _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
+        if (uint256(uint32(pubkeyId)) != pubkeyId) {
+            revert PubkeyIdOverflow(pubkeyId);
+        }
 
-        require(uint256(uint32(pubkeyId)) == pubkeyId, "pubkeyId overflow");
+        _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -435,13 +551,19 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        (uint256 recoveredAccountIndex,,) = recoverAccountIndex(messageHash, signature);
-        require(accountIndex == recoveredAccountIndex, "Invalid account index");
-        require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
+        (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
+        uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
+        if (accountIndex != recoveredAccountIndex) {
+            revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
+        }
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+        if (nonce != expectedNonce) {
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
+        }
 
         // Add new authenticator
-        authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+        authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
+            PackedAccountData.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AuthenticatorInserted(
@@ -488,17 +610,31 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        (uint256 recoveredAccountIndex,,) = recoverAccountIndex(messageHash, signature);
-        require(accountIndex == recoveredAccountIndex, "Invalid account index");
-        require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
+        (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
+        uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
+        if (accountIndex != recoveredAccountIndex) {
+            revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
+        }
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+        if (nonce != expectedNonce) {
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
+        }
 
-        uint256 packedToRemove = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
-        require(packedToRemove != 0, "Authenticator does not exist");
-        require(uint192(packedToRemove) == accountIndex, "Authenticator does not belong to account");
-        require(PackedAccountIndex.pubkeyId(packedToRemove) == pubkeyId, "Invalid pubkeyId");
+        uint256 packedToRemove = authenticatorAddressToPackedAccountData[authenticatorAddress];
+        if (packedToRemove == 0) {
+            revert AuthenticatorDoesNotExist(authenticatorAddress);
+        }
+        uint256 actualAccountIndex = PackedAccountData.accountIndex(packedToRemove);
+        if (actualAccountIndex != accountIndex) {
+            revert AuthenticatorDoesNotBelongToAccount(accountIndex, actualAccountIndex);
+        }
+        uint256 actualPubkeyId = PackedAccountData.pubkeyId(packedToRemove);
+        if (actualPubkeyId != pubkeyId) {
+            revert MismatchedPubkeyId(pubkeyId, actualPubkeyId);
+        }
 
         // Delete authenticator
-        delete authenticatorAddressToPackedAccountIndex[authenticatorAddress];
+        delete authenticatorAddressToPackedAccountData[authenticatorAddress];
 
         // Update tree
         emit AuthenticatorRemoved(
@@ -533,9 +669,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        require(accountIndex > 0, "Account index must be greater than 0");
-        require(nextAccountIndex > accountIndex, "Account does not exist");
-        require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
+        if (accountIndex == 0 || nextAccountIndex <= accountIndex) {
+            revert AccountDoesNotExist(accountIndex);
+        }
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+        if (nonce != expectedNonce) {
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
+        }
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -551,17 +691,22 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         );
 
         address signatureRecoveredAddress = ECDSA.recover(messageHash, signature);
-        require(signatureRecoveredAddress != address(0), "Invalid signature");
+        if (signatureRecoveredAddress == address(0)) {
+            revert ZeroRecoveredSignatureAddress();
+        }
         address recoverySigner = accountIndexToRecoveryAddress[accountIndex];
-        require(recoverySigner != address(0), "Recovery address not set");
-        require(signatureRecoveredAddress == recoverySigner, "Invalid signature");
-        require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
-        require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
+        if (recoverySigner == address(0)) {
+            revert RecoveryAddressNotSet(accountIndex);
+        }
+        if (signatureRecoveredAddress != recoverySigner) {
+            revert MismatchedAuthenticatorSigner(recoverySigner, signatureRecoveredAddress);
+        }
+        _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
-        accountRecoveryCounter[accountIndex]++;
+        accountIndexToRecoveryCounter[accountIndex]++;
 
-        authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
+        authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
+            PackedAccountData.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(0));
 
         emit AccountRecovered(
             accountIndex,
@@ -586,21 +731,32 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         bytes memory signature,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        require(accountIndex > 0, "Account index must be greater than 0");
-        require(nextAccountIndex > accountIndex, "Account does not exist");
+        if (accountIndex == 0 || nextAccountIndex <= accountIndex) {
+            revert AccountDoesNotExist(accountIndex);
+        }
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(abi.encode(UPDATE_RECOVERY_ADDRESS_TYPEHASH, accountIndex, newRecoveryAddress, nonce))
         );
 
-        (uint256 recoveredAccountIndex,,) = recoverAccountIndex(messageHash, signature);
-        require(accountIndex == recoveredAccountIndex, "Invalid account index");
-        require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
+        (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
+        uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
+        if (accountIndex != recoveredAccountIndex) {
+            revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
+        }
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+        if (nonce != expectedNonce) {
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
+        }
 
-        require(newRecoveryAddress != address(0), "Recovery address cannot be the zero address");
+        if (newRecoveryAddress == address(0)) {
+            revert ZeroAddress();
+        }
 
         address oldRecoveryAddress = accountIndexToRecoveryAddress[accountIndex];
-        require(oldRecoveryAddress != address(0), "Recovery address not set");
+        if (oldRecoveryAddress == address(0)) {
+            revert RecoveryAddressNotSet(accountIndex);
+        }
 
         accountIndexToRecoveryAddress[accountIndex] = newRecoveryAddress;
 
