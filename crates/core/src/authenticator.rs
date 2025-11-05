@@ -55,7 +55,7 @@ pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
     /// The packed account index for the holder's World ID is a `uint256` defined in the `AccountRegistry` contract as:
-    /// `account_id` (192 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `recovery_counter` (32 bits)
+    /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `account_index` (192 bits)
     pub packed_account_index: U256,
     signer: Signer,
     registry: Arc<AccountRegistryInstance<DynProvider>>,
