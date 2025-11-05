@@ -23,7 +23,6 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         _;
     }
     /// @notice Registry for credential schema and issuer management
-
     CredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
 
     /// @notice Registry for account and authenticator management
