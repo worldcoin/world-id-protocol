@@ -552,10 +552,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
 
-        // // Delete the old authenticator address before incrementing the recovery counter
-        // uint256 oldAuthenticatorAddress = _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
-        // delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
-
         accountRecoveryCounter[accountIndex]++;
 
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
