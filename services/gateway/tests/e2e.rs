@@ -495,24 +495,26 @@ async fn e2e_gateway_full_flow() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_authenticator_already_exists_error_code() {
-    let anvil = Anvil::new().fork(RPC_FORK_URL).try_spawn().unwrap();
-
-    let registry = deploy_registry(anvil.endpoint_url().to_string().as_str());
+    let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
+    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+    let registry_addr = anvil
+        .deploy_account_registry(deployer)
+        .await
+        .expect("failed to deploy AccountRegistry");
+    let rpc_url = anvil.endpoint().to_string();
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
     let cfg = GatewayConfig {
-        registry_addr: registry.parse().unwrap(),
-        rpc_url: anvil.endpoint_url().to_string(),
-        ethereum_wallet: EthereumWallet::from(
-            GW_PRIVATE_KEY
-                .to_string()
-                .parse::<PrivateKeySigner>()
-                .unwrap(),
-        ),
+        registry_addr,
+        rpc_url: rpc_url.clone(),
+        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
+        aws_kms_key_id: None,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4102).into(),
+        max_create_batch_size: 10,
+        max_ops_batch_size: 10,
     };
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
@@ -537,8 +539,8 @@ async fn test_authenticator_already_exists_error_code() {
     // Build Alloy provider for on-chain assertions and chain id
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(anvil.endpoint_url());
-    let contract = AccountRegistry::new(registry.parse().unwrap(), provider.clone());
+        .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
+    let contract = AccountRegistry::new(registry_addr, provider.clone());
 
     // Create an account with the wallet as authenticator
     let body_create = serde_json::json!({
@@ -576,7 +578,7 @@ async fn test_authenticator_already_exists_error_code() {
     }
 
     let chain_id = provider.get_chain_id().await.unwrap();
-    let domain = ag_domain(chain_id, registry.parse::<Address>().unwrap());
+    let domain = ag_domain(chain_id, registry_addr);
 
     // Try to insert the same authenticator again (wallet_addr is already an authenticator)
     let nonce = U256::from(0);

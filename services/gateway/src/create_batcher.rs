@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::CreateAccountRequest;
 
-use crate::{RequestState, RequestTracker};
+use crate::{GatewayError, RequestState, RequestTracker};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
@@ -119,25 +119,25 @@ impl CreateBatcherRunner {
                                         )
                                         .await;
                                 } else {
+                                    let err = GatewayError::TransactionReverted {
+                                        tx_hash: hash.clone(),
+                                    };
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::Failed {
-                                                error: format!(
-                                                    "transaction reverted on-chain (tx: {hash})"
-                                                ),
-                                            },
+                                            RequestState::failed_from_error(err),
                                         )
                                         .await;
                                 }
                             }
                             Err(err) => {
+                                let err = GatewayError::ConfirmationError {
+                                    message: err.to_string(),
+                                };
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::Failed {
-                                            error: format!("transaction confirmation error: {err}"),
-                                        },
+                                        RequestState::failed_from_error(err),
                                     )
                                     .await;
                             }
@@ -146,13 +146,9 @@ impl CreateBatcherRunner {
                 }
                 Err(err) => {
                     tracing::error!(error = %err, "create batch send failed");
+                    let err = GatewayError::Unknown(err.to_string());
                     self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Failed {
-                                error: err.to_string(),
-                            },
-                        )
+                        .set_status_batch(&ids, RequestState::failed_from_error(err))
                         .await;
                 }
             }
