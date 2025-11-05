@@ -307,6 +307,57 @@ async fn start_http_server(addr: SocketAddr, pool: PgPool) -> anyhow::Result<()>
     Ok(())
 }
 
+/// Periodically checks that the local in-memory Merkle root remains valid on-chain.
+async fn root_sanity_check_loop(
+    rpc_url: String,
+    registry: Address,
+    interval_secs: u64,
+) -> anyhow::Result<()> {
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
+    let contract = AccountRegistry::new(registry, provider.clone());
+
+    tracing::info!(
+        registry = %registry,
+        interval_secs,
+        "Starting periodic Merkle root sanity checker"
+    );
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(interval_secs)).await;
+
+        // Read local root under read lock
+        let local_root = { GLOBAL_TREE.read().await.root() };
+
+        // Check validity window on-chain first (covers slight lag vs current root)
+        let is_valid = match contract.isValidRoot(local_root).call().await {
+            Ok(v) => v,
+            Err(err) => {
+                tracing::error!(?err, "failed to call isValidRoot");
+                continue;
+            }
+        };
+
+        if !is_valid {
+            // Fetch current on-chain root for diagnostics
+            let current_onchain_root = match contract.currentRoot().call().await {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::error!(?err, "failed to call currentRoot");
+                    U256::ZERO
+                }
+            };
+
+            tracing::error!(
+                local_root = %format!("0x{:x}", local_root),
+                current_onchain_root = %format!("0x{:x}", current_onchain_root),
+                "Local Merkle root is not valid on-chain"
+            );
+        } else {
+            tracing::debug!(local_root = %format!("0x{:x}", local_root), "Local Merkle root is valid on-chain");
+        }
+    }
+}
+
 pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     let pool = make_db_pool(&cfg.db_url).await?;
     init_db(&pool).await?;
@@ -404,6 +455,16 @@ async fn run_both(
     let http_pool = pool.clone();
     let http_addr = http_cfg.http_addr;
     let http_handle = tokio::spawn(async move { start_http_server(http_addr, http_pool).await });
+
+    // Start root sanity checker in the background
+    let sanity_rpc_url = indexer_cfg.rpc_url.clone();
+    let sanity_registry = indexer_cfg.registry_address;
+    let sanity_interval = indexer_cfg.sanity_check_interval_secs;
+    let _sanity_handle = tokio::spawn(async move {
+        if let Err(e) = root_sanity_check_loop(sanity_rpc_url, sanity_registry, sanity_interval).await {
+            tracing::error!(?e, "Root sanity checker failed");
+        }
+    });
 
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool)

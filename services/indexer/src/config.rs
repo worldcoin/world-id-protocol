@@ -96,6 +96,7 @@ pub struct IndexerConfig {
     pub registry_address: Address,
     pub start_block: u64,
     pub batch_size: u64,
+    pub sanity_check_interval_secs: u64,
 }
 
 impl IndexerConfig {
@@ -115,6 +116,10 @@ impl IndexerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(64),
+            sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30),
         };
         tracing::info!("✔️ Indexer config loaded from env");
         config
