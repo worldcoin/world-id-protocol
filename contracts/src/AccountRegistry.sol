@@ -223,6 +223,24 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(packedAccountIndex >> 224 == accountRecoveryCounter[accountIndex], "Invalid account recovery counter");
     }
 
+    /**
+     * @dev Validates that an authenticator address is not in use, or if it was previously used,
+     * the account has been recovered (recovery counter increased), making the address available again.
+     * @param authenticatorAddress The authenticator address to validate.
+     */
+    function _validateAuthenticatorAddressNotInUse(address authenticatorAddress) internal view {
+        uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
+        // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
+        // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
+        if (packedAccountIndex != 0) {
+            uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
+            uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
+            if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
+                revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
+            }
+        }
+    }
+
     function _registerAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
@@ -243,16 +261,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             address authenticatorAddress = authenticatorAddresses[i];
             require(authenticatorAddress != address(0), "Authenticator cannot be the zero address");
 
-            uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
-            // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
-            // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
-            if (packedAccountIndex != 0) {
-                uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
-                uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
-                if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
-                    revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
-                }
-            }
+            _validateAuthenticatorAddressNotInUse(authenticatorAddress);
             authenticatorAddressToPackedAccountIndex[authenticatorAddress] =
                 PackedAccountIndex.pack(accountIndex, 0, uint32(i));
         }
@@ -339,7 +348,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
+        _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
         require(
             oldAuthenticatorAddress != newAuthenticatorAddress, "Old and new authenticator addresses cannot be the same"
         );
@@ -408,7 +417,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
-        require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
+        _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
 
         require(uint256(uint32(pubkeyId)) == pubkeyId, "pubkeyId overflow");
 
