@@ -27,6 +27,15 @@ sol!(
 );
 
 sol!(
+    #[sol(rpc)]
+    PackedAccountIndex,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/PackedAccountIndex.sol/PackedAccountIndex.json"
+    )
+);
+
+sol!(
     #[sol(rpc, ignore_unlinked)]
     BinaryIMT,
     concat!(
@@ -172,15 +181,46 @@ impl TestAnvil {
                 .await
                 .context("failed to deploy BinaryIMT library")?;
 
-        // Step 3: Link BinaryIMT and deploy AccountRegistry
-        let account_registry_bytecode = Self::link_library(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
-            )),
+        // Step 3: Deploy PackedAccountIndex library (no dependencies)
+        let packed_account_index = PackedAccountIndex::deploy(provider.clone())
+            .await
+            .context("failed to deploy PackedAccountIndex library")?;
+
+        // Step 4: Link both BinaryIMT and PackedAccountIndex to AccountRegistry
+        let account_registry_json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
+        ));
+
+        // Link both libraries to AccountRegistry (keep as hex string until both are linked)
+        let json_value: serde_json::Value = serde_json::from_str(account_registry_json)?;
+        let mut bytecode_str = json_value["bytecode"]["object"]
+            .as_str()
+            .context("bytecode not found in JSON")?
+            .strip_prefix("0x")
+            .unwrap_or_else(|| {
+                json_value["bytecode"]["object"]
+                    .as_str()
+                    .expect("bytecode should be a string")
+            })
+            .to_string();
+
+        bytecode_str = Self::link_bytecode_hex(
+            account_registry_json,
+            &bytecode_str,
             "src/tree/BinaryIMT.sol:BinaryIMT",
             binary_imt_address,
         )?;
+
+        bytecode_str = Self::link_bytecode_hex(
+            account_registry_json,
+            &bytecode_str,
+            "src/lib/PackedAccountIndex.sol:PackedAccountIndex",
+            *packed_account_index.address(),
+        )?;
+
+        // Decode the fully-linked bytecode
+        let account_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
 
         let implementation_address =
             Self::deploy_contract(provider.clone(), account_registry_bytecode, Bytes::new())
@@ -205,17 +245,30 @@ impl TestAnvil {
     ///
     /// Alloy only supports the linking of libraries that are already deployed, or linking at compile time, hence this manual handling.
     fn link_library(json: &str, library_path: &str, library_address: Address) -> Result<Bytes> {
-        let json: serde_json::Value = serde_json::from_str(json)?;
-        let bytecode_str = json["bytecode"]["object"]
+        let json_value: serde_json::Value = serde_json::from_str(json)?;
+        let bytecode_str = json_value["bytecode"]["object"]
             .as_str()
             .context("bytecode not found in JSON")?
             .strip_prefix("0x")
             .unwrap_or_else(|| {
-                json["bytecode"]["object"]
+                json_value["bytecode"]["object"]
                     .as_str()
                     .expect("bytecode should be a string")
             });
 
+        Self::link_bytecode_str(json, bytecode_str, library_path, library_address)
+    }
+
+    /// Links a library to bytecode hex string and returns the hex string (no decoding).
+    ///
+    /// Use this when you need to link multiple libraries before decoding.
+    fn link_bytecode_hex(
+        json: &str,
+        bytecode_str: &str,
+        library_path: &str,
+        library_address: Address,
+    ) -> Result<String> {
+        let json: serde_json::Value = serde_json::from_str(json)?;
         let link_refs = &json["bytecode"]["linkReferences"];
         let (file_path, library_name) = library_path
             .split_once(':')
@@ -248,7 +301,21 @@ impl TestAnvil {
             }
         }
 
-        Ok(Bytes::from(hex::decode(linked_bytecode)?))
+        Ok(linked_bytecode)
+    }
+
+    /// Core linking logic: links a library address into a bytecode hex string and decodes it.
+    ///
+    /// This handles the actual replacement of library placeholders with addresses.
+    fn link_bytecode_str(
+        json: &str,
+        bytecode_str: &str,
+        library_path: &str,
+        library_address: Address,
+    ) -> Result<Bytes> {
+        let linked_hex =
+            Self::link_bytecode_hex(json, bytecode_str, library_path, library_address)?;
+        Ok(Bytes::from(hex::decode(linked_hex)?))
     }
 
     /// Deploys a contract with the given bytecode and constructor arguments

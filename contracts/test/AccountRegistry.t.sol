@@ -4,6 +4,8 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {AccountRegistry} from "../src/AccountRegistry.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
+import {PackedAccountIndex} from "../src/lib/PackedAccountIndex.sol";
+
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract AccountRegistryTest is Test {
@@ -78,6 +80,7 @@ contract AccountRegistryTest is Test {
 
     function updateRecoveryAddressSignature(uint256 accountIndex, address newRecoveryAddress, uint256 nonce)
         private
+        view
         returns (bytes memory)
     {
         return eip712Sign(
@@ -401,17 +404,74 @@ contract AccountRegistryTest is Test {
             nonce
         );
 
-        // Old authenticator still exists but with lower recovery counter
+        // authenticatorAddress1 still associated with accountIndex = 1
         assertEq(
             uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)),
             uint192(accountIndex)
         );
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1) >> 224, 0);
+        // Recovery counter is 0 as it will only be incremented on the NEW_AUTHENTICATOR
+        assertEq(
+            PackedAccountIndex.recoveryCounter(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+            ),
+            0
+        );
+
         // New authenticator added with higher recovery counter
         assertEq(
             uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)),
             uint192(accountIndex)
         );
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress) >> 224, 1);
+        assertEq(
+            PackedAccountIndex.recoveryCounter(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)
+            ),
+            1
+        );
+
+        // Check that we can create a new account with authenticatorAddress1 after recovery
+        address[] memory authenticatorAddressesNew = new address[](1);
+        authenticatorAddressesNew[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeysNew = new uint256[](1);
+        authenticatorPubkeysNew[0] = 0;
+
+        accountRegistry.createAccount(
+            recoverySigner, authenticatorAddressesNew, authenticatorPubkeysNew, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // authenticatorAddress1 now associated with accountIndex = 2
+        assertEq(
+            PackedAccountIndex.accountIndex(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+            ),
+            2
+        );
+        // Recovery counter is 0 for accountIndex = 2
+        assertEq(
+            PackedAccountIndex.recoveryCounter(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+            ),
+            0
+        );
+    }
+
+    function test_CannotRegisterAuthenticatorAddressThatIsAlreadyInUse() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(AccountRegistry.AuthenticatorAddressAlreadyInUse.selector, authenticatorAddress1)
+        );
+        authenticatorPubkeys[0] = 2;
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
     }
 }

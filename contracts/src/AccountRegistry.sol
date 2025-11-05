@@ -8,10 +8,19 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
+import {PackedAccountIndex} from "./lib/PackedAccountIndex.sol";
+
 contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
 
     error ImplementationNotInitialized();
+
+    /**
+     * @dev Thrown when a requested on-chain signer address is already in use by another account as an authenticator. An on-chain signer address
+     * can only be used by one account at a time.
+     * @param authenticatorAddress The target address that is already in use.
+     */
+    error AuthenticatorAddressAlreadyInUse(address authenticatorAddress);
 
     modifier onlyInitialized() {
         if (_getInitializedVersion() == 0) {
@@ -24,10 +33,16 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
+    // accountIndex -> recoveryAddress, used for recovery of accounts
     mapping(uint256 => address) public accountIndexToRecoveryAddress;
-    // [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+
+    // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
     mapping(address => uint256) public authenticatorAddressToPackedAccountIndex;
+
+    // accountIndex -> nonce, used for prevent replay attacks on updates to authenticators
     mapping(uint256 => uint256) public signatureNonces;
+
+    // accountIndex -> recoveryCounter, used for prevent replay attacks on recovery of accounts
     mapping(uint256 => uint256) public accountRecoveryCounter;
 
     BinaryIMTData public tree;
@@ -208,20 +223,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(packedAccountIndex >> 224 == accountRecoveryCounter[accountIndex], "Invalid account recovery counter");
     }
 
-    function _pack(uint256 accountIndex, uint32 recoveryCounter, uint32 pubkeyId)
-        internal
-        pure
-        virtual
-        returns (uint256)
-    {
-        require(accountIndex >> 192 == 0, "accountIndex overflow");
-        return (uint256(recoveryCounter) << 224) | (uint256(pubkeyId) << 192) | accountIndex;
-    }
-
-    function _pubkeyIdOf(uint256 packed) internal pure virtual returns (uint32) {
-        return uint32(packed >> 192);
-    }
-
     function _registerAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
@@ -239,10 +240,21 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         accountIndexToRecoveryAddress[accountIndex] = recoveryAddress;
 
         for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
-            address authenticator = authenticatorAddresses[i];
-            require(authenticator != address(0), "Authenticator cannot be the zero address");
-            require(authenticatorAddressToPackedAccountIndex[authenticator] == 0, "Authenticator already exists");
-            authenticatorAddressToPackedAccountIndex[authenticator] = _pack(accountIndex, 0, uint32(i));
+            address authenticatorAddress = authenticatorAddresses[i];
+            require(authenticatorAddress != address(0), "Authenticator cannot be the zero address");
+
+            uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
+            // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
+            // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
+            if (packedAccountIndex != 0) {
+                uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
+                uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
+                if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
+                    revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
+                }
+            }
+            authenticatorAddressToPackedAccountIndex[authenticatorAddress] =
+                PackedAccountIndex.pack(accountIndex, 0, uint32(i));
         }
 
         emit AccountCreated(
@@ -355,14 +367,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(accountIndex == recoveredAccountIndex, "Invalid account index");
         require(signer == oldAuthenticatorAddress, "Invalid authenticator");
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
-        require(_pubkeyIdOf(packedAccountIndex) == uint32(pubkeyId), "Invalid pubkeyId");
+        require(PackedAccountIndex.pubkeyId(packedAccountIndex) == pubkeyId, "Invalid pubkeyId");
 
         // Delete old authenticator
         delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AccountUpdated(
@@ -420,7 +432,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AuthenticatorInserted(
@@ -474,7 +486,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 packedToRemove = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
         require(packedToRemove != 0, "Authenticator does not exist");
         require(uint192(packedToRemove) == accountIndex, "Authenticator does not belong to account");
-        require(_pubkeyIdOf(packedToRemove) == uint32(pubkeyId), "Invalid pubkeyId");
+        require(PackedAccountIndex.pubkeyId(packedToRemove) == pubkeyId, "Invalid pubkeyId");
 
         // Delete authenticator
         delete authenticatorAddressToPackedAccountIndex[authenticatorAddress];
@@ -495,10 +507,12 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Recovers an account.
      * @param accountIndex The index of the account.
      * @param newAuthenticatorAddress The new authenticator address.
+     * @param newAuthenticatorPubkey The new authenticator pubkey.
      * @param oldOffchainSignerCommitment The old offchain signer commitment.
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      * @param signature The signature.
      * @param siblingNodes The sibling nodes.
+     * @param nonce The signature nonce.
      */
     function recoverAccount(
         uint256 accountIndex,
@@ -538,7 +552,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         accountRecoveryCounter[accountIndex]++;
 
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
+            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
 
         emit AccountRecovered(
             accountIndex,
