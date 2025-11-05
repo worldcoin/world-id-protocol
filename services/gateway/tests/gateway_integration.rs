@@ -598,46 +598,18 @@ async fn test_authenticator_already_exists_error_code() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
-    let insert_request_id = accepted.request_id.clone();
 
-    // Wait for the request to fail
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let resp = gw
-            .client
-            .get(format!("{}/status/{}", gw.base_url, insert_request_id))
-            .send()
-            .await
-            .unwrap();
-        assert!(resp.status().is_success());
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        let body: serde_json::Value = resp.json().await.unwrap();
-        dbg!(&body);
-
-        if let Some(status) = body.get("status") {
-            if status.get("state").and_then(|s| s.as_str()) == Some("failed") {
-                let error_code = status.get("error_code").and_then(|c| c.as_str());
-                let error_msg = status.get("error").and_then(|e| e.as_str()).unwrap_or("");
-
-                assert_eq!(error_code, Some("AUTHENTICATOR_ALREADY_EXISTS"));
-                assert!(error_msg
-                    .to_lowercase()
-                    .contains("authenticator already exists"));
-
-                break;
-            }
-        }
-
-        if std::time::Instant::now() > deadline {
-            panic!(
-                "Timeout waiting for request to fail. Last status: {:?}",
-                body
-            );
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    // Check the error message
+    let error_body: serde_json::Value = resp.json().await.unwrap();
+    let error_msg = error_body
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or("");
+    assert!(error_msg
+        .to_lowercase()
+        .contains("authenticator already exists"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -667,7 +639,6 @@ async fn test_same_authenticator_different_accounts() {
     let _tx_hash_1 = wait_for_finalized(&gw.client, &gw.base_url, &request_id_1).await;
 
     // Try to create second account with the SAME wallet_addr as authenticator
-    // This should eventually fail because the authenticator is already registered to account 1
     let body_create2 = serde_json::json!({
         "recovery_address": address!("0x0000000000000000000000000000000000000002").to_string(),
         "authenticator_addresses": [wallet_addr.to_string()], // Same authenticator!
@@ -681,47 +652,20 @@ async fn test_same_authenticator_different_accounts() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
-    let request_id_2 = accepted.request_id.clone();
 
-    // Wait for the second request to fail
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let resp = gw
-            .client
-            .get(format!("{}/status/{}", gw.base_url, request_id_2))
-            .send()
-            .await
-            .unwrap();
-        assert!(resp.status().is_success());
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        let body: serde_json::Value = resp.json().await.unwrap();
-
-        if let Some(status) = body.get("status") {
-            if status.get("state").and_then(|s| s.as_str()) == Some("failed") {
-                // The error should indicate that the authenticator already exists
-                let error_msg = status.get("error").and_then(|e| e.as_str()).unwrap_or("");
-                assert!(
-                    error_msg
-                        .to_lowercase()
-                        .contains("authenticator already exists"),
-                    "Error message should indicate authenticator already exists, got: {}",
-                    error_msg
-                );
-                break;
-            }
-            if status.get("state").and_then(|s| s.as_str()) == Some("finalized") {
-                panic!("Second create-account should have failed but it succeeded");
-            }
-        }
-
-        if std::time::Instant::now() > deadline {
-            panic!(
-                "Timeout waiting for second request to fail. Last status: {:?}",
-                body
-            );
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    // Check the error message
+    let error_body: serde_json::Value = resp.json().await.unwrap();
+    let error_msg = error_body
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or("");
+    assert!(
+        error_msg
+            .to_lowercase()
+            .contains("authenticator already exists"),
+        "Error message should indicate authenticator already exists, got: {}",
+        error_msg
+    );
 }

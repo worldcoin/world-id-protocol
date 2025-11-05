@@ -426,6 +426,25 @@ async fn create_account(
     State(state): State<AppState>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the account creation BEFORE queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let sim_result = contract
+        .createManyAccounts(
+            vec![req.recovery_address.unwrap_or(Address::ZERO)],
+            vec![req.authenticator_addresses.clone()],
+            vec![req.authenticator_pubkeys.clone()],
+            vec![req.offchain_signer_commitment],
+        )
+        .call()
+        .await;
+
+    // Return 400 immediately if simulation fails
+    if let Err(e) = sim_result {
+        let error_str = e.to_string();
+        let gateway_error = GatewayError::from_contract_error(&error_str);
+        return Err(ApiError::BadRequest(gateway_error.to_string()));
+    }
+
     let id = state.tracker.new_request(RequestKind::CreateAccount).await;
 
     let env = CreateReqEnvelope {
@@ -514,6 +533,30 @@ async fn insert_authenticator(
     State(state): State<AppState>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the operation BEFORE queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let sim_result = contract
+        .insertAuthenticator(
+            req.account_index,
+            req.new_authenticator_address,
+            req.pubkey_id,
+            req.new_authenticator_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await;
+
+    // Return 400 immediately if simulation fails
+    if let Err(e) = sim_result {
+        let error_str = e.to_string();
+        let gateway_error = GatewayError::from_contract_error(&error_str);
+        return Err(ApiError::BadRequest(gateway_error.to_string()));
+    }
+
     let id = state
         .tracker
         .new_request(RequestKind::InsertAuthenticator)
