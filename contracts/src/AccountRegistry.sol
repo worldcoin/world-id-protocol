@@ -83,7 +83,15 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     error MismatchedSignatureNonce(uint256 accountIndex, uint256 expectedNonce, uint256 actualNonce);
 
-    error MismatchedRecoveryCounter(uint256 accountIndex, uint256 expectedRecoveryCounter, uint256 actualRecoveryCounter);
+    /**
+     * @dev Thrown when a recovery counter does not match the expected value.
+     * @param accountIndex The account index.
+     * @param expectedRecoveryCounter The expected recovery counter.
+     * @param actualRecoveryCounter The actual recovery counter.
+     */
+    error MismatchedRecoveryCounter(
+        uint256 accountIndex, uint256 expectedRecoveryCounter, uint256 actualRecoveryCounter
+    );
 
     /**
      * @dev Thrown when a pubkey ID overflows its uint32 limit.
@@ -124,14 +132,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     // accountIndex -> recoveryAddress, used for recovery of accounts
     mapping(uint256 => address) public accountIndexToRecoveryAddress;
 
-    // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
-    mapping(address => uint256) public authenticatorAddressToPackedAccountData;
-
     // accountIndex -> nonce, used for prevent replay attacks on updates to authenticators
     mapping(uint256 => uint256) public accountIndexToSignatureNonce;
 
     // accountIndex -> recoveryCounter, used for prevent replay attacks on recovery of accounts
     mapping(uint256 => uint256) public accountIndexToRecoveryCounter;
+
+    // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+    mapping(address => uint256) public authenticatorAddressToPackedAccountData;
 
     BinaryIMTData public tree;
     uint256 public nextAccountIndex;
@@ -315,7 +323,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 expectedRecoveryCounter = accountIndexToRecoveryCounter[accountIndex];
         if (actualRecoveryCounter != expectedRecoveryCounter) {
             revert MismatchedRecoveryCounter(accountIndex, expectedRecoveryCounter, actualRecoveryCounter);
-        }    
+        }
     }
 
     /**
@@ -324,13 +332,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @param authenticatorAddress The authenticator address to validate.
      */
     function _validateAuthenticatorAddressNotInUse(address authenticatorAddress) internal view {
-        uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
+        uint256 packedAccountData = authenticatorAddressToPackedAccountData[authenticatorAddress];
         // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
         // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
-        if (packedAccountIndex != 0) {
-            uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
-            uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
-            if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
+        if (packedAccountData != 0) {
+            uint256 existingAccountIndex = PackedAccountData.accountIndex(packedAccountData);
+            uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
+            if (existingRecoveryCounter >= accountIndexToRecoveryCounter[existingAccountIndex]) {
                 revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
             }
         }
@@ -362,8 +370,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             require(authenticatorAddress != address(0), "Authenticator cannot be the zero address");
 
             _validateAuthenticatorAddressNotInUse(authenticatorAddress);
-            authenticatorAddressToPackedAccountIndex[authenticatorAddress] =
-                PackedAccountIndex.pack(accountIndex, 0, uint32(i));
+            authenticatorAddressToPackedAccountData[authenticatorAddress] =
+                PackedAccountData.pack(accountIndex, uint32(0), uint32(i));
         }
 
         emit AccountCreated(
@@ -448,7 +456,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (oldAuthenticatorAddress != newAuthenticatorAddress) {
+        if (oldAuthenticatorAddress == newAuthenticatorAddress) {
             revert ReusedAuthenticatorAddress();
         }
         _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
