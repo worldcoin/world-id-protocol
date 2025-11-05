@@ -461,7 +461,9 @@ async fn run_both(
     let sanity_registry = indexer_cfg.registry_address;
     let sanity_interval = indexer_cfg.sanity_check_interval_secs;
     let _sanity_handle = tokio::spawn(async move {
-        if let Err(e) = root_sanity_check_loop(sanity_rpc_url, sanity_registry, sanity_interval).await {
+        if let Err(e) =
+            root_sanity_check_loop(sanity_rpc_url, sanity_registry, sanity_interval).await
+        {
             tracing::error!(?e, "Root sanity checker failed");
         }
     });
