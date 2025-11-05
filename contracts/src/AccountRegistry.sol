@@ -133,10 +133,10 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     mapping(address => uint256) public authenticatorAddressToPackedAccountData;
 
     // accountIndex -> nonce, used for prevent replay attacks on updates to authenticators
-    mapping(uint256 => uint256) public signatureNonces;
+    mapping(uint256 => uint256) public accountIndexToSignatureNonce;
 
     // accountIndex -> recoveryCounter, used for prevent replay attacks on recovery of accounts
-    mapping(uint256 => uint256) public accountRecoveryCounter;
+    mapping(uint256 => uint256) public accountIndexToRecoveryCounter;
 
     BinaryIMTData public tree;
     uint256 public nextAccountIndex;
@@ -317,7 +317,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         }
         uint256 accountIndex = PackedAccountIndex.accountIndex(packedAccountData);
         uint256 actualRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountData);
-        uint256 expectedRecoveryCounter = accountRecoveryCounter[accountIndex];
+        uint256 expectedRecoveryCounter = accountIndexToRecoveryCounter[accountIndex];
         if (actualRecoveryCounter != expectedRecoveryCounter) {
             revert MismatchedRecoveryCounter(accountIndex, expectedRecoveryCounter, actualRecoveryCounter);
         }
@@ -356,7 +356,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             if (packedAccountIndex != 0) {
                 uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
                 uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
-                if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
+                if (existingRecoveryCounter >= accountIndexToRecoveryCounter[existingAccountIndex]) {
                     revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
                 }
             }
@@ -481,7 +481,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             revert MismatchedAuthenticatorSigner(oldAuthenticatorAddress, signer);
         }
         // Should nonce always be incremented even if the method reverts?
-        uint256 expectedNonce = signatureNonces[accountIndex]++;
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(expectedNonce, nonce);
         }
@@ -495,7 +495,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         // Add new authenticator
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountIndex.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AccountUpdated(
@@ -558,14 +558,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
-        uint256 expectedNonce = signatureNonces[accountIndex]++;
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(expectedNonce, nonce);
         }
 
         // Add new authenticator
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountIndex.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AuthenticatorInserted(
@@ -617,7 +617,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
-        uint256 expectedNonce = signatureNonces[accountIndex]++;
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(expectedNonce, nonce);
         }
@@ -674,7 +674,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (accountIndex == 0 || nextAccountIndex <= accountIndex) {
             revert AccountDoesNotExist(accountIndex);
         }
-        uint256 expectedNonce = signatureNonces[accountIndex]++;
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(expectedNonce, nonce);
         }
@@ -710,10 +710,10 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             revert ZeroAddress();
         }
 
-        accountRecoveryCounter[accountIndex]++;
+        accountIndexToRecoveryCounter[accountIndex]++;
 
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
+            PackedAccountIndex.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(0));
 
         emit AccountRecovered(
             accountIndex,
@@ -751,7 +751,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
-        uint256 expectedNonce = signatureNonces[accountIndex]++;
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(expectedNonce, nonce);
         }
