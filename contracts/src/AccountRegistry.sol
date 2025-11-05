@@ -223,16 +223,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(packedAccountIndex >> 224 == accountRecoveryCounter[accountIndex], "Invalid account recovery counter");
     }
 
-    function _pack(uint256 accountIndex, uint32 recoveryCounter, uint32 pubkeyId)
-        internal
-        pure
-        virtual
-        returns (uint256)
-    {
-        require(accountIndex >> 192 == 0, "accountIndex overflow");
-        return (uint256(recoveryCounter) << 224) | (uint256(pubkeyId) << 192) | accountIndex;
-    }
-
     function _registerAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
@@ -263,7 +253,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
                     revert AddressAlreadyInUse(authenticatorAddress);
                 }
             }
-            authenticatorAddressToPackedAccountIndex[authenticatorAddress] = _pack(accountIndex, 0, uint32(i));
+            authenticatorAddressToPackedAccountIndex[authenticatorAddress] =
+                PackedAccountIndex.pack(accountIndex, 0, uint32(i));
         }
 
         emit AccountCreated(
@@ -383,7 +374,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AccountUpdated(
@@ -441,7 +432,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AuthenticatorInserted(
@@ -561,7 +552,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         accountRecoveryCounter[accountIndex]++;
 
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
+            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
 
         emit AccountRecovered(
             accountIndex,
