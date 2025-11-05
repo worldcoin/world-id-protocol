@@ -1114,10 +1114,10 @@
   },
   {
     "type": "error",
-    "name": "AddressAlreadyInUse",
+    "name": "AuthenticatorAddressAlreadyInUse",
     "inputs": [
       {
-        "name": "targetAddress",
+        "name": "authenticatorAddress",
         "type": "address",
         "internalType": "address"
       }
