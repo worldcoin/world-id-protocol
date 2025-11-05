@@ -1,7 +1,7 @@
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
-use eyre::Result;
-use oprf_client::{EdDSAPrivateKey, EdDSAPublicKey};
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use secrecy::{ExposeSecret, SecretBox};
+use world_id_primitives::PrimitiveError;
 
 /// The inner signer which can sign requests for both on-chain and off-chain operations. Both issuers and authenticators use this.
 ///
@@ -16,12 +16,26 @@ pub struct Signer {
 
 impl Signer {
     /// Initializes a new signer from an input seed.
-    pub fn from_seed_bytes(seed: &[u8]) -> Result<Self> {
+    ///
+    /// # Errors
+    /// Returns `PrimitiveError::InvalidInput` if the seed is not exactly 32 bytes.
+    pub fn from_seed_bytes(seed: &[u8]) -> Result<Self, PrimitiveError> {
         if seed.len() != 32 {
-            return Err(eyre::eyre!("seed must be 32 bytes"));
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "seed".to_string(),
+                reason: format!("must be 32 bytes, got {} bytes", seed.len()),
+            });
         }
-        let bytes: [u8; 32] = seed.try_into()?;
-        let onchain_signer = PrivateKeySigner::from_bytes(&bytes.into())?;
+        let bytes: [u8; 32] = seed.try_into().map_err(|_| PrimitiveError::InvalidInput {
+            attribute: "seed".to_string(),
+            reason: "failed to convert to [u8; 32]".to_string(),
+        })?;
+        let onchain_signer = PrivateKeySigner::from_bytes(&bytes.into()).map_err(|e| {
+            PrimitiveError::InvalidInput {
+                attribute: "seed".to_string(),
+                reason: format!("invalid private key: {e}"),
+            }
+        })?;
         let offchain_signer = SecretBox::new(Box::new(EdDSAPrivateKey::from_bytes(bytes)));
 
         Ok(Self {

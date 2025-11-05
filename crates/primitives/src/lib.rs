@@ -207,6 +207,14 @@ pub enum PrimitiveError {
     /// Index is out of bounds.
     #[error("Provided index is out of bounds")]
     OutOfBounds,
+    /// Invalid input provided (e.g., incorrect length, format, etc.)
+    #[error("Invalid input at {attribute}: {reason}")]
+    InvalidInput {
+        /// The attribute that is invalid
+        attribute: String,
+        /// The reason the input is invalid
+        reason: String,
+    },
 }
 
 #[cfg(test)]

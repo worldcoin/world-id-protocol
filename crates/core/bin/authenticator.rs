@@ -1,9 +1,7 @@
-use std::{fs::File, time::Duration};
+use std::fs::File;
 
-use alloy::primitives::address;
 use ark_ff::UniformRand;
 use eyre::Result;
-use tokio::time::sleep;
 use world_id_core::{
     primitives::Config, types::RpRequest, Authenticator, Credential, FieldElement,
 };
@@ -33,15 +31,7 @@ async fn main() -> Result<()> {
     let config = Config::from_json(&json_config).unwrap();
 
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
-    let mut authenticator = Authenticator::new(seed, config)?;
-
-    // Some dummy recovery address
-    let request_id = authenticator
-        .create_account(Some(address!("4242424242424242424242424242424242424242")))
-        .await?;
-    println!("create account queued with request id: {request_id}");
-
-    sleep(Duration::from_secs(5)).await;
+    let authenticator = Authenticator::init_or_create_blocking(seed, config, None).await?;
 
     let credential_path = std::env::args()
         .nth(1)
@@ -60,8 +50,8 @@ async fn main() -> Result<()> {
         .generate_proof(message_hash, rp_request, credential)
         .await?;
 
-    println!("proof: {:?}", proof);
-    println!("nullifier: {:?}", nullifier);
+    println!("proof: {proof:?}");
+    println!("nullifier: {nullifier:?}");
 
     Ok(())
 }
