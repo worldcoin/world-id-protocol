@@ -15,6 +15,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     error ImplementationNotInitialized();
 
+    /**
+     * @dev Thrown when a requsted on-chain signer address is already in use by another account. An on-chain signer address
+     * can only be used by one account at a time.
+     * @param targetAddress The target address that is already in use.
+     */
+    error AddressAlreadyInUse(address targetAddress);
+
     modifier onlyInitialized() {
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
@@ -248,14 +255,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
             uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
             // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
-            // accountIndex's recovery counter. This means the account was recovered and the authenticator address is not used.
+            // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
             if (packedAccountIndex != 0) {
                 uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
                 uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
-                require(
-                    existingRecoveryCounter < accountRecoveryCounter[existingAccountIndex],
-                    "Authenticator already exists"
-                );
+                if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
+                    revert AddressAlreadyInUse(authenticatorAddress);
+                }
             }
             authenticatorAddressToPackedAccountIndex[authenticatorAddress] = _pack(accountIndex, 0, uint32(i));
         }

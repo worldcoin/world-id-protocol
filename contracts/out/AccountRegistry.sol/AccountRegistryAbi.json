@@ -1114,6 +1114,17 @@
   },
   {
     "type": "error",
+    "name": "AddressAlreadyInUse",
+    "inputs": [
+      {
+        "name": "targetAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "AddressEmptyCode",
     "inputs": [
       {

@@ -80,6 +80,7 @@ contract AccountRegistryTest is Test {
 
     function updateRecoveryAddressSignature(uint256 accountIndex, address newRecoveryAddress, uint256 nonce)
         private
+        view
         returns (bytes memory)
     {
         return eip712Sign(
@@ -441,5 +442,23 @@ contract AccountRegistryTest is Test {
             ),
             0
         );
+    }
+
+    function test_CannotRegisterAuthenticatorAddressThatIsAlreadyInUse() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.AddressAlreadyInUse.selector, authenticatorAddress1));
+        authenticatorPubkeys[0] = 2;
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
     }
 }

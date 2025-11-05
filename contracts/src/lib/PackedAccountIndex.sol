@@ -3,8 +3,10 @@ pragma solidity ^0.8.13;
 
 /**
  * @title PackedAccountIndex
- * @dev Library for unpacking packed account index values.
- * @notice Packed format: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+ * @dev Library for packing and unpacking a World ID Account. A World ID Account
+ * is identified primarily by its accountIndex (or `accountId`). Additional metadata is encoded in the packed format
+ * to support recovery and off-chain public key management.
+ * @custom:format Packed format: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
  */
 library PackedAccountIndex {
     /**
