@@ -417,7 +417,7 @@ contract AccountRegistryTest is Test {
             uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)),
             uint192(accountIndex)
         );
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR) >> 224, 1);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress) >> 224, 1);
 
         // Check that we can create a new account with authenticatorAddress1 after recovery
         address[] memory authenticatorAddressesNew = new address[](1);
@@ -463,6 +463,5 @@ contract AccountRegistryTest is Test {
         );
 
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress) >> 224, 1);
     }
 }
