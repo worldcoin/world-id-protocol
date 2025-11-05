@@ -8,7 +8,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {PackedAccountIndex} from "./lib/PackedAccountIndex.sol";
+import {PackedAccountData} from "./lib/PackedAccountData.sol";
 
 contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
@@ -53,7 +53,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     /**
      * @dev Thrown when the old and new authenticator addresses are the same.
      */
-    error OldAndNewAuthenticatorAddressesCannotBeTheSame();
+    error ReusedAuthenticatorAddress();
 
     /**
      * @dev Thrown when the account index does not match the expected value.
@@ -81,20 +81,15 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @param expectedNonce The expected nonce value.
      * @param actualNonce The actual nonce value.
      */
-    error MismatchedSignatureNonce(uint256 expectedNonce, uint256 actualNonce);
+    error MismatchedSignatureNonce(uint256 accountIndex, uint256 expectedNonce, uint256 actualNonce);
+
+    error MismatchedRecoveryCounter(uint256 accountIndex, uint256 expectedRecoveryCounter, uint256 actualRecoveryCounter);
 
     /**
      * @dev Thrown when a pubkey ID overflows its uint32 limit.
      * @param pubkeyId The pubkey ID that caused the overflow.
      */
     error PubkeyIdOverflow(uint256 pubkeyId);
-
-    /*
-     * @dev Thrown when an account does not exist (nextAccountIndex <= accountIndex).
-     * @param accountIndex The account index that does not exist.
-     * @param nextAccountIndex The next available account index.
-     */
-    error AccountDoesNotExist(uint256 accountIndex, uint256 nextAccountIndex);
 
     /**
      * @dev Thrown when a recovery address is not set for an account.
@@ -315,8 +310,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (packedAccountData == 0) {
             revert AccountDoesNotExist(0);
         }
-        uint256 accountIndex = PackedAccountIndex.accountIndex(packedAccountData);
-        uint256 actualRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountData);
+        uint256 accountIndex = PackedAccountData.accountIndex(packedAccountData);
+        uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
         uint256 expectedRecoveryCounter = accountIndexToRecoveryCounter[accountIndex];
         if (actualRecoveryCounter != expectedRecoveryCounter) {
             revert MismatchedRecoveryCounter(accountIndex, expectedRecoveryCounter, actualRecoveryCounter);
@@ -354,14 +349,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
             // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
             if (packedAccountIndex != 0) {
-                uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
-                uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
+                uint256 existingAccountIndex = PackedAccountData.accountIndex(packedAccountIndex);
+                uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountIndex);
                 if (existingRecoveryCounter >= accountIndexToRecoveryCounter[existingAccountIndex]) {
                     revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
                 }
             }
             authenticatorAddressToPackedAccountData[authenticatorAddress] =
-                PackedAccountIndex.pack(accountIndex, 0, uint32(i));
+                PackedAccountData.pack(accountIndex, 0, uint32(i));
         }
 
         emit AccountCreated(
@@ -447,14 +442,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
         if (oldAuthenticatorAddress != newAuthenticatorAddress) {
-            revert OldAndNewAuthenticatorAddressesCannotBeTheSame();
+            revert ReusedAuthenticatorAddress();
         }
 
         if (newAuthenticatorAddress == address(0)) {
             revert ZeroAddress();
         }
         if (uint256(uint32(pubkeyId)) != pubkeyId) {
-            revert PubkeyIdOverflow();
+            revert PubkeyIdOverflow(pubkeyId);
         }
 
         bytes32 messageHash = _hashTypedDataV4(
@@ -473,19 +468,18 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         );
 
         (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredAccountIndex = PackedAccountIndex.accountIndex(packedAccountData);
+        uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
         if (signer != oldAuthenticatorAddress) {
             revert MismatchedAuthenticatorSigner(oldAuthenticatorAddress, signer);
         }
-        // Should nonce always be incremented even if the method reverts?
         uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
-            revert MismatchedSignatureNonce(expectedNonce, nonce);
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
-        uint256 actualPubkeyId = PackedAccountIndex.pubkeyId(packedAccountData);
+        uint256 actualPubkeyId = PackedAccountData.pubkeyId(packedAccountData);
         if (actualPubkeyId != pubkeyId) {
             revert MismatchedPubkeyId(pubkeyId, actualPubkeyId);
         }
@@ -495,7 +489,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         // Add new authenticator
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountData.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AccountUpdated(
@@ -554,18 +548,18 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         );
 
         (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredAccountIndex = PackedAccountIndex.accountIndex(packedAccountData);
+        uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
         uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
-            revert MismatchedSignatureNonce(expectedNonce, nonce);
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
 
         // Add new authenticator
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountData.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
         // Update tree
         emit AuthenticatorInserted(
@@ -613,24 +607,24 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         );
 
         (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredAccountIndex = PackedAccountIndex.accountIndex(packedAccountData);
+        uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
         uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
-            revert MismatchedSignatureNonce(expectedNonce, nonce);
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
 
         uint256 packedToRemove = authenticatorAddressToPackedAccountData[authenticatorAddress];
         if (packedToRemove == 0) {
             revert AuthenticatorDoesNotExist(authenticatorAddress);
         }
-        uint256 actualAccountIndex = PackedAccountIndex.accountIndex(packedToRemove);
+        uint256 actualAccountIndex = PackedAccountData.accountIndex(packedToRemove);
         if (actualAccountIndex != accountIndex) {
             revert AuthenticatorDoesNotBelongToAccount(accountIndex, actualAccountIndex);
         }
-        uint256 actualPubkeyId = PackedAccountIndex.pubkeyId(packedToRemove);
+        uint256 actualPubkeyId = PackedAccountData.pubkeyId(packedToRemove);
         if (actualPubkeyId != pubkeyId) {
             revert MismatchedPubkeyId(pubkeyId, actualPubkeyId);
         }
@@ -676,7 +670,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         }
         uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
-            revert MismatchedSignatureNonce(expectedNonce, nonce);
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
 
         bytes32 messageHash = _hashTypedDataV4(
@@ -694,7 +688,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         address signatureRecoveredAddress = ECDSA.recover(messageHash, signature);
         if (signatureRecoveredAddress == address(0)) {
-            revert InvalidSignature();
+            revert ZeroRecoveredSignatureAddress();
         }
         address recoverySigner = accountIndexToRecoveryAddress[accountIndex];
         if (recoverySigner == address(0)) {
@@ -713,7 +707,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         accountIndexToRecoveryCounter[accountIndex]++;
 
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(0));
+            PackedAccountData.pack(accountIndex, uint32(accountIndexToRecoveryCounter[accountIndex]), uint32(0));
 
         emit AccountRecovered(
             accountIndex,
@@ -747,13 +741,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         );
 
         (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredAccountIndex = PackedAccountIndex.accountIndex(packedAccountData);
+        uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
         uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
         if (nonce != expectedNonce) {
-            revert MismatchedSignatureNonce(expectedNonce, nonce);
+            revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
 
         if (newRecoveryAddress == address(0)) {
