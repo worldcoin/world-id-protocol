@@ -357,11 +357,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             revert MismatchingArrayLengths(authenticatorAddresses.length, authenticatorPubkeys.length);
         }
 
-        // TODO: Is recoveryAddress required?
-        // if (recoveryAddress == address(0)) {
-        //     revert ZeroAddress();
-        // }
-
         uint256 accountIndex = nextAccountIndex;
         accountIndexToRecoveryAddress[accountIndex] = recoveryAddress;
 
