@@ -410,14 +410,24 @@ contract AccountRegistryTest is Test {
             uint192(accountIndex)
         );
         // Recovery counter is 0 as it will only be incremented on the NEW_AUTHENTICATOR
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1) >> 224, 0);
+        assertEq(
+            PackedAccountIndex.recoveryCounter(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+            ),
+            0
+        );
 
         // New authenticator added with higher recovery counter
         assertEq(
             uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)),
             uint192(accountIndex)
         );
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress) >> 224, 1);
+        assertEq(
+            PackedAccountIndex.recoveryCounter(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)
+            ),
+            1
+        );
 
         // Check that we can create a new account with authenticatorAddress1 after recovery
         address[] memory authenticatorAddressesNew = new address[](1);
