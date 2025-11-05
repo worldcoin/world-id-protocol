@@ -4,6 +4,8 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {AccountRegistry} from "../src/AccountRegistry.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
+import {PackedAccountIndex} from "../src/lib/PackedAccountIndex.sol";
+
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract AccountRegistryTest is Test {
@@ -426,8 +428,18 @@ contract AccountRegistryTest is Test {
         );
 
         // authenticatorAddress1 now associated with accountIndex = 2
-        assertEq(_accountIndexOf(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)), 2);
+        assertEq(
+            PackedAccountIndex.accountIndex(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+            ),
+            2
+        );
         // Recovery counter is 0 for accountIndex = 2
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1) >> 224, 0);
+        assertEq(
+            PackedAccountIndex.recoveryCounter(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+            ),
+            0
+        );
     }
 }

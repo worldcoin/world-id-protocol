@@ -8,6 +8,8 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
+import {PackedAccountIndex} from "./lib/PackedAccountIndex.sol";
+
 contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
 
@@ -224,28 +226,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         return (uint256(recoveryCounter) << 224) | (uint256(pubkeyId) << 192) | accountIndex;
     }
 
-    function _pubkeyIdOf(uint256 packed) internal pure virtual returns (uint32) {
-        return uint32(packed >> 192);
-    }
-
-    /**
-     * @dev Extracts the recovery counter from a packed account index.
-     * @param packed The packed account index: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
-     * @return The recovery counter (top 32 bits).
-     */
-    function _recoveryCounterOf(uint256 packed) public pure returns (uint256) {
-        return uint256(uint32(packed >> 224));
-    }
-
-    /**
-     * @dev Extracts the account index from a packed account index.
-     * @param packed The packed account index: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
-     * @return The account index (bottom 192 bits).
-     */
-    function _accountIndexOf(uint256 packed) public pure returns (uint256) {
-        return uint256(uint192(packed));
-    }
-
     function _registerAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
@@ -270,9 +250,12 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
             // accountIndex's recovery counter. This means the account was recovered and the authenticator address is not used.
             if (packedAccountIndex != 0) {
-                uint256 accountIndex = uint256(uint192(packedAccountIndex));
-                uint256 recoveryCounter = uint256(uint32(packedAccountIndex >> 192));
-                require(recoveryCounter < accountRecoveryCounter[accountIndex], "Authenticator already exists");
+                uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
+                uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
+                require(
+                    existingRecoveryCounter < accountRecoveryCounter[existingAccountIndex],
+                    "Authenticator already exists"
+                );
             }
             authenticatorAddressToPackedAccountIndex[authenticatorAddress] = _pack(accountIndex, 0, uint32(i));
         }
@@ -387,7 +370,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(accountIndex == recoveredAccountIndex, "Invalid account index");
         require(signer == oldAuthenticatorAddress, "Invalid authenticator");
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
-        require(_pubkeyIdOf(packedAccountIndex) == uint32(pubkeyId), "Invalid pubkeyId");
+        require(PackedAccountIndex.pubkeyId(packedAccountIndex) == pubkeyId, "Invalid pubkeyId");
 
         // Delete old authenticator
         delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
@@ -506,7 +489,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 packedToRemove = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
         require(packedToRemove != 0, "Authenticator does not exist");
         require(uint192(packedToRemove) == accountIndex, "Authenticator does not belong to account");
-        require(_pubkeyIdOf(packedToRemove) == uint32(pubkeyId), "Invalid pubkeyId");
+        require(PackedAccountIndex.pubkeyId(packedToRemove) == pubkeyId, "Invalid pubkeyId");
 
         // Delete authenticator
         delete authenticatorAddressToPackedAccountIndex[authenticatorAddress];
