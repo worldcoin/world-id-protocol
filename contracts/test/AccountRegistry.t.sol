@@ -233,7 +233,9 @@ contract AccountRegistryTest is Test {
             updateAuthenticatorProofAndSignature(accountIndex, 0, newCommitment, nonce);
 
         // Expected nonce is 0 (first call), but provided nonce is 1
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.MismatchedSignatureNonce.selector, 0, nonce));
+        vm.expectRevert(
+            abi.encodeWithSelector(AccountRegistry.MismatchedSignatureNonce.selector, accountIndex, 0, nonce)
+        );
 
         accountRegistry.updateAuthenticator(
             accountIndex,
@@ -367,7 +369,9 @@ contract AccountRegistryTest is Test {
 
         vm.prank(authenticatorAddress1);
         // Expected nonce is 0 (first call), but provided nonce is 1
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.MismatchedSignatureNonce.selector, 0, nonce));
+        vm.expectRevert(
+            abi.encodeWithSelector(AccountRegistry.MismatchedSignatureNonce.selector, accountIndex, 0, nonce)
+        );
         accountRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
     }
 

@@ -177,7 +177,7 @@ async fn e2e_gateway_full_flow() {
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let packed_after = contract
-            .authenticatorAddressToPackedAccountIndex(wallet_addr)
+            .authenticatorAddressToPackedAccountData(wallet_addr)
             .call()
             .await
             .unwrap();
@@ -197,7 +197,7 @@ async fn e2e_gateway_full_flow() {
     let contract = AccountRegistry::new(registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
-        .authenticatorAddressToPackedAccountIndex(wallet_addr)
+        .authenticatorAddressToPackedAccountData(wallet_addr)
         .call()
         .await
         .unwrap();
@@ -268,7 +268,7 @@ async fn e2e_gateway_full_flow() {
     let deadline2 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountIndex(new_auth2)
+            .authenticatorAddressToPackedAccountData(new_auth2)
             .call()
             .await
             .unwrap();
@@ -335,7 +335,7 @@ async fn e2e_gateway_full_flow() {
     let deadline3 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountIndex(new_auth2)
+            .authenticatorAddressToPackedAccountData(new_auth2)
             .call()
             .await
             .unwrap();
@@ -402,7 +402,7 @@ async fn e2e_gateway_full_flow() {
     let deadline4 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountIndex(wallet_addr_new)
+            .authenticatorAddressToPackedAccountData(wallet_addr_new)
             .call()
             .await
             .unwrap();
@@ -471,12 +471,12 @@ async fn e2e_gateway_full_flow() {
     let deadline5 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let old_v = contract
-            .authenticatorAddressToPackedAccountIndex(wallet_addr_new)
+            .authenticatorAddressToPackedAccountData(wallet_addr_new)
             .call()
             .await
             .unwrap();
         let new_v = contract
-            .authenticatorAddressToPackedAccountIndex(new_auth4)
+            .authenticatorAddressToPackedAccountData(new_auth4)
             .call()
             .await
             .unwrap();

@@ -214,7 +214,7 @@ impl Authenticator {
         registry: &AccountRegistryInstance<DynProvider>,
     ) -> Result<U256, AuthenticatorError> {
         let raw_index = registry
-            .authenticatorAddressToPackedAccountIndex(onchain_signer_address)
+            .authenticatorAddressToPackedAccountData(onchain_signer_address)
             .call()
             .await?;
 
@@ -337,7 +337,10 @@ impl Authenticator {
     /// Will return an error if the registry contract call fails.
     pub async fn signing_nonce(&self) -> Result<U256, AuthenticatorError> {
         let registry = self.registry();
-        let nonce = registry.signatureNonces(self.account_id()).call().await?;
+        let nonce = registry
+            .accountIndexToSignatureNonce(self.account_id())
+            .call()
+            .await?;
         Ok(nonce)
     }
 
