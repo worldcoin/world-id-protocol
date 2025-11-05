@@ -24,10 +24,16 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
+    // accountIndex -> recoveryAddress, used for recovery of accounts
     mapping(uint256 => address) public accountIndexToRecoveryAddress;
-    // [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+
+    // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
     mapping(address => uint256) public authenticatorAddressToPackedAccountIndex;
+
+    // accountIndex -> nonce, used for prevent replay attacks on updates to authenticators
     mapping(uint256 => uint256) public signatureNonces;
+
+    // accountIndex -> recoveryCounter, used for prevent replay attacks on recovery of accounts
     mapping(uint256 => uint256) public accountRecoveryCounter;
 
     BinaryIMTData public tree;
@@ -222,6 +228,24 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         return uint32(packed >> 192);
     }
 
+    /**
+     * @dev Extracts the recovery counter from a packed account index.
+     * @param packed The packed account index: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+     * @return The recovery counter (top 32 bits).
+     */
+    function _recoveryCounterOf(uint256 packed) public pure returns (uint256) {
+        return uint256(uint32(packed >> 224));
+    }
+
+    /**
+     * @dev Extracts the account index from a packed account index.
+     * @param packed The packed account index: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+     * @return The account index (bottom 192 bits).
+     */
+    function _accountIndexOf(uint256 packed) public pure returns (uint256) {
+        return uint256(uint192(packed));
+    }
+
     function _registerAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
@@ -239,10 +263,18 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         accountIndexToRecoveryAddress[accountIndex] = recoveryAddress;
 
         for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
-            address authenticator = authenticatorAddresses[i];
-            require(authenticator != address(0), "Authenticator cannot be the zero address");
-            require(authenticatorAddressToPackedAccountIndex[authenticator] == 0, "Authenticator already exists");
-            authenticatorAddressToPackedAccountIndex[authenticator] = _pack(accountIndex, 0, uint32(i));
+            address authenticatorAddress = authenticatorAddresses[i];
+            require(authenticatorAddress != address(0), "Authenticator cannot be the zero address");
+
+            uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
+            // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
+            // accountIndex's recovery counter. This means the account was recovered and the authenticator address is not used.
+            if (packedAccountIndex != 0) {
+                uint256 accountIndex = uint256(uint192(packedAccountIndex));
+                uint256 recoveryCounter = uint256(uint32(packedAccountIndex >> 192));
+                require(recoveryCounter < accountRecoveryCounter[accountIndex], "Authenticator already exists");
+            }
+            authenticatorAddressToPackedAccountIndex[authenticatorAddress] = _pack(accountIndex, 0, uint32(i));
         }
 
         emit AccountCreated(
@@ -495,10 +527,12 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Recovers an account.
      * @param accountIndex The index of the account.
      * @param newAuthenticatorAddress The new authenticator address.
+     * @param newAuthenticatorPubkey The new authenticator pubkey.
      * @param oldOffchainSignerCommitment The old offchain signer commitment.
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      * @param signature The signature.
      * @param siblingNodes The sibling nodes.
+     * @param nonce The signature nonce.
      */
     function recoverAccount(
         uint256 accountIndex,
@@ -534,6 +568,10 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(signatureRecoveredAddress == recoverySigner, "Invalid signature");
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
+
+        // // Delete the old authenticator address before incrementing the recovery counter
+        // uint256 oldAuthenticatorAddress = _pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
+        // delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
 
         accountRecoveryCounter[accountIndex]++;
 

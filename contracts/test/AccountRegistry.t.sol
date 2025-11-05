@@ -401,16 +401,33 @@ contract AccountRegistryTest is Test {
             nonce
         );
 
-        // Old authenticator still exists but with lower recovery counter
+        // authenticatorAddress1 still associated with accountIndex = 1
         assertEq(
             uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)),
             uint192(accountIndex)
         );
+        // Recovery counter is 0 as it will only be incremented on the NEW_AUTHENTICATOR
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1) >> 224, 0);
+
         // New authenticator added with higher recovery counter
         assertEq(
             uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR)), uint192(accountIndex)
         );
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(NEW_AUTHENTICATOR) >> 224, 1);
+
+        // Check that we can create a new account with authenticatorAddress1 after recovery
+        address[] memory authenticatorAddressesNew = new address[](1);
+        authenticatorAddressesNew[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeysNew = new uint256[](1);
+        authenticatorPubkeysNew[0] = 0;
+
+        accountRegistry.createAccount(
+            recoverySigner, authenticatorAddressesNew, authenticatorPubkeysNew, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // authenticatorAddress1 now associated with accountIndex = 2
+        assertEq(_accountIndexOf(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)), 2);
+        // Recovery counter is 0 for accountIndex = 2
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1) >> 224, 0);
     }
 }
