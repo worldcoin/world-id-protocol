@@ -1,48 +1,73 @@
 use std::net::SocketAddr;
 
-use alloy::{network::EthereumWallet, primitives::Address, signers::local::PrivateKeySigner};
+use alloy::primitives::Address;
+use clap::Parser;
 
 #[derive(Clone, Debug)]
+pub enum SignerConfig {
+    PrivateKey(String),
+    AwsKms(String),
+}
+
+#[derive(Clone, Debug, Parser)]
+#[command(author, version, about, long_about = None)]
 pub struct GatewayConfig {
     /// The address of the `AccountRegistry` contract
+    #[arg(long, env = "REGISTRY_ADDRESS")]
     pub registry_addr: Address,
+
     /// The HTTP RPC endpoint to submit transactions
+    #[arg(long, env = "RPC_URL")]
     pub rpc_url: String,
-    /// The signer wallet that will submit transactions (pays for gas)
-    pub ethereum_wallet: EthereumWallet,
+
+    /// The signer wallet private key (hex) that will submit transactions (pays for gas)
+    /// Mutually exclusive with AWS_KMS_KEY_ID
+    #[arg(long, env = "WALLET_PRIVATE_KEY")]
+    pub wallet_private_key: Option<String>,
+
+    /// AWS KMS Key ID for signing transactions
+    /// Mutually exclusive with WALLET_PRIVATE_KEY
+    #[arg(long, env = "AWS_KMS_KEY_ID")]
+    pub aws_kms_key_id: Option<String>,
+
     /// Batch window in milliseconds (i.e. how long to wait before submitting a batch of transactions)
+    #[arg(long, env = "BATCH_MS", default_value = "1000")]
     pub batch_ms: u64,
+
+    /// Maximum batch size for create account requests
+    #[arg(long, env = "MAX_CREATE_BATCH_SIZE", default_value = "100")]
+    pub max_create_batch_size: usize,
+
+    /// Maximum batch size for ops (insert/update/remove/recover) requests
+    #[arg(long, env = "MAX_OPS_BATCH_SIZE", default_value = "10")]
+    pub max_ops_batch_size: usize,
+
     /// The address and port to listen for HTTP requests
+    #[arg(long, env = "LISTEN_ADDR", default_value = "0.0.0.0:8081")]
     pub listen_addr: SocketAddr,
 }
 
 impl GatewayConfig {
     pub fn from_env() -> Self {
-        let listen_addr: SocketAddr = std::env::var("RG_HTTP_ADDR")
-            .unwrap_or_else(|_| "0.0.0.0:8081".to_string())
-            .parse()
-            .unwrap();
+        let config = Self::parse();
 
-        if listen_addr.port() != 8080 {
-            tracing::warn!("Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
+        if config.listen_addr.port() != 8080 {
+            tracing::warn!("Gateway is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
         }
 
-        let wallet_sk =
-            std::env::var("WALLET_PRIVATE_KEY").expect("WALLET_PRIVATE_KEY (hex) is required");
-        let ethereum_wallet = EthereumWallet::from(wallet_sk.parse::<PrivateKeySigner>().unwrap());
+        config
+    }
 
-        Self {
-            registry_addr: std::env::var("REGISTRY_ADDRESS")
-                .expect("REGISTRY_ADDRESS is required")
-                .parse()
-                .expect("invalid REGISTRY_ADDRESS"),
-            rpc_url: std::env::var("RPC_URL").expect("RPC_URL is required"),
-            ethereum_wallet,
-            batch_ms: std::env::var("RG_BATCH_MS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(1000),
-            listen_addr,
+    pub fn signer_config(&self) -> anyhow::Result<SignerConfig> {
+        match (&self.wallet_private_key, &self.aws_kms_key_id) {
+            (Some(pk), None) => Ok(SignerConfig::PrivateKey(pk.clone())),
+            (None, Some(key_id)) => Ok(SignerConfig::AwsKms(key_id.clone())),
+            (Some(_), Some(_)) => Err(anyhow::anyhow!(
+                "Cannot specify both WALLET_PRIVATE_KEY and AWS_KMS_KEY_ID"
+            )),
+            (None, None) => Err(anyhow::anyhow!(
+                "Must specify either WALLET_PRIVATE_KEY or AWS_KMS_KEY_ID"
+            )),
         }
     }
 }

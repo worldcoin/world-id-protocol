@@ -1,6 +1,7 @@
 target/
 .git/
 .claude/
+.vscode/
 .DS_Store
 contracts/out/
 contracts/cache/

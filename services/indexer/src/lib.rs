@@ -18,7 +18,11 @@ use sqlx::migrate::Migrator;
 use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
 use world_id_core::account_registry::AccountRegistry;
-use world_id_core::types::InclusionProofResponse;
+use world_id_primitives::{
+    authenticator::MAX_AUTHENTICATOR_KEYS,
+    merkle::{AccountInclusionProof, MerkleInclusionProof},
+    FieldElement, TREE_DEPTH,
+};
 
 mod config;
 use crate::config::{HttpConfig, IndexerConfig, RunMode};
@@ -102,8 +106,6 @@ impl Hasher for PoseidonHasher {
         input[0].into()
     }
 }
-
-static TREE_DEPTH: usize = 30;
 
 fn tree_capacity() -> usize {
     1usize << TREE_DEPTH
@@ -251,15 +253,38 @@ async fn http_get_proof(
         )
             .into_response();
     }
+    // Validate the number of authenticator keys
+    if authenticator_pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "Account has {} authenticator keys, which exceeds the maximum of {}",
+                authenticator_pubkeys.len(),
+                MAX_AUTHENTICATOR_KEYS
+            ),
+        )
+            .into_response();
+    }
+
     let tree = GLOBAL_TREE.read().await;
     let proof = tree.proof(leaf_index);
-    let resp = InclusionProofResponse::new(
-        account_index.as_limbs()[0],
+
+    // Convert proof siblings to FieldElement array
+    let siblings_vec: Vec<FieldElement> = proof_to_vec(&proof)
+        .into_iter()
+        .map(|u| u.try_into().unwrap())
+        .collect();
+    let siblings: [FieldElement; TREE_DEPTH] = siblings_vec.try_into().unwrap();
+
+    let merkle_proof = MerkleInclusionProof::new(
+        tree.root().try_into().unwrap(),
         leaf_index as u64,
-        tree.root(),
-        proof_to_vec(&proof),
-        authenticator_pubkeys,
+        account_index.as_limbs()[0],
+        siblings,
     );
+
+    let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
+        .expect("authenticator_pubkeys already validated");
     (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
 }
 
@@ -327,7 +352,7 @@ async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::R
         .unwrap_or(indexer_cfg.start_block);
 
     // Backfill until head (update_tree = false for indexer-only mode)
-    while let Err(err) = backfill(
+    backfill(
         &provider,
         &pool,
         indexer_cfg.registry_address,
@@ -335,11 +360,7 @@ async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::R
         indexer_cfg.batch_size,
         false, // Don't update in-memory tree
     )
-    .await
-    {
-        tracing::error!(?err, "backfill error; retrying after delay");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
+    .await?;
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
@@ -390,7 +411,7 @@ async fn run_both(
         .unwrap_or(indexer_cfg.start_block);
 
     // Backfill until head (update_tree = true for both mode)
-    while let Err(err) = backfill(
+    backfill(
         &provider,
         &pool,
         indexer_cfg.registry_address,
@@ -398,11 +419,7 @@ async fn run_both(
         indexer_cfg.batch_size,
         true, // Update in-memory tree directly from events
     )
-    .await
-    {
-        tracing::error!(?err, "backfill error; retrying after delay");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
+    .await?;
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
@@ -451,21 +468,17 @@ pub async fn save_checkpoint(pool: &PgPool, block: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn backfill<P: Provider>(
+async fn backfill_batch<P: Provider>(
     provider: &P,
     pool: &PgPool,
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
     update_tree: bool,
+    head: u64,
 ) -> anyhow::Result<()> {
-    // Determine current head
-    let head = provider.get_block_number().await?;
     if *from_block == 0 {
         *from_block = 1;
-    }
-    if *from_block > head {
-        return Ok(());
     }
 
     let to_block = (*from_block + batch_size - 1).min(head);
@@ -497,7 +510,7 @@ pub async fn backfill<P: Provider>(
     for lg in logs {
         match decode_registry_event(&lg) {
             Ok(event) => {
-                tracing::info!(?event, "decoded registry event");
+                tracing::debug!(?event, "decoded registry event");
                 let block_number = lg.block_number;
                 let tx_hash = lg.transaction_hash;
                 let log_index = lg.log_index;
@@ -521,7 +534,62 @@ pub async fn backfill<P: Provider>(
     }
 
     save_checkpoint(pool, to_block).await?;
+    tracing::debug!(
+        from = *from_block,
+        to = to_block,
+        "✔️ finished processing batch until block {to_block}"
+    );
     *from_block = to_block + 1;
+    Ok(())
+}
+
+/// Backfill the entire history of the registry.
+pub async fn backfill<P: Provider>(
+    provider: &P,
+    pool: &PgPool,
+    registry: Address,
+    from_block: &mut u64,
+    batch_size: u64,
+    update_tree: bool,
+) -> anyhow::Result<()> {
+    let mut head = provider.get_block_number().await?;
+    loop {
+        match backfill_batch(
+            provider,
+            pool,
+            registry,
+            from_block,
+            batch_size,
+            update_tree,
+            head,
+        )
+        .await
+        {
+            Ok(()) => {
+                // Check if we're caught up to chain head
+                let new_head = provider.get_block_number().await;
+                if let Ok(new_head) = new_head {
+                    head = new_head;
+                } else {
+                    tracing::error!("failed to get current chain head; retrying after delay");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+                if *from_block > head {
+                    tracing::info!(
+                        from = *from_block,
+                        head,
+                        "✅ backfill complete, caught up to chain head"
+                    );
+                    break;
+                }
+            }
+            Err(err) => {
+                tracing::error!(?err, "backfill error; retrying after delay");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
     Ok(())
 }
 

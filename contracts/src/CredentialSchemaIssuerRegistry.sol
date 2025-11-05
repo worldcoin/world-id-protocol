@@ -1,15 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is EIP712 {
+contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+    error ImplementationNotInitialized();
+
+    modifier onlyInitialized() {
+        if (_getInitializedVersion() == 0) {
+            revert ImplementationNotInitialized();
+        }
+        _;
+    }
+
     ////////////////////////////////////////////////////////////
     //                         Types                          //
     ////////////////////////////////////////////////////////////
@@ -69,13 +81,26 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    constructor() EIP712(EIP712_NAME, EIP712_VERSION) {}
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev Initializes the contract.
+     */
+    function initialize() public virtual initializer {
+        __EIP712_init(EIP712_NAME, EIP712_VERSION);
+        __Ownable_init(msg.sender);
+        __Ownable2Step_init();
+        _nextId = 1;
+    }
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public returns (uint256) {
+    function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
         require(pubkey.x != 0 && pubkey.y != 0, "Registry: pubkey cannot be zero");
         require(signer != address(0), "Registry: signer cannot be zero address");
 
@@ -87,7 +112,7 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
         return issuerSchemaId;
     }
 
-    function remove(uint256 issuerSchemaId, bytes calldata signature) public {
+    function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
         bytes32 hash = _hashTypedDataV4(
@@ -104,7 +129,12 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
         delete idToSchemaUri[issuerSchemaId];
     }
 
-    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature) public {
+    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+    {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
         require(!_isEmptyPubkey(newPubkey), "Registry: newPubkey cannot be zero");
@@ -120,7 +150,12 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
         _nonces[issuerSchemaId]++;
     }
 
-    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature) public {
+    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+    {
         require(!_isEmptyPubkey(_idToPubkey[issuerSchemaId]), "Registry: id not registered");
         require(newSigner != address(0), "Registry: newSigner cannot be zero address");
         require(_idToAddress[issuerSchemaId] != newSigner, "Registry: newSigner is already the assigned signer");
@@ -142,7 +177,14 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
      * @param issuerSchemaId The issuer+schema ID.
      * @return The schema URI for the issuerSchemaId.
      */
-    function getIssuerSchemaUri(uint256 issuerSchemaId) public view returns (string memory) {
+    function getIssuerSchemaUri(uint256 issuerSchemaId)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (string memory)
+    {
         return idToSchemaUri[issuerSchemaId];
     }
 
@@ -152,7 +194,12 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
      * @param schemaUri The new schema URI to set.
      * @param signature The signature of the issuer authorizing the update.
      */
-    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature) public {
+    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+    {
         require(issuerSchemaId != 0, "Schema ID not registered");
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 hash =
@@ -171,7 +218,14 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
      * @param issuerSchemaId The issuer-schema ID whose pubkey will be returned.
      * @return The pubkey for the issuerSchemaId.
      */
-    function issuerSchemaIdToPubkey(uint256 issuerSchemaId) public view returns (Pubkey memory) {
+    function issuerSchemaIdToPubkey(uint256 issuerSchemaId)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (Pubkey memory)
+    {
         return _idToPubkey[issuerSchemaId];
     }
 
@@ -180,19 +234,47 @@ contract CredentialSchemaIssuerRegistry is EIP712 {
      * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
      * @return The on-chain signer address for the issuerSchemaId.
      */
-    function getSignerForIssuerSchemaId(uint256 issuerSchemaId) public view returns (address) {
+    function getSignerForIssuerSchemaId(uint256 issuerSchemaId)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (address)
+    {
         return _idToAddress[issuerSchemaId];
     }
 
-    function nextIssuerSchemaId() public view returns (uint256) {
+    function nextIssuerSchemaId() public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _nextId;
     }
 
-    function nonceOf(uint256 issuerSchemaId) public view returns (uint256) {
+    function nonceOf(uint256 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _nonces[issuerSchemaId];
     }
 
-    function _isEmptyPubkey(Pubkey memory pubkey) internal pure returns (bool) {
+    function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
         return pubkey.x == 0 && pubkey.y == 0;
     }
+
+    ////////////////////////////////////////////////////////////
+    //                    Upgrade Authorization               //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Authorize upgrade to a new implementation
+     * @param newImplementation Address of the new implementation contract
+     * @notice Only the contract owner can authorize upgrades
+     */
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    ////////////////////////////////////////////////////////////
+    //                    Storage Gap                         //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Storage gap to allow for future upgrades without storage collisions
+     * This reserves 50 storage slots for future state variables
+     */
+    uint256[50] private __gap;
 }

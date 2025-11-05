@@ -8,15 +8,20 @@ license.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-alloy = { version = "1.0.22", default-features = false, features = ["json-rpc",
+alloy = { workspace = true, features = [
+    "json-rpc",
     "node-bindings",
     "rpc-client",
     "rpc-types-debug",
     "rpc-types-trace",
-    "signer-aws"] }
+    "signer-aws",
+] }
 anyhow = { workspace = true }
-axum = { version = "0.7", features = ["macros", "json"] }
-world-id-core = { path = "../../crates/world-id-core" }
+aws-config = "1"
+aws-sdk-kms = "1"
+axum = { version = "0.8", features = ["macros", "json"] }
+clap = { version = "4", features = ["derive", "env"] }
+world-id-core = { workspace = true, features = ["openapi"] }
 dotenvy = "0.15"
 hex = "0.4"
 once_cell = "1"
@@ -24,15 +29,15 @@ parking_lot = "0.12"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tower-http = { version = "0.5", features = ["trace", "timeout"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
+utoipa = "5.4.0"
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 [dev-dependencies]
-world-id-core = { path = "../../crates/world-id-core" }
-regex = "1.11.0"
+test-utils = { path = "../../crates/test-utils" }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

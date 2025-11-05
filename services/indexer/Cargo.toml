@@ -5,14 +5,13 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-world-id-core = { path = "../../crates/world-id-core" }
 poseidon2 = { workspace = true }
-alloy = { version = "1.0.22", default-features = false, features = ["rpc-types", "provider-ws"] }
+alloy = { workspace = true, features = ["rpc-types", "provider-ws"] }
 dotenvy = "0.15"
 url = "2"
 hex = "0.4"
@@ -26,7 +25,9 @@ ark-bn254 = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
 take_mut = "0.2.2"
+world-id-core = { workspace = true }
+world-id-primitives = { workspace = true }
 
 [dev-dependencies]
-regex = "1.11.2"
+test-utils = { path = "../../crates/test-utils" }
 reqwest = { workspace = true }

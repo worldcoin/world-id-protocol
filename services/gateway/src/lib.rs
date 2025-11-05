@@ -7,13 +7,14 @@ use std::{
     time::Duration,
 };
 
-use alloy::network::EthereumWallet;
-use alloy::primitives::address;
+use alloy::network::{EthereumWallet, TxSigner};
 use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
+    signers::{aws::AwsSigner, local::PrivateKeySigner},
     transports::http::reqwest::Url,
 };
+use aws_config::BehaviorVersion;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -24,17 +25,22 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tower_http::trace::TraceLayer;
+use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::{
     CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 
-pub use crate::config::GatewayConfig;
-
-const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
+pub use crate::config::{GatewayConfig, SignerConfig};
 
 mod config;
+mod create_batcher;
+mod ops_batcher;
+
+use create_batcher::{CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope};
+use ops_batcher::{OpEnvelope, OpKind, OpsBatcherHandle, OpsBatcherRunner};
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -66,30 +72,20 @@ struct AppState {
 }
 
 #[derive(Clone)]
-struct CreateBatcherHandle {
-    tx: mpsc::Sender<CreateReqEnvelope>,
-}
-
-#[derive(Clone)]
-struct OpsBatcherHandle {
-    tx: mpsc::Sender<OpEnvelope>,
-}
-
-#[derive(Clone)]
-struct RequestTracker {
+pub(crate) struct RequestTracker {
     inner: Arc<RwLock<std::collections::HashMap<String, RequestRecord>>>,
     seq: Arc<AtomicU64>,
 }
 
 impl RequestTracker {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             inner: Arc::new(RwLock::new(std::collections::HashMap::new())),
             seq: Arc::new(AtomicU64::new(1)),
         }
     }
 
-    async fn new_request(&self, kind: RequestKind) -> String {
+    pub(crate) async fn new_request(&self, kind: RequestKind) -> String {
         let id = self.seq.fetch_add(1, Ordering::Relaxed);
         let id = format!("{id:016x}");
         let record = RequestRecord {
@@ -100,7 +96,7 @@ impl RequestTracker {
         id
     }
 
-    async fn set_status_batch(&self, ids: &[String], status: RequestState) {
+    pub(crate) async fn set_status_batch(&self, ids: &[String], status: RequestState) {
         let mut map = self.inner.write().await;
         for id in ids {
             if let Some(rec) = map.get_mut(id) {
@@ -109,16 +105,16 @@ impl RequestTracker {
         }
     }
 
-    async fn set_status(&self, id: &str, status: RequestState) {
+    pub(crate) async fn set_status(&self, id: &str, status: RequestState) {
         self.set_status_batch(&[id.to_string()], status).await;
     }
 
-    async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
+    pub(crate) async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
         self.inner.read().await.get(id).cloned()
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 enum RequestKind {
     CreateAccount,
@@ -128,9 +124,9 @@ enum RequestKind {
     RecoverAccount,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ErrorCode {
+pub(crate) enum ErrorCode {
     /// Authenticator already exists for this account
     AuthenticatorAlreadyExists,
     /// Generic transaction revert
@@ -144,7 +140,7 @@ enum ErrorCode {
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
-enum GatewayError {
+pub(crate) enum GatewayError {
     #[error("Authenticator already exists")]
     AuthenticatorAlreadyExists,
     #[error("Transaction reverted on-chain (tx: {tx_hash})")]
@@ -160,7 +156,7 @@ enum GatewayError {
 }
 
 impl GatewayError {
-    fn error_code(&self) -> ErrorCode {
+    pub(crate) fn error_code(&self) -> ErrorCode {
         match self {
             GatewayError::AuthenticatorAlreadyExists => ErrorCode::AuthenticatorAlreadyExists,
             GatewayError::TransactionReverted { .. } => ErrorCode::TransactionReverted,
@@ -174,7 +170,7 @@ impl GatewayError {
         }
     }
 
-    fn from_contract_error(error: &str) -> Self {
+    pub(crate) fn from_contract_error(error: &str) -> Self {
         let msg_lower = error.to_lowercase();
 
         if msg_lower.contains("authenticator already exists") {
@@ -185,9 +181,9 @@ impl GatewayError {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(tag = "state", rename_all = "snake_case")]
-enum RequestState {
+pub(crate) enum RequestState {
     Queued,
     Batching,
     Submitted { tx_hash: String },
@@ -200,7 +196,7 @@ enum RequestState {
 }
 
 impl RequestState {
-    fn failed_from_error(err: GatewayError) -> Self {
+    pub(crate) fn failed_from_error(err: GatewayError) -> Self {
         RequestState::Failed {
             error: err.to_string(),
             error_code: Some(err.error_code()),
@@ -208,26 +204,56 @@ impl RequestState {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 struct RequestRecord {
     kind: RequestKind,
     status: RequestState,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct RequestStatusResponse {
     request_id: String,
     kind: RequestKind,
     status: RequestState,
 }
 
-alloy::sol! {
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    contract Multicall3 {
-        struct Call3 { address target; bool allowFailure; bytes callData; }
-        struct Result { bool success; bytes returnData; }
-        function aggregate3(Call3[] calldata calls) payable returns (Result[] memory returnData);
+#[derive(Debug, Serialize, ToSchema)]
+struct HealthResponse {
+    status: String,
+}
+
+async fn build_wallet(
+    signer_config: SignerConfig,
+    rpc_url: &str,
+) -> anyhow::Result<EthereumWallet> {
+    match signer_config {
+        SignerConfig::PrivateKey(pk) => {
+            let signer = pk
+                .parse::<PrivateKeySigner>()
+                .map_err(|e| anyhow::anyhow!("invalid private key: {}", e))?;
+            Ok(EthereumWallet::from(signer))
+        }
+        SignerConfig::AwsKms(key_id) => {
+            tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
+
+            // Create a temporary provider to fetch the chain ID
+            let url = Url::parse(rpc_url)?;
+            let temp_provider = ProviderBuilder::new().connect_http(url);
+            let chain_id = temp_provider.get_chain_id().await?;
+            tracing::info!("Fetched chain_id: {}", chain_id);
+
+            // Initialize AWS KMS signer with the chain ID
+            let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+            let client = aws_sdk_kms::Client::new(&config);
+            let aws_signer = AwsSigner::new(client, key_id, Some(chain_id))
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {}", e))?;
+            tracing::info!(
+                "AWS KMS signer initialized with address: {}",
+                aws_signer.address()
+            );
+            Ok(EthereumWallet::from(aws_signer))
+        }
     }
 }
 
@@ -255,7 +281,7 @@ impl ApiError {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct ErrorBody {
     error: String,
 }
@@ -277,14 +303,17 @@ fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
     s.parse().map_err(|e| ApiError::bad_req(field, e))
 }
 
-fn build_app(
+async fn build_app(
     registry_addr: Address,
     rpc_url: String,
-    ethereum_wallet: EthereumWallet,
+    signer_config: SignerConfig,
     batch_ms: u64,
-) -> Router {
-    let provider = build_provider(&rpc_url, ethereum_wallet).expect("failed to build provider");
-    tracing::info!("✔️ RPC Provider built");
+    max_create_batch_size: usize,
+    max_ops_batch_size: usize,
+) -> anyhow::Result<Router> {
+    let ethereum_wallet = build_wallet(signer_config, &rpc_url).await?;
+    let provider = build_provider(&rpc_url, ethereum_wallet)?;
+    tracing::info!("RPC Provider built");
     let tracker = RequestTracker::new();
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -292,6 +321,7 @@ fn build_app(
         provider.clone(),
         registry_addr,
         Duration::from_millis(batch_ms),
+        max_create_batch_size,
         rx,
         tracker.clone(),
     );
@@ -304,12 +334,13 @@ fn build_app(
         provider.clone(),
         registry_addr,
         Duration::from_millis(batch_ms),
+        max_ops_batch_size,
         orx,
         tracker.clone(),
     );
     tokio::spawn(ops_runner.run());
 
-    tracing::info!("✔️ Ops batcher initialized");
+    tracing::info!("Ops batcher initialized");
 
     let state = AppState {
         registry_addr,
@@ -319,11 +350,11 @@ fn build_app(
         tracker,
     };
 
-    Router::new()
+    Ok(Router::new()
         .route("/health", get(health))
         // account creation (batched)
         .route("/create-account", post(create_account))
-        .route("/status/:id", get(request_status))
+        .route("/status/{id}", get(request_status))
         // single tx endpoints
         .route("/update-authenticator", post(update_authenticator))
         .route("/insert-authenticator", post(insert_authenticator))
@@ -332,20 +363,25 @@ fn build_app(
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
         .with_state(state)
+        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
-        )))
+        ))))
 }
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
+    let signer_config = cfg.signer_config()?;
     let app = build_app(
         cfg.registry_addr,
         cfg.rpc_url,
-        cfg.ethereum_wallet,
+        signer_config,
         cfg.batch_ms,
-    );
+        cfg.max_create_batch_size,
+        cfg.max_ops_batch_size,
+    )
+    .await?;
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
     let addr = listener.local_addr()?;
@@ -365,587 +401,33 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> anyhow::Result<()> {
     let cfg = GatewayConfig::from_env();
-    tracing::info!("✔️ Config is ready. Building app...");
+    let signer_config = cfg.signer_config()?;
+    tracing::info!("Config is ready. Building app...");
     let app = build_app(
         cfg.registry_addr,
         cfg.rpc_url,
-        cfg.ethereum_wallet,
+        signer_config,
         cfg.batch_ms,
-    );
+        cfg.max_create_batch_size,
+        cfg.max_ops_batch_size,
+    )
+    .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
-    tracing::info!("✔️ HTTP server listening on {}", cfg.listen_addr);
+    tracing::info!("HTTP server listening on {}", cfg.listen_addr);
     axum::serve(listener, app).await?;
     Ok(())
 }
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "General status check for the server", body = HealthResponse)
+    ),
+    tag = "Gateway"
+)]
 async fn health() -> impl IntoResponse {
     (StatusCode::OK, Json(serde_json::json!({"status":"ok"})))
-}
-
-#[derive(Debug)]
-struct CreateReqEnvelope {
-    id: String,
-    req: CreateAccountRequest,
-}
-
-struct CreateBatcherRunner {
-    rx: mpsc::Receiver<CreateReqEnvelope>,
-    provider: DynProvider,
-    registry: Address,
-    window: Duration,
-    tracker: RequestTracker,
-}
-
-impl CreateBatcherRunner {
-    fn new(
-        provider: DynProvider,
-        registry: Address,
-        window: Duration,
-        rx: mpsc::Receiver<CreateReqEnvelope>,
-        tracker: RequestTracker,
-    ) -> Self {
-        Self {
-            rx,
-            provider,
-            registry,
-            window,
-            tracker,
-        }
-    }
-    async fn run(mut self) {
-        let provider = self.provider.clone();
-        let contract = AccountRegistry::new(self.registry, provider);
-
-        loop {
-            let Some(first) = self.rx.recv().await else {
-                tracing::info!("create batcher channel closed");
-                return;
-            };
-
-            let mut batch = vec![first];
-            let deadline = tokio::time::Instant::now() + self.window;
-            while tokio::time::timeout_at(deadline, async {
-                let next = self.rx.try_recv().ok();
-                if let Some(req) = next {
-                    batch.push(req);
-                    true
-                } else {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    true
-                }
-            })
-            .await
-            .is_ok()
-            {}
-
-            let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
-            self.tracker
-                .set_status_batch(&ids, RequestState::Batching)
-                .await;
-
-            let mut recovery_addresses: Vec<Address> = Vec::new();
-            let mut auths: Vec<Vec<Address>> = Vec::new();
-            let mut pubkeys: Vec<Vec<U256>> = Vec::new();
-            let mut commits: Vec<U256> = Vec::new();
-
-            for env in &batch {
-                recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
-                auths.push(env.req.authenticator_addresses.clone());
-                pubkeys.push(env.req.authenticator_pubkeys.clone());
-                commits.push(env.req.offchain_signer_commitment);
-            }
-
-            let call = contract.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
-            match call.send().await {
-                Ok(builder) => {
-                    let hash = format!("0x{:x}", builder.tx_hash());
-                    self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Submitted {
-                                tx_hash: hash.clone(),
-                            },
-                        )
-                        .await;
-
-                    let tracker = self.tracker.clone();
-                    let ids_for_receipt = ids.clone();
-                    tokio::spawn(async move {
-                        match builder.get_receipt().await {
-                            Ok(receipt) => {
-                                if receipt.status() {
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            RequestState::Finalized {
-                                                tx_hash: hash.clone(),
-                                            },
-                                        )
-                                        .await;
-                                } else {
-                                    let err = GatewayError::TransactionReverted {
-                                        tx_hash: hash.clone(),
-                                    };
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            RequestState::failed_from_error(err),
-                                        )
-                                        .await;
-                                }
-                            }
-                            Err(err) => {
-                                let err = GatewayError::ConfirmationError {
-                                    message: err.to_string(),
-                                };
-                                tracker
-                                    .set_status_batch(
-                                        &ids_for_receipt,
-                                        RequestState::failed_from_error(err),
-                                    )
-                                    .await;
-                            }
-                        }
-                    });
-                }
-                Err(err) => {
-                    tracing::error!(error = %err, "create batch send failed");
-                    let err = GatewayError::Unknown(err.to_string());
-                    self.tracker
-                        .set_status_batch(&ids, RequestState::failed_from_error(err))
-                        .await;
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum OpKind {
-    Update {
-        account_index: U256,
-        old_authenticator_address: Address,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: U256,
-        new_pubkey: U256,
-    },
-    Insert {
-        account_index: U256,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: U256,
-        new_pubkey: U256,
-    },
-    Remove {
-        account_index: U256,
-        authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: U256,
-        authenticator_pubkey: U256,
-    },
-    Recover {
-        account_index: U256,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        new_pubkey: U256,
-    },
-}
-
-#[derive(Debug)]
-struct OpEnvelope {
-    id: String,
-    kind: OpKind,
-}
-
-struct OpsBatcherRunner {
-    rx: mpsc::Receiver<OpEnvelope>,
-    provider: DynProvider,
-    registry: Address,
-    window: Duration,
-    tracker: RequestTracker,
-}
-
-impl OpsBatcherRunner {
-    fn new(
-        provider: DynProvider,
-        registry: Address,
-        window: Duration,
-        rx: mpsc::Receiver<OpEnvelope>,
-        tracker: RequestTracker,
-    ) -> Self {
-        Self {
-            rx,
-            provider,
-            registry,
-            window,
-            tracker,
-        }
-    }
-
-    /// Simulate an operation to check if it would revert without spending gas
-    async fn simulate_operation(
-        contract: &AccountRegistry::AccountRegistryInstance<DynProvider>,
-        kind: &OpKind,
-    ) -> Result<(), String> {
-        match kind {
-            OpKind::Update {
-                account_index,
-                old_authenticator_address,
-                new_authenticator_address,
-                old_commit,
-                new_commit,
-                signature,
-                sibling_nodes,
-                nonce,
-                pubkey_id,
-                new_pubkey,
-            } => {
-                contract
-                    .updateAuthenticator(
-                        *account_index,
-                        *old_authenticator_address,
-                        *new_authenticator_address,
-                        *pubkey_id,
-                        *new_pubkey,
-                        *old_commit,
-                        *new_commit,
-                        signature.clone(),
-                        sibling_nodes.clone(),
-                        *nonce,
-                    )
-                    .call()
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
-            OpKind::Insert {
-                account_index,
-                new_authenticator_address,
-                old_commit,
-                new_commit,
-                signature,
-                sibling_nodes,
-                nonce,
-                pubkey_id,
-                new_pubkey,
-            } => {
-                contract
-                    .insertAuthenticator(
-                        *account_index,
-                        *new_authenticator_address,
-                        *pubkey_id,
-                        *new_pubkey,
-                        *old_commit,
-                        *new_commit,
-                        signature.clone(),
-                        sibling_nodes.clone(),
-                        *nonce,
-                    )
-                    .call()
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
-            OpKind::Remove {
-                account_index,
-                authenticator_address,
-                old_commit,
-                new_commit,
-                signature,
-                sibling_nodes,
-                nonce,
-                pubkey_id,
-                authenticator_pubkey,
-            } => {
-                contract
-                    .removeAuthenticator(
-                        *account_index,
-                        *authenticator_address,
-                        *pubkey_id,
-                        *authenticator_pubkey,
-                        *old_commit,
-                        *new_commit,
-                        signature.clone(),
-                        sibling_nodes.clone(),
-                        *nonce,
-                    )
-                    .call()
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
-            OpKind::Recover {
-                account_index,
-                new_authenticator_address,
-                old_commit,
-                new_commit,
-                signature,
-                sibling_nodes,
-                nonce,
-                new_pubkey,
-            } => {
-                contract
-                    .recoverAccount(
-                        *account_index,
-                        *new_authenticator_address,
-                        *new_pubkey,
-                        *old_commit,
-                        *new_commit,
-                        signature.clone(),
-                        sibling_nodes.clone(),
-                        *nonce,
-                    )
-                    .call()
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
-        }
-    }
-
-    async fn run(mut self) {
-        let provider = self.provider.clone();
-        let contract = AccountRegistry::new(self.registry, provider.clone());
-        let mc = Multicall3::new(MULTICALL3_ADDR, provider);
-
-        loop {
-            let Some(first) = self.rx.recv().await else {
-                tracing::info!("ops batcher channel closed");
-                return;
-            };
-
-            // Simulate the first operation before starting a batch
-            if let Err(sim_error) = Self::simulate_operation(&contract, &first.kind).await {
-                tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
-                let err = GatewayError::PreFlightFailed {
-                    message: sim_error,
-                };
-                self.tracker
-                    .set_status(&first.id, RequestState::failed_from_error(err))
-                    .await;
-                continue; // Skip this operation and wait for the next one
-            }
-
-            let mut batch = vec![first];
-            let deadline = tokio::time::Instant::now() + self.window;
-            while tokio::time::timeout_at(deadline, async {
-                let next = self.rx.try_recv().ok();
-                if let Some(req) = next {
-                    // Simulate each additional operation before adding to batch
-                    if let Err(sim_error) = Self::simulate_operation(&contract, &req.kind).await {
-                        tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
-                        let err = GatewayError::PreFlightFailed {
-                            message: sim_error,
-                        };
-                        self.tracker
-                            .set_status(&req.id, RequestState::failed_from_error(err))
-                            .await;
-                        // Skip this operation but continue batching
-                    } else {
-                        batch.push(req);
-                    }
-                    true
-                } else {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    true
-                }
-            })
-            .await
-            .is_ok()
-            {}
-
-            let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
-            self.tracker
-                .set_status_batch(&ids, RequestState::Batching)
-                .await;
-
-            let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
-            for env in &batch {
-                let data: alloy::primitives::Bytes = match &env.kind {
-                    OpKind::Update {
-                        account_index,
-                        old_authenticator_address,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        new_pubkey,
-                    } => contract
-                        .updateAuthenticator(
-                            *account_index,
-                            *old_authenticator_address,
-                            *new_authenticator_address,
-                            *pubkey_id,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Insert {
-                        account_index,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        new_pubkey,
-                    } => contract
-                        .insertAuthenticator(
-                            *account_index,
-                            *new_authenticator_address,
-                            *pubkey_id,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Remove {
-                        account_index,
-                        authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        authenticator_pubkey,
-                    } => contract
-                        .removeAuthenticator(
-                            *account_index,
-                            *authenticator_address,
-                            *pubkey_id,
-                            *authenticator_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Recover {
-                        account_index,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        new_pubkey,
-                    } => contract
-                        .recoverAccount(
-                            *account_index,
-                            *new_authenticator_address,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                };
-                calls.push(Multicall3::Call3 {
-                    target: self.registry,
-                    allowFailure: false,
-                    callData: data,
-                });
-            }
-
-            let res = mc.aggregate3(calls).send().await;
-            match res {
-                Ok(builder) => {
-                    let hash = format!("0x{:x}", builder.tx_hash());
-                    self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Submitted {
-                                tx_hash: hash.clone(),
-                            },
-                        )
-                        .await;
-
-                    let tracker = self.tracker.clone();
-                    let ids_for_receipt = ids.clone();
-                    tokio::spawn(async move {
-                        match builder.get_receipt().await {
-                            Ok(receipt) => {
-                                if receipt.status() {
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            RequestState::Finalized {
-                                                tx_hash: hash.clone(),
-                                            },
-                                        )
-                                        .await;
-                                } else {
-                                    let err = GatewayError::TransactionReverted {
-                                        tx_hash: hash.clone(),
-                                    };
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            RequestState::failed_from_error(err),
-                                        )
-                                        .await;
-                                }
-                            }
-                            Err(err) => {
-                                let err = GatewayError::ConfirmationError {
-                                    message: err.to_string(),
-                                };
-                                tracker
-                                    .set_status_batch(
-                                        &ids_for_receipt,
-                                        RequestState::failed_from_error(err),
-                                    )
-                                    .await;
-                            }
-                        }
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "multicall3 send failed");
-                    let err = GatewayError::Unknown(e.to_string());
-                    self.tracker
-                        .set_status_batch(&ids, RequestState::failed_from_error(err))
-                        .await;
-                }
-            }
-        }
-    }
 }
 
 async fn create_account(
@@ -1015,10 +497,7 @@ async fn update_authenticator(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                    error_code: Some(ErrorCode::BatcherUnavailable),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("ops batcher unavailable".into()));
@@ -1067,10 +546,7 @@ async fn insert_authenticator(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                    error_code: Some(ErrorCode::BatcherUnavailable),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("ops batcher unavailable".into()));
@@ -1119,10 +595,7 @@ async fn remove_authenticator(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                    error_code: Some(ErrorCode::BatcherUnavailable),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("ops batcher unavailable".into()));
@@ -1167,10 +640,7 @@ async fn recover_account(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                    error_code: Some(ErrorCode::BatcherUnavailable),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("ops batcher unavailable".into()));
@@ -1210,9 +680,15 @@ async fn request_status(
     Ok((StatusCode::OK, Json(body)))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 struct IsValidRootQuery {
+    #[schema(value_type = String, format = "decimal")]
     root: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct IsValidRootResponse {
+    valid: bool,
 }
 
 async fn is_valid_root(
@@ -1228,3 +704,119 @@ async fn is_valid_root(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
 }
+
+#[utoipa::path(
+    post,
+    path = "/create-account",
+    request_body = CreateAccountRequest,
+    responses(
+        (status = 202, description = "TODO", body = RequestStatusResponse),
+        (status = 500, description = "TODO", body = ErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_create_account(_: State<AppState>, _: Json<CreateAccountRequest>) {}
+
+#[utoipa::path(
+    get,
+    path = "/status/{id}",
+    params(
+        ("id" = String, Path, description = "TODO")
+    ),
+    responses(
+        (status = 200, description = "TODO", body = RequestStatusResponse),
+        (status = 404, description = "TODO", body = ErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_request_status(_: State<AppState>, _: Path<String>) {}
+
+#[utoipa::path(
+    post,
+    path = "/update-authenticator",
+    request_body = UpdateAuthenticatorRequest,
+    responses(
+        (status = 202, description = "TODO", body = RequestStatusResponse),
+        (status = 500, description = "TODO", body = ErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_update_authenticator(_: State<AppState>, _: Json<UpdateAuthenticatorRequest>) {}
+
+#[utoipa::path(
+    post,
+    path = "/insert-authenticator",
+    request_body = InsertAuthenticatorRequest,
+    responses(
+        (status = 202, description = "TODO", body = RequestStatusResponse),
+        (status = 500, description = "TODO", body = ErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_insert_authenticator(_: State<AppState>, _: Json<InsertAuthenticatorRequest>) {}
+
+#[utoipa::path(
+    post,
+    path = "/remove-authenticator",
+    request_body = RemoveAuthenticatorRequest,
+    responses(
+        (status = 202, description = "TODO", body = RequestStatusResponse),
+        (status = 500, description = "TODO", body = ErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_remove_authenticator(_: State<AppState>, _: Json<RemoveAuthenticatorRequest>) {}
+
+#[utoipa::path(
+    post,
+    path = "/recover-account",
+    request_body = RecoverAccountRequest,
+    responses(
+        (status = 202, description = "TODO", body = RequestStatusResponse),
+        (status = 500, description = "TODO", body = ErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>) {}
+
+#[utoipa::path(
+    get,
+    path = "/is-valid-root",
+    params(IsValidRootQuery),
+    responses(
+        (status = 200, description = "TODO", body = IsValidRootResponse),
+        (status = 400, description = "TODO", body = ErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidRootQuery>) {}
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        health,
+        _doc_create_account,
+        _doc_request_status,
+        _doc_update_authenticator,
+        _doc_insert_authenticator,
+        _doc_remove_authenticator,
+        _doc_recover_account,
+        _doc_is_valid_root
+    ),
+    components(schemas(
+        ErrorBody,
+        RequestKind,
+        RequestState,
+        RequestStatusResponse,
+        HealthResponse,
+        IsValidRootQuery,
+        IsValidRootResponse,
+        CreateAccountRequest,
+        UpdateAuthenticatorRequest,
+        InsertAuthenticatorRequest,
+        RemoveAuthenticatorRequest,
+        RecoverAccountRequest
+    )),
+    tags((name = "Gateway", description = "TODO"))
+)]
+struct ApiDoc;
