@@ -315,6 +315,24 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 expectedRecoveryCounter = accountIndexToRecoveryCounter[accountIndex];
         if (actualRecoveryCounter != expectedRecoveryCounter) {
             revert MismatchedRecoveryCounter(accountIndex, expectedRecoveryCounter, actualRecoveryCounter);
+        }    
+    }
+
+    /**
+     * @dev Validates that an authenticator address is not in use, or if it was previously used,
+     * the account has been recovered (recovery counter increased), making the address available again.
+     * @param authenticatorAddress The authenticator address to validate.
+     */
+    function _validateAuthenticatorAddressNotInUse(address authenticatorAddress) internal view {
+        uint256 packedAccountIndex = authenticatorAddressToPackedAccountIndex[authenticatorAddress];
+        // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
+        // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
+        if (packedAccountIndex != 0) {
+            uint256 existingAccountIndex = PackedAccountIndex.accountIndex(packedAccountIndex);
+            uint256 existingRecoveryCounter = PackedAccountIndex.recoveryCounter(packedAccountIndex);
+            if (existingRecoveryCounter >= accountRecoveryCounter[existingAccountIndex]) {
+                revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
+            }
         }
     }
 
@@ -341,22 +359,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
-            if (authenticatorAddress == address(0)) {
-                revert ZeroAddress();
-            }
+            require(authenticatorAddress != address(0), "Authenticator cannot be the zero address");
 
-            uint256 packedAccountIndex = authenticatorAddressToPackedAccountData[authenticatorAddress];
-            // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
-            // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
-            if (packedAccountIndex != 0) {
-                uint256 existingAccountIndex = PackedAccountData.accountIndex(packedAccountIndex);
-                uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountIndex);
-                if (existingRecoveryCounter >= accountIndexToRecoveryCounter[existingAccountIndex]) {
-                    revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
-                }
-            }
-            authenticatorAddressToPackedAccountData[authenticatorAddress] =
-                PackedAccountData.pack(accountIndex, 0, uint32(i));
+            _validateAuthenticatorAddressNotInUse(authenticatorAddress);
+            authenticatorAddressToPackedAccountIndex[authenticatorAddress] =
+                PackedAccountIndex.pack(accountIndex, 0, uint32(i));
         }
 
         emit AccountCreated(
@@ -444,6 +451,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (oldAuthenticatorAddress != newAuthenticatorAddress) {
             revert ReusedAuthenticatorAddress();
         }
+        _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
 
         if (newAuthenticatorAddress == address(0)) {
             revert ZeroAddress();
@@ -528,6 +536,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (authenticatorAddressToPackedAccountData[newAuthenticatorAddress] != 0) {
             revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
         }
+        _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
 
         if (uint256(uint32(pubkeyId)) != pubkeyId) {
             revert PubkeyIdOverflow(pubkeyId);
