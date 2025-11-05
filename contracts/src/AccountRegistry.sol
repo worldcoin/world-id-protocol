@@ -327,19 +327,22 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Validates that an authenticator address is not in use, or if it was previously used,
+     * @dev Validates that a new authenticator address is valid (not zero) and not in use, or if it was previously used,
      * the account has been recovered (recovery counter increased), making the address available again.
-     * @param authenticatorAddress The authenticator address to validate.
+     * @param newAuthenticatorAddress The new authenticator address to validate.
      */
-    function _validateAuthenticatorAddressNotInUse(address authenticatorAddress) internal view {
-        uint256 packedAccountData = authenticatorAddressToPackedAccountData[authenticatorAddress];
+    function _validateNewAuthenticatorAddress(address newAuthenticatorAddress) internal view {
+        if (newAuthenticatorAddress == address(0)) {
+            revert ZeroAddress();
+        }
+        uint256 packedAccountData = authenticatorAddressToPackedAccountData[newAuthenticatorAddress];
         // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
         // accountIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
         if (packedAccountData != 0) {
             uint256 existingAccountIndex = PackedAccountData.accountIndex(packedAccountData);
             uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
             if (existingRecoveryCounter >= accountIndexToRecoveryCounter[existingAccountIndex]) {
-                revert AuthenticatorAddressAlreadyInUse(authenticatorAddress);
+                revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
             }
         }
     }
@@ -362,9 +365,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
-            require(authenticatorAddress != address(0), "Authenticator cannot be the zero address");
-
-            _validateAuthenticatorAddressNotInUse(authenticatorAddress);
+            _validateNewAuthenticatorAddress(authenticatorAddress);
             authenticatorAddressToPackedAccountData[authenticatorAddress] =
                 PackedAccountData.pack(accountIndex, uint32(0), uint32(i));
         }
@@ -454,14 +455,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (oldAuthenticatorAddress == newAuthenticatorAddress) {
             revert ReusedAuthenticatorAddress();
         }
-        _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
-
-        if (newAuthenticatorAddress == address(0)) {
-            revert ZeroAddress();
-        }
         if (uint256(uint32(pubkeyId)) != pubkeyId) {
             revert PubkeyIdOverflow(pubkeyId);
         }
+
+        _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -533,17 +531,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (newAuthenticatorAddress == address(0)) {
-            revert ZeroAddress();
-        }
-        if (authenticatorAddressToPackedAccountData[newAuthenticatorAddress] != 0) {
-            revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
-        }
-        _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
-
         if (uint256(uint32(pubkeyId)) != pubkeyId) {
             revert PubkeyIdOverflow(pubkeyId);
         }
+
+        _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -709,12 +701,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (signatureRecoveredAddress != recoverySigner) {
             revert MismatchedAuthenticatorSigner(recoverySigner, signatureRecoveredAddress);
         }
-        if (authenticatorAddressToPackedAccountData[newAuthenticatorAddress] != 0) {
-            revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
-        }
-        if (newAuthenticatorAddress == address(0)) {
-            revert ZeroAddress();
-        }
+        _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
         accountIndexToRecoveryCounter[accountIndex]++;
 
