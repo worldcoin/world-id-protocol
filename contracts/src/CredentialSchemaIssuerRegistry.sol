@@ -15,6 +15,16 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     error ImplementationNotInitialized();
 
+    /**
+     * @dev Thrown when trying to update the schema URI to the same as the current one.
+     */
+    error SchemaUriIsTheSameAsCurrentOne();
+
+    /**
+     * @dev Thrown when the provided signature is invalid for the operation.
+     */
+    error InvalidSignature();
+
     modifier onlyInitialized() {
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
@@ -119,7 +129,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
             keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId]))
         );
         address signer = ECDSA.recover(hash, signature);
-        require(_idToAddress[issuerSchemaId] == signer, "Registry: invalid signature");
+        require(_idToAddress[issuerSchemaId] == signer, InvalidSignature());
 
         emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
 
@@ -142,7 +152,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
             keccak256(abi.encode(UPDATE_PUBKEY_TYPEHASH, issuerSchemaId, newPubkey, oldPubkey, _nonces[issuerSchemaId]))
         );
         address signer = ECDSA.recover(hash, signature);
-        require(_idToAddress[issuerSchemaId] == signer, "Registry: invalid signature");
+        require(_idToAddress[issuerSchemaId] == signer, InvalidSignature());
 
         _idToPubkey[issuerSchemaId] = newPubkey;
         emit IssuerSchemaPubkeyUpdated(issuerSchemaId, oldPubkey, newPubkey, signer);
@@ -164,7 +174,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
             keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId]))
         );
         address oldSigner = ECDSA.recover(hash, signature);
-        require(_idToAddress[issuerSchemaId] == oldSigner, "Registry: invalid signature");
+        require(_idToAddress[issuerSchemaId] == oldSigner, InvalidSignature());
 
         _idToAddress[issuerSchemaId] = newSigner;
         emit IssuerSchemaSignerUpdated(issuerSchemaId, oldSigner, newSigner);
@@ -203,7 +213,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         require(issuerSchemaId != 0, "Schema ID not registered");
         require(
             keccak256(bytes(schemaUri)) != keccak256(bytes(idToSchemaUri[issuerSchemaId])),
-            "Registry: schema URI is the same as the current one"
+            SchemaUriIsTheSameAsCurrentOne()
         );
 
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
@@ -213,7 +223,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
             )
         );
         address signer = ECDSA.recover(hash, signature);
-        require(_idToAddress[issuerSchemaId] == signer, "Registry: invalid signature");
+        require(_idToAddress[issuerSchemaId] == signer, InvalidSignature());
 
         string memory oldSchemaUri = idToSchemaUri[issuerSchemaId];
         idToSchemaUri[issuerSchemaId] = schemaUri;

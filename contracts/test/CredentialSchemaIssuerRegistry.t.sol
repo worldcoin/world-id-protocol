@@ -184,7 +184,7 @@ contract CredentialIssuerRegistryTest is Test {
         registry.register(_generatePubkey("k"), signer);
 
         bytes memory updateSig = _signUpdateIssuerSchemaUri(badSk, 1, "https://world.org/schemas/malicious.json", 0);
-        vm.expectRevert(bytes("Registry: invalid signature"));
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidSignature.selector));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/malicious.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "");
     }
@@ -206,7 +206,7 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.nonceOf(1), 2);
 
         // Replay the old update
-        vm.expectRevert(bytes("Registry: invalid signature"));
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidSignature.selector));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb_old.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb_new.json");
         assertEq(registry.nonceOf(1), 2);
@@ -222,7 +222,7 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
 
         updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb.json", 1);
-        vm.expectRevert(bytes("Registry: schema URI is the same as the current one"));
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.SchemaUriIsTheSameAsCurrentOne.selector));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
     }
@@ -251,14 +251,14 @@ contract CredentialIssuerRegistryTest is Test {
         registry.remove(1, removeSig);
 
         bytes memory updateSig = _signUpdateIssuerSchemaUri(signerPk, 1, "https://world.org/schemas/orb.json", 1);
-        vm.expectRevert(bytes("Registry: invalid signature"));
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidSignature.selector));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
     }
 
     function testCannotUpdateSchemaUriForNonExistentIssuer() public {
         uint256 signerPk = 0xAAAA;
         bytes memory updateSig = _signUpdateIssuerSchemaUri(signerPk, 999, "https://world.org/schemas/orb.json", 0);
-        vm.expectRevert(bytes("Registry: invalid signature"));
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidSignature.selector));
         registry.updateIssuerSchemaUri(999, "https://world.org/schemas/orb.json", updateSig);
     }
 }
