@@ -123,25 +123,23 @@ impl OpsBatcherRunner {
                 nonce,
                 pubkey_id,
                 new_pubkey,
-            } => {
-                contract
-                    .updateAuthenticator(
-                        *account_index,
-                        *old_authenticator_address,
-                        *new_authenticator_address,
-                        *pubkey_id,
-                        *new_pubkey,
-                        *old_commit,
-                        *new_commit,
-                        signature.clone(),
-                        sibling_nodes.clone(),
-                        *nonce,
-                    )
-                    .call()
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
+            } => contract
+                .updateAuthenticator(
+                    *account_index,
+                    *old_authenticator_address,
+                    *new_authenticator_address,
+                    *pubkey_id,
+                    *new_pubkey,
+                    *old_commit,
+                    *new_commit,
+                    signature.clone(),
+                    sibling_nodes.clone(),
+                    *nonce,
+                )
+                .call()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
             OpKind::Insert {
                 account_index,
                 new_authenticator_address,
@@ -152,24 +150,22 @@ impl OpsBatcherRunner {
                 nonce,
                 pubkey_id,
                 new_pubkey,
-            } => {
-                contract
-                    .insertAuthenticator(
-                        *account_index,
-                        *new_authenticator_address,
-                        *pubkey_id,
-                        *new_pubkey,
-                        *old_commit,
-                        *new_commit,
-                        signature.clone(),
-                        sibling_nodes.clone(),
-                        *nonce,
-                    )
-                    .call()
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
+            } => contract
+                .insertAuthenticator(
+                    *account_index,
+                    *new_authenticator_address,
+                    *pubkey_id,
+                    *new_pubkey,
+                    *old_commit,
+                    *new_commit,
+                    signature.clone(),
+                    sibling_nodes.clone(),
+                    *nonce,
+                )
+                .call()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
             OpKind::Remove {
                 account_index,
                 authenticator_address,
@@ -180,24 +176,22 @@ impl OpsBatcherRunner {
                 nonce,
                 pubkey_id,
                 authenticator_pubkey,
-            } => {
-                contract
-                    .removeAuthenticator(
-                        *account_index,
-                        *authenticator_address,
-                        *pubkey_id,
-                        *authenticator_pubkey,
-                        *old_commit,
-                        *new_commit,
-                        signature.clone(),
-                        sibling_nodes.clone(),
-                        *nonce,
-                    )
-                    .call()
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
+            } => contract
+                .removeAuthenticator(
+                    *account_index,
+                    *authenticator_address,
+                    *pubkey_id,
+                    *authenticator_pubkey,
+                    *old_commit,
+                    *new_commit,
+                    signature.clone(),
+                    sibling_nodes.clone(),
+                    *nonce,
+                )
+                .call()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
             OpKind::Recover {
                 account_index,
                 new_authenticator_address,
@@ -207,23 +201,21 @@ impl OpsBatcherRunner {
                 sibling_nodes,
                 nonce,
                 new_pubkey,
-            } => {
-                contract
-                    .recoverAccount(
-                        *account_index,
-                        *new_authenticator_address,
-                        *new_pubkey,
-                        *old_commit,
-                        *new_commit,
-                        signature.clone(),
-                        sibling_nodes.clone(),
-                        *nonce,
-                    )
-                    .call()
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
+            } => contract
+                .recoverAccount(
+                    *account_index,
+                    *new_authenticator_address,
+                    *new_pubkey,
+                    *old_commit,
+                    *new_commit,
+                    signature.clone(),
+                    sibling_nodes.clone(),
+                    *nonce,
+                )
+                .call()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
         }
     }
 
@@ -263,7 +255,8 @@ impl OpsBatcherRunner {
                 match tokio::time::timeout_at(deadline, self.rx.recv()).await {
                     Ok(Some(req)) => {
                         // Simulate each additional operation before adding to batch
-                        if let Err(sim_error) = Self::simulate_operation(&contract, &req.kind).await {
+                        if let Err(sim_error) = Self::simulate_operation(&contract, &req.kind).await
+                        {
                             tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
                             // Parse the error to get a specific error code if possible
                             let err = GatewayError::from_contract_error(&sim_error);
