@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-alloy = { workspace = true, default-features = false, features = ["contract", "reqwest", "rpc", "signer-local", "sol-types", "json"] }
+alloy = { workspace = true, default-features = false, features = ["contract", "reqwest", "rpc", "rpc-types", "signer-local", "sol-types", "json"] }
 alloy-node-bindings = "1.0.38"
 eyre = { workspace = true }
 hex = { workspace = true }

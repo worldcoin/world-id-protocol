@@ -1125,6 +1125,17 @@
   },
   {
     "type": "error",
+    "name": "AuthenticatorAddressAlreadyInUse",
+    "inputs": [
+      {
+        "name": "authenticatorAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ECDSAInvalidSignature",
     "inputs": []
   },
