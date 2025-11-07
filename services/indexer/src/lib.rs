@@ -25,6 +25,7 @@ use world_id_primitives::{
 };
 
 mod config;
+mod sanity_check;
 use crate::config::{HttpConfig, IndexerConfig, RunMode};
 pub use config::GlobalConfig;
 
@@ -112,7 +113,7 @@ fn tree_capacity() -> usize {
 }
 
 // Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
-static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
+pub(crate) static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
     LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
 
 async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
@@ -464,7 +465,8 @@ async fn run_both(
     let sanity_interval = indexer_cfg.sanity_check_interval_secs;
     let _sanity_handle = tokio::spawn(async move {
         if let Err(e) =
-            root_sanity_check_loop(sanity_rpc_url, sanity_registry, sanity_interval).await
+            sanity_check::root_sanity_check_loop(sanity_rpc_url, sanity_registry, sanity_interval)
+                .await
         {
             tracing::error!(?e, "Root sanity checker failed");
         }
