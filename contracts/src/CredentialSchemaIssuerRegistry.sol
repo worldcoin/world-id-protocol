@@ -116,7 +116,9 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     ////////////////////////////////////////////////////////////
 
     function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
-        require(!_isEmptyPubkey(pubkey), InvalidPubkey());
+        if (_isEmptyPubkey(pubkey)) {
+            revert InvalidPubkey();
+        }
         require(signer != address(0), "Registry: signer cannot be zero address");
 
         uint256 issuerSchemaId = _nextId;
@@ -152,7 +154,9 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
-        require(!_isEmptyPubkey(newPubkey), InvalidPubkey());
+        if (_isEmptyPubkey(newPubkey)) {
+            revert InvalidPubkey();
+        }
         bytes32 hash = _hashTypedDataV4(
             keccak256(abi.encode(UPDATE_PUBKEY_TYPEHASH, issuerSchemaId, newPubkey, oldPubkey, _nonces[issuerSchemaId]))
         );
