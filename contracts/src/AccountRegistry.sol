@@ -142,6 +142,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         tree.initWithDefaultZeroes(treeDepth);
+        _recordCurrentRoot();
         nextAccountIndex = 1;
     }
 
