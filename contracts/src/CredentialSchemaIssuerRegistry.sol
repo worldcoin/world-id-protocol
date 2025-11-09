@@ -25,6 +25,11 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      */
     error InvalidSignature();
 
+    /**
+     * @dev Thrown when the provided pubkey is invalid (for example if either coordinate is zero).
+     */
+    error InvalidPubkey();
+
     modifier onlyInitialized() {
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
@@ -111,7 +116,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     ////////////////////////////////////////////////////////////
 
     function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
-        require(pubkey.x != 0 && pubkey.y != 0, "Registry: pubkey cannot be zero");
+        require(!_isEmptyPubkey(pubkey), InvalidPubkey());
         require(signer != address(0), "Registry: signer cannot be zero address");
 
         uint256 issuerSchemaId = _nextId;
@@ -147,7 +152,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
-        require(!_isEmptyPubkey(newPubkey), "Registry: newPubkey cannot be zero");
+        require(!_isEmptyPubkey(newPubkey), InvalidPubkey());
         bytes32 hash = _hashTypedDataV4(
             keccak256(abi.encode(UPDATE_PUBKEY_TYPEHASH, issuerSchemaId, newPubkey, oldPubkey, _nonces[issuerSchemaId]))
         );
@@ -274,7 +279,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     }
 
     function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
-        return pubkey.x == 0 && pubkey.y == 0;
+        return pubkey.x == 0 || pubkey.y == 0;
     }
 
     ////////////////////////////////////////////////////////////
