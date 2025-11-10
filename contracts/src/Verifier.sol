@@ -66,6 +66,11 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     error OutdatedNullifier();
 
     /**
+     * @notice The nullifier is from the future
+     */
+    error NullifierFromFuture();
+
+    /**
      * @notice Emitted when the credential schema issuer registry is updated
      * @param oldCredentialSchemaIssuerRegistry Previous registry address
      * @param newCredentialSchemaIssuerRegistry New registry address
@@ -135,7 +140,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
 
         // do not allow proofs from the future
         if (proofTimestamp > block.timestamp) {
-            revert OutdatedNullifier();
+            revert NullifierFromFuture();
         }
         // do not allow proofs older than 5 hours
         if (proofTimestamp + 5 hours < block.timestamp) {
