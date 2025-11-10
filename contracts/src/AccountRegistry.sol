@@ -50,8 +50,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     // Root history tracking
     mapping(uint256 => uint256) public rootToTimestamp;
-    uint256 public rootValidityWindow;
-    uint256 public rootEpoch;
+    uint256 public latestRoot;
+    uint256 public rootValidityWindow = 3600;
 
     ////////////////////////////////////////////////////////////
     //                        Events                          //
@@ -99,7 +99,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
-    event RootRecorded(uint256 indexed root, uint256 timestamp, uint256 indexed rootEpoch);
+    event RootRecorded(uint256 indexed root, uint256 timestamp);
     event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
 
     ////////////////////////////////////////////////////////////
@@ -177,6 +177,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
      */
     function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
+        // The latest root is always valid.
+        if (root == latestRoot) return true;
+        // Check if the root is known and not expired
         uint256 ts = rootToTimestamp[root];
         if (ts == 0) return false;
         if (rootValidityWindow == 0) return true;
@@ -189,7 +192,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     function _recordCurrentRoot() internal virtual {
         uint256 root = tree.root;
         rootToTimestamp[root] = block.timestamp;
-        emit RootRecorded(root, block.timestamp, rootEpoch++);
+        latestRoot = root;
+        emit RootRecorded(root, block.timestamp);
     }
 
     function _updateLeafAndRecord(
