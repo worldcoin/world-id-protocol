@@ -45,6 +45,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     // accountIndex -> recoveryCounter, used for prevent replay attacks on recovery of accounts
     mapping(uint256 => uint256) public accountRecoveryCounter;
 
+    // accountIndex -> bitmap of registered pubkey IDs (up to MAX_PUBKEYS authenticators)
+    mapping(uint256 => uint256) public accountPubkeyBitmap;
+
     BinaryIMTData public tree;
     uint256 public nextAccountIndex;
 
@@ -105,6 +108,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
+
+    uint256 public constant MAX_PUBKEYS = 7;
 
     bytes32 public constant UPDATE_AUTHENTICATOR_TYPEHASH = keccak256(
         "UpdateAuthenticator(uint256 accountIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint256 pubkeyId,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
@@ -248,6 +253,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 offchainSignerCommitment
     ) internal virtual {
         require(authenticatorAddresses.length > 0, "authenticatorAddresses length must be greater than 0");
+        require(authenticatorAddresses.length <= MAX_PUBKEYS, "Cannot register more than MAX_PUBKEYS authenticators");
         require(
             authenticatorAddresses.length == authenticatorPubkeys.length,
             "authenticatorAddresses and authenticatorPubkeys length mismatch"
@@ -257,6 +263,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 accountIndex = nextAccountIndex;
         accountIndexToRecoveryAddress[accountIndex] = recoveryAddress;
 
+        uint256 bitmap = 0;
         for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
             require(authenticatorAddress != address(0), "Authenticator cannot be the zero address");
@@ -264,7 +271,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             _validateAuthenticatorAddressNotInUse(authenticatorAddress);
             authenticatorAddressToPackedAccountIndex[authenticatorAddress] =
                 PackedAccountIndex.pack(accountIndex, 0, uint32(i));
+            bitmap = bitmap | (1 << i);
         }
+        accountPubkeyBitmap[accountIndex] = bitmap;
 
         emit AccountCreated(
             accountIndex, recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment
@@ -355,6 +364,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
 
         require(uint256(uint32(pubkeyId)) == pubkeyId, "pubkeyId overflow");
+        require(pubkeyId < MAX_PUBKEYS, "pubkeyId must be less than MAX_PUBKEYS");
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -377,6 +387,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(signer == oldAuthenticatorAddress, "Invalid authenticator");
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
         require(PackedAccountIndex.pubkeyId(packedAccountIndex) == pubkeyId, "Invalid pubkeyId");
+        require((accountPubkeyBitmap[accountIndex] & (1 << pubkeyId)) != 0, "Pubkey ID does not exist");
 
         // Delete old authenticator
         delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
@@ -420,6 +431,10 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _validateAuthenticatorAddressNotInUse(newAuthenticatorAddress);
 
         require(uint256(uint32(pubkeyId)) == pubkeyId, "pubkeyId overflow");
+        require(pubkeyId < MAX_PUBKEYS, "pubkeyId must be less than MAX_PUBKEYS");
+
+        uint256 bitmap = accountPubkeyBitmap[accountIndex];
+        require((bitmap & (1 << pubkeyId)) == 0, "Pubkey ID already exists");
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -442,6 +457,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         // Add new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
             PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+        accountPubkeyBitmap[accountIndex] = bitmap | (1 << pubkeyId);
 
         // Update tree
         emit AuthenticatorInserted(
@@ -474,6 +490,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
+        require(pubkeyId < MAX_PUBKEYS, "pubkeyId must be less than MAX_PUBKEYS");
+
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -499,6 +517,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         // Delete authenticator
         delete authenticatorAddressToPackedAccountIndex[authenticatorAddress];
+        accountPubkeyBitmap[accountIndex] = accountPubkeyBitmap[accountIndex] & ~(1 << pubkeyId);
 
         // Update tree
         emit AuthenticatorRemoved(
@@ -562,6 +581,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
             PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(0));
+        accountPubkeyBitmap[accountIndex] = 1; // Reset to only pubkeyId 0
 
         emit AccountRecovered(
             accountIndex,
