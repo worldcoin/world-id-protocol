@@ -33,21 +33,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
-    // accountIndex -> recoveryAddress, used for recovery of accounts
-    // accountIndex -> packed recovery address (160 bits) + pubkey bitmap (96 bits)
-    // Bits 0-159: recovery address
-    // Bits 160-255: pubkey bitmap (up to MAX_PUBKEYS authenticators)
+    // accountIndex -> [96 bits bitmap of pubkeyIds][160 bits recoveryAddress]
     mapping(uint256 => uint256) internal _accountIndexToRecoveryAddressPacked;
-
-    // Public getter for recovery address (for backward compatibility)
-    function accountIndexToRecoveryAddress(uint256 accountIndex) public view returns (address) {
-        return _getRecoveryAddress(accountIndex);
-    }
-
-    // Public getter for pubkey bitmap
-    function accountPubkeyBitmap(uint256 accountIndex) public view returns (uint256) {
-        return _getPubkeyBitmap(accountIndex);
-    }
 
     // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
     mapping(address => uint256) public authenticatorAddressToPackedAccountIndex;
@@ -179,6 +166,21 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
+     * @dev Returns the recovery address for the given account index.
+     * @param accountIndex The index of the account.
+     */
+    function accountIndexToRecoveryAddress(uint256 accountIndex)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (address)
+    {
+        return _getRecoveryAddress(accountIndex);
+    }
+
+    /**
      * @dev Sets the validity window for historic roots. 0 means roots never expire.
      */
     function setRootValidityWindow(uint256 newWindow) external virtual onlyOwner onlyProxy onlyInitialized {
@@ -198,16 +200,22 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Helper functions for packing/unpacking recovery address and pubkey bitmap
+     * @dev Helper function to get recovery address from packed
      */
     function _getRecoveryAddress(uint256 accountIndex) internal view returns (address) {
         return address(uint160(_accountIndexToRecoveryAddressPacked[accountIndex]));
     }
 
+    /**
+     * @dev Helper function to get pubkey bitmap from packed
+     */
     function _getPubkeyBitmap(uint256 accountIndex) internal view returns (uint256) {
-        return _accountIndexToRecoveryAddressPacked[accountIndex] >> 160; // 96 bits (160-255)
+        return _accountIndexToRecoveryAddressPacked[accountIndex] >> 160;
     }
 
+    /**
+     * @dev Helper function to set pubkey bitmap in packed
+     */
     function _setPubkeyBitmap(uint256 accountIndex, uint256 bitmap) internal {
         uint256 packed = _accountIndexToRecoveryAddressPacked[accountIndex];
         // Clear bitmap bits and set new bitmap
@@ -215,6 +223,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _accountIndexToRecoveryAddressPacked[accountIndex] = packed;
     }
 
+    /**
+     * @dev Helper function to set recovery address and pubkey bitmap in packed
+     */
     function _setRecoveryAddressAndBitmap(uint256 accountIndex, address recoveryAddress, uint256 bitmap) internal {
         _accountIndexToRecoveryAddressPacked[accountIndex] = uint256(uint160(recoveryAddress)) | (bitmap << 160);
     }
