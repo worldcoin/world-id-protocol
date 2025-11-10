@@ -386,10 +386,33 @@ async fn run_http_only(http_cfg: HttpConfig, pool: PgPool) -> anyhow::Result<()>
         }
     });
 
+    // Start root sanity checker in the background
+    let mut sanity_handle = None;
+    if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
+        if let Some(sanity_rpc_url) = http_cfg.rpc_url {
+            if let Some(sanity_registry) = http_cfg.registry_address {
+                sanity_handle = Some(tokio::spawn(async move {
+                    if let Err(e) = sanity_check::root_sanity_check_loop(
+                        sanity_rpc_url,
+                        sanity_registry,
+                        sanity_interval,
+                    )
+                    .await
+                    {
+                        tracing::error!(?e, "Root sanity checker failed");
+                    }
+                }));
+            }
+        }
+    }
+
     // Start HTTP server
     let http_result = start_http_server(http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
+    if let Some(handle) = sanity_handle {
+        handle.abort();
+    }
     http_result
 }
 
@@ -407,17 +430,24 @@ async fn run_both(
     let http_handle = tokio::spawn(async move { start_http_server(http_addr, http_pool).await });
 
     // Start root sanity checker in the background
-    let sanity_rpc_url = indexer_cfg.rpc_url.clone();
-    let sanity_registry = indexer_cfg.registry_address;
-    let sanity_interval = indexer_cfg.sanity_check_interval_secs;
-    let _sanity_handle = tokio::spawn(async move {
-        if let Err(e) =
-            sanity_check::root_sanity_check_loop(sanity_rpc_url, sanity_registry, sanity_interval)
-                .await
-        {
-            tracing::error!(?e, "Root sanity checker failed");
+    let mut sanity_handle = None;
+    if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
+        if let Some(sanity_rpc_url) = http_cfg.rpc_url {
+            if let Some(sanity_registry) = http_cfg.registry_address {
+                sanity_handle = Some(tokio::spawn(async move {
+                    if let Err(e) = sanity_check::root_sanity_check_loop(
+                        sanity_rpc_url,
+                        sanity_registry,
+                        sanity_interval,
+                    )
+                    .await
+                    {
+                        tracing::error!(?e, "Root sanity checker failed");
+                    }
+                }));
+            }
         }
-    });
+    }
 
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool)
@@ -446,6 +476,9 @@ async fn run_both(
     .await?;
 
     http_handle.abort();
+    if let Some(handle) = sanity_handle {
+        handle.abort();
+    }
     Ok(())
 }
 
@@ -776,7 +809,7 @@ pub async fn update_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id)) // JSONB path format: {0}, {1}, etc
+    .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
@@ -802,7 +835,7 @@ pub async fn insert_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id))
+    .bind(format!("{{{pubkey_id}}}"))
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
@@ -826,7 +859,7 @@ pub async fn remove_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id))
+    .bind(format!("{{{pubkey_id}}}"))
     .bind(new_commitment.to_string())
     .execute(pool)
     .await?;
@@ -876,7 +909,7 @@ pub async fn handle_registry_event(
                     "created",
                     ev.offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -900,7 +933,7 @@ pub async fn handle_registry_event(
                     "updated",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -924,7 +957,7 @@ pub async fn handle_registry_event(
                     "inserted",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -946,7 +979,7 @@ pub async fn handle_registry_event(
                     "removed",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -970,7 +1003,7 @@ pub async fn handle_registry_event(
                     "recovered",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
