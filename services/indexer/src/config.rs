@@ -62,6 +62,16 @@ pub struct GlobalConfig {
 pub struct HttpConfig {
     pub http_addr: SocketAddr,
     pub db_poll_interval_secs: u64,
+    /// Optional sanity check interval in seconds. If not set, the sanity check will not be run.
+    ///
+    /// The sanity check calls the `isValidRoot` function on the `AccountRegistry` contract to ensure the local Merkle root is valid.
+    pub sanity_check_interval_secs: Option<u64>,
+
+    /// Optional RPC URL to use for the sanity check. If not set, the sanity check will not be run.
+    pub rpc_url: Option<String>,
+
+    /// Optional registry address to use for the sanity check. If not set, the sanity check will not be run.
+    pub registry_address: Option<Address>,
 }
 
 impl HttpConfig {
@@ -75,10 +85,34 @@ impl HttpConfig {
                 .unwrap_or_else(|_| "1".to_string())
                 .parse()
                 .unwrap(),
+            sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS").ok().and_then(
+                |s| {
+                    let val = s.parse::<u64>().ok().unwrap_or(0);
+                    if val == 0 {
+                        None
+                    } else {
+                        Some(val)
+                    }
+                },
+            ),
+            rpc_url: std::env::var("RPC_URL").ok().map(|s| s.to_string()),
+            registry_address: std::env::var("REGISTRY_ADDRESS")
+                .ok()
+                .map(|s| s.parse::<Address>().ok())
+                .unwrap_or(None),
         };
 
         if config.http_addr.port() != 8080 {
             tracing::warn!("Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
+        }
+
+        if config.sanity_check_interval_secs.is_some() {
+            if config.rpc_url.is_none() {
+                tracing::warn!("⚠️ Misconfiguration: SANITY_CHECK_INTERVAL_SECS is set but RPC_URL is not set. Sanity check will not be run.");
+            }
+            if config.registry_address.is_none() {
+                tracing::warn!("⚠️ Misconfiguration: SANITY_CHECK_INTERVAL_SECS is set but REGISTRY_ADDRESS is not set. Sanity check will not be run.");
+            }
         }
 
         tracing::info!(
@@ -96,7 +130,6 @@ pub struct IndexerConfig {
     pub registry_address: Address,
     pub start_block: u64,
     pub batch_size: u64,
-    pub sanity_check_interval_secs: u64,
 }
 
 impl IndexerConfig {
@@ -116,10 +149,6 @@ impl IndexerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(64),
-            sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(30),
         };
         tracing::info!("✔️ Indexer config loaded from env");
         config
