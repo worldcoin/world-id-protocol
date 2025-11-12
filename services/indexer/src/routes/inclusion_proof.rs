@@ -48,6 +48,7 @@ pub(crate) async fn handler(
         .0
         .iter()
         .filter_map(|s| {
+            // TODO: store validated pubkeys
             let pubkey = s.parse::<U256>().map_err(|_| {
                 tracing::error!(account_id = %account_index, "Invalid public key stored for account: {s}")
             }).ok()?;
@@ -57,7 +58,7 @@ pub(crate) async fn handler(
                 tracing::error!(account_id = %account_index, "Invalid public key stored for account (not affine compressed): {s}");
             }).ok()
         }).collect();
-    // TODO: store as public keys
+
     let authenticator_pubkeys = AuthenticatorPublicKeySet::new(Some(pubkeys)).map_err(|e| {
         tracing::error!(account_id = %account_index, "Invalid public key set stored for account: {e}");
         ErrorResponse::internal_server_error()

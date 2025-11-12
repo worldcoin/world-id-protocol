@@ -556,6 +556,7 @@ pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<Acc
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
     let typed = AccountRegistry::AccountCreated::decode_log(&prim)?;
 
+    // TODO: Validate pubkey is valid affine compressed
     Ok(AccountCreatedEvent {
         account_index: typed.data.accountIndex,
         recovery_address: typed.data.recoveryAddress,
