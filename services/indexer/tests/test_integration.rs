@@ -1,54 +1,93 @@
+#[allow(dead_code)]
 use std::time::Duration;
 
 use alloy::network::EthereumWallet;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::ProviderBuilder;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{postgres::PgPoolOptions, Executor, PgPool};
 use test_utils::anvil::TestAnvil;
 use world_id_core::account_registry::AccountRegistry;
+use world_id_indexer::config::{GlobalConfig, HttpConfig, IndexerConfig};
 
 const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
+const TEST_DB_NAME: &str = "indexer_tests";
+
+async fn setup_test_database() -> String {
+    let base_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
+
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&base_url)
+        .await
+        .unwrap();
+
+    let _ = pool
+        .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
+        .await;
+    pool.execute(format!("CREATE DATABASE {TEST_DB_NAME}").as_str())
+        .await
+        .unwrap();
+
+    let test_db_url = if let Some(idx) = base_url.rfind('/') {
+        format!("{}/{}", &base_url[..idx], TEST_DB_NAME)
+    } else {
+        panic!("Invalid database URL format: {base_url}");
+    };
+
+    test_db_url
+}
 
 async fn query_count(pool: &PgPool) -> i64 {
-    let rec: (i64,) = sqlx::query_as("select count(*) from account_created_events")
+    let rec: (i64,) = sqlx::query_as("select count(*) from accounts")
         .fetch_one(pool)
         .await
-        .expect("query count");
+        .unwrap();
     rec.0
 }
 
-async fn reset_db(pool: &PgPool) {
-    sqlx::query("truncate table account_created_events, checkpoints")
-        .execute(pool)
+async fn cleanup_test_database() {
+    let base_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
+
+    if let Ok(pool) = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&base_url)
         .await
-        .unwrap();
+    {
+        let _ = pool
+            .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
+            .await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires additional setup"]
+#[cfg(feature = "integration-tests")]
 async fn e2e_backfill_and_live_sync() {
-    // Use externally provided Postgres URL (e.g. via docker-compose or local postgres)
-    let db_url =
-        std::env::var("E2E_DATABASE_URL").expect("E2E_DATABASE_URL must be set for e2e test");
+    use world_id_indexer::config::{Environment, RunMode};
 
-    // Connect pool (will be used for assertions)
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+
+    let db_url = setup_test_database().await;
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
         .await
-        .unwrap();
-    // Ensure schema exists before any queries
-    world_id_indexer::init_db(&pool).await.unwrap();
+        .expect("failed to connect to test database");
 
-    // Reset DB
-    reset_db(&pool).await;
+    world_id_indexer::init_db(&pool)
+        .await
+        .expect("failed to initialize test database");
 
     // Start local anvil instance and deploy the AccountRegistry
     let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
     let deployer = anvil
         .signer(0)
         .expect("failed to obtain deployer signer from anvil");
-    let registry_addr = anvil
+    let registry_address = anvil
         .deploy_account_registry(deployer.clone())
         .await
         .expect("failed to deploy AccountRegistry");
@@ -56,7 +95,7 @@ async fn e2e_backfill_and_live_sync() {
     let ws_url = anvil.ws_endpoint().to_string();
 
     let registry_contract = AccountRegistry::new(
-        registry_addr,
+        registry_address,
         ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer.clone()))
             .connect_http(rpc_url.parse().expect("invalid anvil endpoint url")),
@@ -92,20 +131,33 @@ async fn e2e_backfill_and_live_sync() {
             .expect("createAccount transaction failed");
     }
 
-    let registry_hex = format!("{registry_addr:#x}");
+    let indexer_config = IndexerConfig {
+        rpc_url,
+        ws_url,
+        registry_address,
+        start_block: 0,
+        batch_size: 1000,
+    };
 
-    // Prepare indexer config and run in background with WS follow
-    std::env::set_var("RPC_URL", &rpc_url);
-    std::env::set_var("WS_URL", &ws_url);
-    std::env::set_var("REGISTRY_ADDRESS", &registry_hex);
-    std::env::set_var("DATABASE_URL", &db_url);
-    std::env::set_var("START_BLOCK", "0");
-    std::env::set_var("BATCH_SIZE", "1000");
+    let http_config = HttpConfig {
+        http_addr: "0.0.0.0:8080".parse().unwrap(),
+        db_poll_interval_secs: 1,
+        sanity_check_interval_secs: None,
+        rpc_url: None,
+        registry_address: None,
+    };
+
+    let global_config = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::Both {
+            indexer_config,
+            http_config,
+        },
+        db_url: db_url.to_string(),
+    };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(world_id_indexer::GlobalConfig::from_env())
-            .await
-            .unwrap();
+        world_id_indexer::run_indexer(global_config).await.unwrap();
     });
 
     // Allow time for backfill (poll until >= 2)
@@ -182,5 +234,6 @@ async fn e2e_backfill_and_live_sync() {
     // Cleanup
     indexer_task.abort();
     drop(anvil);
-    reset_db(&pool).await;
+    drop(pool); // Close all connections to the test database
+    cleanup_test_database().await;
 }

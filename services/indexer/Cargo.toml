@@ -31,3 +31,6 @@ world-id-primitives = { workspace = true }
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
 reqwest = { workspace = true }
+
+[features]
+integration-tests = []
