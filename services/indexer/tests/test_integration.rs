@@ -3,9 +3,12 @@ use std::time::Duration;
 use alloy::network::EthereumWallet;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::ProviderBuilder;
+use http::StatusCode;
+use sqlx::types::Json;
 use sqlx::{postgres::PgPoolOptions, Executor, PgPool};
 use test_utils::anvil::TestAnvil;
 use world_id_core::account_registry::AccountRegistry;
+use world_id_indexer::config::{Environment, RunMode};
 use world_id_indexer::config::{GlobalConfig, HttpConfig, IndexerConfig};
 
 const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
@@ -303,13 +306,15 @@ async fn test_race_condition_db_updated_tree_not() {
     http_task.abort();
 }
 
+/// Tests that we properly handle the update cycles when new accounts get inserted into the registry.
+///
+/// When new accounts get inserted into the registry, the worker (indexer) listens for on-chain events and inserts new accounts
+/// into the DB. Each HTTP indexer instance has its own in-memory tree. When querying for a proof, it's possible that the account
+/// is already in the DB, but the in-memory tree is not yet updated. This test ensures that we properly handle this case
+/// so that an incorrect inclusion proof is never returned.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[cfg(feature = "integration-tests")]
-async fn test_race_condition_then_recovery() {
-    use http::StatusCode;
-    use sqlx::types::Json;
-    use world_id_indexer::config::{Environment, RunMode};
-
+async fn test_insertion_cycle_and_avoids_race_condition() {
     let setup = TestSetup::new().await;
 
     let global_config = GlobalConfig {
