@@ -12,7 +12,7 @@ pub struct HealthResponse {
 pub(crate) async fn handler(
     State(pool): State<PgPool>,
 ) -> Result<Json<HealthResponse>, ErrorResponse> {
-    let count = sqlx::query("select 1 from accounts limit 1")
+    let query = sqlx::query("select 1")
         .fetch_optional(&pool)
         .await
         .map_err(|e| {
@@ -20,7 +20,7 @@ pub(crate) async fn handler(
             ErrorResponse::internal_server_error()
         })?;
 
-    if count.is_none() {
+    if query.is_none() {
         tracing::error!("error querying the database for accounts (empty result)");
         return Err(ErrorResponse::internal_server_error());
     }
