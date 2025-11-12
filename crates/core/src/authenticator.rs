@@ -1,7 +1,6 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
-use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,7 +19,7 @@ use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use oprf_client::{NullifierArgs, OprfQuery};
 use oprf_types::{RpId, ShareEpoch};
@@ -315,10 +314,7 @@ impl Authenticator {
         };
 
         for i in 0..response.authenticator_pubkeys.len() {
-            pubkey_batch.values[i] = EdwardsAffine::deserialize_compressed(Cursor::new(
-                response.authenticator_pubkeys[i].as_le_slice(),
-            ))
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+            pubkey_batch.values[i] = response.authenticator_pubkeys[i].pk;
         }
 
         Ok((
@@ -444,12 +440,11 @@ impl Authenticator {
         pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
         let new_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
 
-        // TODO: remove this once compression is merged
-        let mut compressed_bytes = Vec::new();
-        new_authenticator_pubkey
-            .pk
-            .serialize_compressed(&mut compressed_bytes)
+        let compressed_bytes = new_authenticator_pubkey
+            .to_compressed_bytes()
             .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+
+        // REVIEW: updating to BE
         let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
 
         let eip712_domain = domain(

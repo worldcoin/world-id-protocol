@@ -1,7 +1,10 @@
+use std::ops::{Deref, DerefMut};
+
+use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use serde::{Deserialize, Serialize};
 
-use crate::FieldElement;
+use crate::{FieldElement, PrimitiveError};
 
 /// The maximum number of authenticator public keys that can be registered at any time
 /// per World ID Account.
@@ -15,14 +18,73 @@ pub const MAX_AUTHENTICATOR_KEYS: usize = 7;
 /// Each World ID Account has a number of public keys for each authorized authenticator;
 /// a commitment to the entire set of public keys is stored in the `AccountRegistry` contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthenticatorPublicKeySet([EdDSAPublicKey; MAX_AUTHENTICATOR_KEYS]);
+pub struct AuthenticatorPublicKeySet(ArrayVec<EdDSAPublicKey, MAX_AUTHENTICATOR_KEYS>);
 
 impl AuthenticatorPublicKeySet {
+    /// Creates a new authenticator public key set with the provided public keys or defaults to none.
+    ///
+    /// # Errors
+    /// Returns an error if the number of public keys exceeds [`MAX_AUTHENTICATOR_KEYS`].
+    pub fn new(pubkeys: Option<Vec<EdDSAPublicKey>>) -> Result<Self, PrimitiveError> {
+        if let Some(pubkeys) = pubkeys {
+            if pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
+                return Err(PrimitiveError::OutOfBounds);
+            }
+
+            // Safe: ArrayVec can collect up to its capacity
+            Ok(Self(
+                pubkeys
+                    .into_iter()
+                    .collect::<ArrayVec<_, MAX_AUTHENTICATOR_KEYS>>(),
+            ))
+        } else {
+            Ok(Self(ArrayVec::new()))
+        }
+    }
+
     /// Converts the set of public keys to a set of field elements where
     /// each item is the x and y coordinates of the public key as a pair.
     #[must_use]
-    pub fn to_field_elements(self) -> [[FieldElement; 2]; MAX_AUTHENTICATOR_KEYS] {
-        self.0.map(|k| [k.pk.x.into(), k.pk.y.into()])
+    pub fn to_field_elements(self) -> Vec<[FieldElement; 2]> {
+        self.0
+            .iter()
+            .map(|k| [k.pk.x.into(), k.pk.y.into()])
+            .collect()
+    }
+
+    /// Returns the number of public keys in the set.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns `true` if the set is empty.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Pushes a new public key onto the set.
+    ///
+    /// # Errors
+    /// Returns an error if the set is full.
+    pub fn push(&mut self, pubkey: EdDSAPublicKey) -> Result<(), PrimitiveError> {
+        self.0
+            .try_push(pubkey)
+            .map_err(|_| PrimitiveError::OutOfBounds)
+    }
+}
+
+impl Deref for AuthenticatorPublicKeySet {
+    type Target = ArrayVec<EdDSAPublicKey, MAX_AUTHENTICATOR_KEYS>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for AuthenticatorPublicKeySet {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

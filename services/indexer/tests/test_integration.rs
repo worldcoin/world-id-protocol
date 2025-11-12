@@ -61,7 +61,7 @@ impl TestSetup {
         self._anvil.ws_endpoint().to_string()
     }
 
-    async fn create_account(&self, auth_addr: Address, pubkey: u64, commitment: u64) {
+    async fn create_account(&self, auth_addr: Address, pubkey: U256, commitment: u64) {
         let deployer = self
             ._anvil
             .signer(0)
@@ -81,7 +81,7 @@ impl TestSetup {
             .createAccount(
                 RECOVERY_ADDRESS,
                 vec![auth_addr],
-                vec![U256::from(pubkey)],
+                vec![pubkey],
                 U256::from(commitment),
             )
             .send()
@@ -175,21 +175,25 @@ async fn query_count(pool: &PgPool) -> i64 {
 #[cfg(feature = "integration-tests")]
 #[serial]
 async fn e2e_backfill_and_live_sync() {
+    use world_id_core::EdDSAPrivateKey;
     use world_id_indexer::config::{Environment, RunMode};
 
     let setup = TestSetup::new().await;
+    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let pk = sk.public().to_compressed_bytes().unwrap();
+    let pk = U256::from_le_slice(&pk);
 
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000011"),
-            11,
+            pk,
             1,
         )
         .await;
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000012"),
-            12,
+            U256::from(12),
             2,
         )
         .await;
@@ -235,14 +239,14 @@ async fn e2e_backfill_and_live_sync() {
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000013"),
-            13,
+            U256::from(13),
             3,
         )
         .await;
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000014"),
-            14,
+            U256::from(14),
             4,
         )
         .await;
