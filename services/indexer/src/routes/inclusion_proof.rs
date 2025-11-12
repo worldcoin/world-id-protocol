@@ -1,23 +1,32 @@
 use alloy::primitives::U256;
 use axum::{
     extract::{Path, State},
-    response::IntoResponse,
+    Json,
 };
+use http::StatusCode;
 use sqlx::{PgPool, Row};
-use world_id_core::types::AccountInclusionProof;
+use world_id_core::{types::AccountInclusionProof, EdDSAPublicKey};
 use world_id_primitives::{
-    authenticator::MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof, FieldElement, TREE_DEPTH,
+    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, FieldElement,
+    TREE_DEPTH,
 };
 
-use crate::{proof_to_vec, tree_capacity, GLOBAL_TREE};
+use crate::{
+    error::{ErrorCode, ErrorResponse},
+    proof_to_vec, tree_capacity, GLOBAL_TREE,
+};
 
 pub(crate) async fn handler(
     Path(idx_str): Path<String>,
     State(pool): State<PgPool>,
-) -> impl axum::response::IntoResponse {
+) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, ErrorResponse> {
     let account_index: U256 = idx_str.parse().unwrap();
+
     if account_index == 0 {
-        return (axum::http::StatusCode::BAD_REQUEST, "invalid account index").into_response();
+        return Err(ErrorResponse::bad_request(
+            ErrorCode::InvalidAccountIndex,
+            "Account index cannot be 0.".to_string(),
+        ));
     }
 
     let account_row = sqlx::query(
@@ -30,16 +39,30 @@ pub(crate) async fn handler(
     .flatten();
 
     if account_row.is_none() {
-        return (axum::http::StatusCode::NOT_FOUND, "account not found").into_response();
+        return Err(ErrorResponse::not_found());
     }
 
     let row = account_row.unwrap();
-    let pubkeys_json: sqlx::types::Json<Vec<String>> = row.get("authenticator_pubkeys");
-    let authenticator_pubkeys: Vec<U256> = pubkeys_json
+    let pubkeys: sqlx::types::Json<Vec<String>> = row.get("authenticator_pubkeys");
+    let pubkeys: Vec<EdDSAPublicKey> = pubkeys
         .0
         .iter()
-        .filter_map(|s| s.parse::<U256>().ok())
-        .collect();
+        .filter_map(|s| {
+            let pubkey = s.parse::<U256>().map_err(|_| {
+                tracing::error!(account_id = %account_index, "Invalid public key stored for account: {s}")
+            }).ok()?;
+
+            // Encoding matches insertion in core::authenticator::Authenticator operations
+            EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|_| {
+                tracing::error!(account_id = %account_index, "Invalid public key stored for account (not affine compressed): {s}");
+            }).ok()
+        }).collect();
+    // TODO: store as public keys
+    let authenticator_pubkeys = AuthenticatorPublicKeySet::new(Some(pubkeys)).map_err(|e| {
+        tracing::error!(account_id = %account_index, "Invalid public key set stored for account: {e}");
+        ErrorResponse::internal_server_error()
+    })?;
+
     let offchain_signer_commitment: U256 = row
         .get::<String, _>("offchain_signer_commitment")
         .parse()
@@ -47,39 +70,31 @@ pub(crate) async fn handler(
 
     let leaf_index = account_index.as_limbs()[0] as usize - 1;
     if leaf_index >= tree_capacity() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            "leaf index out of range",
-        )
-            .into_response();
-    }
-    // Validate the number of authenticator keys
-    if authenticator_pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!(
-                "Account has {} authenticator keys, which exceeds the maximum of {}",
-                authenticator_pubkeys.len(),
-                MAX_AUTHENTICATOR_KEYS
-            ),
-        )
-            .into_response();
+        return Err(ErrorResponse::bad_request(
+            ErrorCode::InvalidAccountIndex,
+            "Leaf index out of range.".to_string(),
+        ));
     }
 
     let tree = GLOBAL_TREE.read().await;
     let leaf = tree.get_leaf(leaf_index);
 
     if leaf == U256::ZERO {
-        return (axum::http::StatusCode::LOCKED, "insertion pending").into_response();
+        return Err(ErrorResponse::new(
+            ErrorCode::Locked,
+            "Insertion is still pending.".to_string(),
+            StatusCode::LOCKED,
+        ));
     }
 
     if leaf != offchain_signer_commitment {
-        // TODO: log more details
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "tree out of sync with DB",
-        )
-            .into_response();
+        tracing::error!(
+            account_id = %account_index,
+            leaf_hash = %leaf,
+            offchain_signer_commitment = %offchain_signer_commitment,
+           "Tree is out of sync with DB. Leaf hash does not match offchain signer commitment.",
+        );
+        return Err(ErrorResponse::internal_server_error());
     }
 
     let proof = tree.proof(leaf_index);
@@ -100,5 +115,5 @@ pub(crate) async fn handler(
 
     let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
         .expect("authenticator_pubkeys already validated");
-    (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
+    Ok(Json(resp))
 }

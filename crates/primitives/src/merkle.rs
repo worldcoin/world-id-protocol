@@ -1,5 +1,4 @@
-use crate::{authenticator::MAX_AUTHENTICATOR_KEYS, FieldElement, PrimitiveError};
-use ruint::aliases::U256;
+use crate::{authenticator::AuthenticatorPublicKeySet, FieldElement, PrimitiveError};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 /// Helper module for serializing/deserializing fixed-size arrays.
@@ -78,7 +77,7 @@ pub struct AccountInclusionProof<const TREE_DEPTH: usize> {
     /// The compressed authenticator public keys for the account (as `U256` values).
     ///
     /// Each public key is serialized in compressed form for efficient storage and transmission.
-    pub authenticator_pubkeys: Vec<U256>,
+    pub authenticator_pubkeys: AuthenticatorPublicKeySet,
 }
 
 impl<const TREE_DEPTH: usize> AccountInclusionProof<TREE_DEPTH> {
@@ -86,31 +85,14 @@ impl<const TREE_DEPTH: usize> AccountInclusionProof<TREE_DEPTH> {
     ///
     /// # Errors
     /// Returns an error if the number of authenticator public keys exceeds [`MAX_AUTHENTICATOR_KEYS`].
+    #[allow(clippy::missing_const_for_fn)]
     pub fn new(
         proof: MerkleInclusionProof<TREE_DEPTH>,
-        authenticator_pubkeys: Vec<U256>,
+        authenticator_pubkeys: AuthenticatorPublicKeySet,
     ) -> Result<Self, PrimitiveError> {
-        if authenticator_pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
-            return Err(PrimitiveError::OutOfBounds);
-        }
         Ok(Self {
             proof,
             authenticator_pubkeys,
         })
-    }
-
-    /// Creates a new account inclusion proof without validation.
-    ///
-    /// # Safety
-    /// The caller must ensure that the number of authenticator public keys does not exceed [`MAX_AUTHENTICATOR_KEYS`].
-    #[must_use]
-    pub const fn new_unchecked(
-        proof: MerkleInclusionProof<TREE_DEPTH>,
-        authenticator_pubkeys: Vec<U256>,
-    ) -> Self {
-        Self {
-            proof,
-            authenticator_pubkeys,
-        }
     }
 }

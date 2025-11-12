@@ -6,6 +6,9 @@ use strum::EnumString;
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorCode {
     InternalServerError,
+    NotFound,
+    InvalidAccountIndex,
+    Locked,
 }
 
 #[derive(Debug, Clone)]
@@ -24,12 +27,27 @@ impl ErrorResponse {
         }
     }
 
+    #[must_use]
     pub fn internal_server_error() -> Self {
         Self::new(
             ErrorCode::InternalServerError,
             "Internal server error. Please try again.".to_string(),
             StatusCode::INTERNAL_SERVER_ERROR,
         )
+    }
+
+    #[must_use]
+    pub fn not_found() -> Self {
+        Self::new(
+            ErrorCode::NotFound,
+            "Not found.".to_string(),
+            StatusCode::NOT_FOUND,
+        )
+    }
+
+    #[must_use]
+    pub fn bad_request(code: ErrorCode, message: String) -> Self {
+        Self::new(code, message, StatusCode::BAD_REQUEST)
     }
 }
 

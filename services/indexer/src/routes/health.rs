@@ -12,7 +12,7 @@ pub struct HealthResponse {
 pub(crate) async fn handler(
     State(pool): State<PgPool>,
 ) -> Result<Json<HealthResponse>, ErrorResponse> {
-    let count = sqlx::query("select count(*) from accounts limit 1")
+    let count = sqlx::query("select 1 from accounts limit 1")
         .fetch_optional(&pool)
         .await
         .map_err(|e| {

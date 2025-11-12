@@ -31,6 +31,7 @@ world-id-primitives = { workspace = true }
 
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
+rand = { workspace = true }
 reqwest = { workspace = true }
 serial_test = "3"
 
