@@ -296,9 +296,96 @@ async fn test_race_condition_db_updated_tree_not() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 423); // locked
+    assert_eq!(resp.status(), 423);
     let body = resp.text().await.unwrap();
     assert_eq!(body, "insertion pending");
+
+    http_task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg(feature = "integration-tests")]
+async fn test_race_condition_then_recovery() {
+    use http::StatusCode;
+    use sqlx::types::Json;
+    use world_id_indexer::config::{Environment, RunMode};
+
+    let setup = TestSetup::new().await;
+
+    let global_config = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::HttpOnly {
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8082".parse().unwrap(),
+                db_poll_interval_secs: 1,
+                sanity_check_interval_secs: None,
+                rpc_url: None,
+                registry_address: None,
+            },
+        },
+        db_url: setup.db_url.clone(),
+    };
+
+    let http_task = tokio::spawn(async move {
+        world_id_indexer::run_indexer(global_config).await.unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // this simulates an insertion in the DB, but the in-memory tree is not yet updated
+    sqlx::query(
+        r#"insert into accounts
+        (account_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
+        values ($1, $2, $3, $4, $5)"#,
+    )
+    .bind("1")
+    .bind(RECOVERY_ADDRESS.to_string())
+    .bind(Json(vec![
+        "0x0000000000000000000000000000000000000011".to_string()
+    ]))
+    .bind(Json(vec!["11".to_string()]))
+    .bind("99")
+    .execute(&setup.pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"insert into commitment_update_events
+        (account_index, event_type, new_commitment, block_number, tx_hash, log_index)
+        values ($1, $2, $3, $4, $5, $6)"#,
+    )
+    .bind("1")
+    .bind("created")
+    .bind("99")
+    .bind(1i64)
+    .bind("0x0000000000000000000000000000000000000000000000000000000000000001")
+    .bind(0i64)
+    .execute(&setup.pool)
+    .await
+    .unwrap();
+
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get("http://127.0.0.1:8082/proof/1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::LOCKED);
+
+    // wait for the in-memory tree to be updated
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let resp = client
+        .get("http://127.0.0.1:8082/proof/1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let proof: serde_json::Value = resp.json().await.unwrap();
+    assert!(proof["root"].is_string());
+    assert_eq!(proof["account_id"].as_u64().unwrap(), 1);
 
     http_task.abort();
 }
