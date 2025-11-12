@@ -8217,6 +8217,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sqlx",
+ "strum",
  "taceo-poseidon2",
  "take_mut",
  "test-utils",
