@@ -275,7 +275,7 @@ async fn http_get_proof(
     let leaf = tree.get_leaf(leaf_index);
 
     if leaf == U256::ZERO {
-        return (axum::http::StatusCode::CONFLICT, "insertion pending").into_response();
+        return (axum::http::StatusCode::LOCKED, "insertion pending").into_response();
     }
 
     if leaf != offchain_signer_commitment {

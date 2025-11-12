@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 use std::time::Duration;
 
 use alloy::network::EthereumWallet;
@@ -12,111 +11,69 @@ use world_id_indexer::config::{GlobalConfig, HttpConfig, IndexerConfig};
 const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 const TEST_DB_NAME: &str = "indexer_tests";
 
-async fn setup_test_database() -> String {
-    let base_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
-
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&base_url)
-        .await
-        .unwrap();
-
-    let _ = pool
-        .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
-        .await;
-    pool.execute(format!("CREATE DATABASE {TEST_DB_NAME}").as_str())
-        .await
-        .unwrap();
-
-    let test_db_url = if let Some(idx) = base_url.rfind('/') {
-        format!("{}/{}", &base_url[..idx], TEST_DB_NAME)
-    } else {
-        panic!("Invalid database URL format: {base_url}");
-    };
-
-    test_db_url
+struct TestSetup {
+    _anvil: TestAnvil,
+    registry_address: Address,
+    db_url: String,
+    pool: PgPool,
 }
 
-async fn query_count(pool: &PgPool) -> i64 {
-    let rec: (i64,) = sqlx::query_as("select count(*) from accounts")
-        .fetch_one(pool)
-        .await
-        .unwrap();
-    rec.0
-}
+impl TestSetup {
+    async fn new() -> Self {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .try_init();
 
-async fn cleanup_test_database() {
-    let base_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
+        let db_url = Self::setup_test_database().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&db_url)
+            .await
+            .expect("failed to connect to test database");
+        world_id_indexer::init_db(&pool)
+            .await
+            .expect("failed to initialize test database");
 
-    if let Ok(pool) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&base_url)
-        .await
-    {
-        let _ = pool
-            .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
-            .await;
+        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+        let deployer = anvil.signer(0).expect("failed to obtain deployer signer");
+        let registry_address = anvil
+            .deploy_account_registry(deployer)
+            .await
+            .expect("failed to deploy AccountRegistry");
+
+        Self {
+            _anvil: anvil,
+            registry_address,
+            db_url,
+            pool,
+        }
     }
-}
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[cfg(feature = "integration-tests")]
-async fn e2e_backfill_and_live_sync() {
-    use world_id_indexer::config::{Environment, RunMode};
+    fn rpc_url(&self) -> String {
+        self._anvil.endpoint().to_string()
+    }
 
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init();
+    fn ws_url(&self) -> String {
+        self._anvil.ws_endpoint().to_string()
+    }
 
-    let db_url = setup_test_database().await;
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&db_url)
-        .await
-        .expect("failed to connect to test database");
-
-    world_id_indexer::init_db(&pool)
-        .await
-        .expect("failed to initialize test database");
-
-    // Start local anvil instance and deploy the AccountRegistry
-    let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
-    let deployer = anvil
-        .signer(0)
-        .expect("failed to obtain deployer signer from anvil");
-    let registry_address = anvil
-        .deploy_account_registry(deployer.clone())
-        .await
-        .expect("failed to deploy AccountRegistry");
-    let rpc_url = anvil.endpoint().to_string();
-    let ws_url = anvil.ws_endpoint().to_string();
-
-    let registry_contract = AccountRegistry::new(
-        registry_address,
-        ProviderBuilder::new()
-            .wallet(EthereumWallet::from(deployer.clone()))
-            .connect_http(rpc_url.parse().expect("invalid anvil endpoint url")),
-    );
-
-    // Pre-insert a couple accounts before starting indexer (backfill test)
-    let pre_accounts = [
-        (
-            address!("0x0000000000000000000000000000000000000011"),
-            11u64,
-            1u64,
-        ),
-        (
-            address!("0x0000000000000000000000000000000000000012"),
-            12u64,
-            2u64,
-        ),
-    ];
-
-    for (auth_addr, pubkey, commitment) in pre_accounts {
-        registry_contract
+    async fn create_account(&self, auth_addr: Address, pubkey: u64, commitment: u64) {
+        let deployer = self
+            ._anvil
+            .signer(0)
+            .expect("failed to get deployer signer");
+        let registry = AccountRegistry::new(
+            self.registry_address,
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(deployer))
+                .connect_http(
+                    self._anvil
+                        .endpoint()
+                        .parse()
+                        .expect("invalid anvil endpoint url"),
+                ),
+        );
+        registry
             .createAccount(
                 RECOVERY_ADDRESS,
                 vec![auth_addr],
@@ -131,42 +88,118 @@ async fn e2e_backfill_and_live_sync() {
             .expect("createAccount transaction failed");
     }
 
-    let indexer_config = IndexerConfig {
-        rpc_url,
-        ws_url,
-        registry_address,
-        start_block: 0,
-        batch_size: 1000,
-    };
+    async fn setup_test_database() -> String {
+        let base_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://postgres:postgres@localhost:5432/postgres".to_string()
+        });
 
-    let http_config = HttpConfig {
-        http_addr: "0.0.0.0:8080".parse().unwrap(),
-        db_poll_interval_secs: 1,
-        sanity_check_interval_secs: None,
-        rpc_url: None,
-        registry_address: None,
-    };
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&base_url)
+            .await
+            .unwrap();
+
+        let _ = pool
+            .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
+            .await;
+        pool.execute(format!("CREATE DATABASE {TEST_DB_NAME}").as_str())
+            .await
+            .unwrap();
+
+        let test_db_url = if let Some(idx) = base_url.rfind('/') {
+            format!("{}/{}", &base_url[..idx], TEST_DB_NAME)
+        } else {
+            panic!("Invalid database URL format: {base_url}");
+        };
+
+        test_db_url
+    }
+
+    async fn cleanup_test_database() {
+        let base_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://postgres:postgres@localhost:5432/postgres".to_string()
+        });
+
+        if let Ok(pool) = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&base_url)
+            .await
+        {
+            let _ = pool
+                .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
+                .await;
+        }
+    }
+}
+
+impl Drop for TestSetup {
+    fn drop(&mut self) {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(Self::cleanup_test_database());
+        });
+    }
+}
+
+async fn query_count(pool: &PgPool) -> i64 {
+    let rec: (i64,) = sqlx::query_as("select count(*) from accounts")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    rec.0
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg(feature = "integration-tests")]
+async fn e2e_backfill_and_live_sync() {
+    use world_id_indexer::config::{Environment, RunMode};
+
+    let setup = TestSetup::new().await;
+
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000011"),
+            11,
+            1,
+        )
+        .await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000012"),
+            12,
+            2,
+        )
+        .await;
 
     let global_config = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::Both {
-            indexer_config,
-            http_config,
+            indexer_config: IndexerConfig {
+                rpc_url: setup.rpc_url(),
+                ws_url: setup.ws_url(),
+                registry_address: setup.registry_address,
+                start_block: 0,
+                batch_size: 1000,
+            },
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8080".parse().unwrap(),
+                db_poll_interval_secs: 1,
+                sanity_check_interval_secs: None,
+                rpc_url: None,
+                registry_address: None,
+            },
         },
-        db_url: db_url.to_string(),
+        db_url: setup.db_url.clone(),
     };
 
     let indexer_task = tokio::spawn(async move {
         world_id_indexer::run_indexer(global_config).await.unwrap();
     });
 
-    // Allow time for backfill (poll until >= 2)
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
-        let c = query_count(&pool).await;
-        println!("Backfill count: {c}");
+        let c = query_count(&setup.pool).await;
         if c >= 2 {
-            assert!(c == 2, "backfill count is not 2");
+            assert_eq!(c, 2);
             break;
         }
         if std::time::Instant::now() > deadline {
@@ -175,43 +208,26 @@ async fn e2e_backfill_and_live_sync() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
-    // Live insert more accounts while WS stream is active
-    let live_accounts = [
-        (
+    setup
+        .create_account(
             address!("0x0000000000000000000000000000000000000013"),
-            13u64,
-            3u64,
-        ),
-        (
+            13,
+            3,
+        )
+        .await;
+    setup
+        .create_account(
             address!("0x0000000000000000000000000000000000000014"),
-            14u64,
-            4u64,
-        ),
-    ];
+            14,
+            4,
+        )
+        .await;
 
-    for (auth_addr, pubkey, commitment) in live_accounts {
-        registry_contract
-            .createAccount(
-                RECOVERY_ADDRESS,
-                vec![auth_addr],
-                vec![U256::from(pubkey)],
-                U256::from(commitment),
-            )
-            .send()
-            .await
-            .expect("failed to submit live createAccount transaction")
-            .get_receipt()
-            .await
-            .expect("live createAccount transaction failed");
-    }
-
-    // Wait for live sync
     let deadline2 = std::time::Instant::now() + Duration::from_secs(15);
     loop {
-        let c2 = query_count(&pool).await;
-        println!("Live sync count: {c2}");
+        let c2 = query_count(&setup.pool).await;
         if c2 >= 4 {
-            assert!(c2 == 4, "live sync count is not 4");
+            assert_eq!(c2, 4);
             break;
         }
         if std::time::Instant::now() > deadline2 {
@@ -220,20 +236,69 @@ async fn e2e_backfill_and_live_sync() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
-    // Verify proof endpoint is working
-    let client = reqwest::Client::builder().build().unwrap();
-    let base = "http://127.0.0.1:8080";
-    let resp = client.get(format!("{base}/proof/1")).send().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("http://127.0.0.1:8080/proof/1")
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
 
-    assert!(resp.is_ok(), "proof request failed");
-    let resp = resp.unwrap();
-    assert!(resp.status().is_success(), "proof request failed");
-
-    tracing::info!("proof response: {:?}", resp.text().await.unwrap());
-
-    // Cleanup
     indexer_task.abort();
-    drop(anvil);
-    drop(pool); // Close all connections to the test database
-    cleanup_test_database().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg(feature = "integration-tests")]
+async fn test_race_condition_db_updated_tree_not() {
+    use sqlx::types::Json;
+    use world_id_indexer::config::{Environment, RunMode};
+
+    let setup = TestSetup::new().await;
+
+    let global_config = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::HttpOnly {
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8081".parse().unwrap(),
+                db_poll_interval_secs: 999999,
+                sanity_check_interval_secs: None,
+                rpc_url: None,
+                registry_address: None,
+            },
+        },
+        db_url: setup.db_url.clone(),
+    };
+
+    let http_task = tokio::spawn(async move {
+        world_id_indexer::run_indexer(global_config).await.unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    sqlx::query(
+        r#"insert into accounts
+        (account_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
+        values ($1, $2, $3, $4, $5)"#
+    )
+    .bind("1")
+    .bind(RECOVERY_ADDRESS.to_string())
+    .bind(Json(vec!["0x0000000000000000000000000000000000000011".to_string()]))
+    .bind(Json(vec!["11".to_string()]))
+    .bind("99")
+    .execute(&setup.pool)
+    .await
+    .unwrap();
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("http://127.0.0.1:8081/proof/1")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 423); // locked
+    let body = resp.text().await.unwrap();
+    assert_eq!(body, "insertion pending");
+
+    http_task.abort();
 }
