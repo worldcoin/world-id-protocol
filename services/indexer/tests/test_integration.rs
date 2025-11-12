@@ -4,6 +4,7 @@ use alloy::network::EthereumWallet;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::ProviderBuilder;
 use http::StatusCode;
+use serial_test::serial;
 use sqlx::types::Json;
 use sqlx::{postgres::PgPoolOptions, Executor, PgPool};
 use test_utils::anvil::TestAnvil;
@@ -133,6 +134,25 @@ impl TestSetup {
                 .await;
         }
     }
+
+    async fn wait_for_health(host_url: &str) {
+        let client = reqwest::Client::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+
+        loop {
+            if let Ok(resp) = client.get(format!("{host_url}/health")).send().await {
+                if resp.status().is_success() {
+                    return;
+                }
+            }
+
+            if std::time::Instant::now() > deadline {
+                panic!("Timeout waiting for server health check at {host_url}");
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
 }
 
 impl Drop for TestSetup {
@@ -153,6 +173,7 @@ async fn query_count(pool: &PgPool) -> i64 {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[cfg(feature = "integration-tests")]
+#[serial]
 async fn e2e_backfill_and_live_sync() {
     use world_id_indexer::config::{Environment, RunMode};
 
@@ -250,62 +271,6 @@ async fn e2e_backfill_and_live_sync() {
     indexer_task.abort();
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[cfg(feature = "integration-tests")]
-async fn test_race_condition_db_updated_tree_not() {
-    use sqlx::types::Json;
-    use world_id_indexer::config::{Environment, RunMode};
-
-    let setup = TestSetup::new().await;
-
-    let global_config = GlobalConfig {
-        environment: Environment::Development,
-        run_mode: RunMode::HttpOnly {
-            http_config: HttpConfig {
-                http_addr: "0.0.0.0:8081".parse().unwrap(),
-                db_poll_interval_secs: 999999,
-                sanity_check_interval_secs: None,
-                rpc_url: None,
-                registry_address: None,
-            },
-        },
-        db_url: setup.db_url.clone(),
-    };
-
-    let http_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
-    });
-
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    sqlx::query(
-        r#"insert into accounts
-        (account_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
-        values ($1, $2, $3, $4, $5)"#
-    )
-    .bind("1")
-    .bind(RECOVERY_ADDRESS.to_string())
-    .bind(Json(vec!["0x0000000000000000000000000000000000000011".to_string()]))
-    .bind(Json(vec!["11".to_string()]))
-    .bind("99")
-    .execute(&setup.pool)
-    .await
-    .unwrap();
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .get("http://127.0.0.1:8081/proof/1")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 423);
-    let body = resp.text().await.unwrap();
-    assert_eq!(body, "insertion pending");
-
-    http_task.abort();
-}
-
 /// Tests that we properly handle the update cycles when new accounts get inserted into the registry.
 ///
 /// When new accounts get inserted into the registry, the worker (indexer) listens for on-chain events and inserts new accounts
@@ -314,6 +279,7 @@ async fn test_race_condition_db_updated_tree_not() {
 /// so that an incorrect inclusion proof is never returned.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[cfg(feature = "integration-tests")]
+#[serial]
 async fn test_insertion_cycle_and_avoids_race_condition() {
     let setup = TestSetup::new().await;
 
@@ -335,9 +301,8 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
         world_id_indexer::run_indexer(global_config).await.unwrap();
     });
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    TestSetup::wait_for_health("http://127.0.0.1:8082").await;
 
-    // this simulates an insertion in the DB, but the in-memory tree is not yet updated
     sqlx::query(
         r#"insert into accounts
         (account_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
