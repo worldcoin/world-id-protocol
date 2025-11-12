@@ -24,7 +24,7 @@ use world_id_primitives::{
     FieldElement, TREE_DEPTH,
 };
 
-mod config;
+pub mod config;
 mod sanity_check;
 use crate::config::{HttpConfig, IndexerConfig, RunMode};
 pub use config::GlobalConfig;
@@ -245,6 +245,10 @@ async fn http_get_proof(
         .iter()
         .filter_map(|s| s.parse::<U256>().ok())
         .collect();
+    let offchain_signer_commitment: U256 = row
+        .get::<String, _>("offchain_signer_commitment")
+        .parse()
+        .unwrap(); // TODO: error handling
 
     let leaf_index = account_index.as_limbs()[0] as usize - 1;
     if leaf_index >= tree_capacity() {
@@ -268,6 +272,21 @@ async fn http_get_proof(
     }
 
     let tree = GLOBAL_TREE.read().await;
+    let leaf = tree.get_leaf(leaf_index);
+
+    if leaf == U256::ZERO {
+        return (axum::http::StatusCode::LOCKED, "insertion pending").into_response();
+    }
+
+    if leaf != offchain_signer_commitment {
+        // TODO: log more details
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "tree out of sync with DB",
+        )
+            .into_response();
+    }
+
     let proof = tree.proof(leaf_index);
 
     // Convert proof siblings to FieldElement array

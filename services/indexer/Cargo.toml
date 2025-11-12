@@ -31,3 +31,7 @@ world-id-primitives = { workspace = true }
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
 reqwest = { workspace = true }
+serial_test = "3"
+
+[features]
+integration-tests = []
