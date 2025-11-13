@@ -557,10 +557,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         address recoverySigner = accountIndexToRecoveryAddress[accountIndex];
         require(recoverySigner != address(0), "Recovery address not set");
-        require(
-            SignatureChecker.isValidSignatureNow(recoverySigner, messageHash, signature),
-            "Invalid signature"
-        );
+        require(SignatureChecker.isValidSignatureNow(recoverySigner, messageHash, signature), "Invalid signature");
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
 
