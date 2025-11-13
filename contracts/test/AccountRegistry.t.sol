@@ -7,6 +7,28 @@ import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
 import {PackedAccountIndex} from "../src/lib/PackedAccountIndex.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+/**
+ * @dev Mock ERC-1271 contract for testing smart contract wallet recovery
+ */
+contract MockERC1271Wallet is IERC1271 {
+    address public owner;
+    bytes4 internal constant MAGICVALUE = 0x1626ba7e;
+
+    constructor(address _owner) {
+        owner = _owner;
+    }
+
+    function isValidSignature(bytes32 hash, bytes memory signature) external view override returns (bytes4) {
+        address recovered = ECDSA.recover(hash, signature);
+        if (recovered == owner) {
+            return MAGICVALUE;
+        }
+        return 0xffffffff;
+    }
+}
 
 contract AccountRegistryTest is Test {
     using BinaryIMT for BinaryIMTData;
@@ -473,5 +495,77 @@ contract AccountRegistryTest is Test {
         );
 
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
+    }
+
+    function test_RecoverAccountWithERC1271Wallet() public {
+        // Create a mock ERC-1271 wallet controlled by recoveryAddress
+        MockERC1271Wallet wallet = new MockERC1271Wallet(recoveryAddress);
+
+        // Create an account with the smart contract wallet as the recovery signer
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            address(wallet), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 accountIndex = 1;
+        uint256 nonce = 0;
+        address newAuthenticatorAddress = address(0xBEEF);
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        // Sign with the wallet owner's private key
+        bytes memory signature = eip712Sign(
+            accountRegistry.RECOVER_ACCOUNT_TYPEHASH(),
+            abi.encode(accountIndex, newAuthenticatorAddress, newCommitment, newCommitment, nonce),
+            RECOVERY_PRIVATE_KEY
+        );
+
+        uint256 startGas = gasleft();
+        accountRegistry.recoverAccount(
+            accountIndex,
+            newAuthenticatorAddress,
+            newCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            signature,
+            emptyProof(),
+            nonce
+        );
+        uint256 endGas = gasleft();
+        console.log("Gas used for ERC-1271 recovery:", (startGas - endGas));
+
+        // Verify recovery was successful
+        assertEq(
+            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)),
+            uint192(accountIndex)
+        );
+        assertEq(
+            PackedAccountIndex.recoveryCounter(
+                accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)
+            ),
+            1
+        );
+        assertEq(accountRegistry.accountRecoveryCounter(accountIndex), 1);
+    }
+
+    function test_MockERC1271Wallet_Validation() public {
+        // Test the mock wallet directly
+        MockERC1271Wallet wallet = new MockERC1271Wallet(recoveryAddress);
+
+        bytes32 testHash = keccak256("test");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(RECOVERY_PRIVATE_KEY, testHash);
+        bytes memory validSig = abi.encodePacked(r, s, v);
+
+        // Valid signature should return magic value
+        bytes4 result = wallet.isValidSignature(testHash, validSig);
+        assertEq(result, bytes4(0x1626ba7e));
+
+        // Invalid signature (signed by different key) should return 0xffffffff
+        (v, r, s) = vm.sign(RECOVERY_PRIVATE_KEY_ALT, testHash);
+        bytes memory invalidSig = abi.encodePacked(r, s, v);
+        result = wallet.isValidSignature(testHash, invalidSig);
+        assertEq(result, bytes4(0xffffffff));
     }
 }
