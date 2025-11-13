@@ -2,16 +2,22 @@ use std::{convert::TryInto, path::PathBuf, str::FromStr};
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
 use ark_babyjubjub::{EdwardsAffine, Fq};
-use ark_ff::{AdditiveGroup, PrimeField};
+use ark_ff::{AdditiveGroup, BigInteger, PrimeField, UniformRand};
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
-use oprf_world_types::{UserPublicKeyBatch, TREE_DEPTH};
+use k256::ecdsa::signature::Signer;
+use oprf_client::{sign_oprf_query, OprfQuery};
+use oprf_types::{RpId, ShareEpoch};
+use oprf_world_types::{
+    MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch, TREE_DEPTH,
+};
 use oprf_zk::{Groth16Material, NULLIFIER_FINGERPRINT, QUERY_FINGERPRINT};
 use poseidon2::Poseidon2;
-use rand::thread_rng;
+use rand::{thread_rng, Rng};
 use ruint::aliases::U256;
 use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnvil};
+use uuid::Uuid;
 use world_id_core::{credential_to_credentials_signature, Credential, HashableCredential};
 
 #[tokio::test]
@@ -34,7 +40,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         base
     );
 
-    let _query_material = Groth16Material::new(&query_zkey, Some(QUERY_FINGERPRINT), &query_graph)
+    let query_material = Groth16Material::new(&query_zkey, Some(QUERY_FINGERPRINT), &query_graph)
         .wrap_err("failed to load query groth16 material")?;
     let _nullifier_material = Groth16Material::new(
         &nullifier_zkey,
@@ -225,6 +231,56 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         Fq::ZERO,
         "expected root should not be zero after first insertion"
     );
+
+    println!("Account index emitted: {account_index}");
+
+    let merkle_membership = MerkleMembership {
+        root: MerkleRoot::new(expected_root_fq),
+        mt_index: account_index,
+        siblings: merkle_siblings,
+    };
+
+    let key_material = UserKeyMaterial {
+        pk_batch: user_pk_batch.clone(),
+        pk_index: 0,
+        sk: user_sk.clone(),
+    };
+
+    let rp_id = RpId::new(rng.gen::<u128>());
+    let share_epoch = ShareEpoch::default();
+    let action = Fq::rand(&mut rng);
+    let nonce = Fq::rand(&mut rng);
+    let current_time_stamp = 1_800_000_000u64;
+
+    let mut msg = Vec::new();
+    msg.extend(nonce.into_bigint().to_bytes_le());
+    msg.extend(current_time_stamp.to_le_bytes());
+    let rp_signing_key = k256::ecdsa::SigningKey::random(&mut rng);
+    let nonce_signature = rp_signing_key.sign(&msg);
+
+    let query = OprfQuery {
+        rp_id,
+        share_epoch,
+        action,
+        nonce,
+        current_time_stamp,
+        nonce_signature,
+    };
+
+    let request_id = Uuid::new_v4();
+    let signed_query = sign_oprf_query(
+        credential_signature.clone(),
+        merkle_membership,
+        &query_material,
+        query,
+        key_material,
+        request_id,
+        &mut rng,
+    )
+    .wrap_err("failed to sign oprf query")?;
+
+    let oprf_request = signed_query.get_request();
+    assert_eq!(oprf_request.request_id, request_id);
 
     Ok(())
 }
