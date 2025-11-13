@@ -8,7 +8,6 @@ use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::account_registry::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
-use crate::credential::credential_to_credentials_signature;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
@@ -21,13 +20,16 @@ use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use oprf_client::{NullifierArgs, OprfQuery};
 use oprf_types::{RpId, ShareEpoch};
-use oprf_world_types::{MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch};
 use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
+use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
+use world_id_primitives::merkle::{
+    AccountInclusionProof as PrimitivesAccountInclusionProof, MerkleInclusionProof,
+};
+use world_id_primitives::proof::SingleProofInput;
 use world_id_primitives::PrimitiveError;
 pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
 
@@ -301,30 +303,13 @@ impl Authenticator {
     /// - Will error if the user is not registered on the registry.
     pub async fn fetch_inclusion_proof(
         &self,
-    ) -> Result<(MerkleMembership, UserPublicKeyBatch), AuthenticatorError> {
+    ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
+    {
         let url = format!("{}/proof/{}", self.config.indexer_url(), self.account_id());
         let response = reqwest::get(url).await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        let inclusion_proof = response.proof;
-        let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
-
-        let mut pubkey_batch = UserPublicKeyBatch {
-            values: [EdwardsAffine::default(); 7],
-        };
-
-        for i in 0..response.authenticator_pubkeys.len() {
-            pubkey_batch.values[i] = response.authenticator_pubkeys[i].pk;
-        }
-
-        Ok((
-            MerkleMembership {
-                root: MerkleRoot::from(*inclusion_proof.root),
-                siblings,
-                mt_index: inclusion_proof.leaf_index,
-            },
-            pubkey_batch,
-        ))
+        Ok((response.proof, response.authenticator_pubkeys))
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -350,26 +335,11 @@ impl Authenticator {
         rp_request: RpRequest,
         credential: Credential,
     ) -> Result<UniquenessProof, AuthenticatorError> {
-        let (merkle_membership, pk_batch) = self.fetch_inclusion_proof().await?;
-        let pk_index = pk_batch
-            .values
+        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
+        let key_index = key_set
             .iter()
-            .position(|pk| pk == &self.offchain_pubkey().pk)
+            .position(|pk| pk.pk == self.offchain_pubkey().pk)
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        let query = OprfQuery {
-            rp_id: RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
-                PrimitiveError::InvalidInput {
-                    attribute: "RP ID".to_string(),
-                    reason: format!("invalid RP ID: {e}"),
-                }
-            })?),
-            share_epoch: ShareEpoch::default(), // TODO
-            action: *rp_request.action_id,
-            nonce: *rp_request.nonce,
-            current_time_stamp: rp_request.current_time_stamp, // TODO
-            nonce_signature: rp_request.signature,
-        };
 
         // TODO: load once and from bytes
         let query_material = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH)
@@ -381,28 +351,34 @@ impl Authenticator {
                 AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
             })?;
 
-        let key_material = UserKeyMaterial {
-            pk_batch,
-            pk_index,
-            sk: self
-                .signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .clone(),
+        // TODO: convert rp_request to primitives types
+        let primitives_rp_id =
+            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
+                PrimitiveError::InvalidInput {
+                    attribute: "RP ID".to_string(),
+                    reason: format!("invalid RP ID: {e}"),
+                }
+            })?);
+        let primitives_rp_nullifier_key =
+            world_id_primitives::rp::RpNullifierKey::new(rp_request.rp_nullifier_key.inner());
+
+        let args = SingleProofInput::<TREE_DEPTH> {
+            credential,
+            inclusion_proof,
+            key_set,
+            key_index,
+            rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
+            rp_id: primitives_rp_id,
+            share_epoch: ShareEpoch::default().into_inner(), // TODO
+            action: rp_request.action_id,
+            nonce: rp_request.nonce,
+            current_timestamp: rp_request.current_time_stamp, // TODO
+            rp_signature: rp_request.signature,
+            rp_nullifier_key: primitives_rp_nullifier_key,
+            signal_hash: message_hash,
         };
 
-        // TODO: check rp nullifier key
-        let args = NullifierArgs {
-            credential_signature: credential_to_credentials_signature(credential).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to convert credential: {e}"))
-            })?,
-            merkle_membership,
-            query,
-            key_material,
-            signal_hash: *message_hash,
-            rp_nullifier_key: rp_request.rp_nullifier_key,
-            id_commitment_r: ark_babyjubjub::Fq::ZERO, // FIXME: expose properly
-        };
+        let private_key = self.signer.offchain_signer_private_key().expose_secret();
 
         let mut rng = rand::thread_rng();
         let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
@@ -411,6 +387,7 @@ impl Authenticator {
             &query_material,
             &nullifier_material,
             args,
+            private_key,
             &mut rng,
         )
         .await
@@ -435,10 +412,10 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let account_id = self.account_id();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
-        pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
-        let new_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_offchain_signer_commitment = Self::leaf_hash(&key_set);
+        key_set[index as usize] = new_authenticator_pubkey.clone();
+        let new_offchain_signer_commitment = Self::leaf_hash(&key_set);
 
         let compressed_bytes = new_authenticator_pubkey
             .to_compressed_bytes()
@@ -477,10 +454,10 @@ impl Authenticator {
             new_authenticator_pubkey: compressed_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            sibling_nodes: merkle_membership
+            sibling_nodes: inclusion_proof
                 .siblings
                 .iter()
-                .map(std::convert::Into::into)
+                .map(|s| (*s).into())
                 .collect(),
             signature: signature.as_bytes().to_vec(),
             nonce,
@@ -525,10 +502,10 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let account_id = self.account_id();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
-        pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
-        let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_commitment: U256 = Self::leaf_hash(&key_set).into();
+        key_set[index as usize] = new_authenticator_pubkey.clone();
+        let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
         // TODO: remove this once compression is merged
         let mut compressed_bytes = Vec::new();
@@ -562,7 +539,7 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign update authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = merkle_membership
+        let sibling_nodes: Vec<U256> = inclusion_proof
             .siblings
             .iter()
             .map(|s| (*s).into())
@@ -618,9 +595,9 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let account_id = self.account_id();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
-        let existing_pubkey = pk_batch.values[index as usize];
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_commitment: U256 = Self::leaf_hash(&key_set).into();
+        let existing_pubkey = key_set[index as usize].pk;
 
         let mut compressed_old = Vec::new();
         existing_pubkey
@@ -628,8 +605,10 @@ impl Authenticator {
             .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
         let compressed_old_pubkey = U256::from_le_slice(&compressed_old);
 
-        pk_batch.values[index as usize] = EdwardsAffine::default();
-        let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
+        key_set[index as usize] = EdDSAPublicKey {
+            pk: EdwardsAffine::default(),
+        };
+        let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
         let eip712_domain = domain(
             self.provider()
@@ -654,7 +633,7 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign remove authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = merkle_membership
+        let sibling_nodes: Vec<U256> = inclusion_proof
             .siblings
             .iter()
             .map(|s| (*s).into())
@@ -700,16 +679,16 @@ impl Authenticator {
     /// Will error if the provided public key batch is not valid.
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
+    fn leaf_hash(key_set: &AuthenticatorPublicKeySet) -> ark_babyjubjub::Fq {
         let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
         let mut input = [ark_babyjubjub::Fq::ZERO; 16];
         #[allow(clippy::unwrap_used)]
         {
             input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
         }
-        for i in 0..7 {
-            input[i * 2 + 1] = pk.values[i].x;
-            input[i * 2 + 2] = pk.values[i].y;
+        for i in 0..key_set.len().min(7) {
+            input[i * 2 + 1] = key_set[i].pk.x;
+            input[i * 2 + 2] = key_set[i].pk.y;
         }
         poseidon2_16.permutation(&input)[1]
     }
@@ -726,12 +705,9 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
-        let mut pubkey_batch = UserPublicKeyBatch {
-            values: [EdwardsAffine::default(); 7],
-        };
-
-        pubkey_batch.values[0] = signer.offchain_signer_pubkey().pk;
-        let leaf_hash = Self::leaf_hash(&pubkey_batch);
+        let mut key_set = AuthenticatorPublicKeySet::new(None)?;
+        key_set.push(signer.offchain_signer_pubkey())?;
+        let leaf_hash = Self::leaf_hash(&key_set);
 
         let offchain_pubkey_compressed = {
             let pk = signer.offchain_signer_pubkey().pk;

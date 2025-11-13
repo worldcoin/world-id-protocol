@@ -97,6 +97,19 @@ pub struct RpNullifierKey(
     ark_babyjubjub::EdwardsAffine,
 );
 
+impl RpNullifierKey {
+    /// Creates a new `RpNullifierKey` by wrapping an `EdwardsAffine` point
+    #[must_use]
+    pub const fn new(value: ark_babyjubjub::EdwardsAffine) -> Self {
+        Self(value)
+    }
+
+    /// Returns the inner `EdwardsAffine` point
+    pub const fn into_inner(self) -> ark_babyjubjub::EdwardsAffine {
+        self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

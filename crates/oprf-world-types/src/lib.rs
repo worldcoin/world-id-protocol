@@ -114,31 +114,6 @@ impl UserKeyMaterial {
     }
 }
 
-/// A credential object in the world ecosystem, together with its signature.  
-/// See [Notion doc](https://www.notion.so/worldcoin/WID25-Credential-PCP-Structure-Lifecycle-2668614bdf8c805d9484d7dd8f68532b?source=copy_link#2698614bdf8c808f83ebe8889dad0af6) for details.
-///
-/// The user must prove in a ZK proof that they hold a valid credential
-/// and that it was signed by an authorized issuer.
-#[derive(Clone)]
-pub struct CredentialsSignature {
-    /// Unique credential type ID. Not relevant for the OPRF service,
-    /// but included in the signature.
-    pub type_id: ark_babyjubjub::Fq,
-    /// The `claims hash` + `associated data hash`.
-    pub hashes: [ark_babyjubjub::Fq; 2], // [claims_hash, associated_data_hash]
-    /// Timestamp of original issuance (unix secs).
-    pub genesis_issued_at: u64,
-    /// Expiration timestamp (unix secs).
-    pub expires_at: u64,
-    /// The issuer of the credential.  
-    /// Currently this is a public input to the Groth16 proof.  
-    /// In upcoming versions, the OPRF service will fetch the issuer’s
-    /// public key from chain (or another trusted source).
-    pub issuer: EdDSAPublicKey,
-    /// The credential’s signature object.
-    pub signature: EdDSASignature,
-}
-
 /// Artifacts required to compute the Merkle inclusion proof
 /// for a user’s public key.
 ///

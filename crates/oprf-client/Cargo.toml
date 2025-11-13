@@ -10,6 +10,7 @@ license.workspace = true
 [dependencies]
 ark-babyjubjub = { workspace = true }
 ark-ec = { workspace = true }
+ark-ff = { workspace = true }
 eyre.workspace = true
 futures = { version = "0.3" }
 groth16 = { workspace = true }
@@ -18,6 +19,8 @@ oprf-core = { workspace = true }
 oprf-types = { workspace = true }
 oprf-world-types = { workspace = true }
 oprf-zk = { workspace = true }
+poseidon2 = { workspace = true }
+world-id-primitives = { workspace = true }
 rand.workspace = true
 reqwest = { workspace = true }
 serde_json.workspace = true
@@ -25,6 +28,7 @@ thiserror.workspace = true
 tokio = { workspace = true, optional = true, features = ["net", "rt-multi-thread", "signal", "sync", "time", "tokio-macros"] }
 tracing.workspace = true
 uuid = { workspace = true, features = ["serde", "v4"] }
+eddsa-babyjubjub = { workspace = true }
 
 [features]
 default = ["tokio"]

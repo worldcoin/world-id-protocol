@@ -6,9 +6,6 @@ use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 
 use crate::{Credential, CredentialVersion, FieldElement};
 
-// TODO: Remove
-#[cfg(feature = "authenticator")]
-use oprf_world_types::CredentialsSignature;
 /// Introduces hashing and signing capabilities to the `Credential` type.
 pub trait HashableCredential {
     /// Get the claims hash of the credential.
@@ -103,22 +100,6 @@ impl HashableCredential for Credential {
         }
         Err(eyre::eyre!("Credential not signed"))
     }
-}
-
-#[cfg(feature = "authenticator")]
-pub fn credential_to_credentials_signature(
-    credential: Credential,
-) -> Result<CredentialsSignature, eyre::Error> {
-    Ok(CredentialsSignature {
-        type_id: credential.issuer_schema_id.into(),
-        issuer: credential.issuer.clone(),
-        hashes: [*credential.claims_hash()?, *credential.associated_data_hash],
-        signature: credential
-            .signature
-            .ok_or_else(|| eyre::eyre!("Credential not signed"))?,
-        genesis_issued_at: credential.genesis_issued_at,
-        expires_at: credential.expires_at,
-    })
 }
 
 #[cfg(feature = "issuer")]
