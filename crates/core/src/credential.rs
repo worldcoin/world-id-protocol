@@ -105,7 +105,7 @@ impl HashableCredential for Credential {
     }
 }
 
-#[cfg(any(feature = "authenticator", feature = "issuer"))]
+#[cfg(feature = "authenticator")]
 /// Converts a signed [`Credential`] into a [`CredentialsSignature`].
 ///
 /// # Errors
