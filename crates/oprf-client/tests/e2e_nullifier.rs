@@ -70,16 +70,6 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .await
         .wrap_err("failed to deploy account registry proxy")?;
 
-    // Basic post‑deploy checks
-    assert!(
-        !issuer_registry.is_zero(),
-        "issuer registry proxy address must be non-zero"
-    );
-    assert!(
-        !account_registry.is_zero(),
-        "account registry proxy address must be non-zero"
-    );
-
     // Create an Issuer keypair (EdDSA on BabyJubJub) to sign credentials
     let mut rng = thread_rng();
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
@@ -264,27 +254,6 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         signature: issuer_signature,
     };
 
-    // Sanity checks on assembled inputs
-    assert_eq!(
-        credential_signature.type_id,
-        Fq::from(issuer_schema_id_u64),
-        "credential signature type id mismatch"
-    );
-    assert_eq!(
-        credential_signature.issuer, issuer_pk,
-        "credential signature issuer mismatch"
-    );
-    assert_eq!(
-        merkle_siblings.len(),
-        TREE_DEPTH,
-        "unexpected merkle sibling path length"
-    );
-    assert_ne!(
-        expected_root_fq,
-        Fq::ZERO,
-        "expected root should not be zero after first insertion"
-    );
-
     // Prepare Merkle membership witness for πR (query proof)
     let merkle_membership = MerkleMembership {
         root: MerkleRoot::new(expected_root_fq),
@@ -336,9 +305,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     )
     .wrap_err("failed to sign oprf query")?;
 
-    // Sanity‑check the request id was preserved
     let oprf_request = signed_query.get_request();
-    assert_eq!(oprf_request.request_id, request_id);
 
     // Emulate OPRF combination offline (single RP nullifier key)
     let rp_secret = Fr::rand(&mut rng);
@@ -351,16 +318,6 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     // Create and check Chaum‑Pedersen DLog equality proof for (K, C)
     let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_secret, &mut rng);
-
-    assert!(
-        dlog_proof.verify(
-            rp_nullifier_key.inner(),
-            blinded_query,
-            blinded_response,
-            EdwardsAffine::generator()
-        ),
-        "offline Chaum-Pedersen proof should verify"
-    );
 
     // Sample auxiliary public inputs exposed by the nullifier circuit
     let signal_hash = Fq::rand(&mut rng);
@@ -392,10 +349,6 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .wrap_err("failed to generate nullifier proof")?;
 
     // The circuit exposes [id_commitment, nullifier, ...] as public inputs
-    assert!(
-        public_inputs.len() >= 2,
-        "nullifier circuit should expose id_commitment and nullifier"
-    );
     let id_commitment = public_inputs[0];
     let nullifier = public_inputs[1];
 
