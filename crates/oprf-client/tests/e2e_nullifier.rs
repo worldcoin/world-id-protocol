@@ -214,7 +214,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     // Construct a minimal credential (bound to issuerSchemaId and account)
     let genesis_issued_at = 1_700_000_000u64;
-    let expires_at = genesis_issued_at + 31_536_000;
+    let expires_at = genesis_issued_at + 86_400;
 
     let credential = Credential::new()
         .issuer_schema_id(issuer_schema_id_u64)
