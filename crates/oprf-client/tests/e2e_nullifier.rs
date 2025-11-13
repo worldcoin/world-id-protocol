@@ -1,13 +1,14 @@
 use std::{convert::TryInto, path::PathBuf, str::FromStr};
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
-use ark_babyjubjub::{EdwardsAffine, Fq};
+use ark_babyjubjub::{EdwardsAffine, Fq, FqConfig};
 use ark_ff::{AdditiveGroup, BigInteger, PrimeField, UniformRand};
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
 use k256::ecdsa::signature::Signer;
 use oprf_client::{sign_oprf_query, OprfQuery};
+use oprf_core::proof_input_gen::query::QueryProofInput;
 use oprf_types::{RpId, ShareEpoch};
 use oprf_world_types::{
     CredentialsSignature, MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch,
@@ -221,17 +222,16 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .wrap_err("failed to compute credential claims hash")?
         .deref();
     let associated_data_hash = *credential.associated_data_hash.deref();
-    let cred_hashes: [ark_ff::Fp<ark_ff::MontBackend<ark_babyjubjub::FqConfig, 4>, 4>; 2] =
+    let cred_hashes: [ark_ff::Fp<ark_ff::MontBackend<FqConfig, 4>, 4>; 2] =
         [claims_hash, associated_data_hash];
 
-    let credential_message =
-        oprf_core::proof_input_gen::query::QueryProofInput::<TREE_DEPTH>::credential_message(
-            Fq::from(issuer_schema_id_u64),
-            Fq::from(merkle_index),
-            Fq::from(genesis_issued_at),
-            Fq::from(expires_at),
-            cred_hashes,
-        );
+    let credential_message = QueryProofInput::<TREE_DEPTH>::credential_message(
+        Fq::from(issuer_schema_id_u64),
+        Fq::from(merkle_index),
+        Fq::from(genesis_issued_at),
+        Fq::from(expires_at),
+        cred_hashes,
+    );
     let issuer_signature = issuer_sk.sign(credential_message);
 
     let credential_signature = CredentialsSignature {
