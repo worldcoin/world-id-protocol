@@ -325,9 +325,18 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let nullifier_witness = nullifier_material
         .generate_witness(nullifier_input_json)
         .wrap_err("failed to generate nullifier witness")?;
-    let (_nullifier_proof, public_inputs) = nullifier_material
+    let (nullifier_proof, public_inputs) = nullifier_material
         .generate_proof(&nullifier_witness, &mut rng)
         .wrap_err("failed to generate nullifier proof")?;
+
+    // Verify the Groth16 proof offline
+    // Extract public inputs from witness (already in ark_bn254::Fr format)
+    // The witness format is [dummy, public_input_0, public_input_1, ...]
+    let public_inputs_fr: Vec<_> =
+        nullifier_witness[1..nullifier_material.matrices.num_instance_variables].to_vec();
+    nullifier_material
+        .verify_proof(&nullifier_proof.into(), &public_inputs_fr)
+        .wrap_err("failed to verify nullifier proof offline")?;
 
     // The circuit exposes [id_commitment, nullifier, ...] as public inputs
     let id_commitment = public_inputs[0];
