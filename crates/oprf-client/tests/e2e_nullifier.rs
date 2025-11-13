@@ -1,10 +1,9 @@
-use std::{convert::TryInto, path::PathBuf, str::FromStr};
+use std::{convert::TryInto, path::PathBuf};
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
 use ark_babyjubjub::{EdwardsAffine, Fq, FqConfig, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{AdditiveGroup, BigInteger, PrimeField, UniformRand};
-use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
 use k256::ecdsa::signature::Signer;
@@ -16,7 +15,10 @@ use oprf_world_types::{
     CredentialsSignature, MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch,
     TREE_DEPTH,
 };
-use oprf_zk::{Groth16Material, NULLIFIER_FINGERPRINT, QUERY_FINGERPRINT};
+use oprf_zk::{
+    Groth16Material, NULLIFIER_FINGERPRINT, NULLIFIER_GRAPH_BYTES, QUERY_FINGERPRINT,
+    QUERY_GRAPH_BYTES,
+};
 use poseidon2::Poseidon2;
 use rand::{thread_rng, Rng};
 use ruint::aliases::U256;
@@ -32,29 +34,23 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../circom");
 
     let query_zkey = base.join("query.zkey");
-    let query_graph = base.join("query_graph.bin");
     let nullifier_zkey = base.join("nullifier.zkey");
-    let nullifier_graph = base.join("nullifier_graph.bin");
-
-    // Sanity‑check that proving keys and computation graphs exist
-    assert!(
-        query_zkey.exists() && query_graph.exists(),
-        "missing query proving material in {:?}",
-        base
-    );
-    assert!(
-        nullifier_zkey.exists() && nullifier_graph.exists(),
-        "missing nullifier proving material in {:?}",
-        base
-    );
+    let query_zkey_bytes =
+        std::fs::read(&query_zkey).wrap_err("missing or unreadable query.zkey")?;
+    let nullifier_zkey_bytes =
+        std::fs::read(&nullifier_zkey).wrap_err("missing or unreadable nullifier.zkey")?;
 
     // Load Groth16 material (proving key + computation graph fingerprints)
-    let query_material = Groth16Material::new(&query_zkey, Some(QUERY_FINGERPRINT), &query_graph)
-        .wrap_err("failed to load query groth16 material")?;
-    let nullifier_material = Groth16Material::new(
-        &nullifier_zkey,
+    let query_material = Groth16Material::from_bytes(
+        &query_zkey_bytes,
+        Some(QUERY_FINGERPRINT),
+        QUERY_GRAPH_BYTES,
+    )
+    .wrap_err("failed to load query groth16 material")?;
+    let nullifier_material = Groth16Material::from_bytes(
+        &nullifier_zkey_bytes,
         Some(NULLIFIER_FINGERPRINT),
-        &nullifier_graph,
+        NULLIFIER_GRAPH_BYTES,
     )
     .wrap_err("failed to load nullifier groth16 material")?;
 
@@ -418,7 +414,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     Ok(())
 }
 
-// Helper: Build default‑zero sibling path and compute root for index 0 after one insertion
+// Build default‑zero sibling path and compute root for index 0 after one insertion
 fn first_leaf_merkle_path(leaf: Fq) -> ([Fq; TREE_DEPTH], Fq) {
     let poseidon2_2: Poseidon2<Fq, 2, 5> = Poseidon2::default();
     let mut siblings = [Fq::ZERO; TREE_DEPTH];
@@ -436,7 +432,7 @@ fn first_leaf_merkle_path(leaf: Fq) -> ([Fq; TREE_DEPTH], Fq) {
     (siblings, current)
 }
 
-// Helper: Poseidon2 "compress" for a pair of field elements (left, right)
+// Poseidon2 "compress" for a pair of field elements (left, right)
 fn poseidon2_compress(poseidon2: &Poseidon2<Fq, 2, 5>, left: Fq, right: Fq) -> Fq {
     let mut state = poseidon2.permutation(&[left, right]);
     state[0] += left;
