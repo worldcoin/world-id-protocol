@@ -24,6 +24,8 @@ pub use world_id_primitives::{Credential, CredentialVersion};
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 mod credential;
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
+pub use credential::credential_to_credentials_signature;
+#[cfg(any(feature = "authenticator", feature = "issuer"))]
 pub use credential::HashableCredential;
 
 #[cfg(feature = "issuer")]

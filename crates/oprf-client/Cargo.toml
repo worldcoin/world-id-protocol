@@ -54,3 +54,4 @@ eddsa-babyjubjub = { workspace = true }
 poseidon2 = { workspace = true }
 ruint = { workspace = true }
 test-utils = { path = "../test-utils" }
+world-id-core = { path = "../core", features = ["issuer"] }

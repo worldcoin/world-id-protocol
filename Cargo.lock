@@ -4743,6 +4743,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "world-id-core",
 ]
 
 [[package]]

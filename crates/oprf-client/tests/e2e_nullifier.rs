@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{convert::TryInto, path::PathBuf, str::FromStr};
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
 use ark_babyjubjub::{EdwardsAffine, Fq};
@@ -12,6 +12,7 @@ use poseidon2::Poseidon2;
 use rand::thread_rng;
 use ruint::aliases::U256;
 use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnvil};
+use world_id_core::{credential_to_credentials_signature, Credential, HashableCredential};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -172,6 +173,47 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     assert_eq!(
         onchain_root, expected_root_u256,
         "on-chain root mismatch with locally computed root"
+    );
+
+    let account_created = account_receipt
+        .logs()
+        .iter()
+        .find_map(|log| AccountRegistry::AccountCreated::decode_log(log.inner.as_ref()).ok())
+        .ok_or_else(|| eyre!("AccountCreated event not emitted"))?;
+
+    let account_index: u64 = account_created
+        .accountIndex
+        .try_into()
+        .map_err(|_| eyre!("account index exceeded u64 range"))?;
+
+    let issuer_schema_id_u64: u64 = issuer_schema_id
+        .try_into()
+        .map_err(|_| eyre!("issuer schema id exceeded u64 range"))?;
+
+    let genesis_issued_at = 1_700_000_000u64;
+    let expires_at = genesis_issued_at + 31_536_000;
+
+    let credential = Credential::new()
+        .issuer_schema_id(issuer_schema_id_u64)
+        .account_id(account_index)
+        .genesis_issued_at(genesis_issued_at)
+        .expires_at(expires_at);
+
+    let credential = credential
+        .sign(&issuer_sk)
+        .wrap_err("failed to sign credential with issuer key")?;
+
+    let credential_signature = credential_to_credentials_signature(credential.clone())
+        .wrap_err("failed to convert credential into credentials signature")?;
+
+    assert_eq!(
+        credential_signature.type_id,
+        Fq::from(issuer_schema_id_u64),
+        "credential signature type id mismatch"
+    );
+    assert_eq!(
+        credential_signature.issuer, issuer_pk,
+        "credential signature issuer mismatch"
     );
     assert_eq!(
         merkle_siblings.len(),
