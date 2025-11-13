@@ -10,15 +10,18 @@ use k256::ecdsa::signature::Signer;
 use oprf_client::{sign_oprf_query, OprfQuery};
 use oprf_types::{RpId, ShareEpoch};
 use oprf_world_types::{
-    MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch, TREE_DEPTH,
+    CredentialsSignature, MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch,
+    TREE_DEPTH,
 };
 use oprf_zk::{Groth16Material, NULLIFIER_FINGERPRINT, QUERY_FINGERPRINT};
 use poseidon2::Poseidon2;
 use rand::{thread_rng, Rng};
 use ruint::aliases::U256;
+use std::ops::Deref;
 use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnvil};
 use uuid::Uuid;
-use world_id_core::{credential_to_credentials_signature, Credential, HashableCredential};
+
+use world_id_core::{Credential, HashableCredential};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -192,6 +195,10 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .try_into()
         .map_err(|_| eyre!("account index exceeded u64 range"))?;
 
+    let merkle_index = account_index
+        .checked_sub(1)
+        .expect("account indices should be 1-indexed in the registry");
+
     let issuer_schema_id_u64: u64 = issuer_schema_id
         .try_into()
         .map_err(|_| eyre!("issuer schema id exceeded u64 range"))?;
@@ -201,7 +208,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     let credential = Credential::new()
         .issuer_schema_id(issuer_schema_id_u64)
-        .account_id(account_index)
+        .account_id(merkle_index)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at);
 
@@ -209,8 +216,32 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .sign(&issuer_sk)
         .wrap_err("failed to sign credential with issuer key")?;
 
-    let credential_signature = credential_to_credentials_signature(credential.clone())
-        .wrap_err("failed to convert credential into credentials signature")?;
+    let claims_hash = *credential
+        .claims_hash()
+        .wrap_err("failed to compute credential claims hash")?
+        .deref();
+    let associated_data_hash = *credential.associated_data_hash.deref();
+    let cred_hashes: [ark_ff::Fp<ark_ff::MontBackend<ark_babyjubjub::FqConfig, 4>, 4>; 2] =
+        [claims_hash, associated_data_hash];
+
+    let credential_message =
+        oprf_core::proof_input_gen::query::QueryProofInput::<TREE_DEPTH>::credential_message(
+            Fq::from(issuer_schema_id_u64),
+            Fq::from(merkle_index),
+            Fq::from(genesis_issued_at),
+            Fq::from(expires_at),
+            cred_hashes,
+        );
+    let issuer_signature = issuer_sk.sign(credential_message);
+
+    let credential_signature = CredentialsSignature {
+        type_id: Fq::from(issuer_schema_id_u64),
+        hashes: cred_hashes,
+        genesis_issued_at,
+        expires_at,
+        issuer: issuer_pk.clone(),
+        signature: issuer_signature,
+    };
 
     assert_eq!(
         credential_signature.type_id,
@@ -232,11 +263,9 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         "expected root should not be zero after first insertion"
     );
 
-    println!("Account index emitted: {account_index}");
-
     let merkle_membership = MerkleMembership {
         root: MerkleRoot::new(expected_root_fq),
-        mt_index: account_index,
+        mt_index: merkle_index,
         siblings: merkle_siblings,
     };
 
@@ -250,7 +279,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let share_epoch = ShareEpoch::default();
     let action = Fq::rand(&mut rng);
     let nonce = Fq::rand(&mut rng);
-    let current_time_stamp = 1_800_000_000u64;
+    let current_time_stamp = genesis_issued_at + 60;
 
     let mut msg = Vec::new();
     msg.extend(nonce.into_bigint().to_bytes_le());
