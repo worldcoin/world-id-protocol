@@ -1,19 +1,18 @@
 use std::{convert::TryInto, path::PathBuf};
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
-use ark_babyjubjub::{EdwardsAffine, Fq, FqConfig, Fr};
+use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{AdditiveGroup, BigInteger, PrimeField, UniformRand};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
 use k256::ecdsa::signature::Signer;
 use oprf_client::{sign_oprf_query, OprfQuery};
-use oprf_core::{dlog_equality::DLogEqualityProof, proof_input_gen::query::QueryProofInput};
+use oprf_core::dlog_equality::DLogEqualityProof;
 use oprf_types::{crypto::RpNullifierKey, RpId, ShareEpoch};
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use oprf_world_types::{
-    CredentialsSignature, MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch,
-    TREE_DEPTH,
+    MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch, TREE_DEPTH,
 };
 use oprf_zk::{
     Groth16Material, NULLIFIER_FINGERPRINT, NULLIFIER_GRAPH_BYTES, QUERY_FINGERPRINT,
@@ -21,12 +20,14 @@ use oprf_zk::{
 };
 use rand::{thread_rng, Rng};
 use ruint::aliases::U256;
-use std::ops::Deref;
 use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnvil};
 use test_utils::merkle::first_leaf_merkle_path;
 use uuid::Uuid;
 
-use world_id_core::{compress_offchain_pubkey, leaf_hash, Credential, HashableCredential};
+use world_id_core::{
+    compress_offchain_pubkey, credential_to_credentials_signature, leaf_hash, Credential,
+    HashableCredential,
+};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -227,42 +228,9 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .sign(&issuer_sk)
         .wrap_err("failed to sign credential with issuer key")?;
 
-    // TODO: review
-
-    // use world_id_core::credential_to_credentials_signature;
-    // let credential_signature = world_id_core::credential_to_credentials_signature(credential.clone())
-    //     .wrap_err("failed to convert credential to CredentialsSignature")?;
-
-    // Note: Not used here because the OPRF/DLBE query circuit expects the issuer's EdDSA signature
-    // over a DLBE-specific Poseidon2 domain (b"POSEIDON2+EDDSA-BJJ+DLBE-v1"), while
-    // credential_to_credentials_signature signs the plain credential domain (b"POSEIDON2+EDDSA-BJJ").
-    // We therefore re-sign using QueryProofInput::credential_message to match the DLBE circuit.
-
-    let claims_hash = *credential
-        .claims_hash()
-        .wrap_err("failed to compute credential claims hash")?
-        .deref();
-    let associated_data_hash = *credential.associated_data_hash.deref();
-    let cred_hashes: [ark_ff::Fp<ark_ff::MontBackend<FqConfig, 4>, 4>; 2] =
-        [claims_hash, associated_data_hash];
-
-    let credential_message = QueryProofInput::<TREE_DEPTH>::credential_message(
-        Fq::from(issuer_schema_id_u64),
-        Fq::from(merkle_index),
-        Fq::from(genesis_issued_at),
-        Fq::from(expires_at),
-        cred_hashes,
-    );
-    let issuer_signature = issuer_sk.sign(credential_message);
-
-    let credential_signature = CredentialsSignature {
-        type_id: Fq::from(issuer_schema_id_u64),
-        hashes: cred_hashes,
-        genesis_issued_at,
-        expires_at,
-        issuer: issuer_pk.clone(),
-        signature: issuer_signature,
-    };
+    // Convert the signed credential into a CredentialsSignature using the helper
+    let credential_signature = credential_to_credentials_signature(credential.clone())
+        .wrap_err("failed to convert credential to CredentialsSignature")?;
 
     // Prepare Merkle membership witness for πR (query proof)
     let merkle_membership = MerkleMembership {

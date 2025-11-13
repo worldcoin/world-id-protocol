@@ -106,6 +106,14 @@ impl HashableCredential for Credential {
 }
 
 #[cfg(feature = "authenticator")]
+/// Converts a signed `Credential` into a `CredentialsSignature`.
+///
+/// Includes the issuer public key, credential hashes, validity window, and the issuer's
+/// `EdDSA` signature. Intended for `OPRF` client logic and proving circuits.
+///
+/// # Errors
+/// - Will error if the credential is not signed.
+/// - Will error if the credential claims hash cannot be computed.
 pub fn credential_to_credentials_signature(
     credential: Credential,
 ) -> Result<CredentialsSignature, eyre::Error> {

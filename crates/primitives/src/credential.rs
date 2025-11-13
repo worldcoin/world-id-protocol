@@ -164,7 +164,9 @@ impl Credential {
     #[must_use]
     pub fn get_cred_ds(&self) -> FieldElement {
         match self.version {
-            CredentialVersion::V1 => FieldElement::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
+            CredentialVersion::V1 => {
+                FieldElement::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ+DLBE-v1")
+            }
         }
     }
 }
