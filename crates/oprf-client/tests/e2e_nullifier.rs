@@ -1,15 +1,16 @@
 use std::{convert::TryInto, path::PathBuf, str::FromStr};
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
-use ark_babyjubjub::{EdwardsAffine, Fq, FqConfig};
+use ark_babyjubjub::{EdwardsAffine, Fq, FqConfig, Fr};
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{AdditiveGroup, BigInteger, PrimeField, UniformRand};
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
 use k256::ecdsa::signature::Signer;
 use oprf_client::{sign_oprf_query, OprfQuery};
-use oprf_core::proof_input_gen::query::QueryProofInput;
-use oprf_types::{RpId, ShareEpoch};
+use oprf_core::{dlog_equality::DLogEqualityProof, proof_input_gen::query::QueryProofInput};
+use oprf_types::{crypto::RpNullifierKey, RpId, ShareEpoch};
 use oprf_world_types::{
     CredentialsSignature, MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch,
     TREE_DEPTH,
@@ -310,6 +311,25 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     let oprf_request = signed_query.get_request();
     assert_eq!(oprf_request.request_id, request_id);
+
+    let rp_secret = Fr::rand(&mut rng);
+    let rp_nullifier_key_point = (EdwardsAffine::generator() * rp_secret).into_affine();
+    let rp_nullifier_key = RpNullifierKey::new(rp_nullifier_key_point);
+
+    let blinded_query = oprf_request.blinded_query;
+    let blinded_response = (blinded_query * rp_secret).into_affine();
+
+    let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_secret, &mut rng);
+
+    assert!(
+        dlog_proof.verify(
+            rp_nullifier_key.inner(),
+            blinded_query,
+            blinded_response,
+            EdwardsAffine::generator()
+        ),
+        "offline Chaum-Pedersen proof should verify"
+    );
 
     Ok(())
 }
