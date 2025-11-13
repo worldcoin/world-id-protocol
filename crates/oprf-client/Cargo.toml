@@ -39,8 +39,18 @@ tokio = ["dep:tokio"]
 embed-zkeys = []
 
 [dev-dependencies]
-ark-ff.workspace = true
-alloy.workspace = true
-eddsa-babyjubjub.workspace = true
-ruint.workspace = true
+alloy = { workspace = true, default-features = false, features = [
+    "contract",
+    "json",
+    "reqwest",
+    "rpc",
+    "rpc-types",
+    "signer-local",
+    "sol-types",
+] }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+poseidon2 = { workspace = true }
+ruint = { workspace = true }
 test-utils = { path = "../test-utils" }

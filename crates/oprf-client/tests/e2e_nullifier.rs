@@ -1,13 +1,17 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
-use ark_ff::PrimeField;
+use ark_babyjubjub::{EdwardsAffine, Fq};
+use ark_ff::{AdditiveGroup, PrimeField};
+use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
+use oprf_world_types::{UserPublicKeyBatch, TREE_DEPTH};
 use oprf_zk::{Groth16Material, NULLIFIER_FINGERPRINT, QUERY_FINGERPRINT};
+use poseidon2::Poseidon2;
 use rand::thread_rng;
 use ruint::aliases::U256;
-use test_utils::anvil::{CredentialSchemaIssuerRegistry, TestAnvil};
+use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnvil};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -110,5 +114,116 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     assert_eq!(onchain_pubkey.x, issuer_pubkey.x);
     assert_eq!(onchain_pubkey.y, issuer_pubkey.y);
 
+    let recovery_signer = anvil
+        .signer(1)
+        .wrap_err("failed to fetch recovery anvil signer")?;
+    let authenticator_signer = anvil
+        .signer(2)
+        .wrap_err("failed to fetch authenticator anvil signer")?;
+
+    let account_provider = ProviderBuilder::new()
+        .wallet(EthereumWallet::from(authenticator_signer.clone()))
+        .connect_http(
+            anvil
+                .endpoint()
+                .parse()
+                .wrap_err("invalid anvil endpoint URL")?,
+        );
+    let account_contract = AccountRegistry::new(account_registry, account_provider);
+
+    let user_sk = EdDSAPrivateKey::random(&mut rng);
+    let mut user_pk_batch = UserPublicKeyBatch {
+        values: [EdwardsAffine::default(); 7],
+    };
+    user_pk_batch.values[0] = user_sk.public().pk;
+
+    let offchain_pubkey = compress_offchain_pubkey(&user_pk_batch.values[0])
+        .wrap_err("failed to compress off-chain authenticator pubkey")?;
+    let leaf_commitment_fq = leaf_hash(&user_pk_batch);
+    let leaf_commitment = U256::from_limbs(leaf_commitment_fq.into_bigint().0);
+
+    let (merkle_siblings, expected_root_fq) = first_leaf_merkle_path(leaf_commitment_fq);
+    let expected_root_u256 = U256::from_limbs(expected_root_fq.into_bigint().0);
+
+    let account_receipt = account_contract
+        .createAccount(
+            recovery_signer.address(),
+            vec![authenticator_signer.address()],
+            vec![offchain_pubkey],
+            leaf_commitment,
+        )
+        .send()
+        .await
+        .wrap_err("failed to submit createAccount transaction")?
+        .get_receipt()
+        .await
+        .wrap_err("failed to fetch createAccount receipt")?;
+
+    if !account_receipt.status() {
+        eyre::bail!("createAccount transaction reverted");
+    }
+
+    let onchain_root = account_contract
+        .currentRoot()
+        .call()
+        .await
+        .wrap_err("failed to fetch account registry root from chain")?;
+
+    assert_eq!(
+        onchain_root, expected_root_u256,
+        "on-chain root mismatch with locally computed root"
+    );
+    assert_eq!(
+        merkle_siblings.len(),
+        TREE_DEPTH,
+        "unexpected merkle sibling path length"
+    );
+    assert_ne!(
+        expected_root_fq,
+        Fq::ZERO,
+        "expected root should not be zero after first insertion"
+    );
+
     Ok(())
+}
+
+fn leaf_hash(pk: &UserPublicKeyBatch) -> Fq {
+    let poseidon2_16: Poseidon2<Fq, 16, 5> = Poseidon2::default();
+    let mut input = [Fq::ZERO; 16];
+    input[0] = Fq::from_str("105702839725298824521994315")
+        .expect("poseidon domain separator constant must parse");
+    for i in 0..7 {
+        input[i * 2 + 1] = pk.values[i].x;
+        input[i * 2 + 2] = pk.values[i].y;
+    }
+    poseidon2_16.permutation(&input)[1]
+}
+
+fn compress_offchain_pubkey(pk: &EdwardsAffine) -> eyre::Result<U256> {
+    let mut compressed = Vec::with_capacity(32);
+    pk.serialize_compressed(&mut compressed)?;
+    Ok(U256::from_le_slice(&compressed))
+}
+
+fn first_leaf_merkle_path(leaf: Fq) -> ([Fq; TREE_DEPTH], Fq) {
+    let poseidon2_2: Poseidon2<Fq, 2, 5> = Poseidon2::default();
+    let mut siblings = [Fq::ZERO; TREE_DEPTH];
+    let mut zero = Fq::ZERO;
+    for sibling in siblings.iter_mut() {
+        *sibling = zero;
+        zero = poseidon2_compress(&poseidon2_2, zero, zero);
+    }
+
+    let mut current = leaf;
+    for sibling in siblings.iter() {
+        current = poseidon2_compress(&poseidon2_2, current, *sibling);
+    }
+
+    (siblings, current)
+}
+
+fn poseidon2_compress(poseidon2: &Poseidon2<Fq, 2, 5>, left: Fq, right: Fq) -> Fq {
+    let mut state = poseidon2.permutation(&[left, right]);
+    state[0] += left;
+    state[0]
 }
