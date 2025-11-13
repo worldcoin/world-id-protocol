@@ -47,16 +47,38 @@ use oprf_types::{RpId, ShareEpoch};
 use oprf_world_types::api::v1::OprfRequestAuth;
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use oprf_world_types::proof_inputs::query::{QueryProofInput, MAX_PUBLIC_KEYS};
-use oprf_world_types::{CredentialsSignature, MerkleMembership, UserKeyMaterial, TREE_DEPTH};
+use oprf_world_types::TREE_DEPTH;
 use oprf_zk::groth16_serde::Groth16Proof;
 use oprf_zk::{Groth16Error, Groth16Material};
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
 use reqwest::StatusCode;
 use uuid::Uuid;
+use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
+use world_id_primitives::merkle::MerkleInclusionProof;
+use world_id_primitives::proof::SingleProofInput;
+use world_id_primitives::{Credential, FieldElement};
 
 pub use groth16;
 
 pub mod nonblocking;
+
+/// Helper function to compute the claims hash for a credential
+fn compute_claims_hash(credential: &Credential) -> Result<ark_babyjubjub::Fq> {
+    let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
+    if credential.claims.len() > Credential::MAX_CLAIMS {
+        return Err(Error::InternalError(eyre::eyre!(
+            "There can be at most {} claims",
+            Credential::MAX_CLAIMS
+        )));
+    }
+    let mut input = [*FieldElement::ZERO; Credential::MAX_CLAIMS];
+    for (i, claim) in credential.claims.iter().enumerate() {
+        input[i] = **claim;
+    }
+    hasher.permutation_in_place(&mut input);
+    Ok(input[1])
+}
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -194,28 +216,6 @@ pub struct Challenge {
     rp_nullifier_key: RpNullifierKey,
 }
 
-/// Arguments required to generate a nullifier proof.
-///
-/// This struct bundles all inputs needed for [`nullifier`] to produce a
-/// Groth16 nullifier proof. Users typically construct this from their
-/// credentials, key material, and query context.
-pub struct NullifierArgs {
-    /// Signature over the user's credentials.
-    pub credential_signature: CredentialsSignature,
-    /// Merkle membership proof of the user's credential in the registry.
-    pub merkle_membership: MerkleMembership,
-    /// The original OPRF query (RP ID, action, nonce, timestamp, etc.).
-    pub query: OprfQuery,
-    /// User's key material (private and public keys, batch index, etc.).
-    pub key_material: UserKeyMaterial,
-    /// RP-specific nullifier key.
-    pub rp_nullifier_key: RpNullifierKey,
-    /// Signal hash as in semaphore
-    pub signal_hash: ark_babyjubjub::Fq,
-    /// Commitment to the id
-    pub id_commitment_r: ark_babyjubjub::Fq,
-}
-
 impl Challenge {
     /// Returns the [`ChallengeRequest`] for this challenge.
     pub fn get_request(&self) -> ChallengeRequest {
@@ -246,7 +246,8 @@ impl SignedOprfQuery {
 ///
 /// * `services` - List of OPRF service URLs to contact.
 /// * `threshold` - Minimum number of valid peer responses required.
-/// * `args` - [`NullifierArgs`] containing all input data (credentials, Merkle membership, query, keys, signal, etc.).
+/// * `args` - [`SingleProofInput`] containing all input data (credentials, Merkle membership, query, keys, signal, etc.).
+/// * `private_key` - The user's private key for signing the blinded query.
 /// * `query_material` - Groth16 material (proving key and matrices) used for the query proof.
 /// * `nullifier_material` - Groth16 material (proving key and matrices) used for the nullifier proof.
 /// * `rng` - A cryptographically secure random number generator.
@@ -270,7 +271,8 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     threshold: usize,
     query_material: &Groth16Material,
     nullifier_material: &Groth16Material,
-    args: NullifierArgs,
+    args: SingleProofInput<TREE_DEPTH>,
+    private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
     rng: &mut R,
 ) -> Result<(
     Groth16Proof,
@@ -278,23 +280,47 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     ark_babyjubjub::Fq,
     ark_babyjubjub::Fq,
 )> {
-    let NullifierArgs {
-        credential_signature,
-        merkle_membership,
-        query,
-        key_material,
+    let SingleProofInput {
+        credential,
+        inclusion_proof,
+        key_set,
+        key_index,
+        rp_session_id_r_seed,
+        rp_id,
+        share_epoch,
+        action,
+        nonce,
+        current_timestamp,
+        rp_signature,
         rp_nullifier_key,
         signal_hash,
-        id_commitment_r,
     } = args;
 
     let request_id = Uuid::new_v4();
+
+    // Convert to oprf_types
+    let oprf_rp_id = RpId::new(rp_id.into_inner());
+    let oprf_rp_nullifier_key =
+        oprf_types::crypto::RpNullifierKey::new(rp_nullifier_key.into_inner());
+
+    // Construct OprfQuery from SingleProofInput fields
+    let query = OprfQuery {
+        rp_id: oprf_rp_id,
+        share_epoch: ShareEpoch::new(share_epoch),
+        action: *action,
+        nonce: *nonce,
+        current_time_stamp: current_timestamp,
+        nonce_signature: rp_signature,
+    };
+
     let signed_query = sign_oprf_query(
-        credential_signature,
-        merkle_membership,
+        credential,
+        inclusion_proof,
         query_material,
         query,
-        key_material,
+        key_set,
+        key_index,
+        private_key,
         request_id,
         rng,
     )?;
@@ -303,15 +329,15 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     let req = signed_query.get_request();
     let sessions = nonblocking::init_sessions(&client, services, threshold, req).await?;
 
-    let challenges = compute_challenges(signed_query, &sessions, rp_nullifier_key)?;
+    let challenges = compute_challenges(signed_query, &sessions, oprf_rp_nullifier_key)?;
     let req = challenges.get_request();
     let responses = nonblocking::finish_sessions(&client, sessions, req).await?;
     verify_challenges(
         nullifier_material,
         challenges,
         responses,
-        signal_hash,
-        id_commitment_r,
+        *signal_hash,
+        *rp_session_id_r_seed,
         rng,
     )
 }
@@ -330,11 +356,14 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 ///
 /// # Arguments
 ///
-/// * `credentials_signature` - The user's credential signature issued by the RP.
-/// * `merkle_membership` - Used to compute proof for membership in the Merkle tree.
+/// * `credential` - The user's credential.
+/// * `inclusion_proof` - Merkle inclusion proof for membership in the tree.
 /// * `query_material` - Groth16 proving key and constraint matrices for query proof.
 /// * `query` - The query details (RP ID, action, nonce, timestamp).
-/// * `key_material` - User key material including private signing key.
+/// * `key_set` - Set of authenticator public keys.
+/// * `key_index` - Index of the key in the set to use for signing.
+/// * `private_key` - The user's private key for signing.
+/// * `request_id` - Unique identifier for this request.
 /// * `rng` - Cryptographically secure random number generator.
 ///
 /// # Errors
@@ -350,44 +379,64 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 /// - The blinding factor and query hash used for later computations.
 /// - The Groth16 proof input for verification in the nullifier step.
 pub fn sign_oprf_query<R: Rng + CryptoRng>(
-    credentials_signature: CredentialsSignature,
-    merkle_membership: MerkleMembership,
+    credential: Credential,
+    inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     query_material: &Groth16Material,
     query: OprfQuery,
-    key_material: UserKeyMaterial,
+    key_set: AuthenticatorPublicKeySet,
+    key_index: u64,
+    private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
     request_id: Uuid,
     rng: &mut R,
 ) -> Result<SignedOprfQuery> {
-    if key_material.pk_index >= MAX_PUBLIC_KEYS as u64 {
-        return Err(Error::InvalidPublicKeyIndex(key_material.pk_index));
+    if key_index >= MAX_PUBLIC_KEYS as u64 {
+        return Err(Error::InvalidPublicKeyIndex(key_index));
     }
 
     let query_hash = OprfClient::generate_query(
-        merkle_membership.mt_index.into(),
+        inclusion_proof.leaf_index.into(),
         query.rp_id.into_inner().into(),
         query.action,
     );
-    let oprf_client = OprfClient::new(key_material.public_key());
+    let public_key = key_set[key_index as usize].pk;
+    let oprf_client = OprfClient::new(public_key);
     let (blinded_request, blinding_factor) = oprf_client.blind_query(request_id, query_hash, rng);
-    let signature = key_material.sk.sign(blinding_factor.query());
+    let signature = private_key.sign(blinding_factor.query());
+
+    // Convert AuthenticatorPublicKeySet to array of EdwardsAffine
+    let mut pk_array = [ark_babyjubjub::EdwardsAffine::default(); MAX_PUBLIC_KEYS];
+    for (i, pubkey) in key_set.iter().enumerate() {
+        pk_array[i] = pubkey.pk;
+    }
+
+    // Compute claims hash from credential
+    let claims_hash = compute_claims_hash(&credential)?;
+
+    // Get signature from credential
+    let cred_signature = credential
+        .signature
+        .ok_or_else(|| Error::InternalError(eyre::eyre!("Credential not signed")))?;
+
+    // Convert FieldElement siblings to Fq
+    let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 
     let query_input = QueryProofInput::<TREE_DEPTH> {
-        pk: key_material.pk_batch.into_inner(),
-        pk_index: key_material.pk_index.into(),
+        pk: pk_array,
+        pk_index: key_index.into(),
         s: signature.s,
         r: signature.r,
-        cred_type_id: credentials_signature.type_id,
-        cred_pk: credentials_signature.issuer.pk,
-        cred_hashes: credentials_signature.hashes,
-        cred_genesis_issued_at: credentials_signature.genesis_issued_at.into(),
-        cred_expires_at: credentials_signature.expires_at.into(),
-        cred_s: credentials_signature.signature.s,
-        cred_r: credentials_signature.signature.r,
+        cred_type_id: credential.issuer_schema_id.into(),
+        cred_pk: credential.issuer.pk,
+        cred_hashes: [claims_hash, *credential.associated_data_hash],
+        cred_genesis_issued_at: credential.genesis_issued_at.into(),
+        cred_expires_at: credential.expires_at.into(),
+        cred_s: cred_signature.s,
+        cred_r: cred_signature.r,
         current_time_stamp: query.current_time_stamp.into(),
-        merkle_root: merkle_membership.root.into_inner(),
+        merkle_root: *inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-        mt_index: merkle_membership.mt_index.into(),
-        siblings: merkle_membership.siblings,
+        mt_index: inclusion_proof.leaf_index.into(),
+        siblings,
         beta: blinding_factor.beta(),
         rp_id: query.rp_id.into_inner().into(),
         action: query.action,
@@ -417,8 +466,8 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
                 proof,
                 action: query.action,
                 nonce: query.nonce,
-                merkle_root: merkle_membership.root,
-                cred_pk: credentials_signature.issuer,
+                merkle_root: oprf_world_types::MerkleRoot::from(*inclusion_proof.root),
+                cred_pk: credential.issuer,
                 current_time_stamp: query.current_time_stamp,
                 signature: query.nonce_signature,
             },

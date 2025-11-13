@@ -4720,6 +4720,7 @@ name = "oprf-client"
 version = "0.1.0"
 dependencies = [
  "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
  "eyre",
  "futures",
  "groth16",
@@ -4732,10 +4733,13 @@ dependencies = [
  "reqwest",
  "serde_json",
  "taceo-ark-babyjubjub",
+ "taceo-eddsa-babyjubjub",
+ "taceo-poseidon2",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
+ "world-id-primitives",
 ]
 
 [[package]]
