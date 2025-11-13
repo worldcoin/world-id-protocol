@@ -4732,6 +4732,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "taceo-ark-babyjubjub",
+ "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

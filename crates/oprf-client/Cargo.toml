@@ -30,3 +30,6 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 default = ["tokio"]
 tokio = ["dep:tokio"]
 embed-zkeys = []
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
