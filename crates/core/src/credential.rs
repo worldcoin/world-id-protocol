@@ -106,11 +106,6 @@ impl HashableCredential for Credential {
 }
 
 #[cfg(feature = "authenticator")]
-/// Converts a signed [`Credential`] into a [`CredentialsSignature`].
-///
-/// # Errors
-///
-/// Returns an error if the credential is unsigned or its hashes cannot be computed.
 pub fn credential_to_credentials_signature(
     credential: Credential,
 ) -> Result<CredentialsSignature, eyre::Error> {
