@@ -24,7 +24,7 @@ use std::ops::Deref;
 use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnvil};
 use uuid::Uuid;
 
-use world_id_core::{Credential, HashableCredential};
+use world_id_core::{compress_offchain_pubkey, leaf_hash, Credential, HashableCredential};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -416,26 +416,6 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     );
 
     Ok(())
-}
-
-// Helper: Poseidon2 T16 leaf hash used by authenticator/account registry for the key batch
-fn leaf_hash(pk: &UserPublicKeyBatch) -> Fq {
-    let poseidon2_16: Poseidon2<Fq, 16, 5> = Poseidon2::default();
-    let mut input = [Fq::ZERO; 16];
-    input[0] = Fq::from_str("105702839725298824521994315")
-        .expect("poseidon domain separator constant must parse");
-    for i in 0..7 {
-        input[i * 2 + 1] = pk.values[i].x;
-        input[i * 2 + 2] = pk.values[i].y;
-    }
-    poseidon2_16.permutation(&input)[1]
-}
-
-// Helper: Compress BabyJubJub point to 32 bytes LE and cast to U256 for on‑chain call
-fn compress_offchain_pubkey(pk: &EdwardsAffine) -> eyre::Result<U256> {
-    let mut compressed = Vec::with_capacity(32);
-    pk.serialize_compressed(&mut compressed)?;
-    Ok(U256::from_le_slice(&compressed))
 }
 
 // Helper: Build default‑zero sibling path and compute root for index 0 after one insertion
