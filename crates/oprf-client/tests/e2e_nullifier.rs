@@ -214,7 +214,10 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .map_err(|_| eyre!("issuer schema id exceeded u64 range"))?;
 
     // Construct a minimal credential (bound to issuerSchemaId and account)
-    let genesis_issued_at = 1_700_000_000u64;
+    let genesis_issued_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let expires_at = genesis_issued_at + 86_400;
 
     let credential = Credential::new()
