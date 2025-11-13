@@ -28,7 +28,7 @@ use world_id_core::{Credential, HashableCredential};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
-    // Step 1.1: Locate Groth16 proving material for the query and nullifier circuits
+    // Locate Groth16 proving material for the query and nullifier circuits
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../circom");
 
     let query_zkey = base.join("query.zkey");
@@ -36,7 +36,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let nullifier_zkey = base.join("nullifier.zkey");
     let nullifier_graph = base.join("nullifier_graph.bin");
 
-    // Step 1.2: Sanity‑check that proving keys and computation graphs exist
+    // Sanity‑check that proving keys and computation graphs exist
     assert!(
         query_zkey.exists() && query_graph.exists(),
         "missing query proving material in {:?}",
@@ -48,7 +48,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         base
     );
 
-    // Step 1.3: Load Groth16 material (proving key + computation graph fingerprints)
+    // Load Groth16 material (proving key + computation graph fingerprints)
     let query_material = Groth16Material::new(&query_zkey, Some(QUERY_FINGERPRINT), &query_graph)
         .wrap_err("failed to load query groth16 material")?;
     let nullifier_material = Groth16Material::new(
@@ -58,13 +58,13 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     )
     .wrap_err("failed to load nullifier groth16 material")?;
 
-    // Step 2.1: Start Anvil and get default signer for deployments
+    // Start Anvil and get default signer for deployments
     let anvil = TestAnvil::spawn().wrap_err("failed to launch anvil")?;
     let signer = anvil
         .signer(0)
         .wrap_err("failed to fetch default anvil signer")?;
 
-    // Step 2.2: Deploy proxy contracts used by the flow
+    // Deploy proxy contracts used by the flow
     let issuer_registry = anvil
         .deploy_credential_schema_issuer_registry(signer.clone())
         .await
@@ -74,7 +74,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .await
         .wrap_err("failed to deploy account registry proxy")?;
 
-    // Step 2.3: Basic post‑deploy checks
+    // Basic post‑deploy checks
     assert!(
         !issuer_registry.is_zero(),
         "issuer registry proxy address must be non-zero"
@@ -84,18 +84,18 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         "account registry proxy address must be non-zero"
     );
 
-    // Step 3.1: Create an Issuer keypair (EdDSA on BabyJubJub) to sign credentials
+    // Create an Issuer keypair (EdDSA on BabyJubJub) to sign credentials
     let mut rng = thread_rng();
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
     let issuer_pk = issuer_sk.public();
 
-    // Step 3.2: Convert Issuer pubkey to on‑chain struct shape
+    // Convert Issuer pubkey to on‑chain struct shape
     let issuer_pubkey = CredentialSchemaIssuerRegistry::Pubkey {
         x: U256::from_limbs(issuer_pk.pk.x.into_bigint().0),
         y: U256::from_limbs(issuer_pk.pk.y.into_bigint().0),
     };
 
-    // Step 3.3: Set up a provider with the issuer (EOA) as the tx signer
+    // Set up a provider with the issuer (EOA) as the tx signer
     let issuer_signer = signer.clone();
     let provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(issuer_signer.clone()))
@@ -108,7 +108,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     let registry_contract = CredentialSchemaIssuerRegistry::new(issuer_registry, provider);
 
-    // Step 3.4: Register the Issuer and extract issuerSchemaId from the emitted event
+    // Register the Issuer and extract issuerSchemaId from the emitted event
     let receipt = registry_contract
         .register(issuer_pubkey.clone(), issuer_signer.address())
         .send()
@@ -128,7 +128,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .ok_or_else(|| eyre!("IssuerSchemaRegistered event not emitted"))?
         .issuerSchemaId;
 
-    // Step 3.5: Verify on‑chain issuer pubkey matches the local EdDSA pubkey
+    // Verify on‑chain issuer pubkey matches the local EdDSA pubkey
     let onchain_pubkey = registry_contract
         .issuerSchemaIdToPubkey(issuer_schema_id)
         .call()
@@ -138,7 +138,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     assert_eq!(onchain_pubkey.x, issuer_pubkey.x);
     assert_eq!(onchain_pubkey.y, issuer_pubkey.y);
 
-    // Step 4.1: Prepare recovery and authenticator signers for account creation
+    // Prepare recovery and authenticator signers for account creation
     let recovery_signer = anvil
         .signer(1)
         .wrap_err("failed to fetch recovery anvil signer")?;
@@ -146,7 +146,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .signer(2)
         .wrap_err("failed to fetch authenticator anvil signer")?;
 
-    // Step 4.2: Use authenticator signer to interact with the AccountRegistry
+    // Use authenticator signer to interact with the AccountRegistry
     let account_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(authenticator_signer.clone()))
         .connect_http(
@@ -157,24 +157,24 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         );
     let account_contract = AccountRegistry::new(account_registry, account_provider);
 
-    // Step 4.3: Create user's off‑chain BabyJubJub key batch and compute leaf commitment
+    // Create user's off‑chain BabyJubJub key batch and compute leaf commitment
     let user_sk = EdDSAPrivateKey::random(&mut rng);
     let mut user_pk_batch = UserPublicKeyBatch {
         values: [EdwardsAffine::default(); 7],
     };
     user_pk_batch.values[0] = user_sk.public().pk;
 
-    // Step 4.4: Prepare inputs for on‑chain createAccount call
+    // Prepare inputs for on‑chain createAccount call
     let offchain_pubkey = compress_offchain_pubkey(&user_pk_batch.values[0])
         .wrap_err("failed to compress off-chain authenticator pubkey")?;
     let leaf_commitment_fq = leaf_hash(&user_pk_batch);
     let leaf_commitment = U256::from_limbs(leaf_commitment_fq.into_bigint().0);
 
-    // Step 4.5: Precompute the Merkle path/root for the first insertion (index 0)
+    // Precompute the Merkle path/root for the first insertion (index 0)
     let (merkle_siblings, expected_root_fq) = first_leaf_merkle_path(leaf_commitment_fq);
     let expected_root_u256 = U256::from_limbs(expected_root_fq.into_bigint().0);
 
-    // Step 4.6: Create account on‑chain and ensure transaction success
+    // Create account on‑chain and ensure transaction success
     let account_receipt = account_contract
         .createAccount(
             recovery_signer.address(),
@@ -193,7 +193,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         eyre::bail!("createAccount transaction reverted");
     }
 
-    // Step 4.7: Verify on‑chain Merkle root equals the locally recomputed root
+    // Verify on‑chain Merkle root equals the locally recomputed root
     let onchain_root = account_contract
         .currentRoot()
         .call()
@@ -205,7 +205,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         "on-chain root mismatch with locally computed root"
     );
 
-    // Step 5.1: Read emitted account index and derive the raw Merkle index (0‑based)
+    // Read emitted account index and derive the raw Merkle index (0‑based)
     let account_created = account_receipt
         .logs()
         .iter()
@@ -221,12 +221,12 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .checked_sub(1)
         .expect("account indices should be 1-indexed in the registry");
 
-    // Step 5.2: Convert issuerSchemaId to field‑friendly u64 for circuits
+    // Convert issuerSchemaId to field‑friendly u64 for circuits
     let issuer_schema_id_u64: u64 = issuer_schema_id
         .try_into()
         .map_err(|_| eyre!("issuer schema id exceeded u64 range"))?;
 
-    // Step 6.1: Construct a minimal credential (bound to issuerSchemaId and account)
+    // Construct a minimal credential (bound to issuerSchemaId and account)
     let genesis_issued_at = 1_700_000_000u64;
     let expires_at = genesis_issued_at + 31_536_000;
 
@@ -236,12 +236,12 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at);
 
-    // Step 6.2: Issuer signs the credential (EdDSA over BabyJubJub)
+    // Issuer signs the credential (EdDSA over BabyJubJub)
     let credential = credential
         .sign(&issuer_sk)
         .wrap_err("failed to sign credential with issuer key")?;
 
-    // Step 6.3: Build CredentialsSignature expected by the query proof
+    // Build CredentialsSignature expected by the query proof
     let claims_hash = *credential
         .claims_hash()
         .wrap_err("failed to compute credential claims hash")?
@@ -268,7 +268,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         signature: issuer_signature,
     };
 
-    // Step 6.4: Sanity checks on assembled inputs
+    // Sanity checks on assembled inputs
     assert_eq!(
         credential_signature.type_id,
         Fq::from(issuer_schema_id_u64),
@@ -289,35 +289,35 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         "expected root should not be zero after first insertion"
     );
 
-    // Step 6.5: Prepare Merkle membership witness for πR (query proof)
+    // Prepare Merkle membership witness for πR (query proof)
     let merkle_membership = MerkleMembership {
         root: MerkleRoot::new(expected_root_fq),
         mt_index: merkle_index,
         siblings: merkle_siblings,
     };
 
-    // Step 7.1: Bundle user authenticator keys for use in proofs
+    // Bundle user authenticator keys for use in proofs
     let key_material = UserKeyMaterial {
         pk_batch: user_pk_batch.clone(),
         pk_index: 0,
         sk: user_sk.clone(),
     };
 
-    // Step 8.1: Build OPRF query context (RP id, action, nonce, timestamp)
+    // Build OPRF query context (RP id, action, nonce, timestamp)
     let rp_id = RpId::new(rng.gen::<u128>());
     let share_epoch = ShareEpoch::default();
     let action = Fq::rand(&mut rng);
     let nonce = Fq::rand(&mut rng);
     let current_time_stamp = genesis_issued_at + 60;
 
-    // Step 8.2: RP authenticates the query by signing LE(nonce) || LE(timestamp)
+    // RP authenticates the query by signing LE(nonce) || LE(timestamp)
     let mut msg = Vec::new();
     msg.extend(nonce.into_bigint().to_bytes_le());
     msg.extend(current_time_stamp.to_le_bytes());
     let rp_signing_key = k256::ecdsa::SigningKey::random(&mut rng);
     let nonce_signature = rp_signing_key.sign(&msg);
 
-    // Step 8.3: Assemble query payload
+    // Assemble query payload
     let query = OprfQuery {
         rp_id,
         share_epoch,
@@ -327,7 +327,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         nonce_signature,
     };
 
-    // Step 8.4: Produce πR (signed OPRF query) — blinded request + query inputs
+    // Produce πR (signed OPRF query) — blinded request + query inputs
     let request_id = Uuid::new_v4();
     let signed_query = sign_oprf_query(
         credential_signature.clone(),
@@ -340,20 +340,20 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     )
     .wrap_err("failed to sign oprf query")?;
 
-    // Step 8.5: Sanity‑check the request id was preserved
+    // Sanity‑check the request id was preserved
     let oprf_request = signed_query.get_request();
     assert_eq!(oprf_request.request_id, request_id);
 
-    // Step 9.1: Emulate OPRF combination offline (single RP nullifier key)
+    // Emulate OPRF combination offline (single RP nullifier key)
     let rp_secret = Fr::rand(&mut rng);
     let rp_nullifier_key_point = (EdwardsAffine::generator() * rp_secret).into_affine();
     let rp_nullifier_key = RpNullifierKey::new(rp_nullifier_key_point);
 
-    // Step 9.2: Derive blinded response C = x * B, where B is the blinded query
+    // Derive blinded response C = x * B, where B is the blinded query
     let blinded_query = oprf_request.blinded_query;
     let blinded_response = (blinded_query * rp_secret).into_affine();
 
-    // Step 9.3: Create and check Chaum‑Pedersen DLog equality proof for (K, C)
+    // Create and check Chaum‑Pedersen DLog equality proof for (K, C)
     let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_secret, &mut rng);
 
     assert!(
@@ -366,11 +366,11 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         "offline Chaum-Pedersen proof should verify"
     );
 
-    // Step 10.1: Sample auxiliary public inputs exposed by the nullifier circuit
+    // Sample auxiliary public inputs exposed by the nullifier circuit
     let signal_hash = Fq::rand(&mut rng);
     let id_commitment_r = Fq::rand(&mut rng);
 
-    // Step 10.2: Build nullifier proof input (πF witness payload)
+    // Build nullifier proof input (πF witness payload)
     let nullifier_input = NullifierProofInput::<TREE_DEPTH>::new(
         request_id,
         signed_query.query_input().clone(),
@@ -382,7 +382,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         signed_query.query_hash(),
     );
 
-    // Step 10.3: Generate witness JSON and create the Groth16 proof offline
+    // Generate witness JSON and create the Groth16 proof offline
     let nullifier_input_json = serde_json::to_value(&nullifier_input)
         .expect("nullifier input serializes to JSON")
         .as_object()
@@ -395,7 +395,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .generate_proof(&nullifier_witness, &mut rng)
         .wrap_err("failed to generate nullifier proof")?;
 
-    // Step 10.4: The circuit exposes [id_commitment, nullifier, ...] as public inputs
+    // The circuit exposes [id_commitment, nullifier, ...] as public inputs
     assert!(
         public_inputs.len() >= 2,
         "nullifier circuit should expose id_commitment and nullifier"
@@ -403,7 +403,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let id_commitment = public_inputs[0];
     let nullifier = public_inputs[1];
 
-    // Step 10.5: Basic happy‑path checks on public outputs
+    // Basic happy‑path checks on public outputs
     assert_ne!(
         id_commitment,
         Fq::ZERO,
