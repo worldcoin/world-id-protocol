@@ -20,15 +20,13 @@ use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use oprf_types::{RpId, ShareEpoch};
+use oprf_types::ShareEpoch;
 use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
-use world_id_primitives::merkle::{
-    AccountInclusionProof as PrimitivesAccountInclusionProof, MerkleInclusionProof,
-};
+use world_id_primitives::merkle::MerkleInclusionProof;
 use world_id_primitives::proof::SingleProofInput;
 use world_id_primitives::PrimitiveError;
 pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};

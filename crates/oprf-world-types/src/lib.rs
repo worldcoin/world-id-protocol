@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use alloy::primitives::U256;
 use ark_ff::PrimeField;
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use serde::{Deserialize, Serialize};
 
 pub mod api;
