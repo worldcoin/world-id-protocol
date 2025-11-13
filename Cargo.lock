@@ -6902,9 +6902,13 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
+ "ark-ff 0.5.0",
  "eyre",
  "hex",
+ "oprf-world-types 0.1.0",
  "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-poseidon2",
 ]
 
 [[package]]

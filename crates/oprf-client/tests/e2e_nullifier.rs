@@ -19,11 +19,11 @@ use oprf_zk::{
     Groth16Material, NULLIFIER_FINGERPRINT, NULLIFIER_GRAPH_BYTES, QUERY_FINGERPRINT,
     QUERY_GRAPH_BYTES,
 };
-use poseidon2::Poseidon2;
 use rand::{thread_rng, Rng};
 use ruint::aliases::U256;
 use std::ops::Deref;
 use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnvil};
+use test_utils::merkle::first_leaf_merkle_path;
 use uuid::Uuid;
 
 use world_id_core::{compress_offchain_pubkey, leaf_hash, Credential, HashableCredential};
@@ -365,29 +365,4 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     );
 
     Ok(())
-}
-
-// Build default‑zero sibling path and compute root for index 0 after one insertion
-fn first_leaf_merkle_path(leaf: Fq) -> ([Fq; TREE_DEPTH], Fq) {
-    let poseidon2_2: Poseidon2<Fq, 2, 5> = Poseidon2::default();
-    let mut siblings = [Fq::ZERO; TREE_DEPTH];
-    let mut zero = Fq::ZERO;
-    for sibling in siblings.iter_mut() {
-        *sibling = zero;
-        zero = poseidon2_compress(&poseidon2_2, zero, zero);
-    }
-
-    let mut current = leaf;
-    for sibling in siblings.iter() {
-        current = poseidon2_compress(&poseidon2_2, current, *sibling);
-    }
-
-    (siblings, current)
-}
-
-// Poseidon2 "compress" for a pair of field elements (left, right)
-fn poseidon2_compress(poseidon2: &Poseidon2<Fq, 2, 5>, left: Fq, right: Fq) -> Fq {
-    let mut state = poseidon2.permutation(&[left, right]);
-    state[0] += left;
-    state[0]
 }
