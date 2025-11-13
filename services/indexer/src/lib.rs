@@ -7,8 +7,6 @@ use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
-use axum::extract::{Path, State};
-use axum::response::IntoResponse;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use semaphore_rs_hasher::Hasher;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
@@ -18,13 +16,11 @@ use sqlx::migrate::Migrator;
 use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
 use world_id_core::account_registry::AccountRegistry;
-use world_id_primitives::{
-    authenticator::MAX_AUTHENTICATOR_KEYS,
-    merkle::{AccountInclusionProof, MerkleInclusionProof},
-    FieldElement, TREE_DEPTH,
-};
+use world_id_primitives::TREE_DEPTH;
 
-mod config;
+pub mod config;
+mod error;
+mod routes;
 mod sanity_check;
 use crate::config::{HttpConfig, IndexerConfig, RunMode};
 pub use config::GlobalConfig;
@@ -216,95 +212,10 @@ fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
         .collect()
 }
 
-async fn http_get_proof(
-    Path(idx_str): Path<String>,
-    State(pool): State<PgPool>,
-) -> impl axum::response::IntoResponse {
-    let account_index: U256 = idx_str.parse().unwrap();
-    if account_index == 0 {
-        return (axum::http::StatusCode::BAD_REQUEST, "invalid account index").into_response();
-    }
-
-    let account_row = sqlx::query(
-        "select offchain_signer_commitment, authenticator_pubkeys from accounts where account_index = $1",
-    )
-    .bind(account_index.to_string())
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten();
-
-    if account_row.is_none() {
-        return (axum::http::StatusCode::NOT_FOUND, "account not found").into_response();
-    }
-
-    let row = account_row.unwrap();
-    let pubkeys_json: Json<Vec<String>> = row.get("authenticator_pubkeys");
-    let authenticator_pubkeys: Vec<U256> = pubkeys_json
-        .0
-        .iter()
-        .filter_map(|s| s.parse::<U256>().ok())
-        .collect();
-
-    let leaf_index = account_index.as_limbs()[0] as usize - 1;
-    if leaf_index >= tree_capacity() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            "leaf index out of range",
-        )
-            .into_response();
-    }
-    // Validate the number of authenticator keys
-    if authenticator_pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!(
-                "Account has {} authenticator keys, which exceeds the maximum of {}",
-                authenticator_pubkeys.len(),
-                MAX_AUTHENTICATOR_KEYS
-            ),
-        )
-            .into_response();
-    }
-
-    let tree = GLOBAL_TREE.read().await;
-    let proof = tree.proof(leaf_index);
-
-    // Convert proof siblings to FieldElement array
-    let siblings_vec: Vec<FieldElement> = proof_to_vec(&proof)
-        .into_iter()
-        .map(|u| u.try_into().unwrap())
-        .collect();
-    let siblings: [FieldElement; TREE_DEPTH] = siblings_vec.try_into().unwrap();
-
-    let merkle_proof = MerkleInclusionProof::new(
-        tree.root().try_into().unwrap(),
-        leaf_index as u64,
-        account_index.as_limbs()[0],
-        siblings,
-    );
-
-    let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
-        .expect("authenticator_pubkeys already validated");
-    (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
-}
-
-async fn http_health() -> impl IntoResponse {
-    // TODO: check DB connection
-    (
-        axum::http::StatusCode::OK,
-        axum::Json(serde_json::json!({"status":"ok"})),
-    )
-}
-
 async fn start_http_server(addr: SocketAddr, pool: PgPool) -> anyhow::Result<()> {
-    let app = axum::Router::new()
-        .route("/proof/:account_index", axum::routing::get(http_get_proof))
-        .route("/health", axum::routing::get(http_health))
-        .with_state(pool);
-
+    let router = routes::handler(pool);
     tracing::info!(%addr, "HTTP server listening");
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+    axum::serve(tokio::net::TcpListener::bind(addr).await?, router).await?;
     Ok(())
 }
 
@@ -386,10 +297,33 @@ async fn run_http_only(http_cfg: HttpConfig, pool: PgPool) -> anyhow::Result<()>
         }
     });
 
+    // Start root sanity checker in the background
+    let mut sanity_handle = None;
+    if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
+        if let Some(sanity_rpc_url) = http_cfg.rpc_url {
+            if let Some(sanity_registry) = http_cfg.registry_address {
+                sanity_handle = Some(tokio::spawn(async move {
+                    if let Err(e) = sanity_check::root_sanity_check_loop(
+                        sanity_rpc_url,
+                        sanity_registry,
+                        sanity_interval,
+                    )
+                    .await
+                    {
+                        tracing::error!(?e, "Root sanity checker failed");
+                    }
+                }));
+            }
+        }
+    }
+
     // Start HTTP server
     let http_result = start_http_server(http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
+    if let Some(handle) = sanity_handle {
+        handle.abort();
+    }
     http_result
 }
 
@@ -407,17 +341,24 @@ async fn run_both(
     let http_handle = tokio::spawn(async move { start_http_server(http_addr, http_pool).await });
 
     // Start root sanity checker in the background
-    let sanity_rpc_url = indexer_cfg.rpc_url.clone();
-    let sanity_registry = indexer_cfg.registry_address;
-    let sanity_interval = indexer_cfg.sanity_check_interval_secs;
-    let _sanity_handle = tokio::spawn(async move {
-        if let Err(e) =
-            sanity_check::root_sanity_check_loop(sanity_rpc_url, sanity_registry, sanity_interval)
-                .await
-        {
-            tracing::error!(?e, "Root sanity checker failed");
+    let mut sanity_handle = None;
+    if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
+        if let Some(sanity_rpc_url) = http_cfg.rpc_url {
+            if let Some(sanity_registry) = http_cfg.registry_address {
+                sanity_handle = Some(tokio::spawn(async move {
+                    if let Err(e) = sanity_check::root_sanity_check_loop(
+                        sanity_rpc_url,
+                        sanity_registry,
+                        sanity_interval,
+                    )
+                    .await
+                    {
+                        tracing::error!(?e, "Root sanity checker failed");
+                    }
+                }));
+            }
         }
-    });
+    }
 
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool)
@@ -446,6 +387,9 @@ async fn run_both(
     .await?;
 
     http_handle.abort();
+    if let Some(handle) = sanity_handle {
+        handle.abort();
+    }
     Ok(())
 }
 
@@ -612,6 +556,7 @@ pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<Acc
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
     let typed = AccountRegistry::AccountCreated::decode_log(&prim)?;
 
+    // TODO: Validate pubkey is valid affine compressed
     Ok(AccountCreatedEvent {
         account_index: typed.data.accountIndex,
         recovery_address: typed.data.recoveryAddress,
@@ -776,7 +721,7 @@ pub async fn update_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id)) // JSONB path format: {0}, {1}, etc
+    .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
@@ -802,7 +747,7 @@ pub async fn insert_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id))
+    .bind(format!("{{{pubkey_id}}}"))
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
@@ -826,7 +771,7 @@ pub async fn remove_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id))
+    .bind(format!("{{{pubkey_id}}}"))
     .bind(new_commitment.to_string())
     .execute(pool)
     .await?;
@@ -876,7 +821,7 @@ pub async fn handle_registry_event(
                     "created",
                     ev.offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -900,7 +845,7 @@ pub async fn handle_registry_event(
                     "updated",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -924,7 +869,7 @@ pub async fn handle_registry_event(
                     "inserted",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -946,7 +891,7 @@ pub async fn handle_registry_event(
                     "removed",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -970,7 +915,7 @@ pub async fn handle_registry_event(
                     "recovered",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;

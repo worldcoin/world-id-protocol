@@ -37,6 +37,11 @@ contract AccountRegistryTest is Test {
 
         accountRegistry = AccountRegistry(address(proxy));
 
+        // Ensure the initial root is recorded as valid
+        uint256 root = accountRegistry.currentRoot();
+        assertTrue(accountRegistry.isValidRoot(root));
+        assertEq(accountRegistry.rootToTimestamp(root), block.timestamp);
+
         alternateRecoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY_ALT);
         authenticatorAddress1 = vm.addr(AUTH1_PRIVATE_KEY);
         authenticatorAddress2 = vm.addr(AUTH2_PRIVATE_KEY);

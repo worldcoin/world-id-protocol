@@ -1,7 +1,6 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
-use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,7 +19,7 @@ use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use oprf_client::{NullifierArgs, OprfQuery};
 use oprf_types::{RpId, ShareEpoch};
@@ -315,10 +314,7 @@ impl Authenticator {
         };
 
         for i in 0..response.authenticator_pubkeys.len() {
-            pubkey_batch.values[i] = EdwardsAffine::deserialize_compressed(Cursor::new(
-                response.authenticator_pubkeys[i].as_le_slice(),
-            ))
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+            pubkey_batch.values[i] = response.authenticator_pubkeys[i].pk;
         }
 
         Ok((
@@ -444,12 +440,11 @@ impl Authenticator {
         pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
         let new_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
 
-        // TODO: remove this once compression is merged
-        let mut compressed_bytes = Vec::new();
-        new_authenticator_pubkey
-            .pk
-            .serialize_compressed(&mut compressed_bytes)
+        let compressed_bytes = new_authenticator_pubkey
+            .to_compressed_bytes()
             .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+
+        // REVIEW: updating to BE
         let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
 
         let eip712_domain = domain(
@@ -705,7 +700,7 @@ impl Authenticator {
     /// Will error if the provided public key batch is not valid.
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
+    pub fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
         let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
         let mut input = [ark_babyjubjub::Fq::ZERO; 16];
         #[allow(clippy::unwrap_used)]
@@ -717,6 +712,17 @@ impl Authenticator {
             input[i * 2 + 2] = pk.values[i].y;
         }
         poseidon2_16.permutation(&input)[1]
+    }
+
+    /// Compresses a `BabyJubJub` `EdwardsAffine` public key into 32-byte little-endian form and returns it as `U256`.
+    ///
+    /// # Errors
+    /// Returns an error if the public key cannot be serialized.
+    pub fn compress_offchain_pubkey(pk: &EdwardsAffine) -> Result<U256, PrimitiveError> {
+        let mut compressed_bytes = Vec::with_capacity(32);
+        pk.serialize_compressed(&mut compressed_bytes)
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+        Ok(U256::from_le_slice(&compressed_bytes))
     }
 
     /// Creates a new World ID account by adding it to the registry using the gateway.
@@ -780,6 +786,20 @@ impl ProtocolSigner for Authenticator {
             .expose_secret()
             .sign(*message)
     }
+}
+
+/// Public utility: computes the Merkle leaf commitment for a given public key batch.
+#[must_use]
+pub fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
+    Authenticator::leaf_hash(pk)
+}
+
+/// Public utility: compresses a `BabyJubJub` public key and returns it as `U256` (little-endian).
+///
+/// # Errors
+/// Returns an error if the public key cannot be serialized.
+pub fn compress_offchain_pubkey(pk: &EdwardsAffine) -> Result<U256, PrimitiveError> {
+    Authenticator::compress_offchain_pubkey(pk)
 }
 
 /// Errors that can occur when interacting with the Authenticator.
