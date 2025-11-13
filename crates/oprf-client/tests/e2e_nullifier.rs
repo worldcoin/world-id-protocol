@@ -227,7 +227,17 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .sign(&issuer_sk)
         .wrap_err("failed to sign credential with issuer key")?;
 
-    // Build CredentialsSignature expected by the query proof
+    // TODO: review
+
+    // use world_id_core::credential_to_credentials_signature;
+    // let credential_signature = world_id_core::credential_to_credentials_signature(credential.clone())
+    //     .wrap_err("failed to convert credential to CredentialsSignature")?;
+
+    // Note: Not used here because the OPRF/DLBE query circuit expects the issuer's EdDSA signature
+    // over a DLBE-specific Poseidon2 domain (b"POSEIDON2+EDDSA-BJJ+DLBE-v1"), while
+    // credential_to_credentials_signature signs the plain credential domain (b"POSEIDON2+EDDSA-BJJ").
+    // We therefore re-sign using QueryProofInput::credential_message to match the DLBE circuit.
+
     let claims_hash = *credential
         .claims_hash()
         .wrap_err("failed to compute credential claims hash")?
