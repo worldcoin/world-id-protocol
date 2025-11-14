@@ -479,4 +479,8 @@ contract AccountRegistryTest is Test {
 
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
     }
+
+    function test_TreeDepth() public {
+        assertEq(accountRegistry.treeDepth(), 30);
+    }
 }

@@ -47,6 +47,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     BinaryIMTData public tree;
     uint256 public nextAccountIndex;
+    uint256 public treeDepth;
 
     // Root history tracking
     mapping(uint256 => uint256) public rootToTimestamp;
@@ -135,12 +136,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /**
      * @dev Initializes the contract.
-     * @param treeDepth The depth of the Merkle tree.
+     * @param initialTreeDepth The depth of the Merkle tree.
      */
-    function initialize(uint256 treeDepth) public virtual initializer {
+    function initialize(uint256 initialTreeDepth) public virtual initializer {
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
+        treeDepth = initialTreeDepth;
         tree.initWithDefaultZeroes(treeDepth);
         _recordCurrentRoot();
         nextAccountIndex = 1;
