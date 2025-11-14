@@ -17,9 +17,12 @@
 //! - [`QUERY_FINGERPRINT`]
 //! - [`NULLIFIER_FINGERPRINT`]
 
+use std::collections::HashMap;
 use std::ops::Shr;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
 use std::str::FromStr;
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::sync::Arc;
 
 use ark_bn254::Bn254;
 use ark_ff::{AdditiveGroup as _, BigInt, Field as _, LegendreSymbol, UniformRand as _};
@@ -114,9 +117,10 @@ impl Groth16Material {
     ///
     /// Returns a [`ZkError`] if the file cannot be read or the fingerprint
     /// does not match the expected value.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(
         zkey_path: impl AsRef<Path>,
-        fingerprint: Option<&'static str>,
+        fingerprint: Option<&str>,
         graph_path: impl AsRef<Path>,
     ) -> Result<Self, ZkError> {
         let zkey_bytes = std::fs::read(zkey_path)?;
@@ -131,7 +135,7 @@ impl Groth16Material {
     /// Returns a [`ZkError::ZKeyFingerprintMismatch`] if any embedded fingerprint check fails.
     pub fn from_bytes(
         zkey_bytes: &[u8],
-        fingerprint: Option<&'static str>,
+        fingerprint: Option<&str>,
         graph_bytes: &[u8],
     ) -> Result<Self, ZkError> {
         let (matrices, pk) = if let Some(fingerprint) = fingerprint {
@@ -157,7 +161,7 @@ impl Groth16Material {
     /// Returns a [`ZkError::ZKeyFingerprintMismatch`] if any embedded fingerprint check fails.
     pub fn from_reader(
         mut zkey_reader: impl std::io::Read,
-        fingerprint: Option<&'static str>,
+        fingerprint: Option<&str>,
         mut graph_reader: impl std::io::Read,
     ) -> Result<Self, ZkError> {
         let mut zkey_bytes = Vec::new();
@@ -175,11 +179,7 @@ impl Groth16Material {
     /// and expected constants differ.
     #[cfg(feature = "embed-zkeys")]
     pub fn query_material() -> Result<Self, ZkError> {
-        Self::from_bytes(
-            QUERY_ZKEY_BYTES,
-            QUERY_FINGERPRINT.into(),
-            QUERY_GRAPH_BYTES,
-        )
+        Self::from_bytes(QUERY_ZKEY_BYTES, Some(QUERY_FINGERPRINT), QUERY_GRAPH_BYTES)
     }
 
     /// Builds Groth16 material from embedded `.zkey` and graph bytes baked into the binary.
@@ -192,7 +192,7 @@ impl Groth16Material {
     pub fn nullifier_material() -> Result<Self, ZkError> {
         Self::from_bytes(
             NULLIFIER_ZKEY_BYTES,
-            NULLIFIER_FINGERPRINT.into(),
+            Some(NULLIFIER_FINGERPRINT),
             NULLIFIER_GRAPH_BYTES,
         )
     }
@@ -206,7 +206,7 @@ impl Groth16Material {
     /// match the expected fingerprints.
     pub async fn from_urls(
         zkey_url: impl reqwest::IntoUrl,
-        fingerprint: Option<&'static str>,
+        fingerprint: Option<&str>,
         graph_url: impl reqwest::IntoUrl,
     ) -> Result<Self, ZkError> {
         let zkey_bytes = reqwest::get(zkey_url).await?.bytes().await?;
@@ -271,7 +271,7 @@ impl Groth16Material {
 /// Checks the SHA-256 fingerprint.
 fn parse_zkey_bytes(
     bytes: &[u8],
-    should_fingerprint: &'static str,
+    should_fingerprint: &str,
 ) -> Result<(ConstraintMatrices<ark_bn254::Fr>, ProvingKey<Bn254>), ZkError> {
     let is_fingerprint = k256::sha2::Sha256::digest(bytes);
 

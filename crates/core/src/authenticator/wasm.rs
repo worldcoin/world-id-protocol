@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use alloy::primitives::{Address, U256};
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature, EdwardsAffine};
-use oprf_world_types::{MerkleMembership, UserPublicKeyBatch};
-use oprf_zk::groth16_serde::Groth16Proof;
+use oprf_world_types::{Groth16Proof, MerkleMembership, UserPublicKeyBatch};
+use oprf_zk::{Groth16Material, ZkError};
 pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
 use world_id_primitives::{Credential, FieldElement, PrimitiveError};
 
@@ -15,12 +15,76 @@ type DynProvider = ();
 type AccountRegistryInstance<T> = ();
 type UniquenessProof = (Groth16Proof, FieldElement);
 
+/// Describes where Groth16 assets for a single circuit can be fetched.
+#[derive(Clone, Debug)]
+pub struct RemoteGroth16Circuit {
+    /// URL pointing to the `.zkey` proving key.
+    pub zkey_url: String,
+    /// URL pointing to the witness graph binary.
+    pub graph_url: String,
+    /// Optional SHA-256 fingerprint expected for the `.zkey`.
+    pub fingerprint: Option<String>,
+}
+
+impl RemoteGroth16Circuit {
+    #[must_use]
+    pub fn new(zkey_url: impl Into<String>, graph_url: impl Into<String>) -> Self {
+        Self {
+            zkey_url: zkey_url.into(),
+            graph_url: graph_url.into(),
+            fingerprint: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_fingerprint(mut self, fingerprint: impl Into<String>) -> Self {
+        self.fingerprint = Some(fingerprint.into());
+        self
+    }
+}
+
+/// Remote Groth16 sources required to generate proofs (query + nullifier circuits).
+#[derive(Clone, Debug)]
+pub struct RemoteGroth16MaterialSources {
+    pub query: RemoteGroth16Circuit,
+    pub nullifier: RemoteGroth16Circuit,
+}
+
+impl RemoteGroth16MaterialSources {
+    #[must_use]
+    pub fn new(query: RemoteGroth16Circuit, nullifier: RemoteGroth16Circuit) -> Self {
+        Self { query, nullifier }
+    }
+}
+
+/// In-memory Groth16 materials fetched from remote sources.
+#[derive(Debug)]
+pub struct RemoteGroth16Materials {
+    pub query: Groth16Material,
+    pub nullifier: Groth16Material,
+}
+
+impl RemoteGroth16Materials {
+    #[must_use]
+    pub fn into_inner(self) -> (Groth16Material, Groth16Material) {
+        (self.query, self.nullifier)
+    }
+}
+
 #[derive(Debug)]
 pub struct Authenticator {
     _private: (),
 }
 
 impl Authenticator {
+    pub async fn fetch_groth16_materials(
+        sources: &RemoteGroth16MaterialSources,
+    ) -> Result<RemoteGroth16Materials, AuthenticatorError> {
+        let query = load_circuit_material(&sources.query).await?;
+        let nullifier = load_circuit_material(&sources.nullifier).await?;
+        Ok(RemoteGroth16Materials { query, nullifier })
+    }
+
     pub async fn init(_seed: &[u8], _config: Config) -> Result<Self, AuthenticatorError> {
         Err(AuthenticatorError::unsupported("init"))
     }
@@ -155,6 +219,18 @@ impl ProtocolSigner for Authenticator {
     }
 }
 
+async fn load_circuit_material(
+    circuit: &RemoteGroth16Circuit,
+) -> Result<Groth16Material, AuthenticatorError> {
+    let material = Groth16Material::from_urls(
+        &circuit.zkey_url,
+        circuit.fingerprint.as_deref(),
+        &circuit.graph_url,
+    )
+    .await?;
+    Ok(material)
+}
+
 pub fn leaf_hash(_pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
     unsupported("leaf_hash")
 }
@@ -167,6 +243,9 @@ pub fn compress_offchain_pubkey(_pk: &EdwardsAffine) -> Result<U256, PrimitiveEr
 pub enum AuthenticatorError {
     #[error("`Authenticator::{0}` is not supported on wasm32 targets")]
     Unsupported(&'static str),
+
+    #[error("failed to prepare Groth16 material: {0}")]
+    Groth16Material(#[from] ZkError),
 }
 
 impl AuthenticatorError {
