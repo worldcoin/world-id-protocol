@@ -15,7 +15,11 @@ resolver = "2"
 edition = "2021"
 version = "0.1.0"
 license = "MIT"
-authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
+authors = [
+    "World Foundation",
+    "TACEO GmbH <hello@taceo.io>",
+    "Tools for Humanity",
+]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
 
@@ -48,6 +52,7 @@ oprf-zk = { path = "crates/oprf-zk" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
 rand = "0.8"
+getrandom = { version = "0.2", features = ["js"] }
 rand_chacha = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -55,8 +60,11 @@ thiserror = "1"
 tokio = { version = "1", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
 uuid = { version = "1" }
-world-id-core = { path = "crates/core"}
-world-id-primitives = { path = "crates/primitives"}
+world-id-core = { path = "crates/core" }
+world-id-primitives = { path = "crates/primitives" }
 zeroize = "1"
