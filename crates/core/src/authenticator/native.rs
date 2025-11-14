@@ -1,6 +1,7 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,15 +39,191 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
+#[cfg(not(target_arch = "wasm32"))]
 static QUERY_ZKEY_PATH: &str = "circom/query.zkey";
+#[cfg(not(target_arch = "wasm32"))]
 static QUERY_GRAPH_PATH: &str = "circom/query_graph.bin";
+#[cfg(not(target_arch = "wasm32"))]
 static NULLIFIER_ZKEY_PATH: &str = "circom/nullifier.zkey";
+#[cfg(not(target_arch = "wasm32"))]
 static NULLIFIER_GRAPH_PATH: &str = "circom/nullifier_graph.bin";
 
 /// Maximum timeout for polling account creation status (30 seconds)
 const MAX_POLL_TIMEOUT_SECS: u64 = 30;
 
 type UniquenessProof = (Groth16Proof, FieldElement);
+
+/// Pre-loaded Groth16 proving materials shared across authenticator operations.
+#[derive(Clone)]
+pub struct Groth16ProofMaterials {
+    query: Arc<Groth16Material>,
+    nullifier: Arc<Groth16Material>,
+}
+
+impl Groth16ProofMaterials {
+    /// Builds a bundle from explicit query and nullifier Groth16 materials.
+    #[must_use]
+    pub fn new(query: Groth16Material, nullifier: Groth16Material) -> Self {
+        Self {
+            query: Arc::new(query),
+            nullifier: Arc::new(nullifier),
+        }
+    }
+
+    /// Returns the cached Groth16 material for the query circuit.
+    #[must_use]
+    pub fn query(&self) -> &Groth16Material {
+        self.query.as_ref()
+    }
+
+    /// Returns the cached Groth16 material for the nullifier circuit.
+    #[must_use]
+    pub fn nullifier(&self) -> &Groth16Material {
+        self.nullifier.as_ref()
+    }
+
+    /// Loads Groth16 materials from the embedded circuit assets on disk.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn from_disk() -> Result<Self, AuthenticatorError> {
+        let query = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH).map_err(|e| {
+            AuthenticatorError::ProofMaterial(format!("Failed to load query material: {e}"))
+        })?;
+        let nullifier = Groth16Material::new(NULLIFIER_ZKEY_PATH, None, NULLIFIER_GRAPH_PATH)
+            .map_err(|e| {
+                AuthenticatorError::ProofMaterial(format!("Failed to load nullifier material: {e}"))
+            })?;
+        Ok(Self::new(query, nullifier))
+    }
+}
+
+impl fmt::Debug for Groth16ProofMaterials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Groth16ProofMaterials")
+            .field("query", &"...")
+            .field("nullifier", &"...")
+            .finish()
+    }
+}
+
+/// Describes where Groth16 assets for a single circuit can be fetched remotely.
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Debug)]
+pub struct RemoteGroth16Circuit {
+    /// URL pointing to the `.zkey` proving key.
+    pub zkey_url: String,
+    /// URL pointing to the witness graph binary.
+    pub graph_url: String,
+    /// Optional SHA-256 fingerprint expected for the `.zkey`.
+    pub fingerprint: Option<String>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl RemoteGroth16Circuit {
+    /// Creates a remote circuit descriptor with the given `.zkey` and graph URLs.
+    #[must_use]
+    pub fn new(zkey_url: impl Into<String>, graph_url: impl Into<String>) -> Self {
+        Self {
+            zkey_url: zkey_url.into(),
+            graph_url: graph_url.into(),
+            fingerprint: None,
+        }
+    }
+
+    /// Sets the expected SHA-256 fingerprint for the `.zkey` file.
+    #[must_use]
+    pub fn with_fingerprint(mut self, fingerprint: impl Into<String>) -> Self {
+        self.fingerprint = Some(fingerprint.into());
+        self
+    }
+}
+
+/// Remote Groth16 sources required to generate proofs (query + nullifier circuits).
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Debug)]
+pub struct RemoteGroth16MaterialSources {
+    /// Remote locator for the query circuit proving material.
+    pub query: RemoteGroth16Circuit,
+    /// Remote locator for the nullifier circuit proving material.
+    pub nullifier: RemoteGroth16Circuit,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl RemoteGroth16MaterialSources {
+    /// Combines the query and nullifier circuits into a single sources descriptor.
+    #[must_use]
+    pub fn new(query: RemoteGroth16Circuit, nullifier: RemoteGroth16Circuit) -> Self {
+        Self { query, nullifier }
+    }
+}
+
+/// In-memory Groth16 materials fetched from remote sources.
+#[cfg(target_arch = "wasm32")]
+pub struct RemoteGroth16Materials {
+    /// Downloaded query circuit proving material.
+    pub query: Groth16Material,
+    /// Downloaded nullifier circuit proving material.
+    pub nullifier: Groth16Material,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl RemoteGroth16Materials {
+    /// Splits the bundle into the underlying query and nullifier Groth16 materials.
+    #[must_use]
+    pub fn into_inner(self) -> (Groth16Material, Groth16Material) {
+        (self.query, self.nullifier)
+    }
+
+    /// Converts the bundle into a [`Groth16ProofMaterials`] instance.
+    #[must_use]
+    pub fn into_proof_materials(self) -> Groth16ProofMaterials {
+        let (query, nullifier) = self.into_inner();
+        Groth16ProofMaterials::new(query, nullifier)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl fmt::Debug for RemoteGroth16Materials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RemoteGroth16Materials")
+            .field("query", &"...")
+            .field("nullifier", &"...")
+            .finish()
+    }
+}
+
+/// Downloads the query and nullifier Groth16 materials from the provided remote sources.
+#[cfg(target_arch = "wasm32")]
+pub async fn fetch_groth16_materials(
+    sources: &RemoteGroth16MaterialSources,
+) -> Result<RemoteGroth16Materials, AuthenticatorError> {
+    let query = load_circuit_material(&sources.query).await?;
+    let nullifier = load_circuit_material(&sources.nullifier).await?;
+    Ok(RemoteGroth16Materials { query, nullifier })
+}
+
+/// Convenience helper that downloads Groth16 materials and returns them as a reusable bundle.
+#[cfg(target_arch = "wasm32")]
+pub async fn fetch_groth16_proof_materials(
+    sources: &RemoteGroth16MaterialSources,
+) -> Result<Groth16ProofMaterials, AuthenticatorError> {
+    let materials = fetch_groth16_materials(sources).await?;
+    Ok(materials.into_proof_materials())
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn load_circuit_material(
+    circuit: &RemoteGroth16Circuit,
+) -> Result<Groth16Material, AuthenticatorError> {
+    Groth16Material::from_urls(
+        &circuit.zkey_url,
+        circuit.fingerprint.as_deref(),
+        &circuit.graph_url,
+    )
+    .await
+    .map_err(|e| {
+        AuthenticatorError::ProofMaterial(format!("Failed to fetch Groth16 material: {e}"))
+    })
+}
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 #[derive(Debug)]
@@ -59,6 +236,7 @@ pub struct Authenticator {
     signer: Signer,
     registry: Arc<AccountRegistryInstance<DynProvider>>,
     provider: DynProvider,
+    materials: Groth16ProofMaterials,
 }
 
 impl Authenticator {
@@ -71,7 +249,24 @@ impl Authenticator {
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
+        let materials = Groth16ProofMaterials::from_disk()?;
+        Self::init_with_materials(seed, config, materials).await
+    }
+
+    /// Initialize an Authenticator from a seed, config, and preloaded Groth16 materials.
+    ///
+    /// # Errors
+    /// - Will error if the provided seed is invalid (not 32 bytes).
+    /// - Will error if the RPC URL is invalid.
+    /// - Will error if there are contract call failures.
+    /// - Will error if the account does not exist (`AccountDoesNotExist`).
+    pub async fn init_with_materials(
+        seed: &[u8],
+        config: Config,
+        materials: Groth16ProofMaterials,
+    ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
         let provider =
             ProviderBuilder::new().connect_http(config.rpc_url().parse().map_err(|e| {
@@ -91,6 +286,7 @@ impl Authenticator {
             config,
             registry: Arc::new(registry),
             provider: provider.erased(),
+            materials,
         })
     }
 
@@ -102,13 +298,25 @@ impl Authenticator {
     ///
     /// # Errors
     /// - See `init` for additional error details.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn init_or_create(
         seed: &[u8],
         config: Config,
         recovery_address: Option<Address>,
     ) -> Result<Option<Self>, AuthenticatorError> {
+        let materials = Groth16ProofMaterials::from_disk()?;
+        Self::init_or_create_with_materials(seed, config, recovery_address, materials).await
+    }
+
+    /// Initialize an authenticator or trigger account creation using preloaded Groth16 materials.
+    pub async fn init_or_create_with_materials(
+        seed: &[u8],
+        config: Config,
+        recovery_address: Option<Address>,
+        materials: Groth16ProofMaterials,
+    ) -> Result<Option<Self>, AuthenticatorError> {
         // First try to initialize normally
-        match Self::init(seed, config.clone()).await {
+        match Self::init_with_materials(seed, config.clone(), materials.clone()).await {
             Ok(authenticator) => Ok(Some(authenticator)),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 Self::create_account(seed, &config, recovery_address).await?;
@@ -118,6 +326,29 @@ impl Authenticator {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    /// Initializes an authenticator after downloading Groth16 materials from remote sources.
+    pub async fn init_with_remote_materials(
+        seed: &[u8],
+        config: Config,
+        sources: &RemoteGroth16MaterialSources,
+    ) -> Result<Self, AuthenticatorError> {
+        let materials = fetch_groth16_proof_materials(sources).await?;
+        Self::init_with_materials(seed, config, materials).await
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    /// Attempts to initialize an authenticator or trigger account creation using remote materials.
+    pub async fn init_or_create_with_remote_materials(
+        seed: &[u8],
+        config: Config,
+        recovery_address: Option<Address>,
+        sources: &RemoteGroth16MaterialSources,
+    ) -> Result<Option<Self>, AuthenticatorError> {
+        let materials = fetch_groth16_proof_materials(sources).await?;
+        Self::init_or_create_with_materials(seed, config, recovery_address, materials).await
+    }
+
     /// Initialize an Authenticator from a seed and config, creating the account if it doesn't exist
     /// and blocking until the account is confirmed on-chain.
     ///
@@ -125,12 +356,25 @@ impl Authenticator {
     /// - Will error with `Timeout` if account creation takes longer than 30 seconds.
     /// - Will error if the gateway reports the account creation as failed.
     /// - See `init` for additional error details.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn init_or_create_blocking(
         seed: &[u8],
         config: Config,
         recovery_address: Option<Address>,
     ) -> Result<Self, AuthenticatorError> {
-        match Self::init(seed, config.clone()).await {
+        let materials = Groth16ProofMaterials::from_disk()?;
+        Self::init_or_create_blocking_with_materials(seed, config, recovery_address, materials)
+            .await
+    }
+
+    /// Initialize an authenticator, creating the account and waiting for finalization when needed.
+    pub async fn init_or_create_blocking_with_materials(
+        seed: &[u8],
+        config: Config,
+        recovery_address: Option<Address>,
+        materials: Groth16ProofMaterials,
+    ) -> Result<Self, AuthenticatorError> {
+        match Self::init_with_materials(seed, config.clone(), materials.clone()).await {
             Ok(authenticator) => return Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 // Account doesn't exist, create it and poll for confirmation
@@ -157,7 +401,8 @@ impl Authenticator {
             // Poll the gateway status
             match Self::poll_gateway_status(&config, &request_id).await {
                 Ok(GatewayRequestState::Finalized { .. }) => {
-                    return Self::init(seed, config).await;
+                    return Self::init_with_materials(seed, config.clone(), materials.clone())
+                        .await;
                 }
                 Ok(GatewayRequestState::Failed { error }) => {
                     return Err(AuthenticatorError::Generic(format!(
@@ -171,6 +416,19 @@ impl Authenticator {
                 Err(e) => return Err(e),
             }
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    /// Initializes an authenticator, waiting for finalization, using materials fetched from remote URLs.
+    pub async fn init_or_create_blocking_with_remote_materials(
+        seed: &[u8],
+        config: Config,
+        recovery_address: Option<Address>,
+        sources: &RemoteGroth16MaterialSources,
+    ) -> Result<Self, AuthenticatorError> {
+        let materials = fetch_groth16_proof_materials(sources).await?;
+        Self::init_or_create_blocking_with_materials(seed, config, recovery_address, materials)
+            .await
     }
 
     /// Poll the gateway for the status of a request.
@@ -260,6 +518,28 @@ impl Authenticator {
     #[must_use]
     pub fn provider(&self) -> DynProvider {
         self.provider.clone()
+    }
+
+    /// Returns the Groth16 proof materials used for query and nullifier circuits.
+    #[must_use]
+    pub fn groth16_materials(&self) -> &Groth16ProofMaterials {
+        &self.materials
+    }
+
+    /// Replaces the Groth16 proof materials used by this authenticator.
+    pub fn set_groth16_materials(&mut self, materials: Groth16ProofMaterials) {
+        self.materials = materials;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    /// Downloads fresh Groth16 materials from the provided sources and installs them.
+    pub async fn refresh_groth16_materials(
+        &mut self,
+        sources: &RemoteGroth16MaterialSources,
+    ) -> Result<(), AuthenticatorError> {
+        let materials = fetch_groth16_proof_materials(sources).await?;
+        self.set_groth16_materials(materials);
+        Ok(())
     }
 
     /// Returns the account index for the holder's World ID.
@@ -371,15 +651,8 @@ impl Authenticator {
             nonce_signature: rp_request.signature,
         };
 
-        // TODO: load once and from bytes
-        let query_material = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH)
-            .map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load query material: {e}"))
-            })?;
-        let nullifier_material =
-            Groth16Material::new(NULLIFIER_ZKEY_PATH, None, NULLIFIER_GRAPH_PATH).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
-            })?;
+        let query_material = self.materials.query();
+        let nullifier_material = self.materials.nullifier();
 
         let key_material = UserKeyMaterial {
             pk_batch,
@@ -408,8 +681,8 @@ impl Authenticator {
         let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
             self.config.nullifier_oracle_urls(),
             2,
-            &query_material,
-            &nullifier_material,
+            query_material,
+            nullifier_material,
             args,
             &mut rng,
         )
@@ -851,4 +1124,8 @@ pub enum AuthenticatorError {
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
+
+    /// Error while preparing Groth16 proof material.
+    #[error("Groth16 material error: {0}")]
+    ProofMaterial(String),
 }

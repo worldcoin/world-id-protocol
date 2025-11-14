@@ -20,7 +20,17 @@ path = "bin/issuer.rs"
 required-features = ["issuer"]
 
 [dependencies]
-alloy = { workspace = true, default-features = false, features = ["sol-types"] }
+alloy = { workspace = true, default-features = false, features = [
+    "contract",
+    "rpc",
+    "rpc-client",
+    "rpc-types",
+    "json",
+    "reqwest",
+    "signer-local",
+    "sol-types",
+    "transport-http",
+] }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 poseidon2 = { workspace = true }
@@ -57,12 +67,7 @@ oprf-zk = { workspace = true, optional = true }
 reqwest = { version = "0.12", default-features = false, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-alloy = { workspace = true, features = [
-    "contract",
-    "rpc",
-    "signer-local",
-    "reqwest-rustls-tls",
-] }
+alloy = { workspace = true, features = ["reqwest-rustls-tls"] }
 circom-types = { workspace = true, optional = true }
 groth16 = { workspace = true, optional = true }
 oprf-client = { workspace = true, optional = true }
@@ -81,6 +86,11 @@ tracing-subscriber = { workspace = true, optional = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { version = "0.12", default-features = false, optional = true, features = [
     "json",
+] }
+tokio = { workspace = true, optional = true, features = [
+    "macros",
+    "rt",
+    "time",
 ] }
 gloo-timers = { version = "0.2", features = ["futures"] }
 

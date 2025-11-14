@@ -1,0 +1,10 @@
+/target
+*_cpp
+*.new
+.DS_Store
+circuit.cc
+constants.dat
+.idea
+Cargo.lock
+.claude
+*.bin

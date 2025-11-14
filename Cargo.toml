@@ -44,8 +44,8 @@ itertools = "0.14"
 k256 = { version = "0.13", default-features = false }
 num-bigint = "0.4"
 oprf-client = { path = "crates/oprf-client" }
-oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io
-oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io or remove
+oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" }  # TODO: update to crates.io
+oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" }  # TODO: update to crates.io or remove
 oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "f71a91c" } # TODO: update to crates.io
 oprf-world-types = { path = "crates/oprf-world-types" }
 oprf-zk = { path = "crates/oprf-zk" }
@@ -60,11 +60,16 @@ thiserror = "1"
 tokio = { version = "1", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-reqwest = { version = "0.12", default-features = false, features = [
-    "json",
-    "rustls-tls",
-] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 uuid = { version = "1", features = ["serde", "v4", "js"] }
 world-id-core = { path = "crates/core" }
 world-id-primitives = { path = "crates/primitives" }
 zeroize = "1"
+
+[patch.crates-io]
+witness = { path = "patches/circom-witness-rs" }
+circom-witness-rs = { path = "patches/circom-witness-rs-crate" }
+
+[patch."https://github.com/TaceoLabs/circom-witness-rs.git"]
+witness = { path = "patches/circom-witness-rs" }
+circom-witness-rs = { path = "patches/circom-witness-rs-crate" }

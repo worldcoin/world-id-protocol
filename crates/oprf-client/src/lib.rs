@@ -410,7 +410,15 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         .expect("is object")
         .to_owned();
     let witness = query_material.generate_witness(query_input_json)?;
-    let (proof, _) = query_material.generate_proof(&witness, rng)?;
+    let (proof_inner, _) = query_material.generate_proof(&witness, rng)?;
+    #[cfg(target_arch = "wasm32")]
+    let proof = oprf_world_types::Groth16Proof {
+        a: proof_inner.a,
+        b: proof_inner.b,
+        c: proof_inner.c,
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let proof = proof_inner;
 
     Ok(SignedOprfQuery {
         request_id,
