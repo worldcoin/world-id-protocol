@@ -87,6 +87,17 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.getSignerForIssuerSchemaId(1), signer);
     }
 
+    function testCannotRegisterWithEmptyPubkey() public {
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        registry.register(CredentialSchemaIssuerRegistry.Pubkey(0, 0), vm.addr(0xAAA1));
+
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        registry.register(CredentialSchemaIssuerRegistry.Pubkey(0, 1), vm.addr(0xAAA1));
+
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        registry.register(CredentialSchemaIssuerRegistry.Pubkey(1, 0), vm.addr(0xAAA1));
+    }
+
     function testUpdatePubkeyFlow() public {
         uint256 signerPk = 0xAAA2;
         address signer = vm.addr(signerPk);
