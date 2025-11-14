@@ -17,12 +17,16 @@ pub mod account_registry;
 #[cfg(feature = "authenticator")]
 mod authenticator;
 #[cfg(feature = "authenticator")]
-pub use authenticator::{Authenticator, AuthenticatorError};
+pub use crate::authenticator::{
+    compress_offchain_pubkey, leaf_hash, Authenticator, AuthenticatorError,
+};
 
 pub use world_id_primitives::{Credential, CredentialVersion};
 
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 mod credential;
+#[cfg(feature = "authenticator")]
+pub use credential::credential_to_credentials_signature;
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 pub use credential::HashableCredential;
 

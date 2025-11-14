@@ -10,6 +10,7 @@ library Poseidon2T2 {
     }
 
     function compress(uint256[2] memory inputs) public pure returns (uint256) {
+        require(inputs[0] < PRIME && inputs[1] < PRIME, "Poseidon2T2: inputs must be in the field.");
         uint256 l = inputs[0];
         uint256 r = inputs[1];
         unchecked {

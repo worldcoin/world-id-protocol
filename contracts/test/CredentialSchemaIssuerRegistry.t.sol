@@ -45,8 +45,11 @@ contract CredentialIssuerRegistryTest is Test {
         CredentialSchemaIssuerRegistry.Pubkey memory newPubkey,
         CredentialSchemaIssuerRegistry.Pubkey memory oldPubkey
     ) internal view returns (bytes memory) {
+        bytes32 oldPubkeyHash = keccak256(abi.encode(registry.PUBKEY_TYPEHASH(), oldPubkey.x, oldPubkey.y));
+        bytes32 newPubkeyHash = keccak256(abi.encode(registry.PUBKEY_TYPEHASH(), newPubkey.x, newPubkey.y));
+
         bytes32 structHash = keccak256(
-            abi.encode(registry.UPDATE_PUBKEY_TYPEHASH(), id, newPubkey, oldPubkey, registry.nonceOf(id))
+            abi.encode(registry.UPDATE_PUBKEY_TYPEHASH(), id, newPubkeyHash, oldPubkeyHash, registry.nonceOf(id))
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
@@ -82,6 +85,17 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.nextIssuerSchemaId(), 2);
         assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), pubkey));
         assertEq(registry.getSignerForIssuerSchemaId(1), signer);
+    }
+
+    function testCannotRegisterWithEmptyPubkey() public {
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        registry.register(CredentialSchemaIssuerRegistry.Pubkey(0, 0), vm.addr(0xAAA1));
+
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        registry.register(CredentialSchemaIssuerRegistry.Pubkey(0, 1), vm.addr(0xAAA1));
+
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        registry.register(CredentialSchemaIssuerRegistry.Pubkey(1, 0), vm.addr(0xAAA1));
     }
 
     function testUpdatePubkeyFlow() public {

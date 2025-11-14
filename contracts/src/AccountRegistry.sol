@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {BinaryIMT, BinaryIMTData} from "./tree/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -50,8 +51,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     // Root history tracking
     mapping(uint256 => uint256) public rootToTimestamp;
-    uint256 public rootValidityWindow;
-    uint256 public rootEpoch;
+    uint256 public latestRoot;
+    uint256 public rootValidityWindow = 3600;
 
     ////////////////////////////////////////////////////////////
     //                        Events                          //
@@ -99,7 +100,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
-    event RootRecorded(uint256 indexed root, uint256 timestamp, uint256 indexed rootEpoch);
+    event RootRecorded(uint256 indexed root, uint256 timestamp);
     event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
 
     ////////////////////////////////////////////////////////////
@@ -144,6 +145,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         tree.initWithDefaultZeroes(treeDepth);
+        _recordCurrentRoot();
         nextAccountIndex = 1;
     }
 
@@ -193,6 +195,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
      */
     function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
+        // The latest root is always valid.
+        if (root == latestRoot) return true;
+        // Check if the root is known and not expired
         uint256 ts = rootToTimestamp[root];
         if (ts == 0) return false;
         if (rootValidityWindow == 0) return true;
@@ -236,7 +241,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     function _recordCurrentRoot() internal virtual {
         uint256 root = tree.root;
         rootToTimestamp[root] = block.timestamp;
-        emit RootRecorded(root, block.timestamp, rootEpoch++);
+        latestRoot = root;
+        emit RootRecorded(root, block.timestamp);
     }
 
     function _updateLeafAndRecord(
@@ -615,7 +621,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(signatureRecoveredAddress != address(0), "Invalid signature");
         address recoverySigner = _getRecoveryAddress(accountIndex);
         require(recoverySigner != address(0), "Recovery address not set");
-        require(signatureRecoveredAddress == recoverySigner, "Invalid signature");
+        require(SignatureChecker.isValidSignatureNow(recoverySigner, messageHash, signature), "Invalid signature");
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
 

@@ -196,7 +196,9 @@ library InternalBinaryIMT {
         uint256 index = start;
         for (uint256 li = 0; li < k;) {
             uint256 node = leaves[li];
-            if (node >= SNARK_SCALAR_FIELD) revert ValueGreaterThanSnarkScalarField();
+            if (node >= SNARK_SCALAR_FIELD) {
+                revert ValueGreaterThanSnarkScalarField();
+            }
 
             uint256 idx = index;
             uint256 level = 0;
@@ -309,17 +311,19 @@ library InternalBinaryIMT {
             uint256 bit = (index >> i) & 1;
             updateIndex |= uint256(bit) << uint256(i);
 
-            if (bit == 0) {
-                if (proofSiblings[i] == self.lastSubtrees[i][1]) {
+            // Only update lastSubtrees if the node being updated shares a parent with the frontier node
+            // at this level. This happens when both nodes have the same parent position.
+            if ((index >> (i + 1)) == ((self.numberOfLeaves - 1) >> (i + 1))) {
+                if (bit == 0) {
                     self.lastSubtrees[i][0] = hash;
-                }
-
-                hash = Poseidon2T2.compress([hash, proofSiblings[i]]);
-            } else {
-                if (proofSiblings[i] == self.lastSubtrees[i][0]) {
+                } else {
                     self.lastSubtrees[i][1] = hash;
                 }
+            }
 
+            if (bit == 0) {
+                hash = Poseidon2T2.compress([hash, proofSiblings[i]]);
+            } else {
                 hash = Poseidon2T2.compress([proofSiblings[i], hash]);
             }
 
