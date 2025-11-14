@@ -45,6 +45,19 @@
   },
   {
     "type": "function",
+    "name": "MAX_PUBKEYS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "RECOVER_ACCOUNT_TYPEHASH",
     "inputs": [],
     "outputs": [
@@ -120,7 +133,7 @@
     "name": "accountIndexToRecoveryAddress",
     "inputs": [
       {
-        "name": "",
+        "name": "accountIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
