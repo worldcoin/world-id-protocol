@@ -13,9 +13,12 @@ ark-babyjubjub = { workspace = true }
 ark-ec.workspace = true
 ark-ff.workspace = true
 ark-serde-compat = { workspace = true }
+ark-bn254 = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 oprf-core = { workspace = true }
-oprf-zk = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 uuid = { workspace = true, features = ["serde", "v4"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oprf-zk = { workspace = true }

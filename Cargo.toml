@@ -64,7 +64,7 @@ reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-uuid = { version = "1" }
+uuid = { version = "1", features = ["serde", "v4", "js"] }
 world-id-core = { path = "crates/core" }
 world-id-primitives = { path = "crates/primitives" }
 zeroize = "1"

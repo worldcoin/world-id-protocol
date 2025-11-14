@@ -9,10 +9,9 @@
 //! they can be sent over the wire.
 
 use eddsa_babyjubjub::EdDSAPublicKey;
-use oprf_zk::groth16_serde::Groth16Proof;
 use serde::{Deserialize, Serialize};
 
-use crate::MerkleRoot;
+use crate::{Groth16Proof, MerkleRoot};
 
 /// A request sent by a client to perform an OPRF evaluation.
 #[derive(Clone, Serialize, Deserialize)]

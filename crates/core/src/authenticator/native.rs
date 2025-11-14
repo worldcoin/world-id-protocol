@@ -13,7 +13,7 @@ use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
 };
-use crate::{Credential, FieldElement, Signer};
+use crate::{util::sleep, Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::uint;
@@ -152,7 +152,7 @@ impl Authenticator {
             }
 
             // Wait before polling
-            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            sleep(Duration::from_millis(delay_ms)).await;
 
             // Poll the gateway status
             match Self::poll_gateway_status(&config, &request_id).await {

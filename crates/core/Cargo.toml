@@ -43,6 +43,7 @@ rand = { workspace = true }
 ark-ec = { workspace = true }
 uuid = { workspace = true }
 eyre = { workspace = true }
+getrandom = { workspace = true }
 secrecy = { version = "0.10", optional = true }
 world-id-primitives = { workspace = true }
 utoipa = { version = "5", optional = true }
@@ -81,6 +82,7 @@ tracing-subscriber = { workspace = true, optional = true }
 reqwest = { version = "0.12", default-features = false, optional = true, features = [
     "json",
 ] }
+gloo-timers = { version = "0.2", features = ["futures"] }
 
 [features]
 default = ["authenticator"]

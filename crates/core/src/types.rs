@@ -1,7 +1,9 @@
 #[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
-use serde::{self, Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(any(feature = "authenticator", feature = "rp"))]
+use serde::Serialize;
 
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;

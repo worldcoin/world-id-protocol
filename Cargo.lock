@@ -3394,6 +3394,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "gloo-timers"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b995a66bb87bebce9a0f4a95aed01daca4872c050bfcb21653361c03bc35e5c"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "groth16"
 version = "0.1.0"
 source = "git+https://github.com/TaceoLabs/groth16.git#6529e47b7a9a792cf92425f2a9682ab4d4c433df"
@@ -4903,6 +4915,7 @@ name = "oprf-world-types"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "k256",
@@ -8153,6 +8166,8 @@ dependencies = [
  "ciborium",
  "circom-types",
  "eyre",
+ "getrandom 0.2.16",
+ "gloo-timers",
  "groth16",
  "hex",
  "oprf-client 0.1.0",

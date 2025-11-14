@@ -20,6 +20,8 @@ mod authenticator;
 pub use crate::authenticator::{
     compress_offchain_pubkey, leaf_hash, Authenticator, AuthenticatorError,
 };
+#[cfg(feature = "authenticator")]
+mod util;
 
 pub use world_id_primitives::{Credential, CredentialVersion};
 
@@ -35,9 +37,15 @@ mod issuer;
 #[cfg(all(feature = "issuer", not(target_arch = "wasm32")))]
 pub use issuer::Issuer;
 
-#[cfg(all(any(feature = "authenticator", feature = "issuer"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    any(feature = "authenticator", feature = "issuer"),
+    not(target_arch = "wasm32")
+))]
 mod signer;
-#[cfg(all(any(feature = "authenticator", feature = "issuer"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    any(feature = "authenticator", feature = "issuer"),
+    not(target_arch = "wasm32")
+))]
 pub(crate) use signer::Signer;
 
 /// Generic re-usable types

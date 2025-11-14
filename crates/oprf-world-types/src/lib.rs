@@ -6,7 +6,10 @@ use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use serde::{Deserialize, Serialize};
 
 pub mod api;
+mod groth16;
 pub mod proof_inputs;
+
+pub use groth16::Groth16Proof;
 
 /// The depth of the merkle-tree
 pub const TREE_DEPTH: usize = 30;

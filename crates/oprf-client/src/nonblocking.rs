@@ -15,10 +15,9 @@
 //! Under the hood, requests use `reqwest::Client` and responses are deserialized
 //! into the types defined in [`oprf_types::api::v1`].
 
-use eyre::Context;
+use futures::stream::{FuturesUnordered, StreamExt};
 use oprf_types::api::v1::{ChallengeRequest, ChallengeResponse, OprfRequest, OprfResponse};
 use oprf_world_types::api::v1::OprfRequestAuth;
-use tokio::task::JoinSet;
 
 use crate::{Error, OprfSessions};
 
@@ -107,14 +106,14 @@ pub async fn init_sessions(
     threshold: usize,
     req: OprfRequest<OprfRequestAuth>,
 ) -> super::Result<OprfSessions> {
-    let mut requests = oprf_services
+    let mut requests: FuturesUnordered<_> = oprf_services
         .iter()
         .map(|service| oprf_request(client.clone(), service.to_owned(), req.to_owned()))
-        .collect::<JoinSet<_>>();
+        .collect();
 
     let mut sessions = OprfSessions::with_capacity(threshold);
-    while let Some(response) = requests.join_next().await {
-        match response.context("can't join responses")? {
+    while let Some(response) = requests.next().await {
+        match response {
             Ok((service, response)) => {
                 sessions.push(service, response);
                 if sessions.len() == threshold {
