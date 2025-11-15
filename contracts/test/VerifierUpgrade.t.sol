@@ -30,6 +30,7 @@ contract VerifierUpgradeTest is Test {
     address public credentialIssuerRegistry;
     address public accountRegistry;
     address public rpRegistry;
+    address public groth16Verifier;
 
     function setUp() public {
         owner = address(this);
@@ -37,13 +38,15 @@ contract VerifierUpgradeTest is Test {
         credentialIssuerRegistry = address(0x1111);
         accountRegistry = address(0x2222);
         rpRegistry = address(0x3333);
+        groth16Verifier = address(0x4444);
 
         // Deploy implementation V1
         Verifier implementationV1 = new Verifier();
 
         // Deploy proxy with initialization
-        bytes memory initData =
-            abi.encodeWithSelector(Verifier.initialize.selector, credentialIssuerRegistry, accountRegistry);
+        bytes memory initData = abi.encodeWithSelector(
+            Verifier.initialize.selector, credentialIssuerRegistry, accountRegistry, groth16Verifier
+        );
         proxy = new ERC1967Proxy(address(implementationV1), initData);
 
         verifier = Verifier(address(proxy));
@@ -128,7 +131,7 @@ contract VerifierUpgradeTest is Test {
     function test_CannotInitializeTwice() public {
         // Try to initialize again (should fail)
         vm.expectRevert();
-        verifier.initialize(credentialIssuerRegistry, accountRegistry);
+        verifier.initialize(credentialIssuerRegistry, accountRegistry, groth16Verifier);
     }
 
     function test_ImplementationCannotBeInitialized() public {
@@ -137,7 +140,7 @@ contract VerifierUpgradeTest is Test {
 
         // Try to initialize the implementation directly (should fail)
         vm.expectRevert();
-        implementation.initialize(credentialIssuerRegistry, accountRegistry);
+        implementation.initialize(credentialIssuerRegistry, accountRegistry, groth16Verifier);
     }
 
     function test_UpdateCredentialSchemaIssuerRegistry() public {
