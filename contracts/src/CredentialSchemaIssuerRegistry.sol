@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -90,7 +91,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
     event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
     event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey, address signer);
+    event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
     event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
     event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
@@ -134,13 +135,15 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
-        bytes32 hash = _hashTypedDataV4(
+        bytes32 messageHash = _hashTypedDataV4(
             keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId]))
         );
-        address signer = ECDSA.recover(hash, signature);
-        require(_idToAddress[issuerSchemaId] == signer, InvalidSignature());
 
-        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
+        if (!SignatureChecker.isValidSignatureNow(_idToAddress[issuerSchemaId], messageHash, signature)) {
+            revert InvalidSignature();
+        }
+
+        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, _idToAddress[issuerSchemaId]);
 
         _nonces[issuerSchemaId]++;
         delete _idToPubkey[issuerSchemaId];
@@ -164,18 +167,20 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         bytes32 newPubkeyHash = keccak256(abi.encode(PUBKEY_TYPEHASH, newPubkey.x, newPubkey.y));
         bytes32 oldPubkeyHash = keccak256(abi.encode(PUBKEY_TYPEHASH, oldPubkey.x, oldPubkey.y));
 
-        bytes32 hash = _hashTypedDataV4(
+        bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
                     UPDATE_PUBKEY_TYPEHASH, issuerSchemaId, newPubkeyHash, oldPubkeyHash, _nonces[issuerSchemaId]
                 )
             )
         );
-        address signer = ECDSA.recover(hash, signature);
-        require(_idToAddress[issuerSchemaId] == signer, InvalidSignature());
+
+        if (!SignatureChecker.isValidSignatureNow(_idToAddress[issuerSchemaId], messageHash, signature)) {
+            revert InvalidSignature();
+        }
 
         _idToPubkey[issuerSchemaId] = newPubkey;
-        emit IssuerSchemaPubkeyUpdated(issuerSchemaId, oldPubkey, newPubkey, signer);
+        emit IssuerSchemaPubkeyUpdated(issuerSchemaId, oldPubkey, newPubkey);
 
         _nonces[issuerSchemaId]++;
     }
@@ -190,11 +195,15 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         require(newSigner != address(0), "Registry: newSigner cannot be zero address");
         require(_idToAddress[issuerSchemaId] != newSigner, "Registry: newSigner is already the assigned signer");
 
-        bytes32 hash = _hashTypedDataV4(
+        bytes32 messageHash = _hashTypedDataV4(
             keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId]))
         );
-        address oldSigner = ECDSA.recover(hash, signature);
-        require(_idToAddress[issuerSchemaId] == oldSigner, InvalidSignature());
+
+        address oldSigner = _idToAddress[issuerSchemaId];
+
+        if (!SignatureChecker.isValidSignatureNow(oldSigner, messageHash, signature)) {
+            revert InvalidSignature();
+        }
 
         _idToAddress[issuerSchemaId] = newSigner;
         emit IssuerSchemaSignerUpdated(issuerSchemaId, oldSigner, newSigner);
@@ -237,13 +246,15 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         );
 
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
-        bytes32 hash = _hashTypedDataV4(
+        bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUriHash, _nonces[issuerSchemaId])
             )
         );
-        address signer = ECDSA.recover(hash, signature);
-        require(_idToAddress[issuerSchemaId] == signer, InvalidSignature());
+
+        if (!SignatureChecker.isValidSignatureNow(_idToAddress[issuerSchemaId], messageHash, signature)) {
+            revert InvalidSignature();
+        }
 
         string memory oldSchemaUri = idToSchemaUri[issuerSchemaId];
         idToSchemaUri[issuerSchemaId] = schemaUri;
