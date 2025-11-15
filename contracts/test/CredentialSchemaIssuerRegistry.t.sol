@@ -108,7 +108,7 @@ contract CredentialIssuerRegistryTest is Test {
         bytes memory sig = _signUpdatePubkey(signerPk, 1, newPubkey, pubkey);
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaPubkeyUpdated(1, pubkey, newPubkey, signer);
+        emit CredentialSchemaIssuerRegistry.IssuerSchemaPubkeyUpdated(1, pubkey, newPubkey);
         registry.updatePubkey(1, newPubkey, sig);
 
         assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), newPubkey));
