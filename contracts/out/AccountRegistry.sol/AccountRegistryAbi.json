@@ -315,7 +315,7 @@
     "name": "initialize",
     "inputs": [
       {
-        "name": "treeDepth",
+        "name": "initialTreeDepth",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -669,6 +669,19 @@
         "name": "useDefaultZeroes",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "treeDepth",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"

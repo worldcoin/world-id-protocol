@@ -483,6 +483,10 @@ contract AccountRegistryTest is Test {
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
     }
 
+    function test_TreeDepth() public {
+        assertEq(accountRegistry.treeDepth(), 30);
+    }
+
     function test_RecoverAccountWithERC1271Wallet() public {
         // Create a mock ERC-1271 wallet controlled by recoveryAddress
         MockERC1271Wallet wallet = new MockERC1271Wallet(recoveryAddress);
