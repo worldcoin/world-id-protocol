@@ -671,9 +671,16 @@ impl Authenticator {
         {
             input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
         }
-        for i in 0..key_set.len().min(7) {
-            input[i * 2 + 1] = key_set[i].pk.x;
-            input[i * 2 + 2] = key_set[i].pk.y;
+        // The circuit expects all 7 public key slots to be hashed (with default points for unused slots)
+        // Create a full array of 7 keys, padding with defaults
+        let mut pk_array = [ark_babyjubjub::EdwardsAffine::default(); 7];
+        for (i, pubkey) in key_set.iter().enumerate() {
+            pk_array[i] = pubkey.pk;
+        }
+        // Hash all 7 slots to match circuit expectations
+        for i in 0..7 {
+            input[i * 2 + 1] = pk_array[i].x;
+            input[i * 2 + 2] = pk_array[i].y;
         }
         poseidon2_16.permutation(&input)[1]
     }

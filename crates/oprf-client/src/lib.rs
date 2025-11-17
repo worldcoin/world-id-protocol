@@ -63,7 +63,8 @@ pub use groth16;
 
 pub mod nonblocking;
 
-/// Helper function to compute the claims hash for a credential
+/// Helper function to compute the claims hash for a credential.
+/// TODO: Move to primitives.
 fn compute_claims_hash(credential: &Credential) -> Result<ark_babyjubjub::Fq> {
     let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
     if credential.claims.len() > Credential::MAX_CLAIMS {
@@ -399,10 +400,6 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
     request_id: Uuid,
     rng: &mut R,
 ) -> Result<SignedOprfQuery> {
-    if key_index >= MAX_PUBLIC_KEYS as u64 {
-        return Err(Error::InvalidPublicKeyIndex(key_index));
-    }
-
     let query_hash = OprfClient::generate_query(
         inclusion_proof.leaf_index.into(),
         query.rp_id.into_inner().into(),
