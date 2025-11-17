@@ -11,9 +11,7 @@ use oprf_client::{sign_oprf_query, OprfQuery};
 use oprf_core::dlog_equality::DLogEqualityProof;
 use oprf_types::{crypto::RpNullifierKey, RpId, ShareEpoch};
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
-use oprf_world_types::{
-    MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch, TREE_DEPTH,
-};
+use oprf_world_types::{UserKeyMaterial, UserPublicKeyBatch};
 use oprf_zk::{
     Groth16Material, NULLIFIER_FINGERPRINT, NULLIFIER_GRAPH_BYTES, QUERY_FINGERPRINT,
     QUERY_GRAPH_BYTES,
@@ -28,6 +26,7 @@ use world_id_core::{
     compress_offchain_pubkey, credential_to_credentials_signature, leaf_hash, Credential,
     HashableCredential,
 };
+use world_id_primitives::{merkle::MerkleInclusionProof, TREE_DEPTH};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -204,7 +203,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .try_into()
         .map_err(|_| eyre!("account index exceeded u64 range"))?;
 
-    let merkle_index = account_index
+    let leaf_index = account_index
         .checked_sub(1)
         .expect("account indices should be 1-indexed in the registry");
 
@@ -222,7 +221,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     let credential = Credential::new()
         .issuer_schema_id(issuer_schema_id_u64)
-        .account_id(merkle_index)
+        .account_id(leaf_index)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at);
 
@@ -236,9 +235,10 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .wrap_err("failed to convert credential to CredentialsSignature")?;
 
     // Prepare Merkle membership witness for πR (query proof)
-    let merkle_membership = MerkleMembership {
-        root: MerkleRoot::new(expected_root_fq),
-        mt_index: merkle_index,
+    let merkle_membership = MerkleInclusionProof {
+        root: expected_root_fq,
+        leaf_index,
+        account_id: account_index,
         siblings: merkle_siblings,
     };
 

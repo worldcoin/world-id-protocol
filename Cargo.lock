@@ -4744,6 +4744,7 @@ dependencies = [
  "tracing",
  "uuid",
  "world-id-core",
+ "world-id-primitives",
 ]
 
 [[package]]
@@ -6909,6 +6910,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-poseidon2",
+ "world-id-primitives",
 ]
 
 [[package]]
