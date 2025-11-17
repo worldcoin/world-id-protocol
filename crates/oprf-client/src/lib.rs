@@ -427,7 +427,6 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         .signature
         .ok_or_else(|| Error::InternalError(eyre::eyre!("Credential not signed")))?;
 
-    // Convert FieldElement siblings to Fq
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 
     let query_input = QueryProofInput::<TREE_DEPTH> {

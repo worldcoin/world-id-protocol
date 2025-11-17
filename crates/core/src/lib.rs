@@ -17,7 +17,7 @@ pub mod account_registry;
 #[cfg(feature = "authenticator")]
 mod authenticator;
 #[cfg(feature = "authenticator")]
-pub use crate::authenticator::{Authenticator, AuthenticatorError, OffchainKeyRepresentable};
+pub use crate::authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
 
 pub use world_id_primitives::{Credential, CredentialVersion};
 

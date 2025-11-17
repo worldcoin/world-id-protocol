@@ -229,7 +229,7 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             AccountRegistry::initializeCall {
-                treeDepth: U256::from(tree_depth),
+                initialTreeDepth: U256::from(tree_depth),
             }
             .abi_encode(),
         );

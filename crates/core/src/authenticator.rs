@@ -658,6 +658,8 @@ impl Authenticator {
 
     /// Computes the Merkle leaf (i.e. the commitment to the public key set) for a given public key set.
     ///
+    /// TODO: move to primitives
+    ///
     /// # Errors
     /// Will error if the provided public key set is not valid.
     #[allow(clippy::missing_panics_doc)]
@@ -736,10 +738,14 @@ impl ProtocolSigner for Authenticator {
     }
 }
 
+/// A trait for types that can be represented as a `U256` on-chain.
 pub trait OnchainKeyRepresentable {
     /// Converts an off-chain public key into a `U256` representation for on-chain use in the `AccountRegistry` contract.
     ///
     /// The `U256` representation is a 32-byte little-endian encoding of the **compressed** (single point) public key.
+    ///
+    /// # Errors
+    /// Will error if the public key unexpectedly fails to serialize.
     fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError>;
 }
 

@@ -11,9 +11,7 @@ use oprf_client::{sign_oprf_query, OprfQuery};
 use oprf_core::dlog_equality::DLogEqualityProof;
 use oprf_types::{crypto::RpNullifierKey, RpId, ShareEpoch};
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
-use oprf_world_types::{
-    MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch, TREE_DEPTH,
-};
+use oprf_world_types::TREE_DEPTH;
 use oprf_zk::{
     Groth16Material, NULLIFIER_FINGERPRINT, NULLIFIER_GRAPH_BYTES, QUERY_FINGERPRINT,
     QUERY_GRAPH_BYTES,
@@ -24,7 +22,8 @@ use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnv
 use test_utils::merkle::first_leaf_merkle_path;
 use uuid::Uuid;
 
-use world_id_core::{Credential, HashableCredential, OnchainKeyRepresentable};
+use world_id_core::{Authenticator, Credential, HashableCredential, OnchainKeyRepresentable};
+use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
 use world_id_primitives::merkle::MerkleInclusionProof;
 
 #[tokio::test]
@@ -144,14 +143,11 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     // Create user's off‑chain BabyJubJub key batch and compute leaf commitment
     let user_sk = EdDSAPrivateKey::random(&mut rng);
-    let mut user_pk_batch = UserPublicKeyBatch {
-        values: [EdwardsAffine::default(); 7],
-    };
-    user_pk_batch.values[0] = user_sk.public().pk;
+    let key_set = AuthenticatorPublicKeySet::new(Some(vec![user_sk.public().clone()]))?;
 
     // Prepare inputs for on‑chain createAccount call
-    let offchain_pubkey = user_pk_batch.values[0].to_ethereum_representation()?;
-    let leaf_commitment_fq = leaf_hash(&user_pk_batch);
+    let offchain_pubkey = key_set[0].to_ethereum_representation()?;
+    let leaf_commitment_fq = Authenticator::leaf_hash(&key_set);
     let leaf_commitment = U256::from_limbs(leaf_commitment_fq.into_bigint().0);
 
     // Precompute the Merkle path/root for the first insertion (index 0)
@@ -219,7 +215,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     let credential = Credential::new()
         .issuer_schema_id(issuer_schema_id_u64)
-        .account_id(merkle_index)
+        .account_id(account_index)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at);
 
@@ -230,17 +226,10 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     // Prepare Merkle membership witness for πR (query proof)
     let merkle_inclusion_proof = MerkleInclusionProof {
-        root: MerkleRoot::new(expected_root_fq),
+        root: expected_root_fq,
         account_id: account_index,
         leaf_index,
         siblings: merkle_siblings,
-    };
-
-    // Bundle user authenticator keys for use in proofs
-    let key_material = UserKeyMaterial {
-        pk_batch: user_pk_batch.clone(),
-        pk_index: 0,
-        sk: user_sk.clone(),
     };
 
     // Build OPRF query context (RP id, action, nonce, timestamp)
@@ -275,7 +264,8 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         &query_material,
         query,
         key_set,
-        key_material,
+        0,
+        &user_sk,
         request_id,
         &mut rng,
     )
