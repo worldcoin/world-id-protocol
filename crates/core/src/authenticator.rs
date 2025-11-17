@@ -415,12 +415,7 @@ impl Authenticator {
         key_set[index as usize] = new_authenticator_pubkey.clone();
         let new_offchain_signer_commitment = Self::leaf_hash(&key_set);
 
-        let compressed_bytes = new_authenticator_pubkey
-            .to_compressed_bytes()
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-
-        // REVIEW: updating to BE
-        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
         let eip712_domain = domain(
             self.provider()
@@ -435,7 +430,7 @@ impl Authenticator {
             account_id,
             new_authenticator_address,
             U256::from(index),
-            compressed_pubkey,
+            encoded_offchain_pubkey,
             new_offchain_signer_commitment.into(),
             nonce,
             &eip712_domain,
@@ -449,7 +444,7 @@ impl Authenticator {
             account_index: account_id,
             new_authenticator_address,
             pubkey_id: U256::from(index),
-            new_authenticator_pubkey: compressed_pubkey,
+            new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
             sibling_nodes: inclusion_proof
@@ -505,13 +500,7 @@ impl Authenticator {
         key_set[index as usize] = new_authenticator_pubkey.clone();
         let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
-        // TODO: remove this once compression is merged
-        let mut compressed_bytes = Vec::new();
-        new_authenticator_pubkey
-            .pk
-            .serialize_compressed(&mut compressed_bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
         let eip712_domain = domain(
             self.provider()
@@ -527,7 +516,7 @@ impl Authenticator {
             old_authenticator_address,
             new_authenticator_address,
             U256::from(index),
-            compressed_pubkey,
+            encoded_offchain_pubkey,
             new_commitment,
             nonce,
             &eip712_domain,
@@ -553,7 +542,7 @@ impl Authenticator {
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: Some(U256::from(index)),
-            new_authenticator_pubkey: Some(compressed_pubkey),
+            new_authenticator_pubkey: Some(encoded_offchain_pubkey),
         };
 
         let resp = reqwest::Client::new()
@@ -595,13 +584,9 @@ impl Authenticator {
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = Self::leaf_hash(&key_set).into();
-        let existing_pubkey = key_set[index as usize].pk;
+        let existing_pubkey = &key_set[index as usize];
 
-        let mut compressed_old = Vec::new();
-        existing_pubkey
-            .serialize_compressed(&mut compressed_old)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        let compressed_old_pubkey = U256::from_le_slice(&compressed_old);
+        let encoded_old_offchain_pubkey = existing_pubkey.to_ethereum_representation()?;
 
         key_set[index as usize] = EdDSAPublicKey {
             pk: EdwardsAffine::default(),
@@ -621,7 +606,7 @@ impl Authenticator {
             account_id,
             authenticator_address,
             U256::from(index),
-            compressed_old_pubkey,
+            encoded_old_offchain_pubkey,
             new_commitment,
             nonce,
             &eip712_domain,
@@ -646,7 +631,7 @@ impl Authenticator {
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: Some(U256::from(index)),
-            authenticator_pubkey: Some(compressed_old_pubkey),
+            authenticator_pubkey: Some(encoded_old_offchain_pubkey),
         };
 
         let resp = reqwest::Client::new()
@@ -671,13 +656,13 @@ impl Authenticator {
         }
     }
 
-    /// Computes the Merkle leaf for a given public key batch.
+    /// Computes the Merkle leaf (i.e. the commitment to the public key set) for a given public key set.
     ///
     /// # Errors
-    /// Will error if the provided public key batch is not valid.
+    /// Will error if the provided public key set is not valid.
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    fn leaf_hash(key_set: &AuthenticatorPublicKeySet) -> ark_babyjubjub::Fq {
+    pub fn leaf_hash(key_set: &AuthenticatorPublicKeySet) -> ark_babyjubjub::Fq {
         let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
         let mut input = [ark_babyjubjub::Fq::ZERO; 16];
         #[allow(clippy::unwrap_used)]
@@ -689,17 +674,6 @@ impl Authenticator {
             input[i * 2 + 2] = key_set[i].pk.y;
         }
         poseidon2_16.permutation(&input)[1]
-    }
-
-    /// Compresses a `BabyJubJub` `EdwardsAffine` public key into 32-byte little-endian form and returns it as `U256`.
-    ///
-    /// # Errors
-    /// Returns an error if the public key cannot be serialized.
-    pub fn compress_offchain_pubkey(pk: &EdwardsAffine) -> Result<U256, PrimitiveError> {
-        let mut compressed_bytes = Vec::with_capacity(32);
-        pk.serialize_compressed(&mut compressed_bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        Ok(U256::from_le_slice(&compressed_bytes))
     }
 
     /// Creates a new World ID account by adding it to the registry using the gateway.
@@ -762,18 +736,22 @@ impl ProtocolSigner for Authenticator {
     }
 }
 
-/// Public utility: computes the Merkle leaf commitment for a given public key batch.
-#[must_use]
-pub fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
-    Authenticator::leaf_hash(pk)
+pub trait OnchainKeyRepresentable {
+    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `AccountRegistry` contract.
+    ///
+    /// The `U256` representation is a 32-byte little-endian encoding of the **compressed** (single point) public key.
+    fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError>;
 }
 
-/// Public utility: compresses a `BabyJubJub` public key and returns it as `U256` (little-endian).
-///
-/// # Errors
-/// Returns an error if the public key cannot be serialized.
-pub fn compress_offchain_pubkey(pk: &EdwardsAffine) -> Result<U256, PrimitiveError> {
-    Authenticator::compress_offchain_pubkey(pk)
+impl OnchainKeyRepresentable for EdDSAPublicKey {
+    // REVIEW: updating to BE
+    fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError> {
+        let mut compressed_bytes = Vec::new();
+        self.pk
+            .serialize_compressed(&mut compressed_bytes)
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+        Ok(U256::from_le_slice(&compressed_bytes))
+    }
 }
 
 /// Errors that can occur when interacting with the Authenticator.

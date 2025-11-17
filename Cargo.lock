@@ -4744,6 +4744,7 @@ dependencies = [
  "tracing",
  "uuid",
  "world-id-core",
+ "world-id-primitives",
 ]
 
 [[package]]

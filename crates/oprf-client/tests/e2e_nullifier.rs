@@ -24,10 +24,8 @@ use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnv
 use test_utils::merkle::first_leaf_merkle_path;
 use uuid::Uuid;
 
-use world_id_core::{
-    compress_offchain_pubkey, credential_to_credentials_signature, leaf_hash, Credential,
-    HashableCredential,
-};
+use world_id_core::{Credential, HashableCredential, OnchainKeyRepresentable};
+use world_id_primitives::merkle::MerkleInclusionProof;
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -152,8 +150,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     user_pk_batch.values[0] = user_sk.public().pk;
 
     // Prepare inputs for on‑chain createAccount call
-    let offchain_pubkey = compress_offchain_pubkey(&user_pk_batch.values[0])
-        .wrap_err("failed to compress off-chain authenticator pubkey")?;
+    let offchain_pubkey = user_pk_batch.values[0].to_ethereum_representation()?;
     let leaf_commitment_fq = leaf_hash(&user_pk_batch);
     let leaf_commitment = U256::from_limbs(leaf_commitment_fq.into_bigint().0);
 
@@ -204,7 +201,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .try_into()
         .map_err(|_| eyre!("account index exceeded u64 range"))?;
 
-    let merkle_index = account_index
+    let leaf_index = account_index
         .checked_sub(1)
         .expect("account indices should be 1-indexed in the registry");
 
@@ -231,14 +228,11 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .sign(&issuer_sk)
         .wrap_err("failed to sign credential with issuer key")?;
 
-    // Convert the signed credential into a CredentialsSignature using the helper
-    let credential_signature = credential_to_credentials_signature(credential.clone())
-        .wrap_err("failed to convert credential to CredentialsSignature")?;
-
     // Prepare Merkle membership witness for πR (query proof)
-    let merkle_membership = MerkleMembership {
+    let merkle_inclusion_proof = MerkleInclusionProof {
         root: MerkleRoot::new(expected_root_fq),
-        mt_index: merkle_index,
+        account_id: account_index,
+        leaf_index,
         siblings: merkle_siblings,
     };
 
@@ -276,10 +270,11 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     // Produce πR (signed OPRF query) — blinded request + query inputs
     let request_id = Uuid::new_v4();
     let signed_query = sign_oprf_query(
-        credential_signature.clone(),
-        merkle_membership,
+        credential.clone(),
+        merkle_inclusion_proof,
         &query_material,
         query,
+        key_set,
         key_material,
         request_id,
         &mut rng,
