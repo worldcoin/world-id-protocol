@@ -370,7 +370,7 @@ contract AccountRegistryTest is Test {
         vm.prank(authenticatorAddress1);
         accountRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
 
-        assertEq(accountRegistry.accountIndexToRecoveryAddress(accountIndex), newRecovery);
+        assertEq(accountRegistry.getRecoveryAddress(accountIndex), newRecovery);
         assertEq(accountRegistry.signatureNonces(accountIndex), 1);
     }
 
@@ -572,5 +572,18 @@ contract AccountRegistryTest is Test {
         bytes memory invalidSig = abi.encodePacked(r, s, v);
         result = wallet.isValidSignature(testHash, invalidSig);
         assertEq(result, bytes4(0xffffffff));
+    }
+
+    function test_GetRecoveryAddress() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+        address retrievedRecoveryAddress = accountRegistry.getRecoveryAddress(1);
+        assertEq(retrievedRecoveryAddress, recoveryAddress);
     }
 }

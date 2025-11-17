@@ -130,25 +130,6 @@
   },
   {
     "type": "function",
-    "name": "accountIndexToRecoveryAddress",
-    "inputs": [
-      {
-        "name": "accountIndex",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "accountRecoveryCounter",
     "inputs": [
       {
@@ -306,6 +287,25 @@
         "name": "extensions",
         "type": "uint256[]",
         "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRecoveryAddress",
+    "inputs": [
+      {
+        "name": "accountIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"

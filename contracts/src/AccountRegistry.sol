@@ -168,10 +168,10 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Returns the recovery address for the given account index.
+     * @dev Returns the recovery address for the given the account index.
      * @param accountIndex The index of the account.
      */
-    function accountIndexToRecoveryAddress(uint256 accountIndex)
+    function getRecoveryAddress(uint256 accountIndex)
         external
         view
         virtual
@@ -437,14 +437,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(PackedAccountIndex.pubkeyId(packedAccountIndex) == pubkeyId, "Invalid pubkeyId");
         require((_getPubkeyBitmap(accountIndex) & (1 << pubkeyId)) != 0, "Pubkey ID does not exist");
 
-        // Delete old authenticator
+        // Delete the old authenticator
         delete authenticatorAddressToPackedAccountIndex[oldAuthenticatorAddress];
 
-        // Add new authenticator
+        // Add the new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
             PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
 
-        // Update tree
+        // Update the tree
         emit AccountUpdated(
             accountIndex,
             pubkeyId,
@@ -617,8 +617,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        address signatureRecoveredAddress = ECDSA.recover(messageHash, signature);
-        require(signatureRecoveredAddress != address(0), "Invalid signature");
         address recoverySigner = _getRecoveryAddress(accountIndex);
         require(recoverySigner != address(0), "Recovery address not set");
         require(SignatureChecker.isValidSignatureNow(recoverySigner, messageHash, signature), "Invalid signature");
