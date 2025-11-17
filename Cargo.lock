@@ -4719,8 +4719,10 @@ dependencies = [
 name = "oprf-client"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
  "eyre",
  "futures",
  "groth16",
@@ -4731,15 +4733,17 @@ dependencies = [
  "oprf-zk 0.1.0",
  "rand 0.8.5",
  "reqwest",
+ "ruint",
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-poseidon2",
+ "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
- "world-id-primitives",
+ "world-id-core",
 ]
 
 [[package]]
@@ -6898,9 +6902,13 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
+ "ark-ff 0.5.0",
  "eyre",
  "hex",
+ "oprf-world-types 0.1.0",
  "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-poseidon2",
 ]
 
 [[package]]

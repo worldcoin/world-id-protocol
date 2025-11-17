@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {BinaryIMT, BinaryIMTData} from "./tree/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -142,6 +143,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         tree.initWithDefaultZeroes(treeDepth);
+        _recordCurrentRoot();
         nextAccountIndex = 1;
     }
 
@@ -554,11 +556,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        address signatureRecoveredAddress = ECDSA.recover(messageHash, signature);
-        require(signatureRecoveredAddress != address(0), "Invalid signature");
         address recoverySigner = accountIndexToRecoveryAddress[accountIndex];
         require(recoverySigner != address(0), "Recovery address not set");
-        require(signatureRecoveredAddress == recoverySigner, "Invalid signature");
+        require(SignatureChecker.isValidSignatureNow(recoverySigner, messageHash, signature), "Invalid signature");
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
 

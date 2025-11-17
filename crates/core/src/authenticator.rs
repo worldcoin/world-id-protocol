@@ -691,6 +691,17 @@ impl Authenticator {
         poseidon2_16.permutation(&input)[1]
     }
 
+    /// Compresses a `BabyJubJub` `EdwardsAffine` public key into 32-byte little-endian form and returns it as `U256`.
+    ///
+    /// # Errors
+    /// Returns an error if the public key cannot be serialized.
+    pub fn compress_offchain_pubkey(pk: &EdwardsAffine) -> Result<U256, PrimitiveError> {
+        let mut compressed_bytes = Vec::with_capacity(32);
+        pk.serialize_compressed(&mut compressed_bytes)
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+        Ok(U256::from_le_slice(&compressed_bytes))
+    }
+
     /// Creates a new World ID account by adding it to the registry using the gateway.
     ///
     /// # Errors
@@ -749,6 +760,20 @@ impl ProtocolSigner for Authenticator {
             .expose_secret()
             .sign(*message)
     }
+}
+
+/// Public utility: computes the Merkle leaf commitment for a given public key batch.
+#[must_use]
+pub fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
+    Authenticator::leaf_hash(pk)
+}
+
+/// Public utility: compresses a `BabyJubJub` public key and returns it as `U256` (little-endian).
+///
+/// # Errors
+/// Returns an error if the public key cannot be serialized.
+pub fn compress_offchain_pubkey(pk: &EdwardsAffine) -> Result<U256, PrimitiveError> {
+    Authenticator::compress_offchain_pubkey(pk)
 }
 
 /// Errors that can occur when interacting with the Authenticator.

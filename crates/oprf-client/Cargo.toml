@@ -25,7 +25,14 @@ rand.workspace = true
 reqwest = { workspace = true }
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, optional = true, features = ["net", "rt-multi-thread", "signal", "sync", "time", "tokio-macros"] }
+tokio = { workspace = true, optional = true, features = [
+    "net",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+    "tokio-macros",
+] }
 tracing.workspace = true
 uuid = { workspace = true, features = ["serde", "v4"] }
 eddsa-babyjubjub = { workspace = true }
@@ -34,3 +41,21 @@ eddsa-babyjubjub = { workspace = true }
 default = ["tokio"]
 tokio = ["dep:tokio"]
 embed-zkeys = []
+
+[dev-dependencies]
+alloy = { workspace = true, default-features = false, features = [
+    "contract",
+    "json",
+    "reqwest",
+    "rpc",
+    "rpc-types",
+    "signer-local",
+    "sol-types",
+] }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+poseidon2 = { workspace = true }
+ruint = { workspace = true }
+test-utils = { path = "../test-utils" }
+world-id-core = { path = "../core", features = ["issuer"] }

@@ -228,6 +228,16 @@ impl SignedOprfQuery {
     pub fn get_request(&self) -> OprfRequest<OprfRequestAuth> {
         self.oprf_request.clone()
     }
+
+    /// Returns the [`QueryProofInput`] that was committed to in the query proof.
+    pub fn query_input(&self) -> &QueryProofInput<TREE_DEPTH> {
+        &self.query_input
+    }
+
+    /// Returns the query hash bound into the query proof.
+    pub fn query_hash(&self) -> ark_babyjubjub::Fq {
+        self.query_hash
+    }
 }
 
 /// Generates a nullifier proof for a given query.
