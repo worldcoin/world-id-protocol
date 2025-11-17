@@ -215,7 +215,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     let credential = Credential::new()
         .issuer_schema_id(issuer_schema_id_u64)
-        .account_id(account_index)
+        .account_id(leaf_index)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at);
 
