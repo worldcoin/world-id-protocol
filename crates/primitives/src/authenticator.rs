@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+use ark_babyjubjub::EdwardsAffine;
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use serde::{Deserialize, Serialize};
@@ -41,14 +42,15 @@ impl AuthenticatorPublicKeySet {
         }
     }
 
-    /// Converts the set of public keys to a set of field elements where
-    /// each item is the x and y coordinates of the public key as a pair.
-    #[must_use]
-    pub fn to_field_elements(self) -> Vec<[FieldElement; 2]> {
-        self.0
-            .iter()
-            .map(|k| [k.pk.x.into(), k.pk.y.into()])
-            .collect()
+    /// Converts the set of public keys to a fixed-length array of Affine points.
+    ///
+    /// This is usually used to serialize to the circuit input which expects defaulted Affine points for unused slots.
+    pub fn as_affine_array(&self) -> [EdwardsAffine; MAX_AUTHENTICATOR_KEYS] {
+        let mut array = [EdwardsAffine::default(); MAX_AUTHENTICATOR_KEYS];
+        for (i, pubkey) in self.0.iter().enumerate() {
+            array[i] = pubkey.pk;
+        }
+        array
     }
 
     /// Returns the number of public keys in the set.

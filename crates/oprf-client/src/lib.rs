@@ -43,19 +43,18 @@ use oprf_types::api::v1::{
     ChallengeRequest, ChallengeResponse, NullifierShareIdentifier, OprfRequest, OprfResponse,
 };
 use oprf_types::crypto::{PartyId, RpNullifierKey};
-use oprf_types::{RpId, ShareEpoch};
+use oprf_types::{crypto::RpNullifierKey as OprfRpNullifierKey, RpId as OprfRpId, ShareEpoch};
 use oprf_world_types::api::v1::OprfRequestAuth;
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
-use oprf_world_types::proof_inputs::query::{QueryProofInput, MAX_PUBLIC_KEYS};
+use oprf_world_types::proof_inputs::query::QueryProofInput;
 use oprf_zk::groth16_serde::Groth16Proof;
 use oprf_zk::{Groth16Error, Groth16Material};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
 use reqwest::StatusCode;
 use uuid::Uuid;
-use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
 use world_id_primitives::proof::SingleProofInput;
-use world_id_primitives::{merkle::MerkleInclusionProof, TREE_DEPTH};
+use world_id_primitives::TREE_DEPTH;
 use world_id_primitives::{Credential, FieldElement};
 
 pub use groth16;
@@ -117,43 +116,18 @@ pub enum Error {
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
 }
-
-/// The basic request a client sends to the OPRF service.
-///
-/// It contains the relying party’s ID, the share epoch, the action
-/// the user wants to compute a nullifier for, and a fresh nonce.
-/// The RP signs `(nonce || timestamp)` (both in little-endian byte encoding)
-/// to prevent replay. That signature is included here.
-#[derive(Clone)]
-pub struct OprfQuery {
-    /// The ID of the RP that issued the nonce.
-    pub rp_id: RpId,
-    /// The epoch of the DLog share (currently always `0`).
-    pub share_epoch: ShareEpoch,
-    /// The action the user wants to compute a nullifier for.
-    pub action: ark_babyjubjub::Fq,
-    /// The nonce obtained from the RP.
-    pub nonce: ark_babyjubjub::Fq,
-    /// The timestamp obtained from the RP.
-    pub current_time_stamp: u64,
-    /// The RP's signature over `(nonce || timestamp)`.
-    pub nonce_signature: k256::ecdsa::Signature,
-}
-
 /// A signed OPRF query ready.
 ///
 /// This struct holds all information needed to initiate OPRF sessions:
 /// - `request_id`: Unique identifier for this query/request.
 /// - `oprf_request`: The fully formed [`OprfRequest`] including the
 ///   blinded query point and Groth16 proof.
-/// - `query`: Original query details (RP ID, action, nonce, timestamp).
 /// - `blinded_request`: The result of blinding the query with the user's key.
 /// - `query_input`: Input data for the OPRFQuery proof.
 /// - `query_hash`: The generated query hash.
 pub struct SignedOprfQuery {
     request_id: Uuid,
     oprf_request: OprfRequest<OprfRequestAuth>,
-    query: OprfQuery,
     blinded_request: BlindedOPrfRequest,
     query_input: QueryProofInput<TREE_DEPTH>,
     query_hash: ark_babyjubjub::Fq,
@@ -290,50 +264,11 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     ark_babyjubjub::Fq,
     ark_babyjubjub::Fq,
 )> {
-    let SingleProofInput {
-        credential,
-        inclusion_proof,
-        key_set,
-        key_index,
-        rp_session_id_r_seed,
-        rp_id,
-        share_epoch,
-        action,
-        nonce,
-        current_timestamp,
-        rp_signature,
-        rp_nullifier_key,
-        signal_hash,
-    } = args;
-
     let request_id = Uuid::new_v4();
 
-    // Convert to oprf_types
-    let oprf_rp_id = RpId::new(rp_id.into_inner());
-    let oprf_rp_nullifier_key =
-        oprf_types::crypto::RpNullifierKey::new(rp_nullifier_key.into_inner());
+    let signed_query = sign_oprf_query(&args, query_material, private_key, request_id, rng)?;
 
-    // Construct OprfQuery from SingleProofInput fields
-    let query = OprfQuery {
-        rp_id: oprf_rp_id,
-        share_epoch: ShareEpoch::new(share_epoch),
-        action: *action,
-        nonce: *nonce,
-        current_time_stamp: current_timestamp,
-        nonce_signature: rp_signature,
-    };
-
-    let signed_query = sign_oprf_query(
-        credential,
-        inclusion_proof,
-        query_material,
-        query,
-        key_set,
-        key_index,
-        private_key,
-        request_id,
-        rng,
-    )?;
+    let oprf_rp_nullifier_key = OprfRpNullifierKey::new(args.rp_nullifier_key.into_inner());
 
     let client = reqwest::Client::new();
     let req = signed_query.get_request();
@@ -346,8 +281,8 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         nullifier_material,
         challenges,
         responses,
-        *signal_hash,
-        *rp_session_id_r_seed,
+        *args.signal_hash,
+        *args.rp_session_id_r_seed,
         rng,
     )
 }
@@ -389,66 +324,62 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 /// - The blinding factor and query hash used for later computations.
 /// - The Groth16 proof input for verification in the nullifier step.
 pub fn sign_oprf_query<R: Rng + CryptoRng>(
-    credential: Credential,
-    inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+    args: &SingleProofInput<TREE_DEPTH>,
     query_material: &Groth16Material,
-    query: OprfQuery,
-    key_set: AuthenticatorPublicKeySet,
-    key_index: u64,
     private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
     request_id: Uuid,
     rng: &mut R,
 ) -> Result<SignedOprfQuery> {
+    let rp_id = OprfRpId::new(args.rp_id.into_inner()); // Convert to `oprf_types`
+
+    let cred_signature = args
+        .credential
+        .signature
+        .clone()
+        .ok_or_else(|| Error::InternalError(eyre::eyre!("Credential not signed")))?;
+
     let query_hash = OprfClient::generate_query(
-        inclusion_proof.leaf_index.into(),
-        query.rp_id.into_inner().into(),
-        query.action,
+        args.inclusion_proof.leaf_index.into(),
+        args.rp_id.into_inner().into(),
+        *args.action,
     );
-    let public_key = key_set
-        .get(key_index as usize)
+
+    let public_key = args
+        .key_set
+        .get(args.key_index as usize)
         .ok_or(Error::InvalidPublicKeyIndex)?
         .pk;
+
     let oprf_client = OprfClient::new(public_key);
     let (blinded_request, blinding_factor) = oprf_client.blind_query(request_id, query_hash, rng);
     let signature = private_key.sign(blinding_factor.query());
 
-    // Convert AuthenticatorPublicKeySet to array of EdwardsAffine
-    let mut pk_array = [ark_babyjubjub::EdwardsAffine::default(); MAX_PUBLIC_KEYS];
-    for (i, pubkey) in key_set.iter().enumerate() {
-        pk_array[i] = pubkey.pk;
-    }
-
     // Compute claims hash from credential
-    let claims_hash = compute_claims_hash(&credential)?;
+    let claims_hash = compute_claims_hash(&args.credential)?;
 
-    // Get signature from credential
-    let cred_signature = credential
-        .signature
-        .ok_or_else(|| Error::InternalError(eyre::eyre!("Credential not signed")))?;
-
-    let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
+    let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = args.inclusion_proof.siblings.map(|s| *s);
 
     let query_input = QueryProofInput::<TREE_DEPTH> {
-        pk: pk_array,
-        pk_index: key_index.into(),
+        pk: args.key_set.as_affine_array(),
+        pk_index: args.key_index.into(),
         s: signature.s,
         r: signature.r,
-        cred_type_id: credential.issuer_schema_id.into(),
-        cred_pk: credential.issuer.pk,
-        cred_hashes: [claims_hash, *credential.associated_data_hash],
-        cred_genesis_issued_at: credential.genesis_issued_at.into(),
-        cred_expires_at: credential.expires_at.into(),
+        cred_type_id: args.credential.issuer_schema_id.into(),
+        cred_pk: args.credential.issuer.pk,
+        cred_hashes: [claims_hash, *args.credential.associated_data_hash],
+        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
+        cred_expires_at: args.credential.expires_at.into(),
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
-        current_time_stamp: query.current_time_stamp.into(),
-        merkle_root: *inclusion_proof.root,
+        current_time_stamp: args.current_timestamp.into(),
+        merkle_root: *args.inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-        mt_index: inclusion_proof.leaf_index.into(),
+        mt_index: args.inclusion_proof.leaf_index.into(),
         siblings,
         beta: blinding_factor.beta(),
-        rp_id: query.rp_id.into_inner().into(),
-        action: query.action,
-        nonce: query.nonce,
+        rp_id: rp_id.into_inner().into(),
+        action: *args.action,
+        nonce: *args.nonce,
     };
 
     let query_input_json = serde_json::to_value(&query_input)
@@ -467,21 +398,20 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
             request_id,
             blinded_query: blinded_request.blinded_query(),
             rp_identifier: NullifierShareIdentifier {
-                rp_id: query.rp_id,
-                share_epoch: query.share_epoch,
+                rp_id,
+                share_epoch: ShareEpoch::new(args.share_epoch),
             },
             auth: OprfRequestAuth {
                 proof,
-                action: query.action,
-                nonce: query.nonce,
-                merkle_root: oprf_world_types::MerkleRoot::from(*inclusion_proof.root),
-                cred_pk: credential.issuer,
-                current_time_stamp: query.current_time_stamp,
-                signature: query.nonce_signature,
+                action: *args.action,
+                nonce: *args.nonce,
+                merkle_root: oprf_world_types::MerkleRoot::from(*args.inclusion_proof.root),
+                cred_pk: args.credential.issuer.clone(),
+                current_time_stamp: args.current_timestamp,
+                signature: args.rp_signature,
             },
         },
         blinded_request,
-        query,
     })
 }
 
@@ -533,8 +463,8 @@ pub fn compute_challenges(
             request_id: query.request_id,
             challenge,
             rp_identifier: NullifierShareIdentifier {
-                rp_id: query.query.rp_id,
-                share_epoch: query.query.share_epoch,
+                rp_id: query.oprf_request.rp_identifier.rp_id,
+                share_epoch: query.oprf_request.rp_identifier.share_epoch,
             },
         },
     })
