@@ -54,8 +54,8 @@ use rand::{CryptoRng, Rng};
 use reqwest::StatusCode;
 use uuid::Uuid;
 use world_id_primitives::proof::SingleProofInput;
-use world_id_primitives::TREE_DEPTH;
-use world_id_primitives::{Credential, FieldElement};
+
+use world_id_primitives::{Credential, FieldElement, TREE_DEPTH};
 
 pub use groth16;
 
@@ -339,7 +339,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         .ok_or_else(|| Error::InternalError(eyre::eyre!("Credential not signed")))?;
 
     let query_hash = OprfClient::generate_query(
-        args.inclusion_proof.leaf_index.into(),
+        args.inclusion_proof.account_id.into(),
         args.rp_id.into_inner().into(),
         *args.action,
     );
@@ -374,7 +374,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         current_time_stamp: args.current_timestamp.into(),
         merkle_root: *args.inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-        mt_index: args.inclusion_proof.leaf_index.into(),
+        mt_index: args.inclusion_proof.account_id.into(),
         siblings,
         beta: blinding_factor.beta(),
         rp_id: rp_id.into_inner().into(),

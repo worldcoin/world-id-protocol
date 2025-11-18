@@ -62,20 +62,12 @@ impl TestSetup {
     }
 
     async fn create_account(&self, auth_addr: Address, pubkey: U256, commitment: u64) {
-        let deployer = self
-            ._anvil
-            .signer(0)
-            .expect("failed to get deployer signer");
+        let deployer = self._anvil.signer(0).unwrap();
         let registry = AccountRegistry::new(
             self.registry_address,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(deployer))
-                .connect_http(
-                    self._anvil
-                        .endpoint()
-                        .parse()
-                        .expect("invalid anvil endpoint url"),
-                ),
+                .connect_http(self._anvil.endpoint().parse().unwrap()),
         );
         registry
             .createAccount(
@@ -90,6 +82,17 @@ impl TestSetup {
             .get_receipt()
             .await
             .expect("createAccount transaction failed");
+    }
+
+    async fn get_root(&self) -> U256 {
+        let deployer = self._anvil.signer(0).unwrap();
+        let registry = AccountRegistry::new(
+            self.registry_address,
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(deployer))
+                .connect_http(self._anvil.endpoint().parse().unwrap()),
+        );
+        registry.currentRoot().call().await.unwrap()
     }
 
     async fn setup_test_database() -> String {
@@ -271,6 +274,13 @@ async fn e2e_backfill_and_live_sync() {
         .await
         .unwrap();
     assert!(resp.status().is_success());
+
+    let json = resp.json::<serde_json::Value>().await.unwrap();
+    let root = json["root"].as_str().unwrap();
+    let root = U256::from_str_radix(root.strip_prefix("0x").unwrap(), 16).unwrap();
+
+    let onchain_root = setup.get_root().await;
+    assert_eq!(root, onchain_root);
 
     indexer_task.abort();
 }
