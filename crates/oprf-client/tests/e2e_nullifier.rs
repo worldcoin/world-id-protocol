@@ -11,7 +11,6 @@ use oprf_client::{sign_oprf_query, OprfQuery};
 use oprf_core::dlog_equality::DLogEqualityProof;
 use oprf_types::{crypto::RpNullifierKey, RpId, ShareEpoch};
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
-use oprf_world_types::TREE_DEPTH;
 use oprf_zk::{
     Groth16Material, NULLIFIER_FINGERPRINT, NULLIFIER_GRAPH_BYTES, QUERY_FINGERPRINT,
     QUERY_GRAPH_BYTES,
@@ -24,7 +23,7 @@ use uuid::Uuid;
 
 use world_id_core::{Authenticator, Credential, HashableCredential, OnchainKeyRepresentable};
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
-use world_id_primitives::merkle::MerkleInclusionProof;
+use world_id_primitives::{merkle::MerkleInclusionProof, TREE_DEPTH};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -225,10 +224,10 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .wrap_err("failed to sign credential with issuer key")?;
 
     // Prepare Merkle membership witness for πR (query proof)
-    let merkle_inclusion_proof = MerkleInclusionProof {
+    let merkle_membership = MerkleInclusionProof {
         root: expected_root_fq,
-        account_id: account_index,
         leaf_index,
+        account_id: account_index,
         siblings: merkle_siblings,
     };
 

@@ -36,6 +36,7 @@ tokio = { workspace = true, optional = true, features = [
 tracing.workspace = true
 uuid = { workspace = true, features = ["serde", "v4"] }
 eddsa-babyjubjub = { workspace = true }
+world-id-primitives = { workspace = true }
 
 [features]
 default = ["tokio"]

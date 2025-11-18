@@ -783,11 +783,6 @@ pub enum AuthenticatorError {
     #[error("Account already exists for this authenticator.")]
     AccountAlreadyExists,
 
-    /// Account creation was initiated but is pending on-chain confirmation.
-    /// Poll the gateway with the provided request ID and retry initialization once confirmed.
-    #[error("Account creation pending (request ID: {0}). Poll gateway status and retry init.")]
-    AccountCreationPending(String),
-
     /// An error occurred while interacting with the EVM contract.
     #[error("Error interacting with EVM contract: {0}")]
     ContractError(#[from] alloy::contract::Error),

@@ -1,8 +1,7 @@
 use ark_babyjubjub::Fq;
 use ark_ff::AdditiveGroup;
-use oprf_world_types::TREE_DEPTH;
 use poseidon2::Poseidon2;
-use world_id_primitives::FieldElement;
+use world_id_primitives::{FieldElement, TREE_DEPTH};
 
 /// Builds the default-zero sibling path for index 0 and computes the Merkle root
 /// after inserting the provided `leaf` at that index, using Poseidon2 T2 compress.

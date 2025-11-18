@@ -47,7 +47,6 @@ use oprf_types::{RpId, ShareEpoch};
 use oprf_world_types::api::v1::OprfRequestAuth;
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use oprf_world_types::proof_inputs::query::{QueryProofInput, MAX_PUBLIC_KEYS};
-use oprf_world_types::TREE_DEPTH;
 use oprf_zk::groth16_serde::Groth16Proof;
 use oprf_zk::{Groth16Error, Groth16Material};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
@@ -60,6 +59,7 @@ use world_id_primitives::proof::SingleProofInput;
 use world_id_primitives::{Credential, FieldElement};
 
 pub use groth16;
+use world_id_primitives::{merkle::MerkleInclusionProof, TREE_DEPTH};
 
 pub mod nonblocking;
 
@@ -423,6 +423,8 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
     let cred_signature = credential
         .signature
         .ok_or_else(|| Error::InternalError(eyre::eyre!("Credential not signed")))?;
+
+    let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 

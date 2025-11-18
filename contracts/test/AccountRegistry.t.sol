@@ -9,26 +9,7 @@ import {PackedAccountIndex} from "../src/lib/PackedAccountIndex.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-
-/**
- * @dev Mock ERC-1271 contract for testing smart contract wallet recovery
- */
-contract MockERC1271Wallet is IERC1271 {
-    address public owner;
-    bytes4 internal constant MAGICVALUE = 0x1626ba7e;
-
-    constructor(address _owner) {
-        owner = _owner;
-    }
-
-    function isValidSignature(bytes32 hash, bytes memory signature) external view override returns (bytes4) {
-        address recovered = ECDSA.recover(hash, signature);
-        if (recovered == owner) {
-            return MAGICVALUE;
-        }
-        return 0xffffffff;
-    }
-}
+import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 
 contract AccountRegistryTest is Test {
     using BinaryIMT for BinaryIMTData;
@@ -370,7 +351,7 @@ contract AccountRegistryTest is Test {
         vm.prank(authenticatorAddress1);
         accountRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
 
-        assertEq(accountRegistry.accountIndexToRecoveryAddress(accountIndex), newRecovery);
+        assertEq(accountRegistry.getRecoveryAddress(accountIndex), newRecovery);
         assertEq(accountRegistry.signatureNonces(accountIndex), 1);
     }
 
@@ -502,6 +483,10 @@ contract AccountRegistryTest is Test {
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
     }
 
+    function test_TreeDepth() public {
+        assertEq(accountRegistry.treeDepth(), 30);
+    }
+
     function test_RecoverAccountWithERC1271Wallet() public {
         // Create a mock ERC-1271 wallet controlled by recoveryAddress
         MockERC1271Wallet wallet = new MockERC1271Wallet(recoveryAddress);
@@ -572,5 +557,18 @@ contract AccountRegistryTest is Test {
         bytes memory invalidSig = abi.encodePacked(r, s, v);
         result = wallet.isValidSignature(testHash, invalidSig);
         assertEq(result, bytes4(0xffffffff));
+    }
+
+    function test_GetRecoveryAddress() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+        address retrievedRecoveryAddress = accountRegistry.getRecoveryAddress(1);
+        assertEq(retrievedRecoveryAddress, recoveryAddress);
     }
 }
