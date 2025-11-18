@@ -23,11 +23,12 @@ use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use oprf_client::{NullifierArgs, OprfQuery};
 use oprf_types::{RpId, ShareEpoch};
-use oprf_world_types::{MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch};
+use oprf_world_types::{UserKeyMaterial, UserPublicKeyBatch};
 use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
+use world_id_primitives::merkle::MerkleInclusionProof;
 use world_id_primitives::PrimitiveError;
 pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
 
@@ -301,14 +302,12 @@ impl Authenticator {
     /// - Will error if the user is not registered on the registry.
     pub async fn fetch_inclusion_proof(
         &self,
-    ) -> Result<(MerkleMembership, UserPublicKeyBatch), AuthenticatorError> {
+    ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, UserPublicKeyBatch), AuthenticatorError> {
         let url = format!("{}/proof/{}", self.config.indexer_url(), self.account_id());
         let response = reqwest::get(url).await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        let inclusion_proof = response.proof;
-        let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
-
+        // TODO: UserPublicKeyBatch is deprecated
         let mut pubkey_batch = UserPublicKeyBatch {
             values: [EdwardsAffine::default(); 7],
         };
@@ -317,14 +316,7 @@ impl Authenticator {
             pubkey_batch.values[i] = response.authenticator_pubkeys[i].pk;
         }
 
-        Ok((
-            MerkleMembership {
-                root: MerkleRoot::from(*inclusion_proof.root),
-                siblings,
-                mt_index: inclusion_proof.leaf_index,
-            },
-            pubkey_batch,
-        ))
+        Ok((response.proof, pubkey_batch))
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -350,7 +342,7 @@ impl Authenticator {
         rp_request: RpRequest,
         credential: Credential,
     ) -> Result<UniquenessProof, AuthenticatorError> {
-        let (merkle_membership, pk_batch) = self.fetch_inclusion_proof().await?;
+        let (inclusion_proof, pk_batch) = self.fetch_inclusion_proof().await?;
         let pk_index = pk_batch
             .values
             .iter()
@@ -396,7 +388,7 @@ impl Authenticator {
             credential_signature: credential_to_credentials_signature(credential).map_err(|e| {
                 AuthenticatorError::Generic(format!("Failed to convert credential: {e}"))
             })?,
-            merkle_membership,
+            inclusion_proof,
             query,
             key_material,
             signal_hash: *message_hash,
@@ -435,7 +427,7 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let account_id = self.account_id();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
+        let (inclusion_proof, mut pk_batch) = self.fetch_inclusion_proof().await?;
         let old_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
         pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
         let new_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
@@ -477,11 +469,7 @@ impl Authenticator {
             new_authenticator_pubkey: compressed_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            sibling_nodes: merkle_membership
-                .siblings
-                .iter()
-                .map(std::convert::Into::into)
-                .collect(),
+            sibling_nodes: inclusion_proof.siblings.map(|s| (*s).into()).to_vec(),
             signature: signature.as_bytes().to_vec(),
             nonce,
         };
@@ -817,11 +805,6 @@ pub enum AuthenticatorError {
     /// The account already exists for this authenticator. Call `account_id` to get the account index.
     #[error("Account already exists for this authenticator.")]
     AccountAlreadyExists,
-
-    /// Account creation was initiated but is pending on-chain confirmation.
-    /// Poll the gateway with the provided request ID and retry initialization once confirmed.
-    #[error("Account creation pending (request ID: {0}). Poll gateway status and retry init.")]
-    AccountCreationPending(String),
 
     /// An error occurred while interacting with the EVM contract.
     #[error("Error interacting with EVM contract: {0}")]

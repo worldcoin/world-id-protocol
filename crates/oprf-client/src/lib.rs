@@ -47,7 +47,7 @@ use oprf_types::{RpId, ShareEpoch};
 use oprf_world_types::api::v1::OprfRequestAuth;
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use oprf_world_types::proof_inputs::query::{QueryProofInput, MAX_PUBLIC_KEYS};
-use oprf_world_types::{CredentialsSignature, MerkleMembership, UserKeyMaterial, TREE_DEPTH};
+use oprf_world_types::{CredentialsSignature, MerkleRoot, UserKeyMaterial};
 use oprf_zk::groth16_serde::Groth16Proof;
 use oprf_zk::{Groth16Error, Groth16Material};
 use rand::{CryptoRng, Rng};
@@ -55,6 +55,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 pub use groth16;
+use world_id_primitives::{merkle::MerkleInclusionProof, TREE_DEPTH};
 
 pub mod nonblocking;
 
@@ -203,7 +204,7 @@ pub struct NullifierArgs {
     /// Signature over the user's credentials.
     pub credential_signature: CredentialsSignature,
     /// Merkle membership proof of the user's credential in the registry.
-    pub merkle_membership: MerkleMembership,
+    pub inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     /// The original OPRF query (RP ID, action, nonce, timestamp, etc.).
     pub query: OprfQuery,
     /// User's key material (private and public keys, batch index, etc.).
@@ -290,7 +291,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 )> {
     let NullifierArgs {
         credential_signature,
-        merkle_membership,
+        inclusion_proof,
         query,
         key_material,
         rp_nullifier_key,
@@ -301,7 +302,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     let request_id = Uuid::new_v4();
     let signed_query = sign_oprf_query(
         credential_signature,
-        merkle_membership,
+        inclusion_proof,
         query_material,
         query,
         key_material,
@@ -361,7 +362,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 /// - The Groth16 proof input for verification in the nullifier step.
 pub fn sign_oprf_query<R: Rng + CryptoRng>(
     credentials_signature: CredentialsSignature,
-    merkle_membership: MerkleMembership,
+    inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     query_material: &Groth16Material,
     query: OprfQuery,
     key_material: UserKeyMaterial,
@@ -373,13 +374,15 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
     }
 
     let query_hash = OprfClient::generate_query(
-        merkle_membership.mt_index.into(),
+        inclusion_proof.leaf_index.into(),
         query.rp_id.into_inner().into(),
         query.action,
     );
     let oprf_client = OprfClient::new(key_material.public_key());
     let (blinded_request, blinding_factor) = oprf_client.blind_query(request_id, query_hash, rng);
     let signature = key_material.sk.sign(blinding_factor.query());
+
+    let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 
     let query_input = QueryProofInput::<TREE_DEPTH> {
         pk: key_material.pk_batch.into_inner(),
@@ -394,10 +397,10 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         cred_s: credentials_signature.signature.s,
         cred_r: credentials_signature.signature.r,
         current_time_stamp: query.current_time_stamp.into(),
-        merkle_root: merkle_membership.root.into_inner(),
+        merkle_root: *inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-        mt_index: merkle_membership.mt_index.into(),
-        siblings: merkle_membership.siblings,
+        mt_index: inclusion_proof.leaf_index.into(),
+        siblings,
         beta: blinding_factor.beta(),
         rp_id: query.rp_id.into_inner().into(),
         action: query.action,
@@ -427,7 +430,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
                 proof,
                 action: query.action,
                 nonce: query.nonce,
-                merkle_root: merkle_membership.root,
+                merkle_root: MerkleRoot::from(*inclusion_proof.root),
                 cred_pk: credentials_signature.issuer,
                 current_time_stamp: query.current_time_stamp,
                 signature: query.nonce_signature,
