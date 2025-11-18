@@ -270,12 +270,6 @@ impl Authenticator {
         self.packed_account_index & MASK_ACCOUNT_INDEX
     }
 
-    /// Returns the raw index at the tree where the holder's World ID account is registered.
-    #[must_use]
-    pub fn raw_tree_index(&self) -> U256 {
-        self.account_id() - U256::from(1)
-    }
-
     /// Returns the recovery counter for the holder's World ID.
     ///
     /// The recovery counter is used to efficiently invalidate all the old keys when an account is recovered.

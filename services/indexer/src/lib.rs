@@ -141,7 +141,7 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
         if account_index == U256::ZERO {
             continue;
         }
-        let leaf_index = account_index.as_limbs()[0] as usize - 1;
+        let leaf_index = account_index.as_limbs()[0] as usize;
         let leaf_val = offchain.parse::<U256>()?;
         leaves.push((leaf_index, leaf_val));
     }
@@ -176,7 +176,7 @@ async fn update_tree_with_commitment(
     if account_index == 0 {
         anyhow::bail!("account index cannot be zero");
     }
-    let leaf_index = account_index.as_limbs()[0] as usize - 1;
+    let leaf_index = account_index.as_limbs()[0] as usize;
     set_leaf_at_index(leaf_index, new_commitment).await?;
     Ok(())
 }

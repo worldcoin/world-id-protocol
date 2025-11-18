@@ -151,7 +151,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let leaf_commitment_fq = Authenticator::leaf_hash(&key_set);
     let leaf_commitment = U256::from_limbs(leaf_commitment_fq.into_bigint().0);
 
-    // Precompute the Merkle path/root for the first insertion (index 0)
+    // Precompute the Merkle path/root for the first insertion (index 1)
     let (merkle_siblings, expected_root_fq) = first_leaf_merkle_path(leaf_commitment_fq);
     let expected_root_u256 = U256::from_limbs(expected_root_fq.into_bigint().0);
 
@@ -198,10 +198,6 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .try_into()
         .map_err(|_| eyre!("account index exceeded u64 range"))?;
 
-    let leaf_index = account_index
-        .checked_sub(1)
-        .expect("account indices should be 1-indexed in the registry");
-
     // Convert issuerSchemaId to field‑friendly u64 for circuits
     let issuer_schema_id_u64: u64 = issuer_schema_id
         .try_into()
@@ -216,7 +212,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     let credential = Credential::new()
         .issuer_schema_id(issuer_schema_id_u64)
-        .account_id(leaf_index)
+        .account_id(account_index)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at);
 
@@ -228,7 +224,6 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     // Prepare Merkle membership witness for πR (query proof)
     let inclusion_proof = MerkleInclusionProof {
         root: expected_root_fq,
-        leaf_index,
         account_id: account_index,
         siblings: merkle_siblings,
     };

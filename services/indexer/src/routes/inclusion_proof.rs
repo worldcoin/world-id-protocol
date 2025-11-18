@@ -69,16 +69,17 @@ pub(crate) async fn handler(
         .parse()
         .unwrap(); // TODO: error handling
 
-    let leaf_index = account_index.as_limbs()[0] as usize - 1;
-    if leaf_index >= tree_capacity() {
+    let tree = GLOBAL_TREE.read().await;
+
+    let index_as_usize = account_index.as_limbs()[0] as usize;
+    if index_as_usize >= tree_capacity() {
         return Err(ErrorResponse::bad_request(
             ErrorCode::InvalidAccountIndex,
             "Leaf index out of range.".to_string(),
         ));
     }
 
-    let tree = GLOBAL_TREE.read().await;
-    let leaf = tree.get_leaf(leaf_index);
+    let leaf = tree.get_leaf(index_as_usize);
 
     if leaf == U256::ZERO {
         return Err(ErrorResponse::new(
@@ -98,7 +99,7 @@ pub(crate) async fn handler(
         return Err(ErrorResponse::internal_server_error());
     }
 
-    let proof = tree.proof(leaf_index);
+    let proof = tree.proof(index_as_usize);
 
     // Convert proof siblings to FieldElement array
     let siblings_vec: Vec<FieldElement> = proof_to_vec(&proof)
@@ -109,7 +110,6 @@ pub(crate) async fn handler(
 
     let merkle_proof = MerkleInclusionProof::new(
         tree.root().try_into().unwrap(),
-        leaf_index as u64,
         account_index.as_limbs()[0],
         siblings,
     );

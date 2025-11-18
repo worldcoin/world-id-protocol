@@ -61,7 +61,6 @@ async fn test_authenticator_registration() {
     let elapsed = start.elapsed();
     println!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.account_id(), U256::from(1));
-    assert_eq!(authenticator.raw_tree_index(), U256::from(0));
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 
     // If we initialize again, it will work

@@ -36,11 +36,7 @@ mod array_serde {
 pub struct MerkleInclusionProof<const TREE_DEPTH: usize> {
     /// The root hash of the Merkle tree.
     pub root: FieldElement,
-    /// The logical index of the user's leaf in the Merkle tree.
-    pub leaf_index: u64,
-    /// The user's account ID which is represented by the leaf position in the Merkle tree.
-    ///
-    /// This is the `leaf_index` + 1 (because the `account_id` is initialized to `1`).
+    /// The user's account ID which is represented by the leaf position in the Merkle tree of the `AccountRegistry` contract.
     pub account_id: u64,
     /// The sibling path up to the Merkle root.
     #[serde(with = "array_serde")]
@@ -52,13 +48,11 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
     #[must_use]
     pub const fn new(
         root: FieldElement,
-        leaf_index: u64,
         account_id: u64,
         siblings: [FieldElement; TREE_DEPTH],
     ) -> Self {
         Self {
             root,
-            leaf_index,
             account_id,
             siblings,
         }
