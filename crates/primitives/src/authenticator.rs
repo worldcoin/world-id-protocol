@@ -74,8 +74,7 @@ impl AuthenticatorPublicKeySet {
         self.0.get(index)
     }
 
-    /// Sets a new public key at the given index if it's within bounds of the initialized set
-    /// or the next unused index.
+    /// Sets a new public key at the given index if it's within bounds of the initialized set.
     ///
     /// # Errors
     /// Returns an error if the index is out of bounds.
@@ -84,7 +83,7 @@ impl AuthenticatorPublicKeySet {
         index: usize,
         pubkey: EdDSAPublicKey,
     ) -> Result<(), PrimitiveError> {
-        if index > self.len() || index >= MAX_AUTHENTICATOR_KEYS {
+        if index >= self.len() || index >= MAX_AUTHENTICATOR_KEYS {
             return Err(PrimitiveError::OutOfBounds);
         }
         self.0[index] = pubkey;
@@ -124,4 +123,122 @@ pub trait ProtocolSigner {
     fn sign(&self, message: FieldElement) -> EdDSASignature
     where
         Self: Sized + Send + Sync;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_pubkey() -> EdDSAPublicKey {
+        EdDSAPublicKey {
+            pk: EdwardsAffine::default(),
+        }
+    }
+
+    #[test]
+    fn test_try_set_at_index_within_bounds() {
+        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let pubkey = create_test_pubkey();
+
+        // Setting at index 0 when empty should fail (index >= len)
+        let result = key_set.try_set_at_index(0, pubkey.clone());
+        assert!(result.is_err(), "Should not panic, should return error");
+
+        // Push a key first
+        key_set.try_push(pubkey.clone()).unwrap();
+
+        // Now setting at index 0 should succeed
+        key_set.try_set_at_index(0, pubkey).unwrap();
+    }
+
+    #[test]
+    fn test_try_set_at_index_at_length() {
+        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let pubkey = create_test_pubkey();
+
+        // Push one key
+        key_set.try_push(pubkey.clone()).unwrap();
+
+        // Try to set at index == len (should fail, not panic)
+        let result = key_set.try_set_at_index(1, pubkey);
+        assert!(result.is_err(), "Should not panic when index equals length");
+    }
+
+    #[test]
+    fn test_try_set_at_index_out_of_bounds() {
+        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let pubkey = create_test_pubkey();
+
+        // Try to set at index beyond MAX_AUTHENTICATOR_KEYS
+        let result = key_set.try_set_at_index(MAX_AUTHENTICATOR_KEYS, pubkey.clone());
+        assert!(
+            result.is_err(),
+            "Should not panic when index >= MAX_AUTHENTICATOR_KEYS"
+        );
+
+        let result = key_set.try_set_at_index(MAX_AUTHENTICATOR_KEYS + 1, pubkey);
+        assert!(
+            result.is_err(),
+            "Should not panic when index > MAX_AUTHENTICATOR_KEYS"
+        );
+    }
+
+    #[test]
+    fn test_try_push_within_capacity() {
+        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let pubkey = create_test_pubkey();
+
+        // Should be able to push up to MAX_AUTHENTICATOR_KEYS without panicking
+        for i in 0..MAX_AUTHENTICATOR_KEYS {
+            let result = key_set.try_push(pubkey.clone());
+            assert!(
+                result.is_ok(),
+                "Should not panic when pushing element {} of {}",
+                i + 1,
+                MAX_AUTHENTICATOR_KEYS
+            );
+        }
+
+        assert_eq!(key_set.len(), MAX_AUTHENTICATOR_KEYS);
+
+        let result = key_set.try_push(pubkey);
+        assert!(result.is_err()); // should return an error because the set is full, but not panic
+    }
+
+    #[test]
+    fn test_as_affine_array_empty_set() {
+        let key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let array = key_set.as_affine_array();
+
+        // All elements should be default
+        assert_eq!(array.len(), MAX_AUTHENTICATOR_KEYS);
+        for affine in &array {
+            assert_eq!(*affine, EdwardsAffine::default());
+        }
+    }
+
+    #[test]
+    fn test_as_affine_array_partial_set() {
+        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let pubkey = create_test_pubkey();
+
+        // Add 3 keys
+        for _ in 0..3 {
+            key_set.try_push(pubkey.clone()).unwrap();
+        }
+
+        let array = key_set.as_affine_array();
+
+        // Array should have correct length
+        assert_eq!(array.len(), MAX_AUTHENTICATOR_KEYS);
+
+        // First 3 should match the pubkey
+        for item in array.iter().take(3) {
+            assert_eq!(item, &pubkey.pk);
+        }
+
+        for item in array.iter().take(MAX_AUTHENTICATOR_KEYS).skip(3) {
+            assert_eq!(item, &EdwardsAffine::default());
+        }
+    }
 }
