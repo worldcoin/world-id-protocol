@@ -10,12 +10,12 @@ license.workspace = true
 [dependencies]
 alloy = { workspace = true }
 ark-babyjubjub = { workspace = true }
-ark-ec.workspace = true
 ark-ff.workspace = true
-ark-serde-compat = { workspace = true }
+circom-types = { workspace = true, features = ["bn254", "groth16", "proof"] }
 eddsa-babyjubjub = { workspace = true }
+groth16-material = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 oprf-core = { workspace = true }
-oprf-zk = { workspace = true }
+ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-uuid = { workspace = true, features = ["serde", "v4"] }
+ark-serde-compat = { workspace = true, features = ["babyjubjub"] }
