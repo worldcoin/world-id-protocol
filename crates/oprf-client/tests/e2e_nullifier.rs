@@ -7,9 +7,9 @@ use ark_ff::{AdditiveGroup, BigInteger, PrimeField, UniformRand};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
 use k256::ecdsa::signature::Signer;
-use oprf_client::{sign_oprf_query, OprfQuery};
+use oprf_client::sign_oprf_query;
 use oprf_core::dlog_equality::DLogEqualityProof;
-use oprf_types::{crypto::RpNullifierKey, RpId, ShareEpoch};
+use oprf_types::ShareEpoch;
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use oprf_zk::{
     Groth16Material, NULLIFIER_FINGERPRINT, NULLIFIER_GRAPH_BYTES, QUERY_FINGERPRINT,
@@ -23,7 +23,9 @@ use uuid::Uuid;
 
 use world_id_core::{Authenticator, Credential, HashableCredential, OnchainKeyRepresentable};
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
-use world_id_primitives::{merkle::MerkleInclusionProof, TREE_DEPTH};
+use world_id_primitives::proof::SingleProofInput;
+use world_id_primitives::rp::RpNullifierKey;
+use world_id_primitives::{merkle::MerkleInclusionProof, rp::RpId, TREE_DEPTH};
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
@@ -224,7 +226,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .wrap_err("failed to sign credential with issuer key")?;
 
     // Prepare Merkle membership witness for πR (query proof)
-    let merkle_inclusion_proof = MerkleInclusionProof {
+    let inclusion_proof = MerkleInclusionProof {
         root: expected_root_fq,
         leaf_index,
         account_id: account_index,
@@ -236,46 +238,47 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let share_epoch = ShareEpoch::default();
     let action = Fq::rand(&mut rng);
     let nonce = Fq::rand(&mut rng);
-    let current_time_stamp = genesis_issued_at + 60;
+    let current_timestamp = genesis_issued_at + 60;
 
     // RP authenticates the query by signing LE(nonce) || LE(timestamp)
     let mut msg = Vec::new();
     msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_time_stamp.to_le_bytes());
+    msg.extend(current_timestamp.to_le_bytes());
     let rp_signing_key = k256::ecdsa::SigningKey::random(&mut rng);
-    let nonce_signature = rp_signing_key.sign(&msg);
+    let rp_signature = rp_signing_key.sign(&msg);
 
-    // Assemble query payload
-    let query = OprfQuery {
-        rp_id,
-        share_epoch,
-        action,
-        nonce,
-        current_time_stamp,
-        nonce_signature,
-    };
-
-    // Produce πR (signed OPRF query) — blinded request + query inputs
-    let request_id = Uuid::new_v4();
-    let signed_query = sign_oprf_query(
-        credential.clone(),
-        merkle_inclusion_proof,
-        &query_material,
-        query,
-        key_set,
-        0,
-        &user_sk,
-        request_id,
-        &mut rng,
-    )
-    .wrap_err("failed to sign oprf query")?;
-
-    let oprf_request = signed_query.get_request();
+    // Sample auxiliary public inputs exposed by the nullifier circuit
+    let signal_hash = Fq::rand(&mut rng).into();
+    let rp_session_id_r_seed = Fq::rand(&mut rng).into();
 
     // Emulate OPRF combination offline (single RP nullifier key)
     let rp_secret = Fr::rand(&mut rng);
     let rp_nullifier_key_point = (EdwardsAffine::generator() * rp_secret).into_affine();
     let rp_nullifier_key = RpNullifierKey::new(rp_nullifier_key_point);
+
+    let proof_args = SingleProofInput::<TREE_DEPTH> {
+        credential,
+        inclusion_proof,
+        key_set,
+        key_index: 0,
+        rp_session_id_r_seed,
+        rp_id,
+        share_epoch: share_epoch.into_inner(),
+        action: action.into(),
+        nonce: nonce.into(),
+        current_timestamp,
+        rp_signature,
+        rp_nullifier_key,
+        signal_hash,
+    };
+
+    // Produce πR (signed OPRF query) — blinded request + query inputs
+    let request_id = Uuid::new_v4();
+    let signed_query =
+        sign_oprf_query(&proof_args, &query_material, &user_sk, request_id, &mut rng)
+            .wrap_err("failed to sign oprf query")?;
+
+    let oprf_request = signed_query.get_request();
 
     // Derive blinded response C = x * B, where B is the blinded query
     let blinded_query = oprf_request.blinded_query;
@@ -284,19 +287,15 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     // Create and check Chaum‑Pedersen DLog equality proof for (K, C)
     let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_secret, &mut rng);
 
-    // Sample auxiliary public inputs exposed by the nullifier circuit
-    let signal_hash = Fq::rand(&mut rng);
-    let id_commitment_r = Fq::rand(&mut rng);
-
     // Build nullifier proof input (πF witness payload)
     let nullifier_input = NullifierProofInput::<TREE_DEPTH>::new(
         request_id,
         signed_query.query_input().clone(),
         dlog_proof,
-        rp_nullifier_key.inner(),
+        rp_nullifier_key.into_inner(),
         blinded_response,
-        signal_hash,
-        id_commitment_r,
+        *signal_hash,
+        *rp_session_id_r_seed,
         signed_query.query_hash(),
     );
 
@@ -326,17 +325,9 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let id_commitment = public_inputs[0];
     let nullifier = public_inputs[1];
 
-    // Basic happy‑path checks on public outputs
-    assert_ne!(
-        id_commitment,
-        Fq::ZERO,
-        "id commitment should not be zero in the happy path"
-    );
-    assert_ne!(
-        nullifier,
-        Fq::ZERO,
-        "nullifier should not be zero in the happy path"
-    );
+    // Basic checks on public outputs
+    assert_ne!(id_commitment, Fq::ZERO);
+    assert_ne!(nullifier, Fq::ZERO);
 
     Ok(())
 }
