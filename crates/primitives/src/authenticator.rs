@@ -31,7 +31,6 @@ impl AuthenticatorPublicKeySet {
                 return Err(PrimitiveError::OutOfBounds);
             }
 
-            // Safe: ArrayVec can collect up to its capacity
             Ok(Self(
                 pubkeys
                     .into_iter()
@@ -64,11 +63,34 @@ impl AuthenticatorPublicKeySet {
         self.0.is_empty()
     }
 
+    /// Returns the public key at the given index.
+    ///
+    /// It will return `None` if the index is out of bounds, even if it's less than `MAX_AUTHENTICATOR_KEYS` but
+    /// the key is not initialized.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<&EdDSAPublicKey> {
+        self.0.get(index)
+    }
+
+    /// Inserts a new public key at the given index.
+    ///
+    /// # Errors
+    /// Returns an error if the index is out of bounds.
+    pub fn try_insert(
+        &mut self,
+        index: usize,
+        pubkey: EdDSAPublicKey,
+    ) -> Result<(), PrimitiveError> {
+        self.0
+            .try_insert(index, pubkey)
+            .map_err(|_| PrimitiveError::OutOfBounds)
+    }
+
     /// Pushes a new public key onto the set.
     ///
     /// # Errors
     /// Returns an error if the set is full.
-    pub fn push(&mut self, pubkey: EdDSAPublicKey) -> Result<(), PrimitiveError> {
+    pub fn try_push(&mut self, pubkey: EdDSAPublicKey) -> Result<(), PrimitiveError> {
         self.0
             .try_push(pubkey)
             .map_err(|_| PrimitiveError::OutOfBounds)

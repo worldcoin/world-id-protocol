@@ -107,9 +107,9 @@ pub enum Error {
     /// The DLog equality proof failed verification.
     #[error("DLog proof could not be verified")]
     InvalidDLogProof,
-    /// Provided public key index is out of valid range.
-    #[error("Index in public-key batch must be in range [0..6], but is {0}")]
-    InvalidPublicKeyIndex(u64),
+    /// Provided public key index is invalid or out of bounds.
+    #[error("Index in public key is invalid or out of bounds.")]
+    InvalidPublicKeyIndex,
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
@@ -404,7 +404,10 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         query.rp_id.into_inner().into(),
         query.action,
     );
-    let public_key = key_set[key_index as usize].pk;
+    let public_key = key_set
+        .get(key_index as usize)
+        .ok_or(Error::InvalidPublicKeyIndex)?
+        .pk;
     let oprf_client = OprfClient::new(public_key);
     let (blinded_request, blinding_factor) = oprf_client.blind_query(request_id, query_hash, rng);
     let signature = private_key.sign(blinding_factor.query());
