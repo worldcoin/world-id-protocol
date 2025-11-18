@@ -8,7 +8,6 @@ use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::account_registry::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
-use crate::credential::credential_to_credentials_signature;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
@@ -21,14 +20,14 @@ use ark_babyjubjub::EdwardsAffine;
 use ark_ff::AdditiveGroup;
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use oprf_client::{NullifierArgs, OprfQuery};
-use oprf_types::{RpId, ShareEpoch};
-use oprf_world_types::{UserKeyMaterial, UserPublicKeyBatch};
+use oprf_types::ShareEpoch;
 use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
+use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
 use world_id_primitives::merkle::MerkleInclusionProof;
+use world_id_primitives::proof::SingleProofInput;
 use world_id_primitives::PrimitiveError;
 pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
 
@@ -302,21 +301,13 @@ impl Authenticator {
     /// - Will error if the user is not registered on the registry.
     pub async fn fetch_inclusion_proof(
         &self,
-    ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, UserPublicKeyBatch), AuthenticatorError> {
+    ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
+    {
         let url = format!("{}/proof/{}", self.config.indexer_url(), self.account_id());
         let response = reqwest::get(url).await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        // TODO: UserPublicKeyBatch is deprecated
-        let mut pubkey_batch = UserPublicKeyBatch {
-            values: [EdwardsAffine::default(); 7],
-        };
-
-        for i in 0..response.authenticator_pubkeys.len() {
-            pubkey_batch.values[i] = response.authenticator_pubkeys[i].pk;
-        }
-
-        Ok((response.proof, pubkey_batch))
+        Ok((response.proof, response.authenticator_pubkeys))
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -342,26 +333,11 @@ impl Authenticator {
         rp_request: RpRequest,
         credential: Credential,
     ) -> Result<UniquenessProof, AuthenticatorError> {
-        let (inclusion_proof, pk_batch) = self.fetch_inclusion_proof().await?;
-        let pk_index = pk_batch
-            .values
+        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
+        let key_index = key_set
             .iter()
-            .position(|pk| pk == &self.offchain_pubkey().pk)
+            .position(|pk| pk.pk == self.offchain_pubkey().pk)
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        let query = OprfQuery {
-            rp_id: RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
-                PrimitiveError::InvalidInput {
-                    attribute: "RP ID".to_string(),
-                    reason: format!("invalid RP ID: {e}"),
-                }
-            })?),
-            share_epoch: ShareEpoch::default(), // TODO
-            action: *rp_request.action_id,
-            nonce: *rp_request.nonce,
-            current_time_stamp: rp_request.current_time_stamp, // TODO
-            nonce_signature: rp_request.signature,
-        };
 
         // TODO: load once and from bytes
         let query_material = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH)
@@ -373,28 +349,34 @@ impl Authenticator {
                 AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
             })?;
 
-        let key_material = UserKeyMaterial {
-            pk_batch,
-            pk_index,
-            sk: self
-                .signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .clone(),
+        // TODO: convert rp_request to primitives types
+        let primitives_rp_id =
+            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
+                PrimitiveError::InvalidInput {
+                    attribute: "RP ID".to_string(),
+                    reason: format!("invalid RP ID: {e}"),
+                }
+            })?);
+        let primitives_rp_nullifier_key =
+            world_id_primitives::rp::RpNullifierKey::new(rp_request.rp_nullifier_key.inner());
+
+        let args = SingleProofInput::<TREE_DEPTH> {
+            credential,
+            inclusion_proof,
+            key_set,
+            key_index,
+            rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
+            rp_id: primitives_rp_id,
+            share_epoch: ShareEpoch::default().into_inner(), // TODO
+            action: rp_request.action_id,
+            nonce: rp_request.nonce,
+            current_timestamp: rp_request.current_time_stamp, // TODO
+            rp_signature: rp_request.signature,
+            rp_nullifier_key: primitives_rp_nullifier_key,
+            signal_hash: message_hash,
         };
 
-        // TODO: check rp nullifier key
-        let args = NullifierArgs {
-            credential_signature: credential_to_credentials_signature(credential).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to convert credential: {e}"))
-            })?,
-            inclusion_proof,
-            query,
-            key_material,
-            signal_hash: *message_hash,
-            rp_nullifier_key: rp_request.rp_nullifier_key,
-            id_commitment_r: ark_babyjubjub::Fq::ZERO, // FIXME: expose properly
-        };
+        let private_key = self.signer.offchain_signer_private_key().expose_secret();
 
         let mut rng = rand::thread_rng();
         let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
@@ -403,6 +385,7 @@ impl Authenticator {
             &query_material,
             &nullifier_material,
             args,
+            private_key,
             &mut rng,
         )
         .await
@@ -423,21 +406,16 @@ impl Authenticator {
         &mut self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
-        index: u32,
     ) -> Result<String, AuthenticatorError> {
         let account_id = self.account_id();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
-        pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
-        let new_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_offchain_signer_commitment = Self::leaf_hash(&key_set);
+        key_set.try_push(new_authenticator_pubkey.clone())?;
+        let index = key_set.len() - 1;
+        let new_offchain_signer_commitment = Self::leaf_hash(&key_set);
 
-        let compressed_bytes = new_authenticator_pubkey
-            .to_compressed_bytes()
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-
-        // REVIEW: updating to BE
-        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
         let eip712_domain = domain(
             self.provider()
@@ -452,7 +430,7 @@ impl Authenticator {
             account_id,
             new_authenticator_address,
             U256::from(index),
-            compressed_pubkey,
+            encoded_offchain_pubkey,
             new_offchain_signer_commitment.into(),
             nonce,
             &eip712_domain,
@@ -466,10 +444,14 @@ impl Authenticator {
             account_index: account_id,
             new_authenticator_address,
             pubkey_id: U256::from(index),
-            new_authenticator_pubkey: compressed_pubkey,
+            new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            sibling_nodes: inclusion_proof.siblings.map(|s| (*s).into()).to_vec(),
+            sibling_nodes: inclusion_proof
+                .siblings
+                .iter()
+                .map(|s| (*s).into())
+                .collect(),
             signature: signature.as_bytes().to_vec(),
             nonce,
         };
@@ -513,18 +495,12 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let account_id = self.account_id();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
-        pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
-        let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_commitment: U256 = Self::leaf_hash(&key_set).into();
+        key_set.try_set_at_index(index as usize, new_authenticator_pubkey.clone())?;
+        let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
-        // TODO: remove this once compression is merged
-        let mut compressed_bytes = Vec::new();
-        new_authenticator_pubkey
-            .pk
-            .serialize_compressed(&mut compressed_bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
         let eip712_domain = domain(
             self.provider()
@@ -540,7 +516,7 @@ impl Authenticator {
             old_authenticator_address,
             new_authenticator_address,
             U256::from(index),
-            compressed_pubkey,
+            encoded_offchain_pubkey,
             new_commitment,
             nonce,
             &eip712_domain,
@@ -550,7 +526,7 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign update authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = merkle_membership
+        let sibling_nodes: Vec<U256> = inclusion_proof
             .siblings
             .iter()
             .map(|s| (*s).into())
@@ -566,7 +542,7 @@ impl Authenticator {
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: Some(U256::from(index)),
-            new_authenticator_pubkey: Some(compressed_pubkey),
+            new_authenticator_pubkey: Some(encoded_offchain_pubkey),
         };
 
         let resp = reqwest::Client::new()
@@ -606,18 +582,18 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let account_id = self.account_id();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
-        let existing_pubkey = pk_batch.values[index as usize];
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_commitment: U256 = Self::leaf_hash(&key_set).into();
+        let existing_pubkey = key_set
+            .get(index as usize)
+            .ok_or(AuthenticatorError::PublicKeyNotFound)?;
 
-        let mut compressed_old = Vec::new();
-        existing_pubkey
-            .serialize_compressed(&mut compressed_old)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        let compressed_old_pubkey = U256::from_le_slice(&compressed_old);
+        let encoded_old_offchain_pubkey = existing_pubkey.to_ethereum_representation()?;
 
-        pk_batch.values[index as usize] = EdwardsAffine::default();
-        let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
+        key_set[index as usize] = EdDSAPublicKey {
+            pk: EdwardsAffine::default(),
+        };
+        let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
         let eip712_domain = domain(
             self.provider()
@@ -632,7 +608,7 @@ impl Authenticator {
             account_id,
             authenticator_address,
             U256::from(index),
-            compressed_old_pubkey,
+            encoded_old_offchain_pubkey,
             new_commitment,
             nonce,
             &eip712_domain,
@@ -642,7 +618,7 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign remove authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = merkle_membership
+        let sibling_nodes: Vec<U256> = inclusion_proof
             .siblings
             .iter()
             .map(|s| (*s).into())
@@ -657,7 +633,7 @@ impl Authenticator {
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: Some(U256::from(index)),
-            authenticator_pubkey: Some(compressed_old_pubkey),
+            authenticator_pubkey: Some(encoded_old_offchain_pubkey),
         };
 
         let resp = reqwest::Client::new()
@@ -682,35 +658,33 @@ impl Authenticator {
         }
     }
 
-    /// Computes the Merkle leaf for a given public key batch.
+    /// Computes the Merkle leaf (i.e. the commitment to the public key set) for a given public key set.
+    ///
+    /// TODO: move to primitives
     ///
     /// # Errors
-    /// Will error if the provided public key batch is not valid.
+    /// Will error if the provided public key set is not valid.
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
+    pub fn leaf_hash(key_set: &AuthenticatorPublicKeySet) -> ark_babyjubjub::Fq {
         let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
         let mut input = [ark_babyjubjub::Fq::ZERO; 16];
         #[allow(clippy::unwrap_used)]
         {
             input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
         }
+        // The circuit expects all 7 public key slots to be hashed (with default points for unused slots)
+        // Create a full array of 7 keys, padding with defaults
+        let mut pk_array = [ark_babyjubjub::EdwardsAffine::default(); 7];
+        for (i, pubkey) in key_set.iter().enumerate() {
+            pk_array[i] = pubkey.pk;
+        }
+        // Hash all 7 slots to match circuit expectations
         for i in 0..7 {
-            input[i * 2 + 1] = pk.values[i].x;
-            input[i * 2 + 2] = pk.values[i].y;
+            input[i * 2 + 1] = pk_array[i].x;
+            input[i * 2 + 2] = pk_array[i].y;
         }
         poseidon2_16.permutation(&input)[1]
-    }
-
-    /// Compresses a `BabyJubJub` `EdwardsAffine` public key into 32-byte little-endian form and returns it as `U256`.
-    ///
-    /// # Errors
-    /// Returns an error if the public key cannot be serialized.
-    pub fn compress_offchain_pubkey(pk: &EdwardsAffine) -> Result<U256, PrimitiveError> {
-        let mut compressed_bytes = Vec::with_capacity(32);
-        pk.serialize_compressed(&mut compressed_bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        Ok(U256::from_le_slice(&compressed_bytes))
     }
 
     /// Creates a new World ID account by adding it to the registry using the gateway.
@@ -725,12 +699,9 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
-        let mut pubkey_batch = UserPublicKeyBatch {
-            values: [EdwardsAffine::default(); 7],
-        };
-
-        pubkey_batch.values[0] = signer.offchain_signer_pubkey().pk;
-        let leaf_hash = Self::leaf_hash(&pubkey_batch);
+        let mut key_set = AuthenticatorPublicKeySet::new(None)?;
+        key_set.try_push(signer.offchain_signer_pubkey())?;
+        let leaf_hash = Self::leaf_hash(&key_set);
 
         let offchain_pubkey_compressed = {
             let pk = signer.offchain_signer_pubkey().pk;
@@ -776,18 +747,26 @@ impl ProtocolSigner for Authenticator {
     }
 }
 
-/// Public utility: computes the Merkle leaf commitment for a given public key batch.
-#[must_use]
-pub fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
-    Authenticator::leaf_hash(pk)
+/// A trait for types that can be represented as a `U256` on-chain.
+pub trait OnchainKeyRepresentable {
+    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `AccountRegistry` contract.
+    ///
+    /// The `U256` representation is a 32-byte little-endian encoding of the **compressed** (single point) public key.
+    ///
+    /// # Errors
+    /// Will error if the public key unexpectedly fails to serialize.
+    fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError>;
 }
 
-/// Public utility: compresses a `BabyJubJub` public key and returns it as `U256` (little-endian).
-///
-/// # Errors
-/// Returns an error if the public key cannot be serialized.
-pub fn compress_offchain_pubkey(pk: &EdwardsAffine) -> Result<U256, PrimitiveError> {
-    Authenticator::compress_offchain_pubkey(pk)
+impl OnchainKeyRepresentable for EdDSAPublicKey {
+    // REVIEW: updating to BE
+    fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError> {
+        let mut compressed_bytes = Vec::new();
+        self.pk
+            .serialize_compressed(&mut compressed_bytes)
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+        Ok(U256::from_le_slice(&compressed_bytes))
+    }
 }
 
 /// Errors that can occur when interacting with the Authenticator.
@@ -814,8 +793,8 @@ pub enum AuthenticatorError {
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
-    /// Public key not found in batch.
-    #[error("Public key not found in batch")]
+    /// Public key not found in the Authenticator public key set. Usually indicates the local state is out of sync with the registry.
+    #[error("Public key not found.")]
     PublicKeyNotFound,
 
     /// Gateway returned an error response.

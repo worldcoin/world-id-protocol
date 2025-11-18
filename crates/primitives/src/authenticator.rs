@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+use ark_babyjubjub::EdwardsAffine;
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use serde::{Deserialize, Serialize};
@@ -31,7 +32,6 @@ impl AuthenticatorPublicKeySet {
                 return Err(PrimitiveError::OutOfBounds);
             }
 
-            // Safe: ArrayVec can collect up to its capacity
             Ok(Self(
                 pubkeys
                     .into_iter()
@@ -42,14 +42,15 @@ impl AuthenticatorPublicKeySet {
         }
     }
 
-    /// Converts the set of public keys to a set of field elements where
-    /// each item is the x and y coordinates of the public key as a pair.
-    #[must_use]
-    pub fn to_field_elements(self) -> Vec<[FieldElement; 2]> {
-        self.0
-            .iter()
-            .map(|k| [k.pk.x.into(), k.pk.y.into()])
-            .collect()
+    /// Converts the set of public keys to a fixed-length array of Affine points.
+    ///
+    /// This is usually used to serialize to the circuit input which expects defaulted Affine points for unused slots.
+    pub fn as_affine_array(&self) -> [EdwardsAffine; MAX_AUTHENTICATOR_KEYS] {
+        let mut array = [EdwardsAffine::default(); MAX_AUTHENTICATOR_KEYS];
+        for (i, pubkey) in self.0.iter().enumerate() {
+            array[i] = pubkey.pk;
+        }
+        array
     }
 
     /// Returns the number of public keys in the set.
@@ -64,11 +65,37 @@ impl AuthenticatorPublicKeySet {
         self.0.is_empty()
     }
 
+    /// Returns the public key at the given index.
+    ///
+    /// It will return `None` if the index is out of bounds, even if it's less than `MAX_AUTHENTICATOR_KEYS` but
+    /// the key is not initialized.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<&EdDSAPublicKey> {
+        self.0.get(index)
+    }
+
+    /// Sets a new public key at the given index if it's within bounds of the initialized set
+    /// or the next unused index.
+    ///
+    /// # Errors
+    /// Returns an error if the index is out of bounds.
+    pub fn try_set_at_index(
+        &mut self,
+        index: usize,
+        pubkey: EdDSAPublicKey,
+    ) -> Result<(), PrimitiveError> {
+        if index > self.len() || index >= MAX_AUTHENTICATOR_KEYS {
+            return Err(PrimitiveError::OutOfBounds);
+        }
+        self.0[index] = pubkey;
+        Ok(())
+    }
+
     /// Pushes a new public key onto the set.
     ///
     /// # Errors
     /// Returns an error if the set is full.
-    pub fn push(&mut self, pubkey: EdDSAPublicKey) -> Result<(), PrimitiveError> {
+    pub fn try_push(&mut self, pubkey: EdDSAPublicKey) -> Result<(), PrimitiveError> {
         self.0
             .try_push(pubkey)
             .map_err(|_| PrimitiveError::OutOfBounds)
