@@ -40,10 +40,10 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
     mapping(address => uint256) public authenticatorAddressToPackedAccountIndex;
 
-    // accountIndex -> nonce, used for prevent replay attacks on updates to authenticators
+    // accountIndex -> nonce, used to prevent replays
     mapping(uint256 => uint256) public signatureNonces;
 
-    // accountIndex -> recoveryCounter, used for prevent replay attacks on recovery of accounts
+    // accountIndex -> recoveryCounter
     mapping(uint256 => uint256) public accountRecoveryCounter;
 
     BinaryIMTData public tree;
@@ -147,8 +147,12 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         __Ownable2Step_init();
         treeDepth = initialTreeDepth;
         tree.initWithDefaultZeroes(treeDepth);
-        _recordCurrentRoot();
+
+        // Insert the initial leaf to start account indexes at 1
+        // The 0-index of the tree is RESERVED.
+        tree.insert(uint256(0));
         nextAccountIndex = 1;
+        _recordCurrentRoot();
     }
 
     ////////////////////////////////////////////////////////////
@@ -253,7 +257,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 newOffchainSignerCommitment,
         uint256[] calldata siblingNodes
     ) internal virtual {
-        tree.update(accountIndex - 1, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        tree.update(accountIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         _recordCurrentRoot();
     }
 
