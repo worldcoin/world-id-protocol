@@ -54,12 +54,11 @@ use rand::{CryptoRng, Rng};
 use reqwest::StatusCode;
 use uuid::Uuid;
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
-use world_id_primitives::merkle::MerkleInclusionProof;
 use world_id_primitives::proof::SingleProofInput;
+use world_id_primitives::{merkle::MerkleInclusionProof, TREE_DEPTH};
 use world_id_primitives::{Credential, FieldElement};
 
 pub use groth16;
-use world_id_primitives::{merkle::MerkleInclusionProof, TREE_DEPTH};
 
 pub mod nonblocking;
 
@@ -423,8 +422,6 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
     let cred_signature = credential
         .signature
         .ok_or_else(|| Error::InternalError(eyre::eyre!("Credential not signed")))?;
-
-    let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 

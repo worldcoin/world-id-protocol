@@ -224,7 +224,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         .wrap_err("failed to sign credential with issuer key")?;
 
     // Prepare Merkle membership witness for πR (query proof)
-    let merkle_membership = MerkleInclusionProof {
+    let merkle_inclusion_proof = MerkleInclusionProof {
         root: expected_root_fq,
         leaf_index,
         account_id: account_index,

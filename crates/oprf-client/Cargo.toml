@@ -20,7 +20,6 @@ oprf-types = { workspace = true }
 oprf-world-types = { workspace = true }
 oprf-zk = { workspace = true }
 poseidon2 = { workspace = true }
-world-id-primitives = { workspace = true }
 rand.workspace = true
 reqwest = { workspace = true }
 serde_json.workspace = true
