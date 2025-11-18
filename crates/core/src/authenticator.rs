@@ -406,13 +406,13 @@ impl Authenticator {
         &mut self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
-        index: u32,
     ) -> Result<String, AuthenticatorError> {
         let account_id = self.account_id();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_offchain_signer_commitment = Self::leaf_hash(&key_set);
-        key_set.try_insert(index as usize, new_authenticator_pubkey.clone())?;
+        key_set.try_push(new_authenticator_pubkey.clone())?;
+        let index = key_set.len() - 1;
         let new_offchain_signer_commitment = Self::leaf_hash(&key_set);
 
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
@@ -497,7 +497,7 @@ impl Authenticator {
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = Self::leaf_hash(&key_set).into();
-        key_set.try_insert(index as usize, new_authenticator_pubkey.clone())?;
+        key_set.try_set_at_index(index as usize, new_authenticator_pubkey.clone())?;
         let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;

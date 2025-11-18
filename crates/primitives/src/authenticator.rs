@@ -74,18 +74,21 @@ impl AuthenticatorPublicKeySet {
         self.0.get(index)
     }
 
-    /// Inserts a new public key at the given index.
+    /// Sets a new public key at the given index if it's within bounds of the initialized set
+    /// or the next unused index.
     ///
     /// # Errors
     /// Returns an error if the index is out of bounds.
-    pub fn try_insert(
+    pub fn try_set_at_index(
         &mut self,
         index: usize,
         pubkey: EdDSAPublicKey,
     ) -> Result<(), PrimitiveError> {
-        self.0
-            .try_insert(index, pubkey)
-            .map_err(|_| PrimitiveError::OutOfBounds)
+        if index > self.len() || index >= MAX_AUTHENTICATOR_KEYS {
+            return Err(PrimitiveError::OutOfBounds);
+        }
+        self.0[index] = pubkey;
+        Ok(())
     }
 
     /// Pushes a new public key onto the set.
