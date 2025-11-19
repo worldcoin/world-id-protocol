@@ -28,7 +28,7 @@ use oprf_types::{
 };
 use oprf_world_types::{api::v1::OprfRequestAuth, MerkleRoot};
 use rand::thread_rng;
-use test_utils::flow::{
+use test_utils::fixtures::{
     build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
     RegistryTestContext,
 };

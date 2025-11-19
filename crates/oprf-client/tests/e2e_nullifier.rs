@@ -17,7 +17,7 @@ use rand::thread_rng;
 use ruint::aliases::U256;
 use test_utils::{
     anvil::{AccountRegistry, CredentialSchemaIssuerRegistry},
-    flow::{build_base_credential, generate_rp_fixture, RegistryTestContext},
+    fixtures::{build_base_credential, generate_rp_fixture, RegistryTestContext},
     merkle::first_leaf_merkle_path,
 };
 use uuid::Uuid;
