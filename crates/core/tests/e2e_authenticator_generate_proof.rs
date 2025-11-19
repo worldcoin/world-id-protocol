@@ -135,7 +135,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .await
         .wrap_err("failed to start indexer stub")?;
 
-    // Step 5a: Local OPRF peer stub setup.
+    // Local OPRF peer stub setup.
     let merkle_root_fq: Fq = *root_field_element;
     let merkle_root = MerkleRoot::from(merkle_root_fq);
     let mut rng = thread_rng();
@@ -243,7 +243,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         nonce: nonce.into(),
     };
 
-    // Step 5b: Call generate_proof and ensure a nullifier is produced.
+    // Call generate_proof and ensure a nullifier is produced.
     let (_proof, nullifier) = authenticator
         .generate_proof(signal_hash, rp_request, credential)
         .await
