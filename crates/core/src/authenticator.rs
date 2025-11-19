@@ -372,10 +372,18 @@ impl Authenticator {
 
         let private_key = self.signer.offchain_signer_private_key().expose_secret();
 
+        let services = self.config.nullifier_oracle_urls();
+        if services.is_empty() {
+            return Err(AuthenticatorError::Generic(
+                "No nullifier oracle URLs configured".to_string(),
+            ));
+        }
+        let threshold = services.len().min(2);
+
         let mut rng = rand::thread_rng();
         let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
-            self.config.nullifier_oracle_urls(),
-            2,
+            services,
+            threshold,
             &query_material,
             &nullifier_material,
             args,
