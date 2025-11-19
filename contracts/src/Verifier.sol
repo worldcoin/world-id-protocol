@@ -37,6 +37,9 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @notice Contract for nullifier proof verification
     Groth16VerifierNullifier public groth16VerifierNullifier;
 
+    /// @notice Allowed delta for proof timestamps
+    uint256 public proofTimestampDelta;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -47,17 +50,20 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
      * @param _accountRegistry Address of the AccountRegistry contract
      * @param _groth16VerifierNullifier Address of the Groth16Verifier contract for the nullifier circuit.
+     * @param _proofTimestampDelta uint256 Allowed delta for proof timestamps.
      */
-    function initialize(address _credentialIssuerRegistry, address _accountRegistry, address _groth16VerifierNullifier)
-        public
-        virtual
-        initializer
-    {
+    function initialize(
+        address _credentialIssuerRegistry,
+        address _accountRegistry,
+        address _groth16VerifierNullifier,
+        uint256 _proofTimestampDelta
+    ) public virtual initializer {
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
         accountRegistry = AccountRegistry(_accountRegistry);
         groth16VerifierNullifier = Groth16VerifierNullifier(_groth16VerifierNullifier);
+        proofTimestampDelta = _proofTimestampDelta;
     }
 
     /**
@@ -94,11 +100,18 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     event RpRegistryUpdated(address oldRpRegistry, address newRpRegistry);
 
     /**
-     * @notice Emitted when the RP registry is updated
-     * @param oldGroth16Verifier Previous registry address
-     * @param newGroth16Verifier New registry address
+     * @notice Emitted when the Groth16Verifier is updated
+     * @param oldGroth16Verifier Previous Groth16Verifier address
+     * @param newGroth16Verifier New Groth16Verifier address
      */
     event Groth16VerifierNullifierUpdated(address oldGroth16Verifier, address newGroth16Verifier);
+
+    /**
+     * @notice Emitted when the proof timestamp delta is updated
+     * @param oldProofTimestampDelta Previous proof timestamp delta
+     * @param newProofTimestampDelta New proof timestamp delta
+     */
+    event ProofTimestampDeltaUpdated(uint256 oldProofTimestampDelta, uint256 newProofTimestampDelta);
 
     /**
      * @notice Verifies a nullifier proof for a World ID credential
@@ -142,8 +155,8 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         if (proofTimestamp > block.timestamp) {
             revert NullifierFromFuture();
         }
-        // do not allow proofs older than 5 hours
-        if (proofTimestamp + 5 hours < block.timestamp) {
+        // do not allow proofs older than proofTimestampDelta
+        if (proofTimestamp + proofTimestampDelta < block.timestamp) {
             revert OutdatedNullifier();
         }
         uint256[13] memory pubSignals;
@@ -212,7 +225,24 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     function updateGroth16Verifier(address _groth16Verifier) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldVerifier = address(groth16VerifierNullifier);
         groth16VerifierNullifier = Groth16VerifierNullifier(_groth16Verifier);
-        emit RpRegistryUpdated(oldVerifier, _groth16Verifier);
+        emit Groth16VerifierNullifierUpdated(oldVerifier, _groth16Verifier);
+    }
+
+    /**
+     * @notice Updates the proof timestamp delta
+     * @dev Only callable by the contract owner
+     * @param _proofTimestampDelta The new proof timestamp delta
+     */
+    function updateProofTimestampDelta(uint256 _proofTimestampDelta)
+        external
+        virtual
+        onlyOwner
+        onlyProxy
+        onlyInitialized
+    {
+        uint256 oldProofTimestampDelta = proofTimestampDelta;
+        proofTimestampDelta = _proofTimestampDelta;
+        emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);
     }
 
     ////////////////////////////////////////////////////////////

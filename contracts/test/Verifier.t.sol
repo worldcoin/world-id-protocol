@@ -106,11 +106,16 @@ contract NullifierVerifier is Test {
         address accountRegistryMock = address(new AccountRegistryMock());
         address credentialSchemaIssuerRegistryMock = address(new CredentialSchemaIssuerRegistryMock());
         verifierGroth16 = address(new Groth16Verifier());
+        proofTimestampDelta = 5 hours;
 
         Verifier implementation = new Verifier();
         // Deploy proxy
         bytes memory initData = abi.encodeWithSelector(
-            Verifier.initialize.selector, credentialSchemaIssuerRegistryMock, accountRegistryMock, verifierGroth16
+            Verifier.initialize.selector,
+            credentialSchemaIssuerRegistryMock,
+            accountRegistryMock,
+            verifierGroth16,
+            proofTimestampDelta
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         verifier = Verifier(address(proxy));
