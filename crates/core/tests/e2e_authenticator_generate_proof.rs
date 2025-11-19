@@ -8,12 +8,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy::{
-    network::EthereumWallet, primitives::U256, providers::ProviderBuilder, sol_types::SolEvent,
-};
-use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
+use alloy::primitives::U256;
+use ark_babyjubjub::{EdwardsAffine, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, PrimeField, UniformRand};
+use ark_ff::{BigInteger, PrimeField};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -21,10 +19,7 @@ use axum::{
     Json, Router,
 };
 use eyre::{eyre, Context as _, Result};
-use k256::ecdsa::{
-    signature::{Signer, Verifier},
-    SigningKey, VerifyingKey,
-};
+use k256::ecdsa::{signature::Verifier, VerifyingKey};
 use oprf_core::ddlog_equality::DLogEqualitySession;
 use oprf_types::{
     api::v1::{ChallengeRequest, ChallengeResponse, OprfRequest, OprfResponse},
@@ -32,37 +27,39 @@ use oprf_types::{
     RpId, ShareEpoch,
 };
 use oprf_world_types::{api::v1::OprfRequestAuth, MerkleRoot};
-use rand::{thread_rng, Rng};
-use test_utils::{
-    anvil::{CredentialSchemaIssuerRegistry, TestAnvil},
-    merkle::first_leaf_merkle_path,
+use rand::thread_rng;
+use test_utils::flow::{
+    build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
+    RegistryTestContext,
 };
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
-use world_id_core::{Authenticator, AuthenticatorError, EdDSAPrivateKey, HashableCredential};
+use world_id_core::{Authenticator, AuthenticatorError, HashableCredential};
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
-use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet,
-    credential::Credential,
-    merkle::{AccountInclusionProof, MerkleInclusionProof},
-    Config, FieldElement, TREE_DEPTH,
-};
+use world_id_primitives::{merkle::AccountInclusionProof, Config, FieldElement, TREE_DEPTH};
 
 const GW_PORT: u16 = 4104;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
-    // Spin up Anvil and deploy required contracts (AccountRegistry).
-    let anvil = TestAnvil::spawn().wrap_err("failed to spawn anvil")?;
+    let RegistryTestContext {
+        anvil,
+        account_registry: registry_address,
+        issuer_private_key: issuer_sk,
+        issuer_public_key: issuer_pk,
+        issuer_schema_id,
+        ..
+    } = RegistryTestContext::new().await?;
+
+    let issuer_schema_id_u64 = issuer_schema_id
+        .try_into()
+        .expect("issuer schema id fits in u64");
+
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
-    let registry_address = anvil
-        .deploy_account_registry(deployer.clone())
-        .await
-        .wrap_err("failed to deploy account registry")?;
 
-    // Step 2: Spawn the gateway wired to this Anvil instance.
+    // Spawn the gateway wired to this Anvil instance.
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
         rpc_url: anvil.endpoint().to_string(),
@@ -122,28 +119,37 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .account_id()
         .try_into()
         .expect("account id fits in u64");
-    let key_set = AuthenticatorPublicKeySet::new(Some(vec![authenticator.offchain_pubkey()]))
-        .wrap_err("failed to assemble key set")?;
-    let leaf_commitment = Authenticator::leaf_hash(&key_set);
-    let (siblings, root_field_element) = first_leaf_merkle_path(leaf_commitment);
-    let merkle_proof = MerkleInclusionProof::new(root_field_element, account_id_u64, siblings);
+    let MerkleFixture {
+        key_set,
+        inclusion_proof: merkle_inclusion_proof,
+        root,
+        ..
+    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], account_id_u64)
+        .wrap_err("failed to construct merkle fixture")?;
+
     let inclusion_proof =
-        AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_proof, key_set.clone())
+        AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
             .wrap_err("failed to build inclusion proof")?;
 
     let (indexer_url, indexer_handle) = spawn_indexer_stub(account_id_u64, inclusion_proof.clone())
         .await
         .wrap_err("failed to start indexer stub")?;
 
-    // Local OPRF peer stub setup.
-    let merkle_root_fq: Fq = *root_field_element;
-    let merkle_root = MerkleRoot::from(merkle_root_fq);
     let mut rng = thread_rng();
-    let rp_signing_key = SigningKey::random(&mut rng);
-    let rp_verifying_key = VerifyingKey::from(&rp_signing_key);
-    let oprf_server = spawn_oprf_stub(merkle_root, rp_verifying_key)
-        .await
-        .wrap_err("failed to start OPRF stub")?;
+    let rp_fixture = generate_rp_fixture(&mut rng);
+
+    // Local OPRF peer stub setup.
+    let merkle_root = MerkleRoot::from(*root);
+    let rp_verifying_key = rp_fixture.signing_key.verifying_key().clone();
+    let oprf_server = spawn_oprf_stub(
+        merkle_root,
+        rp_verifying_key,
+        rp_fixture.oprf_rp_id,
+        rp_fixture.share_epoch,
+        rp_fixture.rp_secret,
+    )
+    .await
+    .wrap_err("failed to start OPRF stub")?;
 
     // Config for proof generation uses the indexer + OPRF stubs.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -162,90 +168,30 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.account_id(), U256::from(1u64));
 
-    // Deploy CredentialSchemaIssuerRegistry and register issuer.
-    let issuer_registry_address = anvil
-        .deploy_credential_schema_issuer_registry(deployer.clone())
-        .await
-        .wrap_err("failed to deploy credential schema issuer registry")?;
-    let issuer_provider = ProviderBuilder::new()
-        .wallet(EthereumWallet::from(deployer.clone()))
-        .connect_http(
-            anvil
-                .endpoint()
-                .parse()
-                .wrap_err("invalid anvil endpoint URL")?,
-        );
-    let registry_contract =
-        CredentialSchemaIssuerRegistry::new(issuer_registry_address, issuer_provider);
-
-    let issuer_sk = EdDSAPrivateKey::random(&mut rng);
-    let issuer_pk = issuer_sk.public();
-    let issuer_pubkey = CredentialSchemaIssuerRegistry::Pubkey {
-        x: U256::from_limbs(issuer_pk.pk.x.into_bigint().0),
-        y: U256::from_limbs(issuer_pk.pk.y.into_bigint().0),
-    };
-    let issuer_receipt = registry_contract
-        .register(issuer_pubkey.clone(), deployer.address())
-        .send()
-        .await
-        .wrap_err("failed to submit issuer registration transaction")?
-        .get_receipt()
-        .await
-        .wrap_err("failed to fetch issuer registration receipt")?;
-    let issuer_schema_id = issuer_receipt
-        .logs()
-        .iter()
-        .find_map(|log| {
-            CredentialSchemaIssuerRegistry::IssuerSchemaRegistered::decode_log(log.inner.as_ref())
-                .ok()
-        })
-        .expect("IssuerSchemaRegistered event not emitted")
-        .issuerSchemaId;
-    let issuer_schema_id_u64: u64 = issuer_schema_id
-        .try_into()
-        .expect("issuer schema id fits in u64");
-
     // Create and sign credential.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
-    let mut credential = Credential::new()
-        .issuer_schema_id(issuer_schema_id_u64)
-        .account_id(account_id_u64)
-        .genesis_issued_at(now)
-        .expires_at(now + 86_400);
+    let mut credential = build_base_credential(issuer_schema_id_u64, account_id_u64, now, now + 60);
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()
         .wrap_err("failed to hash credential prior to signing")?;
     credential.signature = Some(issuer_sk.sign(*credential_hash));
 
-    // Prepare RP request inputs.
-    let action = Fq::rand(&mut rng);
-    let nonce = Fq::rand(&mut rng);
-    let signal_hash: FieldElement = FieldElement::from(Fq::rand(&mut rng));
-    let current_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time after epoch")
-        .as_secs();
-    let mut rp_msg = Vec::new();
-    rp_msg.extend(nonce.into_bigint().to_bytes_le());
-    rp_msg.extend(current_timestamp.to_le_bytes());
-    let rp_signature = rp_signing_key.sign(&rp_msg);
-
     let rp_request = world_id_core::types::RpRequest {
-        rp_id: oprf_server.rp_id.into_inner().to_string(),
-        rp_nullifier_key: oprf_server.rp_nullifier_key,
-        signature: rp_signature,
-        current_time_stamp: current_timestamp,
-        action_id: action.into(),
-        nonce: nonce.into(),
+        rp_id: rp_fixture.oprf_rp_id.into_inner().to_string(),
+        rp_nullifier_key: RpNullifierKey::new(rp_fixture.rp_nullifier_point),
+        signature: rp_fixture.signature,
+        current_time_stamp: rp_fixture.current_timestamp,
+        action_id: rp_fixture.action.into(),
+        nonce: rp_fixture.nonce.into(),
     };
 
     // Call generate_proof and ensure a nullifier is produced.
     let (_proof, nullifier) = authenticator
-        .generate_proof(signal_hash, rp_request, credential)
+        .generate_proof(rp_fixture.signal_hash, rp_request, credential)
         .await
         .wrap_err("failed to generate proof")?;
     assert_ne!(nullifier, FieldElement::ZERO);
@@ -296,8 +242,6 @@ async fn spawn_indexer_stub(
 
 struct OprfServerHandle {
     base_url: String,
-    rp_id: RpId,
-    rp_nullifier_key: RpNullifierKey,
     join_handle: JoinHandle<()>,
 }
 
@@ -315,6 +259,9 @@ struct OprfStubState {
 async fn spawn_oprf_stub(
     expected_root: MerkleRoot,
     verifier: VerifyingKey,
+    rp_id: RpId,
+    share_epoch: ShareEpoch,
+    rp_secret: Fr,
 ) -> Result<OprfServerHandle> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -323,14 +270,12 @@ async fn spawn_oprf_stub(
         .local_addr()
         .wrap_err("failed to read oprf stub address")?;
 
-    let mut rng = thread_rng();
-    let rp_secret = Fr::rand(&mut rng);
     let rp_public = (EdwardsAffine::generator() * rp_secret).into_affine();
     let state = Arc::new(OprfStubState {
         rp_secret,
         rp_public,
-        rp_id: RpId::new(rng.gen()),
-        share_epoch: ShareEpoch::default(),
+        rp_id,
+        share_epoch,
         party_id: PartyId::from(1u16),
         expected_root,
         verifier,
@@ -363,8 +308,6 @@ async fn spawn_oprf_stub(
 
     Ok(OprfServerHandle {
         base_url: format!("http://{addr}"),
-        rp_id: state.rp_id,
-        rp_nullifier_key: RpNullifierKey::new(state.rp_public),
         join_handle,
     })
 }
