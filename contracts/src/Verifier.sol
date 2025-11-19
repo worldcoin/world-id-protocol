@@ -9,8 +9,6 @@ import {AccountRegistry} from "./AccountRegistry.sol";
 import {Groth16Verifier as Groth16VerifierNullifier} from "./Groth16VerifierNullifier.sol";
 import {IRpRegistry, Types} from "./interfaces/RpRegistry.sol";
 
-uint256 constant AUTHENTICATOR_MERKLE_TREE_DEPTH = 30;
-
 /**
  * @title Verifier
  * @notice Verifies nullifier proofs for World ID credentials
@@ -40,6 +38,9 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @notice Allowed delta for proof timestamps
     uint256 public proofTimestampDelta;
 
+    /// @notice The depth of the Merkle tree
+    uint256 public treeDepth;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -64,6 +65,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         accountRegistry = AccountRegistry(_accountRegistry);
         groth16VerifierNullifier = Groth16VerifierNullifier(_groth16VerifierNullifier);
         proofTimestampDelta = _proofTimestampDelta;
+        treeDepth = accountRegistry.treeDepth();
     }
 
     /**
@@ -167,7 +169,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         pubSignals[3] = credentialIssuerPubkey.y;
         pubSignals[4] = proofTimestamp;
         pubSignals[5] = authenticatorRoot;
-        pubSignals[6] = AUTHENTICATOR_MERKLE_TREE_DEPTH;
+        pubSignals[6] = treeDepth;
         pubSignals[7] = uint256(rpId);
         pubSignals[8] = action;
         pubSignals[9] = rpKey.x;

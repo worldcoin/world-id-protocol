@@ -22,6 +22,10 @@ contract VerifierV2Mock is Verifier {
     }
 }
 
+contract AccountRegistryMock {
+    uint256 public treeDepth = 30;
+}
+
 contract VerifierUpgradeTest is Test {
     Verifier public verifier;
     ERC1967Proxy public proxy;
@@ -37,7 +41,7 @@ contract VerifierUpgradeTest is Test {
         owner = address(this);
         nonOwner = address(0xBEEF);
         credentialIssuerRegistry = address(0x1111);
-        accountRegistry = address(0x2222);
+        accountRegistry = address(new AccountRegistryMock());
         rpRegistry = address(0x3333);
         groth16Verifier = address(0x4444);
         proofTimestampDelta = 5 hours;

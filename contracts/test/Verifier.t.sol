@@ -36,6 +36,8 @@ contract RpRegistryMock {
 }
 
 contract AccountRegistryMock {
+    uint256 public treeDepth = 30;
+
     function isValidRoot(uint256 root) external view virtual returns (bool) {
         return rootCorrect == root;
     }
