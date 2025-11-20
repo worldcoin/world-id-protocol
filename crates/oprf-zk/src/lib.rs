@@ -24,12 +24,18 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 use ark_bn254::Bn254;
 use ark_ff::{AdditiveGroup as _, BigInt, Field as _, LegendreSymbol, UniformRand as _};
 use circom_types::{groth16::ZKey, traits::CheckElement};
-use circom_witness_rs::BlackBoxFunction;
-use circom_witness_rs::Graph;
 use groth16::{CircomReduction, ConstraintMatrices, Groth16, Proof, ProvingKey};
 use k256::sha2::Digest as _;
 use rand::{CryptoRng, Rng};
 use ruint::aliases::U256;
+
+#[cfg(not(target_arch = "wasm32"))]
+use circom_witness_rs::{BlackBoxFunction, Graph};
+
+#[cfg(target_arch = "wasm32")]
+use ark_circom::{Wasm, WitnessCalculator};
+#[cfg(target_arch = "wasm32")]
+use wasmer::Store;
 
 use crate::groth16_serde::Groth16Proof;
 
@@ -96,9 +102,15 @@ pub struct Groth16Material {
     /// Constraint matrices for the OPRFQuery circuit
     pub matrices: ConstraintMatrices<ark_bn254::Fr>,
     /// The graph for witness extension
+    #[cfg(not(target_arch = "wasm32"))]
     pub graph: Graph,
     /// The black-box functions needed for witness extension
+    #[cfg(not(target_arch = "wasm32"))]
     pub bbfs: HashMap<String, BlackBoxFunction>,
+    #[cfg(target_arch = "wasm32")]
+    pub wtns: std::sync::Mutex<WitnessCalculator>,
+    #[cfg(target_arch = "wasm32")]
+    pub store: std::sync::Mutex<Store>,
 }
 
 impl Groth16Material {
@@ -141,13 +153,32 @@ impl Groth16Material {
                 ZKey::from_reader(zkey_bytes, CheckElement::No).map_err(ZkError::ZKeyInvalid)?;
             query_zkey.into()
         };
-        let graph = circom_witness_rs::init_graph(graph_bytes).map_err(ZkError::GraphInvalid)?;
-        Ok(Self {
-            pk,
-            matrices,
-            graph,
-            bbfs: black_box_functions(),
-        })
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let graph =
+                circom_witness_rs::init_graph(graph_bytes).map_err(ZkError::GraphInvalid)?;
+            Ok(Self {
+                pk,
+                matrices,
+                graph,
+                bbfs: black_box_functions(),
+            })
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut store = Store::default();
+            let module = wasmer::Module::new(&store, graph_bytes)
+                .map_err(|e| ZkError::GraphInvalid(eyre::eyre!(e)))?;
+            let wtns = WitnessCalculator::from_module(&mut store, module)
+                .map_err(|e| ZkError::GraphInvalid(eyre::eyre!(e)))?;
+            Ok(Self {
+                pk,
+                matrices,
+                wtns: std::sync::Mutex::new(wtns),
+                store: std::sync::Mutex::new(store),
+            })
+        }
     }
 
     /// Builds Groth16 material directly from `.zkey` and graph readers.
@@ -219,19 +250,50 @@ impl Groth16Material {
         &self,
         inputs: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Vec<ark_bn254::Fr>, Groth16Error> {
-        let inputs = inputs
-            .into_iter()
-            .map(|(name, value)| (name, parse(value)))
-            .collect();
-        let witness = circom_witness_rs::calculate_witness(inputs, &self.graph, Some(&self.bbfs))
-            .map_err(|err| {
-                tracing::error!("error during calculate_witness: {err:?}");
-                Groth16Error::WitnessGeneration
-            })?
-            .into_iter()
-            .map(|v| ark_bn254::Fr::from(BigInt(v.into_limbs())))
-            .collect::<Vec<_>>();
-        Ok(witness)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let inputs = inputs
+                .into_iter()
+                .map(|(name, value)| (name, parse(value)))
+                .collect();
+            let witness =
+                circom_witness_rs::calculate_witness(inputs, &self.graph, Some(&self.bbfs))
+                    .map_err(|err| {
+                        tracing::error!("error during calculate_witness: {err:?}");
+                        Groth16Error::WitnessGeneration
+                    })?
+                    .into_iter()
+                    .map(|v| ark_bn254::Fr::from(BigInt(v.into_limbs())))
+                    .collect::<Vec<_>>();
+            Ok(witness)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let inputs = inputs.into_iter().map(|(k, v)| {
+                let vals = parse(v)
+                    .into_iter()
+                    .map(|u| {
+                        num_bigint::BigInt::from_bytes_be(
+                            num_bigint::Sign::Plus,
+                            &u.to_be_bytes::<32>(),
+                        )
+                    })
+                    .collect();
+                (k, vals)
+            });
+
+            let mut store = self.store.lock().unwrap();
+            let mut wtns = self.wtns.lock().unwrap();
+
+            let witness = wtns
+                .calculate_witness_element::<ark_bn254::Fr, _>(&mut *store, inputs, false)
+                .map_err(|err| {
+                    tracing::error!("error during calculate_witness: {err:?}");
+                    Groth16Error::WitnessGeneration
+                })?;
+            Ok(witness)
+        }
     }
 
     /// Generates a Groth16 proof from a witness and verifies it.
@@ -284,6 +346,7 @@ fn parse_zkey_bytes(
     Ok(query_zkey.into())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn black_box_functions() -> HashMap<String, BlackBoxFunction> {
     let mut bbfs: HashMap<String, BlackBoxFunction> = HashMap::new();
     bbfs.insert(
