@@ -73,7 +73,7 @@ contract AccountRegistryTest is Test {
 
     function updateAuthenticatorProofAndSignature(
         uint256 accountIndex,
-        uint256 pubkeyId,
+        uint32 pubkeyId,
         uint256 newLeaf,
         uint256 nonce
     ) private view returns (bytes memory, uint256[] memory) {

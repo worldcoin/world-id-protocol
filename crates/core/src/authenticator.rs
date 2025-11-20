@@ -419,11 +419,13 @@ impl Authenticator {
             *self.config.registry_address(),
         );
 
+        #[allow(clippy::cast_possible_truncation)]
+        // truncating is intentional, and index will always fit in 32 bits
         let signature = sign_insert_authenticator(
             &self.signer.onchain_signer(),
             account_id,
             new_authenticator_address,
-            U256::from(index),
+            index as u32,
             encoded_offchain_pubkey,
             new_offchain_signer_commitment.into(),
             nonce,
@@ -434,10 +436,12 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
         })?;
 
+        #[allow(clippy::cast_possible_truncation)]
+        // truncating is intentional, and index will always fit in 32 bits
         let req = InsertAuthenticatorRequest {
             account_index: account_id,
             new_authenticator_address,
-            pubkey_id: U256::from(index),
+            pubkey_id: index as u32,
             new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
@@ -509,7 +513,7 @@ impl Authenticator {
             account_id,
             old_authenticator_address,
             new_authenticator_address,
-            U256::from(index),
+            index,
             encoded_offchain_pubkey,
             new_commitment,
             nonce,
@@ -535,7 +539,7 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(U256::from(index)),
+            pubkey_id: Some(index),
             new_authenticator_pubkey: Some(encoded_offchain_pubkey),
         };
 
@@ -601,7 +605,7 @@ impl Authenticator {
             &self.signer.onchain_signer(),
             account_id,
             authenticator_address,
-            U256::from(index),
+            index,
             encoded_old_offchain_pubkey,
             new_commitment,
             nonce,
@@ -626,7 +630,7 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(U256::from(index)),
+            pubkey_id: Some(index),
             authenticator_pubkey: Some(encoded_old_offchain_pubkey),
         };
 

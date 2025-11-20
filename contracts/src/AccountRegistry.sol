@@ -473,7 +473,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         // Add the new authenticator
         authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] =
-            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), uint32(pubkeyId));
+            PackedAccountIndex.pack(accountIndex, uint32(accountRecoveryCounter[accountIndex]), pubkeyId);
 
         // Update the tree
         emit AccountUpdated(
