@@ -378,7 +378,10 @@ impl Authenticator {
                 "No nullifier oracle URLs configured".to_string(),
             ));
         }
-        let threshold = services.len().min(2);
+        let threshold = self
+            .config
+            .nullifier_oracle_threshold()
+            .clamp(1, services.len());
 
         let mut rng = rand::thread_rng();
         let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
