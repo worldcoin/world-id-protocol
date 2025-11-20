@@ -144,6 +144,18 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         eyre::bail!("createAccount transaction reverted");
     }
 
+    // Verify on‑chain Merkle root equals the locally recomputed root
+    let onchain_root = account_contract
+        .currentRoot()
+        .call()
+        .await
+        .wrap_err("failed to fetch account registry root from chain")?;
+
+    assert_eq!(
+        onchain_root, expected_root_u256,
+        "on-chain root mismatch with locally computed root"
+    );
+
     // Read emitted account index and derive the raw Merkle index (0‑based)
     let account_created = account_receipt
         .logs()
