@@ -13,7 +13,7 @@ ark-babyjubjub = { workspace = true }
 ark-ff.workspace = true
 circom-types = { workspace = true, features = ["bn254", "groth16", "proof"] }
 eddsa-babyjubjub = { workspace = true }
-groth16-material = { workspace = true }
+groth16-material = { workspace = true, features = ["circom"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 oprf-core = { workspace = true }
 ruint = { workspace = true }

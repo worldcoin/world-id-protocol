@@ -1,4 +1,4 @@
-use groth16_material::circom::proof_input::{self, ProofInput};
+use groth16_material::circom::ProofInput;
 use oprf_core::{
     dlog_equality::DLogEqualityProof,
     oprf::{BlindedOprfResponse, BlindingFactor},
@@ -58,33 +58,27 @@ impl<const MAX_DEPTH: usize> NullifierProofInput<MAX_DEPTH> {
 impl<const MAX_DEPTH: usize> ProofInput for NullifierProofInput<MAX_DEPTH> {
     fn prepare_input(&self) -> std::collections::HashMap<String, Vec<ruint::aliases::U256>> {
         let mut map = self.query_input.prepare_input();
-        map.insert(
-            "dlog_e".to_owned(),
-            proof_input::fq_to_u256_vec(self.dlog_e),
-        );
-        map.insert(
-            "dlog_s".to_owned(),
-            proof_input::fr_to_u256_vec(self.dlog_s),
-        );
+        map.insert("dlog_e".to_owned(), super::fq_to_u256_vec(self.dlog_e));
+        map.insert("dlog_s".to_owned(), super::fr_to_u256_vec(self.dlog_s));
         map.insert(
             "oprf_pk".to_owned(),
-            proof_input::affine_to_u256_vec(self.oprf_pk),
+            super::affine_to_u256_vec(self.oprf_pk),
         );
         map.insert(
             "oprf_response_blinded".to_owned(),
-            proof_input::affine_to_u256_vec(self.oprf_response_blinded),
+            super::affine_to_u256_vec(self.oprf_response_blinded),
         );
         map.insert(
             "oprf_response".to_owned(),
-            proof_input::affine_to_u256_vec(self.oprf_response),
+            super::affine_to_u256_vec(self.oprf_response),
         );
         map.insert(
             "signal_hash".to_owned(),
-            proof_input::fq_to_u256_vec(self.signal_hash),
+            super::fq_to_u256_vec(self.signal_hash),
         );
         map.insert(
             "id_commitment_r".to_owned(),
-            proof_input::fq_to_u256_vec(self.id_commitment_r),
+            super::fq_to_u256_vec(self.id_commitment_r),
         );
         map
     }

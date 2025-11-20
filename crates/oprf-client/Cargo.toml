@@ -18,7 +18,7 @@ circom-types = { workspace = true, features = [
 ] }
 eyre.workspace = true
 futures.workspace = true
-groth16-material = { workspace = true }
+groth16-material = { workspace = true, features = ["circom"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 oprf-core = { workspace = true }
 oprf-types = { workspace = true }

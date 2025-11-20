@@ -23,20 +23,18 @@ alloy = { version = "1", default-features = false }
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", git = "https://github.com/TaceoLabs/circom-helpers.git", rev = "6e12729dc3a35425c152e474e8e9b48f73da75b5", version = "0.2", default-features = false } # TODO update to crates.io
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false } 
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 circom-witness-rs = "0.2.1"
-circom-types = { git = "https://github.com/TaceoLabs/circom-helpers.git", rev = "6e12729dc3a35425c152e474e8e9b48f73da75b5", version = "0.1", default-features = false } # TODO update to crates.io
+circom-types = { package="taceo-circom-types", version = "0.1", default-features = false } 
 criterion = "0.7"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5" }
 eyre = "0.6"
 futures = "0.3"
-groth16-material = { git = "https://github.com/TaceoLabs/circom-helpers.git", rev = "6e12729dc3a35425c152e474e8e9b48f73da75b5", default-features = false, features = [
-  "circom"
-] } # TODO update to crates.io
+groth16-material = { package="taceo-groth16-material", version="0.1", default-features = false } 
 hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
