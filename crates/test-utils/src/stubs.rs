@@ -111,7 +111,8 @@ pub async fn spawn_oprf_stub(
         .route(
             "/api/v1/init",
             post({
-                move |state: State<Arc<OprfStubState>>, Json(req): Json<OprfRequest<OprfRequestAuth>>| {
+                move |state: State<Arc<OprfStubState>>,
+                      Json(req): Json<OprfRequest<OprfRequestAuth>>| {
                     oprf_init(state, req)
                 }
             }),
@@ -173,7 +174,8 @@ async fn oprf_finish(
     State(state): State<Arc<OprfStubState>>,
     req: ChallengeRequest,
 ) -> Result<Json<ChallengeResponse>, StatusCode> {
-    if req.rp_identifier.rp_id != state.rp_id || req.rp_identifier.share_epoch != state.share_epoch {
+    if req.rp_identifier.rp_id != state.rp_id || req.rp_identifier.share_epoch != state.share_epoch
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 

@@ -121,6 +121,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let leaf_commitment_fq = Authenticator::leaf_hash(&key_set);
     let leaf_commitment = U256::from_limbs(leaf_commitment_fq.into_bigint().0);
     let (merkle_siblings, expected_root_fq) = first_leaf_merkle_path(leaf_commitment_fq);
+    let expected_root_u256 = U256::from_limbs(expected_root_fq.into_bigint().0);
 
     // Prepare inputs for on‑chain createAccount call
     let offchain_pubkey = key_set[0].to_ethereum_representation()?;
