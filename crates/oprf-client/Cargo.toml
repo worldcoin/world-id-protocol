@@ -24,6 +24,13 @@ rand.workspace = true
 reqwest = { workspace = true }
 serde_json.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
+uuid = { workspace = true, features = ["serde", "v4"] }
+eddsa-babyjubjub = { workspace = true }
+world-id-primitives = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { workspace = true, features = ["rustls-tls"] }
 tokio = { workspace = true, optional = true, features = [
     "net",
     "rt-multi-thread",
@@ -32,10 +39,6 @@ tokio = { workspace = true, optional = true, features = [
     "time",
     "tokio-macros",
 ] }
-tracing.workspace = true
-uuid = { workspace = true, features = ["serde", "v4"] }
-eddsa-babyjubjub = { workspace = true }
-world-id-primitives = { workspace = true }
 
 [features]
 default = ["tokio"]

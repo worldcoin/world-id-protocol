@@ -16,6 +16,8 @@ pub mod account_registry;
 
 #[cfg(feature = "authenticator")]
 mod authenticator;
+#[cfg(all(feature = "authenticator", target_arch = "wasm32"))]
+pub use crate::authenticator::CircuitAssets;
 #[cfg(feature = "authenticator")]
 pub use crate::authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
 
@@ -26,10 +28,12 @@ mod credential;
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 pub use credential::HashableCredential;
 
-#[cfg(feature = "issuer")]
+#[cfg(all(feature = "issuer", not(target_arch = "wasm32")))]
 mod issuer;
-#[cfg(feature = "issuer")]
+#[cfg(all(feature = "issuer", not(target_arch = "wasm32")))]
 pub use issuer::Issuer;
+
+pub(crate) mod util;
 
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 mod signer;

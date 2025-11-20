@@ -43,6 +43,14 @@ static QUERY_GRAPH_PATH: &str = "circom/query_graph.bin";
 static NULLIFIER_ZKEY_PATH: &str = "circom/nullifier.zkey";
 static NULLIFIER_GRAPH_PATH: &str = "circom/nullifier_graph.bin";
 
+#[cfg(target_arch = "wasm32")]
+pub struct CircuitAssets {
+    pub query_zkey_url: String,
+    pub query_graph_url: String,
+    pub nullifier_zkey_url: String,
+    pub nullifier_graph_url: String,
+}
+
 /// Maximum timeout for polling account creation status (30 seconds)
 const MAX_POLL_TIMEOUT_SECS: u64 = 30;
 
@@ -152,7 +160,8 @@ impl Authenticator {
             }
 
             // Wait before polling
-            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            // Wait before polling
+            crate::util::sleep(Duration::from_millis(delay_ms)).await;
 
             // Poll the gateway status
             match Self::poll_gateway_status(&config, &request_id).await {
@@ -326,6 +335,7 @@ impl Authenticator {
         message_hash: FieldElement,
         rp_request: RpRequest,
         credential: Credential,
+        #[cfg(target_arch = "wasm32")] assets: CircuitAssets,
     ) -> Result<UniquenessProof, AuthenticatorError> {
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
@@ -333,15 +343,34 @@ impl Authenticator {
             .position(|pk| pk.pk == self.offchain_pubkey().pk)
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
-        // TODO: load once and from bytes
+        #[cfg(not(target_arch = "wasm32"))]
         let query_material = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH)
             .map_err(|e| {
                 AuthenticatorError::Generic(format!("Failed to load query material: {e}"))
             })?;
+        #[cfg(target_arch = "wasm32")]
+        let query_material =
+            Groth16Material::from_urls(&assets.query_zkey_url, None, &assets.query_graph_url)
+                .await
+                .map_err(|e| {
+                    AuthenticatorError::Generic(format!("Failed to load query material: {e}"))
+                })?;
+
+        #[cfg(not(target_arch = "wasm32"))]
         let nullifier_material =
             Groth16Material::new(NULLIFIER_ZKEY_PATH, None, NULLIFIER_GRAPH_PATH).map_err(|e| {
                 AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
             })?;
+        #[cfg(target_arch = "wasm32")]
+        let nullifier_material = Groth16Material::from_urls(
+            &assets.nullifier_zkey_url,
+            None,
+            &assets.nullifier_graph_url,
+        )
+        .await
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
+        })?;
 
         // TODO: convert rp_request to primitives types
         let primitives_rp_id =

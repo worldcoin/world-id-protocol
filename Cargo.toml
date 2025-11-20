@@ -55,8 +55,11 @@ thiserror = "1"
 tokio = { version = "1", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 uuid = { version = "1" }
 world-id-core = { path = "crates/core"}
 world-id-primitives = { path = "crates/primitives"}
 zeroize = "1"
+
+[patch.'https://github.com/TaceoLabs/nullifier-oracle-service']
+oprf-zk = { path = "crates/oprf-zk" }
