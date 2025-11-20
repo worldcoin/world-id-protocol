@@ -1246,6 +1246,11 @@
   },
   {
     "type": "error",
+    "name": "PubkeyIdInUse",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
