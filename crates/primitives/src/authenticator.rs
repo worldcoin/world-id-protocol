@@ -105,7 +105,10 @@ impl AuthenticatorPublicKeySet {
             .map_err(|_| PrimitiveError::OutOfBounds)
     }
 
-    /// Computes the Poseidon2 leaf hash commitment for this key set as stored in the AccountRegistry.
+    /// Computes the Poseidon2 leaf hash commitment for this key set as stored in the `AccountRegistry`.
+    ///
+    /// # Panics
+    /// Panics if the domain separator constant cannot be converted into an `Fq`.
     #[must_use]
     pub fn leaf_hash(&self) -> Fq {
         let poseidon2_16: Poseidon2<Fq, 16, 5> = Poseidon2::default();
