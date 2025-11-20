@@ -6905,9 +6905,11 @@ dependencies = [
  "alloy-node-bindings",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "axum 0.8.6",
  "eyre",
  "hex",
  "k256",
+ "oprf-core",
  "oprf-types",
  "oprf-world-types 0.1.0",
  "rand 0.8.5",
@@ -6915,6 +6917,8 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-poseidon2",
+ "tokio",
+ "uuid",
  "world-id-primitives",
 ]
 

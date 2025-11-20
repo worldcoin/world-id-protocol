@@ -28,3 +28,7 @@ k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }
 ark-ec = { workspace = true }
 oprf-types = { workspace = true }
+oprf-core = { workspace = true }
+axum = { version = "0.8", features = ["json"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
+uuid = { workspace = true }
