@@ -17,14 +17,11 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
-use ark_ff::AdditiveGroup;
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use oprf_types::ShareEpoch;
 use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
-use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
-use std::str::FromStr;
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
 use world_id_primitives::merkle::MerkleInclusionProof;
 use world_id_primitives::proof::SingleProofInput;
@@ -378,10 +375,14 @@ impl Authenticator {
                 "No nullifier oracle URLs configured".to_string(),
             ));
         }
-        let threshold = self
-            .config
-            .nullifier_oracle_threshold()
-            .clamp(1, services.len());
+        let requested_threshold = self.config.nullifier_oracle_threshold();
+        if requested_threshold == 0 {
+            return Err(AuthenticatorError::InvalidConfig {
+                attribute: "nullifier_oracle_threshold",
+                reason: "must be at least 1".to_string(),
+            });
+        }
+        let threshold = requested_threshold.min(services.len());
 
         let mut rng = rand::thread_rng();
         let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
@@ -672,24 +673,7 @@ impl Authenticator {
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn leaf_hash(key_set: &AuthenticatorPublicKeySet) -> ark_babyjubjub::Fq {
-        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
-        let mut input = [ark_babyjubjub::Fq::ZERO; 16];
-        #[allow(clippy::unwrap_used)]
-        {
-            input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
-        }
-        // The circuit expects all 7 public key slots to be hashed (with default points for unused slots)
-        // Create a full array of 7 keys, padding with defaults
-        let mut pk_array = [ark_babyjubjub::EdwardsAffine::default(); 7];
-        for (i, pubkey) in key_set.iter().enumerate() {
-            pk_array[i] = pubkey.pk;
-        }
-        // Hash all 7 slots to match circuit expectations
-        for i in 0..7 {
-            input[i * 2 + 1] = pk_array[i].x;
-            input[i * 2 + 2] = pk_array[i].y;
-        }
-        poseidon2_16.permutation(&input)[1]
+        key_set.leaf_hash()
     }
 
     /// Creates a new World ID account by adding it to the registry using the gateway.
@@ -814,6 +798,15 @@ pub enum AuthenticatorError {
     /// Account creation timed out while polling for confirmation.
     #[error("Account creation timed out after {0} seconds")]
     Timeout(u64),
+
+    /// Configuration is invalid or missing required values.
+    #[error("Invalid configuration for {attribute}: {reason}")]
+    InvalidConfig {
+        /// The config attribute that is invalid.
+        attribute: &'static str,
+        /// Description of why it is invalid.
+        reason: String,
+    },
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

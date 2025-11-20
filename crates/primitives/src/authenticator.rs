@@ -1,8 +1,13 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    str::FromStr,
+};
 
-use ark_babyjubjub::EdwardsAffine;
+use ark_babyjubjub::{EdwardsAffine, Fq};
+use ark_ff::AdditiveGroup;
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use poseidon2::Poseidon2;
 use serde::{Deserialize, Serialize};
 
 use crate::{FieldElement, PrimitiveError};
@@ -98,6 +103,24 @@ impl AuthenticatorPublicKeySet {
         self.0
             .try_push(pubkey)
             .map_err(|_| PrimitiveError::OutOfBounds)
+    }
+
+    /// Computes the Poseidon2 leaf hash commitment for this key set as stored in the AccountRegistry.
+    #[must_use]
+    pub fn leaf_hash(&self) -> Fq {
+        let poseidon2_16: Poseidon2<Fq, 16, 5> = Poseidon2::default();
+        let mut input = [Fq::ZERO; 16];
+
+        input[0] =
+            Fq::from_str("105702839725298824521994315").expect("domain separator fits in field");
+
+        let pk_array = self.as_affine_array();
+        for i in 0..MAX_AUTHENTICATOR_KEYS {
+            input[i * 2 + 1] = pk_array[i].x;
+            input[i * 2 + 2] = pk_array[i].y;
+        }
+
+        poseidon2_16.permutation(&input)[1]
     }
 }
 

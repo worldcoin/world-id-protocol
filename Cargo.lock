@@ -8271,6 +8271,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
  "taceo-eddsa-babyjubjub",
+ "taceo-poseidon2",
  "thiserror 1.0.69",
 ]
 

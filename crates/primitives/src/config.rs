@@ -45,7 +45,7 @@ impl Config {
             indexer_url,
             gateway_url,
             nullifier_oracle_urls,
-            nullifier_oracle_threshold: nullifier_oracle_threshold.max(1),
+            nullifier_oracle_threshold,
         }
     }
 
@@ -92,10 +92,6 @@ impl Config {
     /// The minimum number of Nullifier Oracle responses required to build a nullifier.
     #[must_use]
     pub const fn nullifier_oracle_threshold(&self) -> usize {
-        if self.nullifier_oracle_threshold == 0 {
-            1
-        } else {
-            self.nullifier_oracle_threshold
-        }
+        self.nullifier_oracle_threshold
     }
 }

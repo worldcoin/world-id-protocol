@@ -136,7 +136,7 @@ pub fn single_leaf_merkle_fixture(
     account_id: u64,
 ) -> Result<MerkleFixture> {
     let key_set = AuthenticatorPublicKeySet::new(Some(pubkeys))?;
-    let leaf = compute_leaf_hash(&key_set);
+    let leaf = key_set.leaf_hash();
     let (siblings, root) = first_leaf_merkle_path(leaf);
     let inclusion_proof = MerkleInclusionProof::new(root, account_id, siblings);
 
@@ -146,27 +146,6 @@ pub fn single_leaf_merkle_fixture(
         root,
         leaf,
     })
-}
-
-/// Computes the Poseidon2 leaf commitment used by the AccountRegistry.
-pub fn compute_leaf_hash(key_set: &AuthenticatorPublicKeySet) -> Fq {
-    use poseidon2::Poseidon2;
-
-    let poseidon2_16: Poseidon2<Fq, 16, 5> = Poseidon2::default();
-    let mut input = [Fq::ZERO; 16];
-    input[0] = Fq::from_str("105702839725298824521994315").expect("constant fits in field");
-
-    let mut pk_array = [EdwardsAffine::default(); 7];
-    for (i, pubkey) in key_set.iter().enumerate() {
-        pk_array[i] = pubkey.pk;
-    }
-
-    for i in 0..7 {
-        input[i * 2 + 1] = pk_array[i].x;
-        input[i * 2 + 2] = pk_array[i].y;
-    }
-
-    poseidon2_16.permutation(&input)[1]
 }
 
 pub struct RpFixture {
