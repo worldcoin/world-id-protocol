@@ -137,6 +137,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     error BitmapOverflow();
 
+    /**
+     * @dev Thrown when the pubkey ID is already in use for the account on a different authenticator.
+     */
+    error PubkeyIdInUse();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -507,7 +512,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(pubkeyId < MAX_AUTHENTICATORS, "pubkeyId must be less than MAX_AUTHENTICATORS");
 
         uint256 bitmap = _getPubkeyBitmap(accountIndex);
-        require((bitmap & (1 << pubkeyId)) == 0, "Pubkey ID already exists");
+        if ((bitmap & (1 << pubkeyId)) != 0) {
+            revert PubkeyIdInUse();
+        }
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
