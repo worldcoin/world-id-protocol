@@ -45,7 +45,7 @@
   },
   {
     "type": "function",
-    "name": "MAX_PUBKEYS",
+    "name": "MAX_AUTHENTICATORS",
     "inputs": [],
     "outputs": [
       {
@@ -339,8 +339,8 @@
       },
       {
         "name": "pubkeyId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint32",
+        "internalType": "uint32"
       },
       {
         "name": "newAuthenticatorPubkey",
@@ -524,8 +524,8 @@
       },
       {
         "name": "pubkeyId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint32",
+        "internalType": "uint32"
       },
       {
         "name": "authenticatorPubkey",
@@ -707,8 +707,8 @@
       },
       {
         "name": "pubkeyId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint32",
+        "internalType": "uint32"
       },
       {
         "name": "newAuthenticatorPubkey",
@@ -876,9 +876,9 @@
       },
       {
         "name": "pubkeyId",
-        "type": "uint256",
+        "type": "uint32",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "uint32"
       },
       {
         "name": "newAuthenticatorPubkey",
@@ -925,9 +925,9 @@
       },
       {
         "name": "pubkeyId",
-        "type": "uint256",
+        "type": "uint32",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "uint32"
       },
       {
         "name": "authenticatorAddress",
@@ -968,9 +968,9 @@
       },
       {
         "name": "pubkeyId",
-        "type": "uint256",
+        "type": "uint32",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "uint32"
       },
       {
         "name": "authenticatorAddress",
@@ -1153,6 +1153,11 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "BitmapOverflow",
+    "inputs": []
   },
   {
     "type": "error",
