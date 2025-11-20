@@ -136,8 +136,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .await
         .wrap_err("failed to start indexer stub")?;
 
-    let mut rng = thread_rng();
-    let rp_fixture = generate_rp_fixture(&mut rng);
+    let rp_fixture = generate_rp_fixture();
 
     // Local OPRF peer stub setup.
     let merkle_root = MerkleRoot::from(*root);

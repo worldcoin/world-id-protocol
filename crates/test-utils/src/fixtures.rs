@@ -16,7 +16,7 @@ use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{eyre, Context as _, Result};
 use k256::ecdsa::{signature::Signer, Signature, SigningKey};
 use oprf_types::{RpId as OprfRpId, ShareEpoch};
-use rand::{thread_rng, CryptoRng, Rng};
+use rand::{thread_rng, Rng};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, credential::Credential, merkle::MerkleInclusionProof,
     rp::RpId as WorldRpId, FieldElement, TREE_DEPTH,
@@ -164,16 +164,14 @@ pub struct RpFixture {
 }
 
 /// Generates RP identifiers, signatures, and ancillary inputs shared across tests.
-pub fn generate_rp_fixture<R>(rng: &mut R) -> RpFixture
-where
-    R: Rng + CryptoRng,
-{
+pub fn generate_rp_fixture() -> RpFixture {
+    let mut rng = thread_rng();
     let rp_id_value: u128 = rng.gen();
     let world_rp_id = WorldRpId::new(rp_id_value);
     let oprf_rp_id = OprfRpId::new(rp_id_value);
 
-    let action = Fq::rand(rng);
-    let nonce = Fq::rand(rng);
+    let action = Fq::rand(&mut rng);
+    let nonce = Fq::rand(&mut rng);
     let current_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
@@ -182,13 +180,13 @@ where
     let mut msg = Vec::new();
     msg.extend(nonce.into_bigint().to_bytes_le());
     msg.extend(current_timestamp.to_le_bytes());
-    let signing_key = SigningKey::random(rng);
+    let signing_key = SigningKey::random(&mut rng);
     let signature = signing_key.sign(&msg);
 
-    let signal_hash = FieldElement::from(Fq::rand(rng));
-    let rp_session_id_r_seed = FieldElement::from(Fq::rand(rng));
+    let signal_hash = FieldElement::from(Fq::rand(&mut rng));
+    let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
 
-    let rp_secret = Fr::rand(rng);
+    let rp_secret = Fr::rand(&mut rng);
     let rp_nullifier_point = (EdwardsAffine::generator() * rp_secret).into_affine();
 
     RpFixture {
