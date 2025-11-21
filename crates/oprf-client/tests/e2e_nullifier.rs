@@ -8,7 +8,6 @@ use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
 use oprf_client::sign_oprf_query;
 use oprf_core::dlog_equality::DLogEqualityProof;
-use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use rand::thread_rng;
 use ruint::aliases::U256;
 use test_utils::{
@@ -20,8 +19,8 @@ use uuid::Uuid;
 
 use world_id_core::{Authenticator, HashableCredential, OnchainKeyRepresentable};
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
-    proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
+    authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
+    merkle::MerkleInclusionProof, proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
 };
 
 #[tokio::test]

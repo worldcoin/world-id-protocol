@@ -20,11 +20,12 @@ use oprf_types::{
     crypto::PartyId,
     RpId, ShareEpoch,
 };
-use oprf_world_types::{api::v1::OprfRequestAuth, MerkleRoot};
 use rand::thread_rng;
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
-use world_id_primitives::{merkle::AccountInclusionProof, TREE_DEPTH};
+use world_id_primitives::{
+    merkle::AccountInclusionProof, oprf::OprfRequestAuthV1, FieldElement, TREE_DEPTH,
+};
 
 #[derive(Clone)]
 struct IndexerState {
@@ -77,14 +78,14 @@ struct OprfStubState {
     rp_id: RpId,
     share_epoch: ShareEpoch,
     party_id: PartyId,
-    expected_root: MerkleRoot,
+    expected_root: FieldElement,
     verifier: VerifyingKey,
     sessions: Mutex<HashMap<Uuid, DLogSessionShamir>>,
 }
 
 /// Spawns a local OPRF stub that validates RP metadata and drives the DLog equality flow.
 pub async fn spawn_oprf_stub(
-    expected_root: MerkleRoot,
+    expected_root: FieldElement,
     verifier: VerifyingKey,
     rp_id: RpId,
     share_epoch: ShareEpoch,
@@ -115,7 +116,7 @@ pub async fn spawn_oprf_stub(
             "/api/v1/init",
             post({
                 move |state: State<Arc<OprfStubState>>,
-                      Json(req): Json<OprfRequest<OprfRequestAuth>>| {
+                      Json(req): Json<OprfRequest<OprfRequestAuthV1>>| {
                     oprf_init(state, req)
                 }
             }),
@@ -141,12 +142,12 @@ pub async fn spawn_oprf_stub(
 
 async fn oprf_init(
     State(state): State<Arc<OprfStubState>>,
-    req: OprfRequest<OprfRequestAuth>,
+    req: OprfRequest<OprfRequestAuthV1>,
 ) -> Result<Json<OprfResponse>, StatusCode> {
     if req.blinded_query.is_zero()
         || req.rp_identifier.rp_id != state.rp_id
         || req.rp_identifier.share_epoch != state.share_epoch
-        || req.auth.merkle_root != state.expected_root
+        || req.auth.merkle_root != *state.expected_root
     {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -159,7 +160,7 @@ async fn oprf_init(
         .verify(&msg, &req.auth.signature)
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let share = DLogShareShamir::from(state.rp_secret.clone());
+    let share = DLogShareShamir::from(state.rp_secret);
     let (session, commitments) =
         DLogSessionShamir::partial_commitments(req.blinded_query, share, &mut thread_rng());
     state.sessions.lock().await.insert(req.request_id, session);
@@ -192,7 +193,7 @@ async fn oprf_finish(
         state.party_id.into_inner() + 1,
         &contributing_parties,
     );
-    let share = DLogShareShamir::from(state.rp_secret.clone());
+    let share = DLogShareShamir::from(state.rp_secret);
     let proof_share = session.challenge(
         req.request_id,
         share,
