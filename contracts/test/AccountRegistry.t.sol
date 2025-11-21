@@ -631,4 +631,38 @@ contract AccountRegistryTest is Test {
         address retrievedRecoveryAddress = accountRegistry.getRecoveryAddress(1);
         assertEq(retrievedRecoveryAddress, recoveryAddress);
     }
+
+    function test_CreateAccountWithNoRecoveryAgent() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            address(0), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
+        assertEq(accountRegistry.getRecoveryAddress(1), address(0));
+
+        // Now test that we can update the recovery address to a non-zero address
+        uint256 nonce = 0;
+        bytes memory signature = updateRecoveryAddressSignature(1, alternateRecoveryAddress, nonce);
+        accountRegistry.updateRecoveryAddress(1, alternateRecoveryAddress, signature, nonce);
+        assertEq(accountRegistry.getRecoveryAddress(1), alternateRecoveryAddress);
+    }
+
+    /**
+     * @dev Tests that we can update the recovery address to the zero address, i.e. unsetting/disabling the Recovery Agent.
+     */
+    function test_UpdateRecoveryAddressToZeroAddress() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+        uint256 nonce = 0;
+        bytes memory signature = updateRecoveryAddressSignature(1, address(0), nonce);
+        accountRegistry.updateRecoveryAddress(1, address(0), signature, nonce);
+    }
 }
