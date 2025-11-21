@@ -142,6 +142,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     error PubkeyIdInUse();
 
+    /**
+     * @dev Thrown when there is no Recovery Agent (i.e. recovery address) set for the account.
+     */
+    error RecoveryNotEnabled();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -339,7 +344,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             authenticatorAddresses.length == authenticatorPubkeys.length,
             "authenticatorAddresses and authenticatorPubkeys length mismatch"
         );
-        require(recoveryAddress != address(0), "Recovery address cannot be the zero address");
 
         uint256 accountIndex = nextAccountIndex;
 
@@ -650,7 +654,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         );
 
         address recoverySigner = _getRecoveryAddress(accountIndex);
-        require(recoverySigner != address(0), "Recovery address not set");
+        if (recoverySigner == address(0)) {
+            revert RecoveryNotEnabled();
+        }
         require(SignatureChecker.isValidSignatureNow(recoverySigner, messageHash, signature), "Invalid signature");
         require(authenticatorAddressToPackedAccountIndex[newAuthenticatorAddress] == 0, "Authenticator already exists");
         require(newAuthenticatorAddress != address(0), "New authenticator address cannot be the zero address");
@@ -695,12 +701,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         require(accountIndex == recoveredAccountIndex, "Invalid account index");
         require(nonce == signatureNonces[accountIndex]++, "Invalid nonce");
 
-        require(newRecoveryAddress != address(0), "Recovery address cannot be the zero address");
-
         address oldRecoveryAddress = _getRecoveryAddress(accountIndex);
-        require(oldRecoveryAddress != address(0), "Recovery address not set");
 
-        // Preserve the bitmap when updating recovery address
+        // Preserve the bitmap when updating the recovery address
         uint256 bitmap = _getPubkeyBitmap(accountIndex);
         _setRecoveryAddressAndBitmap(accountIndex, newRecoveryAddress, bitmap);
 
