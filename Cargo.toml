@@ -40,9 +40,9 @@ itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
 oprf-client = { path = "crates/oprf-client" }
-oprf-core = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "584cdcc", default-features = false } # TODO: update to crates.io
+oprf-core = { package = "taceo-oprf-core", version="0.1", default-features = false }
 oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "584cdcc" } # TODO: update to crates.io or remove
-oprf-types = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "584cdcc" } # TODO: update to crates.io
+oprf-types = { package = "taceo-oprf-types", version="0.1" } 
 oprf-world-types = { path = "crates/oprf-world-types" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.1" }

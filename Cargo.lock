@@ -1652,9 +1652,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-secretsmanager"
-version = "1.93.0"
+version = "1.94.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5d227407d3553030bb0e479e638ce6e1c358f3f9bdd02b242a70019ec736b96"
+checksum = "437298e76bf5892b97251d5dc1721115a90cc4cad8ff4647eacdcdab6884d10f"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -3799,7 +3799,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "groth16"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/groth16.git#6529e47b7a9a792cf92425f2a9682ab4d4c433df"
+source = "git+https://github.com/TaceoLabs/groth16.git#c51c1c5d0ab5aa7bf6b88c932b3635b416221c41"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -5364,8 +5364,6 @@ dependencies = [
  "eyre",
  "futures",
  "k256",
- "oprf-core",
- "oprf-types",
  "oprf-world-types 0.1.0",
  "rand 0.8.5",
  "reqwest",
@@ -5374,7 +5372,9 @@ dependencies = [
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
- "taceo-poseidon2",
+ "taceo-oprf-core",
+ "taceo-oprf-types",
+ "taceo-poseidon2 0.1.0",
  "test-utils",
  "thiserror 1.0.69",
  "tokio",
@@ -5424,7 +5424,7 @@ dependencies = [
  "subtle",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat 0.2.0",
- "taceo-poseidon2",
+ "taceo-poseidon2 0.1.0",
  "uuid",
  "zeroize",
 ]
@@ -5505,7 +5505,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
- "taceo-poseidon2",
+ "taceo-poseidon2 0.1.0",
  "testcontainers",
  "testcontainers-modules",
  "tokio",
@@ -5535,7 +5535,6 @@ dependencies = [
  "alloy",
  "ark-ff 0.5.0",
  "k256",
- "oprf-core",
  "ruint",
  "serde",
  "taceo-ark-babyjubjub",
@@ -5543,6 +5542,7 @@ dependencies = [
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
+ "taceo-oprf-core",
 ]
 
 [[package]]
@@ -6042,7 +6042,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9120690fafc389a67ba3803df527d0ec9cbbc9cc45e4cc20b332996dfb672425"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -7817,7 +7817,7 @@ dependencies = [
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat 0.1.0",
- "taceo-poseidon2",
+ "taceo-poseidon2 0.1.0",
  "zeroize",
 ]
 
@@ -7863,10 +7863,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "taceo-oprf-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77bf208b50749b78ae23664585e5cbbfc3265c467074613acae084e8b38730a8"
+dependencies = [
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "blake3",
+ "itertools 0.14.0",
+ "num-bigint",
+ "rand 0.8.5",
+ "serde",
+ "subtle",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat 0.2.1",
+ "taceo-poseidon2 0.2.0",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "taceo-oprf-types"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f5b2e1829c5ac61f5540735b297bdd7d4d2f8974b7ccf74f7fa4dfaa37f5bf2"
+dependencies = [
+ "eyre",
+ "k256",
+ "serde",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat 0.2.1",
+ "taceo-circom-types",
+ "taceo-oprf-core",
+ "uuid",
+]
+
+[[package]]
 name = "taceo-poseidon2"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5f09fc2f1c68aafd3f544313fe7e34d33b35aa666bc9e6b7a22e94b9833140"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+ "num-bigint",
+ "num-traits",
+]
+
+[[package]]
+name = "taceo-poseidon2"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fbf106fb8682ee4e057872a18f431828bd467c28d2ead469e4c84dbf6ce5ec6"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -7949,7 +8000,7 @@ dependencies = [
  "oprf-world-types 0.1.0",
  "serde_json",
  "taceo-ark-babyjubjub",
- "taceo-poseidon2",
+ "taceo-poseidon2 0.1.0",
  "world-id-primitives 0.1.0",
 ]
 
@@ -9338,7 +9389,6 @@ dependencies = [
  "hex",
  "oprf-client 0.1.0",
  "oprf-test",
- "oprf-types",
  "oprf-world-types 0.1.0",
  "rand 0.8.5",
  "reqwest",
@@ -9350,7 +9400,8 @@ dependencies = [
  "taceo-ark-serde-compat 0.2.1",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
- "taceo-poseidon2",
+ "taceo-oprf-types",
+ "taceo-poseidon2 0.1.0",
  "test-utils",
  "thiserror 1.0.69",
  "tokio",
@@ -9412,7 +9463,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "strum",
- "taceo-poseidon2",
+ "taceo-poseidon2 0.1.0",
  "take_mut",
  "test-utils",
  "tokio",
