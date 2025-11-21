@@ -25,7 +25,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
-    // accountIndex -> [32 bits pubkeyId bitmap][64 bits unused][160 bits recoveryAddress]
+    // accountIndex -> [96 bits pubkeyId bitmap][160 bits recoveryAddress]
+    // Note that while 96 bits are reserved for the pubkeyId bitmap, only MAX_AUTHENTICATORS bits are used in practice.
     mapping(uint256 => uint256) internal _accountIndexToRecoveryAddressPacked;
 
     // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
@@ -240,7 +241,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Helper function to get pubkey bitmap from the packed storage.
      */
     function _getPubkeyBitmap(uint256 accountIndex) internal view returns (uint256) {
-        return uint32(_accountIndexToRecoveryAddressPacked[accountIndex] >> 224);
+        return uint32(_accountIndexToRecoveryAddressPacked[accountIndex] >> 160);
     }
 
     /**
@@ -248,13 +249,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * bitmap is 32 bits, but 256 are accepted to simplify bit operations in other functions.
      */
     function _setPubkeyBitmap(uint256 accountIndex, uint256 bitmap) internal {
-        if (bitmap >> 224 != 0) {
+        if (bitmap >> 96 != 0) {
             revert BitmapOverflow();
         }
 
         uint256 packed = _accountIndexToRecoveryAddressPacked[accountIndex];
         // Clear bitmap bits and set new bitmap
-        packed = (packed & uint256(type(uint160).max)) | (uint256(bitmap) << 224);
+        packed = (packed & uint256(type(uint160).max)) | (bitmap << 224);
         _accountIndexToRecoveryAddressPacked[accountIndex] = packed;
     }
 
@@ -263,10 +264,10 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * bitmap is 32 bits, but 256 are accepted to simplify bit operations in other functions.
      */
     function _setRecoveryAddressAndBitmap(uint256 accountIndex, address recoveryAddress, uint256 bitmap) internal {
-        if (bitmap >> 224 != 0) {
+        if (bitmap >> 96 != 0) {
             revert BitmapOverflow();
         }
-        _accountIndexToRecoveryAddressPacked[accountIndex] = uint256(uint160(recoveryAddress)) | (bitmap << 224);
+        _accountIndexToRecoveryAddressPacked[accountIndex] = uint256(uint160(recoveryAddress)) | (bitmap << 160);
     }
 
     /**
