@@ -5364,7 +5364,6 @@ dependencies = [
  "eyre",
  "futures",
  "k256",
- "oprf-world-types 0.1.0",
  "rand 0.8.5",
  "reqwest",
  "ruint",
@@ -5398,7 +5397,7 @@ dependencies = [
  "k256",
  "oprf-core",
  "oprf-types",
- "oprf-world-types 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=584cdcc)",
+ "oprf-world-types",
  "rand 0.8.5",
  "reqwest",
  "taceo-ark-babyjubjub",
@@ -5459,7 +5458,7 @@ dependencies = [
  "nodes-telemetry",
  "oprf-core",
  "oprf-types",
- "oprf-world-types 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=584cdcc)",
+ "oprf-world-types",
  "parking_lot",
  "rand 0.8.5",
  "rustls 0.23.35",
@@ -5495,7 +5494,7 @@ dependencies = [
  "oprf-core",
  "oprf-service",
  "oprf-types",
- "oprf-world-types 0.1.0 (git+https://github.com/TaceoLabs/nullifier-oracle-service?rev=584cdcc)",
+ "oprf-world-types",
  "parking_lot",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -5526,23 +5525,6 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat 0.2.0",
  "uuid",
-]
-
-[[package]]
-name = "oprf-world-types"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "ark-ff 0.5.0",
- "k256",
- "ruint",
- "serde",
- "taceo-ark-babyjubjub",
- "taceo-ark-serde-compat 0.2.1",
- "taceo-circom-types",
- "taceo-eddsa-babyjubjub",
- "taceo-groth16-material",
- "taceo-oprf-core",
 ]
 
 [[package]]
@@ -7997,7 +7979,6 @@ dependencies = [
  "ark-ff 0.5.0",
  "eyre",
  "hex",
- "oprf-world-types 0.1.0",
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-poseidon2 0.1.0",
@@ -9389,7 +9370,6 @@ dependencies = [
  "hex",
  "oprf-client 0.1.0",
  "oprf-test",
- "oprf-world-types 0.1.0",
  "rand 0.8.5",
  "reqwest",
  "ruint",
@@ -9495,6 +9475,7 @@ dependencies = [
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
+ "taceo-oprf-core",
  "thiserror 1.0.69",
 ]
 

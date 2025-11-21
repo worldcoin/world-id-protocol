@@ -21,5 +21,4 @@ serde_json = { workspace = true }
 poseidon2 = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-ff = { workspace = true }
-oprf-world-types = { workspace = true }
 world-id-primitives = { workspace = true }
