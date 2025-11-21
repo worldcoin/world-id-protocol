@@ -214,7 +214,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
         blinded_response,
         *rp_fixture.signal_hash,
         *rp_fixture.rp_session_id_r_seed,
-        signed_query.query_hash(),
+        signed_query.blinding_factor().clone(),
     );
 
     // Generate witness JSON and create the Groth16 proof offline
