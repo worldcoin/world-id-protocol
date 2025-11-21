@@ -241,7 +241,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Helper function to get pubkey bitmap from the packed storage.
      */
     function _getPubkeyBitmap(uint256 accountIndex) internal view returns (uint256) {
-        return uint32(_accountIndexToRecoveryAddressPacked[accountIndex] >> 160);
+        return _accountIndexToRecoveryAddressPacked[accountIndex] >> 160;
     }
 
     /**
@@ -255,7 +255,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         uint256 packed = _accountIndexToRecoveryAddressPacked[accountIndex];
         // Clear bitmap bits and set new bitmap
-        packed = (packed & uint256(type(uint160).max)) | (bitmap << 224);
+        packed = (packed & uint256(type(uint160).max)) | (bitmap << 160);
         _accountIndexToRecoveryAddressPacked[accountIndex] = packed;
     }
 
