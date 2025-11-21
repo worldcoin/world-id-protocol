@@ -3,6 +3,7 @@ name = "world-id-indexer"
 version = "0.1.0"
 license.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
