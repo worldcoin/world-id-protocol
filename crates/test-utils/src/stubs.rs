@@ -11,7 +11,10 @@ use axum::{
 };
 use eyre::{Context as _, Result};
 use k256::ecdsa::{signature::Verifier, VerifyingKey};
-use oprf_core::ddlog_equality::DLogEqualitySession;
+use oprf_core::{
+    ddlog_equality::shamir::{DLogSessionShamir, DLogShareShamir},
+    shamir,
+};
 use oprf_types::{
     api::v1::{ChallengeRequest, ChallengeResponse, OprfRequest, OprfResponse},
     crypto::PartyId,
@@ -76,7 +79,7 @@ struct OprfStubState {
     party_id: PartyId,
     expected_root: MerkleRoot,
     verifier: VerifyingKey,
-    sessions: Mutex<HashMap<Uuid, DLogEqualitySession>>,
+    sessions: Mutex<HashMap<Uuid, DLogSessionShamir>>,
 }
 
 /// Spawns a local OPRF stub that validates RP metadata and drives the DLog equality flow.
@@ -156,11 +159,9 @@ async fn oprf_init(
         .verify(&msg, &req.auth.signature)
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let (session, commitments) = DLogEqualitySession::partial_commitments(
-        req.blinded_query,
-        state.rp_secret,
-        &mut thread_rng(),
-    );
+    let share = DLogShareShamir::from(state.rp_secret.clone());
+    let (session, commitments) =
+        DLogSessionShamir::partial_commitments(req.blinded_query, share, &mut thread_rng());
     state.sessions.lock().await.insert(req.request_id, session);
 
     Ok(Json(OprfResponse {
@@ -186,13 +187,18 @@ async fn oprf_finish(
         .remove(&req.request_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let parties = req.challenge.get_contributing_parties().to_vec();
+    let contributing_parties = req.challenge.get_contributing_parties().to_vec();
+    let lagrange = shamir::single_lagrange_from_coeff::<Fr, u16>(
+        state.party_id.into_inner() + 1,
+        &contributing_parties,
+    );
+    let share = DLogShareShamir::from(state.rp_secret.clone());
     let proof_share = session.challenge(
         req.request_id,
-        &parties,
-        state.rp_secret,
+        share,
         state.rp_public,
         req.challenge.clone(),
+        lagrange,
     );
 
     Ok(Json(ChallengeResponse {

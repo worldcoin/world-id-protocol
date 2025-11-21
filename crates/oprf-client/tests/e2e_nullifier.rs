@@ -9,10 +9,6 @@ use eyre::{eyre, WrapErr as _};
 use oprf_client::sign_oprf_query;
 use oprf_core::dlog_equality::DLogEqualityProof;
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
-use oprf_zk::{
-    Groth16Material, NULLIFIER_FINGERPRINT, NULLIFIER_GRAPH_BYTES, QUERY_FINGERPRINT,
-    QUERY_GRAPH_BYTES,
-};
 use rand::thread_rng;
 use ruint::aliases::U256;
 use test_utils::{

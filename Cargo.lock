@@ -7996,21 +7996,61 @@ dependencies = [
  "alloy-node-bindings",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
- "axum 0.8.6",
+ "axum 0.8.7",
  "eyre",
  "hex",
  "k256",
- "oprf-core",
- "oprf-types",
  "oprf-world-types 0.1.0",
  "rand 0.8.5",
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
- "taceo-poseidon2",
+ "taceo-oprf-core",
+ "taceo-oprf-types",
+ "taceo-poseidon2 0.1.0",
  "tokio",
  "uuid",
- "world-id-primitives",
+ "world-id-primitives 0.1.0",
+]
+
+[[package]]
+name = "testcontainers"
+version = "0.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f3ac71069f20ecfa60c396316c283fbf35e6833a53dff551a31b5458da05edc"
+dependencies = [
+ "astral-tokio-tar",
+ "async-trait",
+ "bollard",
+ "bytes",
+ "docker_credential",
+ "either",
+ "etcetera 0.10.0",
+ "futures",
+ "log",
+ "memchr",
+ "parse-display",
+ "pin-project-lite",
+ "reqwest",
+ "russh",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "ulid",
+ "url",
+]
+
+[[package]]
+name = "testcontainers-modules"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1966329d5bb3f89d33602d2db2da971fb839f9297dad16527abf4564e2ae0a6d"
+dependencies = [
+ "testcontainers",
 ]
 
 [[package]]
@@ -9352,14 +9392,13 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
- "axum 0.8.6",
+ "axum 0.8.7",
  "chrono",
  "ciborium",
  "eyre",
  "hex",
  "k256",
  "oprf-client 0.1.0",
- "oprf-core",
  "oprf-test",
  "oprf-world-types 0.1.0",
  "rand 0.8.5",
@@ -9372,6 +9411,7 @@ dependencies = [
  "taceo-ark-serde-compat 0.2.1",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
+ "taceo-oprf-core",
  "taceo-oprf-types",
  "taceo-poseidon2 0.1.0",
  "test-utils",
@@ -9465,6 +9505,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat 0.2.1",
  "taceo-eddsa-babyjubjub",
+ "taceo-poseidon2 0.1.0",
  "thiserror 1.0.69",
 ]
 
@@ -9487,7 +9528,6 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat 0.1.0",
  "taceo-eddsa-babyjubjub",
- "taceo-poseidon2",
  "thiserror 1.0.69",
 ]
 
