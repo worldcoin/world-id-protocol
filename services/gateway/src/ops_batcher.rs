@@ -35,7 +35,7 @@ pub enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
-        pubkey_id: U256,
+        pubkey_id: u32,
         new_pubkey: U256,
     },
     Insert {
@@ -46,7 +46,7 @@ pub enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
-        pubkey_id: U256,
+        pubkey_id: u32,
         new_pubkey: U256,
     },
     Remove {
@@ -57,7 +57,7 @@ pub enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
-        pubkey_id: U256,
+        pubkey_id: u32,
         authenticator_pubkey: U256,
     },
     Recover {
