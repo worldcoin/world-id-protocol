@@ -10,14 +10,9 @@ path = "bin/authenticator.rs"
 required-features = ["authenticator", "cli"]
 
 [[bin]]
-name = "rp"
-path = "bin/rp.rs"
-required-features = ["cli"]
-
-[[bin]]
 name = "issuer"
 path = "bin/issuer.rs"
-required-features = ["issuer"]
+required-features = ["issuer", "cli"]
 
 [dependencies]
 alloy = { workspace = true, features = ["sol-types", "rpc"] }
@@ -71,7 +66,7 @@ issuer = ["alloy/signer-local", "dep:secrecy"]
 
 rp = ["dep:oprf-types"]
 
-cli = ["dep:oprf-test"]
+cli = []
 
 # OpenAPI/Swagger docs
 openapi = ["dep:utoipa"]
