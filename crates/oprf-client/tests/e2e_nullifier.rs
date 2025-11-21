@@ -10,7 +10,6 @@ use k256::ecdsa::signature::Signer;
 use oprf_client::sign_oprf_query;
 use oprf_core::dlog_equality::DLogEqualityProof;
 use oprf_types::ShareEpoch;
-use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use rand::{thread_rng, Rng};
 use ruint::aliases::U256;
 use test_utils::anvil::{AccountRegistry, CredentialSchemaIssuerRegistry, TestAnvil};
@@ -19,6 +18,7 @@ use uuid::Uuid;
 
 use world_id_core::{Authenticator, Credential, HashableCredential, OnchainKeyRepresentable};
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
+use world_id_primitives::circuit_inputs::NullifierProofCircuitInput;
 use world_id_primitives::proof::SingleProofInput;
 use world_id_primitives::rp::RpNullifierKey;
 use world_id_primitives::{merkle::MerkleInclusionProof, rp::RpId, TREE_DEPTH};
@@ -258,9 +258,9 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_secret, &mut rng);
 
     // Build nullifier proof input (πF witness payload)
-    let nullifier_input = NullifierProofInput::<TREE_DEPTH>::new(
+    let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH>::new(
         signed_query.query_input().clone(),
-        dlog_proof,
+        &dlog_proof,
         rp_nullifier_key.into_inner(),
         blinded_response,
         *signal_hash,
