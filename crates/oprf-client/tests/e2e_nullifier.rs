@@ -8,7 +8,6 @@ use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
 use oprf_client::sign_oprf_query;
 use oprf_core::dlog_equality::DLogEqualityProof;
-use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use rand::thread_rng;
 use ruint::aliases::U256;
 use test_utils::{
@@ -20,8 +19,8 @@ use uuid::Uuid;
 
 use world_id_core::{Authenticator, HashableCredential, OnchainKeyRepresentable};
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
-    proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
+    authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
+    merkle::MerkleInclusionProof, proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
 };
 
 #[tokio::test]
@@ -207,9 +206,9 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_fixture.rp_secret, &mut rng);
 
     // Build nullifier proof input (πF witness payload)
-    let nullifier_input = NullifierProofInput::<TREE_DEPTH>::new(
+    let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH>::new(
         signed_query.query_input().clone(),
-        dlog_proof,
+        &dlog_proof,
         rp_nullifier_key.into_inner(),
         blinded_response,
         *rp_fixture.signal_hash,

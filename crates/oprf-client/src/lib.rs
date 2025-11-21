@@ -42,13 +42,12 @@ use oprf_types::api::v1::{
 };
 use oprf_types::crypto::{PartyId, RpNullifierKey};
 use oprf_types::{crypto::RpNullifierKey as OprfRpNullifierKey, RpId as OprfRpId, ShareEpoch};
-use oprf_world_types::api::v1::OprfRequestAuth;
-use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
-use oprf_world_types::proof_inputs::query::QueryProofInput;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
 use reqwest::StatusCode;
 use uuid::Uuid;
+use world_id_primitives::circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput};
+use world_id_primitives::oprf::OprfRequestAuthV1;
 use world_id_primitives::proof::SingleProofInput;
 
 use world_id_primitives::{Credential, FieldElement, TREE_DEPTH};
@@ -148,9 +147,9 @@ pub enum Error {
 /// - `blinding_factor`: The hash of the query used in proofs.
 pub struct SignedOprfQuery {
     request_id: Uuid,
-    oprf_request: OprfRequest<OprfRequestAuth>,
+    oprf_request: OprfRequest<OprfRequestAuthV1>,
     blinded_request: BlindedOprfRequest,
-    query_input: QueryProofInput<TREE_DEPTH>,
+    query_input: QueryProofCircuitInput<TREE_DEPTH>,
     blinding_factor: BlindingFactor,
 }
 
@@ -206,7 +205,7 @@ pub struct Challenge {
     challenge_request: ChallengeRequest,
     blinded_request: BlindedOprfRequest,
     blinded_response: ark_babyjubjub::EdwardsAffine,
-    query_input: QueryProofInput<TREE_DEPTH>,
+    query_input: QueryProofCircuitInput<TREE_DEPTH>,
     blinding_factor: BlindingFactor,
     rp_nullifier_key: RpNullifierKey,
 }
@@ -220,12 +219,12 @@ impl Challenge {
 
 impl SignedOprfQuery {
     /// Returns the [`OprfRequest`] for this signed query.
-    pub fn get_request(&self) -> OprfRequest<OprfRequestAuth> {
+    pub fn get_request(&self) -> OprfRequest<OprfRequestAuthV1> {
         self.oprf_request.clone()
     }
 
-    /// Returns the [`QueryProofInput`] that was committed to in the query proof.
-    pub fn query_input(&self) -> &QueryProofInput<TREE_DEPTH> {
+    /// Returns the [`QueryProofCircuitInput`] that was committed to in the query proof.
+    pub fn query_input(&self) -> &QueryProofCircuitInput<TREE_DEPTH> {
         &self.query_input
     }
 
@@ -441,7 +440,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = args.inclusion_proof.siblings.map(|s| *s);
 
-    let query_input = QueryProofInput::<TREE_DEPTH> {
+    let query_input = QueryProofCircuitInput::<TREE_DEPTH> {
         pk: args.key_set.as_affine_array(),
         pk_index: args.key_index.into(),
         s: signature.s,
@@ -453,7 +452,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         cred_expires_at: args.credential.expires_at.into(),
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
-        current_time_stamp: args.current_timestamp.into(),
+        current_timestamp: args.current_timestamp.into(),
         merkle_root: *args.inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
         mt_index: args.inclusion_proof.account_id.into(),
@@ -478,11 +477,11 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
                 rp_id,
                 share_epoch: ShareEpoch::new(args.share_epoch),
             },
-            auth: OprfRequestAuth {
+            auth: OprfRequestAuthV1 {
                 proof: proof.into(),
                 action: *args.action,
                 nonce: *args.nonce,
-                merkle_root: oprf_world_types::MerkleRoot::from(*args.inclusion_proof.root),
+                merkle_root: *args.inclusion_proof.root,
                 cred_pk: args.credential.issuer.clone(),
                 current_time_stamp: args.current_timestamp,
                 signature: args.rp_signature,
@@ -615,9 +614,9 @@ pub fn verify_challenges<R: Rng + CryptoRng>(
         )
         .map_err(|_| Error::InvalidDLogProof)?;
 
-    let nullifier_input = NullifierProofInput::new(
+    let nullifier_input = NullifierProofCircuitInput::new(
         challenges.query_input,
-        dlog_proof,
+        &dlog_proof,
         challenges.rp_nullifier_key.inner(),
         challenges.blinded_response,
         signal_hash,

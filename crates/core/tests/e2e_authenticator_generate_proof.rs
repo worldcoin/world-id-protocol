@@ -8,7 +8,6 @@ use std::{
 use alloy::primitives::U256;
 use eyre::{eyre, Context as _, Result};
 use oprf_types::crypto::RpNullifierKey;
-use oprf_world_types::MerkleRoot;
 use test_utils::{
     fixtures::{
         build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
@@ -120,12 +119,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    // Local OPRF peer stub setup.
-    let merkle_root = MerkleRoot::from(*root);
-    let rp_verifying_key = rp_fixture.signing_key.verifying_key().clone();
+    // Local OPRF peer stub setup
+    let rp_verifying_key = rp_fixture.signing_key.verifying_key();
     let oprf_server = spawn_oprf_stub(
-        merkle_root,
-        rp_verifying_key,
+        root,
+        *rp_verifying_key,
         rp_fixture.oprf_rp_id,
         rp_fixture.share_epoch,
         rp_fixture.rp_secret,

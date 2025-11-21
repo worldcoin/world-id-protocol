@@ -22,13 +22,16 @@ ark-groth16 = { workspace = true }
 ark-serde-compat = { workspace = true }
 ark-serialize = { workspace = true }
 arrayvec = { version = "0.7", features = ["serde"] }
+circom-types = { workspace = true, features = ["groth16"] }
+groth16-material = { workspace = true, features = ["circom"] }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
+oprf-core = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-k256 = { workspace = true, features = ["ecdsa"] }
+k256 = { workspace = true, features = ["ecdsa", "serde"] }
 poseidon2 = { workspace = true }
 
 [dev-dependencies]
