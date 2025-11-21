@@ -17,11 +17,12 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
+use ark_bn254::Bn254;
 use ark_ff::AdditiveGroup;
 use ark_serialize::CanonicalSerialize;
+use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use oprf_types::ShareEpoch;
-use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
 use poseidon2::Poseidon2;
 use secrecy::ExposeSecret;
 use std::str::FromStr;
@@ -38,15 +39,10 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
-static QUERY_ZKEY_PATH: &str = "circom/query.zkey";
-static QUERY_GRAPH_PATH: &str = "circom/query_graph.bin";
-static NULLIFIER_ZKEY_PATH: &str = "circom/nullifier.zkey";
-static NULLIFIER_GRAPH_PATH: &str = "circom/nullifier_graph.bin";
-
 /// Maximum timeout for polling account creation status (30 seconds)
 const MAX_POLL_TIMEOUT_SECS: u64 = 30;
 
-type UniquenessProof = (Groth16Proof, FieldElement);
+type UniquenessProof = (Proof<Bn254>, FieldElement);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 #[derive(Debug)]
@@ -334,14 +330,8 @@ impl Authenticator {
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         // TODO: load once and from bytes
-        let query_material = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH)
-            .map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load query material: {e}"))
-            })?;
-        let nullifier_material =
-            Groth16Material::new(NULLIFIER_ZKEY_PATH, None, NULLIFIER_GRAPH_PATH).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
-            })?;
+        let query_material = oprf_client::load_embedded_query_material();
+        let nullifier_material = oprf_client::load_embedded_nullifier_material();
 
         // TODO: convert rp_request to primitives types
         let primitives_rp_id =

@@ -41,7 +41,6 @@ oprf-client = { workspace = true, optional = true }
 oprf-types = { workspace = true, optional = true }
 oprf-test = { workspace = true, optional = true }
 oprf-world-types = { workspace = true }
-oprf-zk = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 circom-types = { workspace = true, optional = true }
@@ -49,7 +48,6 @@ rand = { workspace = true }
 ark-ec = { workspace = true }
 uuid = { workspace = true }
 eyre = { workspace = true }
-groth16 = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10", optional = true }
 world-id-primitives = { workspace = true }
@@ -63,7 +61,6 @@ authenticator = [
     "alloy/signer-local",
     "alloy/reqwest-rustls-tls",
     "dep:circom-types",
-    "dep:groth16",
     "dep:oprf-client",
     "dep:oprf-types",
     "dep:reqwest",

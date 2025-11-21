@@ -8,8 +8,9 @@
 //! cryptographic proofs and points with Serde (de)serialization so
 //! they can be sent over the wire.
 
+use ark_serde_compat::babyjubjub;
+use circom_types::{ark_bn254::Bn254, groth16::Proof};
 use eddsa_babyjubjub::EdDSAPublicKey;
-use oprf_zk::groth16_serde::Groth16Proof;
 use serde::{Deserialize, Serialize};
 
 use crate::MerkleRoot;
@@ -18,14 +19,14 @@ use crate::MerkleRoot;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OprfRequestAuth {
     /// Zero-knowledge proof provided by the user.
-    pub proof: Groth16Proof,
+    pub proof: Proof<Bn254>,
     /// The action
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_fq")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_fq")]
+    #[serde(serialize_with = "babyjubjub::serialize_fq")]
+    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
     pub action: ark_babyjubjub::Fq,
     /// The nonce
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_fq")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_fq")]
+    #[serde(serialize_with = "babyjubjub::serialize_fq")]
+    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
     pub nonce: ark_babyjubjub::Fq,
     /// The Merkle root associated with this request.
     pub merkle_root: MerkleRoot,
