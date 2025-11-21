@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
         DEFAULT_KEY_GEN_CONTRACT_ADDRESS,
         rp_pk,
         TACEO_ADMIN_PRIVATE_KEY,
-    )?;
+    );
 
     let nonce: FieldElement = ark_babyjubjub::Fq::rand(&mut rand::thread_rng()).into();
     let current_time_stamp = SystemTime::now()
