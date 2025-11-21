@@ -24,7 +24,7 @@ alloy = { version = "1", default-features = false }
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false } 
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false, features = ["babyjubjub"] } 
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"

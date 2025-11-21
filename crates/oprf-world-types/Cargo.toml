@@ -18,4 +18,4 @@ k256 = { workspace = true, features = ["ecdsa", "serde"] }
 oprf-core = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-ark-serde-compat = { workspace = true, features = ["babyjubjub"] }
+ark-serde-compat = { workspace = true }
