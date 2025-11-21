@@ -1,4 +1,4 @@
-use std::{convert::TryInto, path::PathBuf};
+use std::convert::TryInto;
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
 use ark_babyjubjub::Fq;
@@ -30,29 +30,8 @@ use world_id_primitives::{
 
 #[tokio::test]
 async fn e2e_nullifier() -> eyre::Result<()> {
-    // Locate Groth16 proving material for the query and nullifier circuits
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../circom");
-
-    let query_zkey = base.join("query.zkey");
-    let nullifier_zkey = base.join("nullifier.zkey");
-    let query_zkey_bytes =
-        std::fs::read(&query_zkey).wrap_err("missing or unreadable query.zkey")?;
-    let nullifier_zkey_bytes =
-        std::fs::read(&nullifier_zkey).wrap_err("missing or unreadable nullifier.zkey")?;
-
-    // Load Groth16 material (proving key + computation graph fingerprints)
-    let query_material = Groth16Material::from_bytes(
-        &query_zkey_bytes,
-        Some(QUERY_FINGERPRINT),
-        QUERY_GRAPH_BYTES,
-    )
-    .wrap_err("failed to load query groth16 material")?;
-    let nullifier_material = Groth16Material::from_bytes(
-        &nullifier_zkey_bytes,
-        Some(NULLIFIER_FINGERPRINT),
-        NULLIFIER_GRAPH_BYTES,
-    )
-    .wrap_err("failed to load nullifier groth16 material")?;
+    let query_material = oprf_client::load_embedded_query_material();
+    let nullifier_material = oprf_client::load_embedded_nullifier_material();
 
     let RegistryTestContext {
         anvil,
@@ -233,7 +212,6 @@ async fn e2e_nullifier() -> eyre::Result<()> {
 
     // Build nullifier proof input (πF witness payload)
     let nullifier_input = NullifierProofInput::<TREE_DEPTH>::new(
-        request_id,
         signed_query.query_input().clone(),
         dlog_proof,
         rp_nullifier_key.into_inner(),
@@ -244,30 +222,16 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     );
 
     // Generate witness JSON and create the Groth16 proof offline
-    let nullifier_input_json = serde_json::to_value(&nullifier_input)
-        .expect("nullifier input serializes to JSON")
-        .as_object()
-        .expect("nullifier input JSON must be an object")
-        .to_owned();
-    let nullifier_witness = nullifier_material
-        .generate_witness(nullifier_input_json)
-        .wrap_err("failed to generate nullifier witness")?;
-    let (nullifier_proof, public_inputs) = nullifier_material
-        .generate_proof(&nullifier_witness, &mut rng)
-        .wrap_err("failed to generate nullifier proof")?;
+    let (proof, public) = nullifier_material.generate_proof(&nullifier_input, &mut rng)?;
 
     // Verify the Groth16 proof offline
-    // Extract public inputs from witness (already in ark_bn254::Fr format)
-    // The witness format is [dummy, public_input_0, public_input_1, ...]
-    let public_inputs_fr: Vec<_> =
-        nullifier_witness[1..nullifier_material.matrices.num_instance_variables].to_vec();
     nullifier_material
-        .verify_proof(&nullifier_proof.into(), &public_inputs_fr)
+        .verify_proof(&proof, &public)
         .wrap_err("failed to verify nullifier proof offline")?;
 
-    // The circuit exposes [id_commitment, nullifier, ...] as public inputs
-    let id_commitment = public_inputs[0];
-    let nullifier = public_inputs[1];
+    // 2 outputs, 0 is id_commitment, 1 is nullifier
+    let id_commitment = public[0];
+    let nullifier = public[1];
 
     // Basic checks on public outputs
     assert_ne!(id_commitment, Fq::ZERO);

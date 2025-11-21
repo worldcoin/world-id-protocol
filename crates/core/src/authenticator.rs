@@ -18,6 +18,7 @@ use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_serialize::CanonicalSerialize;
+use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use oprf_types::ShareEpoch;
 use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
@@ -35,15 +36,10 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_ACCOUNT_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
-static QUERY_ZKEY_PATH: &str = "circom/query.zkey";
-static QUERY_GRAPH_PATH: &str = "circom/query_graph.bin";
-static NULLIFIER_ZKEY_PATH: &str = "circom/nullifier.zkey";
-static NULLIFIER_GRAPH_PATH: &str = "circom/nullifier_graph.bin";
-
 /// Maximum timeout for polling account creation status (30 seconds)
 const MAX_POLL_TIMEOUT_SECS: u64 = 30;
 
-type UniquenessProof = (Groth16Proof, FieldElement);
+type UniquenessProof = (Proof<Bn254>, FieldElement);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 #[derive(Debug)]
@@ -331,14 +327,8 @@ impl Authenticator {
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         // TODO: load once and from bytes
-        let query_material = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH)
-            .map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load query material: {e}"))
-            })?;
-        let nullifier_material =
-            Groth16Material::new(NULLIFIER_ZKEY_PATH, None, NULLIFIER_GRAPH_PATH).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
-            })?;
+        let query_material = oprf_client::load_embedded_query_material();
+        let nullifier_material = oprf_client::load_embedded_nullifier_material();
 
         // TODO: convert rp_request to primitives types
         let primitives_rp_id =
@@ -431,11 +421,13 @@ impl Authenticator {
             *self.config.registry_address(),
         );
 
+        #[allow(clippy::cast_possible_truncation)]
+        // truncating is intentional, and index will always fit in 32 bits
         let signature = sign_insert_authenticator(
             &self.signer.onchain_signer(),
             account_id,
             new_authenticator_address,
-            U256::from(index),
+            index as u32,
             encoded_offchain_pubkey,
             new_offchain_signer_commitment.into(),
             nonce,
@@ -446,10 +438,12 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
         })?;
 
+        #[allow(clippy::cast_possible_truncation)]
+        // truncating is intentional, and index will always fit in 32 bits
         let req = InsertAuthenticatorRequest {
             account_index: account_id,
             new_authenticator_address,
-            pubkey_id: U256::from(index),
+            pubkey_id: index as u32,
             new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
@@ -521,7 +515,7 @@ impl Authenticator {
             account_id,
             old_authenticator_address,
             new_authenticator_address,
-            U256::from(index),
+            index,
             encoded_offchain_pubkey,
             new_commitment,
             nonce,
@@ -547,7 +541,7 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(U256::from(index)),
+            pubkey_id: Some(index),
             new_authenticator_pubkey: Some(encoded_offchain_pubkey),
         };
 
@@ -613,7 +607,7 @@ impl Authenticator {
             &self.signer.onchain_signer(),
             account_id,
             authenticator_address,
-            U256::from(index),
+            index,
             encoded_old_offchain_pubkey,
             new_commitment,
             nonce,
@@ -638,7 +632,7 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(U256::from(index)),
+            pubkey_id: Some(index),
             authenticator_pubkey: Some(encoded_old_offchain_pubkey),
         };
 

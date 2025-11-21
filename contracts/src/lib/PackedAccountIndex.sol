@@ -16,8 +16,8 @@ library PackedAccountIndex {
      * @param packed The packed account index: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
      * @return The recovery counter (top 32 bits).
      */
-    function recoveryCounter(uint256 packed) public pure returns (uint256) {
-        return uint256(uint32(packed >> 224));
+    function recoveryCounter(uint256 packed) public pure returns (uint32) {
+        return uint32(packed >> 224);
     }
 
     /**
@@ -25,8 +25,8 @@ library PackedAccountIndex {
      * @param packed The packed account index: [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
      * @return The pubkey ID (middle 32 bits).
      */
-    function pubkeyId(uint256 packed) public pure returns (uint256) {
-        return uint256(uint32(packed >> 192));
+    function pubkeyId(uint256 packed) public pure returns (uint32) {
+        return uint32(packed >> 192);
     }
 
     /**

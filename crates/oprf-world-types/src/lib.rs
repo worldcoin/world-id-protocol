@@ -2,6 +2,7 @@ use std::{fmt, str::FromStr};
 
 use alloy::primitives::U256;
 use ark_ff::PrimeField;
+use ark_serde_compat::babyjubjub;
 use serde::{Deserialize, Serialize};
 
 pub mod api;
@@ -14,8 +15,8 @@ pub mod proof_inputs;
 #[serde(transparent)]
 pub struct MerkleRoot(
     #[serde(
-        serialize_with = "ark_serde_compat::serialize_babyjubjub_fq",
-        deserialize_with = "ark_serde_compat::deserialize_babyjubjub_fq"
+        serialize_with = "babyjubjub::serialize_fq",
+        deserialize_with = "babyjubjub::deserialize_fq"
     )]
     ark_babyjubjub::Fq,
 );

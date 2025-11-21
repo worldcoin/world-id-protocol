@@ -10,37 +10,35 @@ license.workspace = true
 [dependencies]
 ark-babyjubjub = { workspace = true }
 ark-ec = { workspace = true }
-ark-ff = { workspace = true }
+circom-types = { workspace = true, features = [
+  "bn254",
+  "groth16",
+  "proof",
+  "verification-key"
+] }
 eyre.workspace = true
-futures = { version = "0.3" }
-groth16 = { workspace = true }
+futures.workspace = true
+groth16-material = { workspace = true, features = ["circom"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 oprf-core = { workspace = true }
 oprf-types = { workspace = true }
 oprf-world-types = { workspace = true }
-oprf-zk = { workspace = true }
 poseidon2 = { workspace = true }
 rand.workspace = true
 reqwest = { workspace = true }
-serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, optional = true, features = [
-    "net",
-    "rt-multi-thread",
-    "signal",
-    "sync",
-    "time",
-    "tokio-macros",
-] }
+tokio = { workspace = true, features = [
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+  "tokio-macros"
+], optional = true }
 tracing.workspace = true
 uuid = { workspace = true, features = ["serde", "v4"] }
 eddsa-babyjubjub = { workspace = true }
 world-id-primitives = { workspace = true }
-
-[features]
-default = ["tokio"]
-tokio = ["dep:tokio"]
-embed-zkeys = []
 
 [dev-dependencies]
 alloy = { workspace = true, default-features = false, features = [
@@ -59,3 +57,8 @@ poseidon2 = { workspace = true }
 ruint = { workspace = true }
 test-utils = { path = "../test-utils" }
 world-id-core = { path = "../core", features = ["issuer"] }
+
+[features]
+default = ["embed-zkeys", "tokio"]
+embed-zkeys = []
+tokio = ["dep:tokio"]

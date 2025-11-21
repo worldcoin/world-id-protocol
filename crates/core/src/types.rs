@@ -85,7 +85,7 @@ pub struct UpdateAuthenticatorRequest {
     pub nonce: U256,
     /// The pubkey id.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub pubkey_id: Option<U256>,
+    pub pubkey_id: Option<u32>,
     /// The new authenticator pubkey.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_authenticator_pubkey: Option<U256>,
@@ -119,7 +119,7 @@ pub struct InsertAuthenticatorRequest {
     pub nonce: U256,
     /// The pubkey id.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub pubkey_id: U256,
+    pub pubkey_id: u32,
     /// The new authenticator pubkey.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub new_authenticator_pubkey: U256,
@@ -153,7 +153,7 @@ pub struct RemoveAuthenticatorRequest {
     pub nonce: U256,
     /// The pubkey id.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub pubkey_id: Option<U256>,
+    pub pubkey_id: Option<u32>,
     /// The authenticator pubkey.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
     pub authenticator_pubkey: Option<U256>,
