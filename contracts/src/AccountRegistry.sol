@@ -246,7 +246,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /**
      * @dev Helper function to set pubkey bitmap packed, preserving the recovery address. The
-     * bitmap is 32 bits, but 256 are accepted to simplify bit operations in other functions.
+     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
      */
     function _setPubkeyBitmap(uint256 accountIndex, uint256 bitmap) internal {
         if (bitmap >> 96 != 0) {
@@ -261,7 +261,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /**
      * @dev Helper function to set recovery address and pubkey bitmap packed. The
-     * bitmap is 32 bits, but 256 are accepted to simplify bit operations in other functions.
+     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
      */
     function _setRecoveryAddressAndBitmap(uint256 accountIndex, address recoveryAddress, uint256 bitmap) internal {
         if (bitmap >> 96 != 0) {
