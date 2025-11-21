@@ -71,12 +71,11 @@ contract AccountRegistryTest is Test {
         return proof;
     }
 
-    function updateAuthenticatorProofAndSignature(
-        uint256 accountIndex,
-        uint256 pubkeyId,
-        uint256 newLeaf,
-        uint256 nonce
-    ) private view returns (bytes memory, uint256[] memory) {
+    function updateAuthenticatorProofAndSignature(uint256 accountIndex, uint32 pubkeyId, uint256 newLeaf, uint256 nonce)
+        private
+        view
+        returns (bytes memory, uint256[] memory)
+    {
         bytes memory signature = eip712Sign(
             accountRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(accountIndex, authenticatorAddress1, authenticatorAddress2, pubkeyId, newLeaf, newLeaf, nonce),
@@ -293,6 +292,67 @@ contract AccountRegistryTest is Test {
         assertEq(uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress2)), accountIndex);
     }
 
+    function test_InsertAuthenticatorDuplicatePubkeyId() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 accountIndex = 1;
+        uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        uint256[] memory siblingNodes = new uint256[](30);
+
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.PubkeyIdInUse.selector));
+        accountRegistry.insertAuthenticator(
+            accountIndex,
+            authenticatorAddress3,
+            0, // same pubkeyId as authenticatorAddress1
+            2, // pubkey
+            OFFCHAIN_SIGNER_COMMITMENT,
+            OFFCHAIN_SIGNER_COMMITMENT + 1,
+            bytes(""), // we don't get to the signature verification
+            siblingNodes,
+            nonce
+        );
+    }
+
+    function test_InsertAuthenticatorDuplicatePubkeyIdNonZeroIndex() public {
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress3;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 accountIndex = 1;
+        uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+        address newAuthenticatorAddress = address(0x4);
+
+        uint256[] memory siblingNodes = new uint256[](30);
+
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.PubkeyIdInUse.selector));
+        accountRegistry.insertAuthenticator(
+            accountIndex,
+            newAuthenticatorAddress,
+            1, // same pubkeyId as authenticatorAddress3
+            4, // pubkey
+            OFFCHAIN_SIGNER_COMMITMENT,
+            OFFCHAIN_SIGNER_COMMITMENT + 1,
+            bytes(""), // we don't get to the signature verification
+            siblingNodes,
+            nonce
+        );
+    }
+
     function test_RemoveAuthenticatorSuccess() public {
         address[] memory authenticatorAddresses = new address[](2);
         authenticatorAddresses[0] = authenticatorAddress1;
@@ -483,7 +543,7 @@ contract AccountRegistryTest is Test {
         assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
     }
 
-    function test_TreeDepth() public {
+    function test_TreeDepth() public view {
         assertEq(accountRegistry.treeDepth(), 30);
     }
 
@@ -570,5 +630,63 @@ contract AccountRegistryTest is Test {
         );
         address retrievedRecoveryAddress = accountRegistry.getRecoveryAddress(1);
         assertEq(retrievedRecoveryAddress, recoveryAddress);
+    }
+
+    function test_CreateAccountWithNoRecoveryAgent() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            address(0), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
+        assertEq(accountRegistry.getRecoveryAddress(1), address(0));
+
+        // Now test that we can update the recovery address to a non-zero address
+        uint256 nonce = 0;
+        bytes memory signature = updateRecoveryAddressSignature(1, alternateRecoveryAddress, nonce);
+        accountRegistry.updateRecoveryAddress(1, alternateRecoveryAddress, signature, nonce);
+        assertEq(accountRegistry.getRecoveryAddress(1), alternateRecoveryAddress);
+    }
+
+    /**
+     * @dev Tests that we can update the recovery address to the zero address, i.e. unsetting/disabling the Recovery Agent.
+     */
+    function test_UpdateRecoveryAddressToZeroAddress() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+        uint256 nonce = 0;
+        bytes memory signature = updateRecoveryAddressSignature(1, address(0), nonce);
+        accountRegistry.updateRecoveryAddress(1, address(0), signature, nonce);
+    }
+
+    function test_CannotRecoverAccountWhichHasNoRecoveryAgent() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            address(0), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256[] memory siblingNodes = new uint256[](30);
+
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.RecoveryNotEnabled.selector));
+        accountRegistry.recoverAccount(
+            1,
+            authenticatorAddress1,
+            0,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            bytes(""),
+            siblingNodes,
+            0
+        );
     }
 }

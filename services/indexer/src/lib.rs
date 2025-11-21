@@ -39,7 +39,7 @@ pub struct AccountCreatedEvent {
 #[derive(Debug, Clone)]
 pub struct AccountUpdatedEvent {
     pub account_index: U256,
-    pub pubkey_id: U256,
+    pub pubkey_id: u32,
     pub new_authenticator_pubkey: U256,
     pub old_authenticator_address: Address,
     pub new_authenticator_address: Address,
@@ -50,7 +50,7 @@ pub struct AccountUpdatedEvent {
 #[derive(Debug, Clone)]
 pub struct AuthenticatorInsertedEvent {
     pub account_index: U256,
-    pub pubkey_id: U256,
+    pub pubkey_id: u32,
     pub authenticator_address: Address,
     pub new_authenticator_pubkey: U256,
     pub old_offchain_signer_commitment: U256,
@@ -60,7 +60,7 @@ pub struct AuthenticatorInsertedEvent {
 #[derive(Debug, Clone)]
 pub struct AuthenticatorRemovedEvent {
     pub account_index: U256,
-    pub pubkey_id: U256,
+    pub pubkey_id: u32,
     pub authenticator_address: Address,
     pub authenticator_pubkey: U256,
     pub old_offchain_signer_commitment: U256,
@@ -828,11 +828,10 @@ pub async fn handle_registry_event(
             }
         }
         RegistryEvent::AccountUpdated(ev) => {
-            let pubkey_id = ev.pubkey_id.to::<u32>();
             update_authenticator_at_index(
                 pool,
                 ev.account_index,
-                pubkey_id,
+                ev.pubkey_id,
                 ev.new_authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
@@ -852,11 +851,10 @@ pub async fn handle_registry_event(
             }
         }
         RegistryEvent::AuthenticatorInserted(ev) => {
-            let pubkey_id = ev.pubkey_id.to::<u32>();
             insert_authenticator_at_index(
                 pool,
                 ev.account_index,
-                pubkey_id,
+                ev.pubkey_id,
                 ev.authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
@@ -876,11 +874,10 @@ pub async fn handle_registry_event(
             }
         }
         RegistryEvent::AuthenticatorRemoved(ev) => {
-            let pubkey_id = ev.pubkey_id.to::<u32>();
             remove_authenticator_at_index(
                 pool,
                 ev.account_index,
-                pubkey_id,
+                ev.pubkey_id,
                 ev.new_offchain_signer_commitment,
             )
             .await?;

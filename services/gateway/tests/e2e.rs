@@ -160,10 +160,7 @@ async fn e2e_gateway_full_flow() {
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
-        panic!(
-            "create-account failed: status={}, body={}",
-            status_code, body
-        );
+        panic!("create-account failed: status={status_code}, body={body}",);
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let create_request_id = accepted.request_id.clone();
@@ -220,7 +217,7 @@ async fn e2e_gateway_full_flow() {
         &signer,
         U256::from(1),
         new_auth2,
-        U256::from(1),
+        1,
         U256::from(200),
         U256::from(2),
         nonce,
@@ -239,7 +236,7 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_ins.as_bytes().to_vec(),
         nonce,
-        pubkey_id: U256::from(1),
+        pubkey_id: 1,
         new_authenticator_pubkey: U256::from(200),
     };
     // Issue request to gateway
@@ -288,7 +285,7 @@ async fn e2e_gateway_full_flow() {
         &signer,
         U256::from(1),
         new_auth2,
-        U256::from(1),
+        1,
         U256::from(200),
         U256::from(3),
         nonce,
@@ -307,11 +304,11 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_rem.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(U256::from(1)),
+        pubkey_id: Some(1),
         authenticator_pubkey: Some(U256::from(200)),
     };
     let resp = client
-        .post(format!("{}/remove-authenticator", base))
+        .post(format!("{base}/remove-authenticator"))
         .json(&body_rem)
         .send()
         .await
@@ -319,10 +316,7 @@ async fn e2e_gateway_full_flow() {
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
-        panic!(
-            "remove-authenticator failed: status={}, body={}",
-            status_code, body
-        );
+        panic!("remove-authenticator failed: status={status_code}, body={body}",);
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let remove_request_id = accepted.request_id.clone();
@@ -383,6 +377,7 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
@@ -423,7 +418,7 @@ async fn e2e_gateway_full_flow() {
         U256::from(1),
         wallet_addr_new,
         new_auth4,
-        U256::from(0),
+        0,
         U256::from(400),
         U256::from(5),
         nonce,
@@ -443,7 +438,7 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_upd.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(U256::from(0)),
+        pubkey_id: Some(0),
         new_authenticator_pubkey: Some(U256::from(400)),
     };
     let resp = client

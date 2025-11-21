@@ -160,7 +160,7 @@ async fn build_wallet(
         SignerConfig::PrivateKey(pk) => {
             let signer = pk
                 .parse::<PrivateKeySigner>()
-                .map_err(|e| anyhow::anyhow!("invalid private key: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("invalid private key: {e}"))?;
             Ok(EthereumWallet::from(signer))
         }
         SignerConfig::AwsKms(key_id) => {
@@ -177,7 +177,7 @@ async fn build_wallet(
             let client = aws_sdk_kms::Client::new(&config);
             let aws_signer = AwsSigner::new(client, key_id, Some(chain_id))
                 .await
-                .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {e}"))?;
             tracing::info!(
                 "AWS KMS signer initialized with address: {}",
                 aws_signer.address()
@@ -419,7 +419,7 @@ async fn update_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id: req.pubkey_id.unwrap_or(U256::from(0u64)),
+            pubkey_id: req.pubkey_id.unwrap_or(0),
             new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
         },
     };
@@ -521,7 +521,7 @@ async fn remove_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id: req.pubkey_id.unwrap_or(U256::from(0u64)),
+            pubkey_id: req.pubkey_id.unwrap_or(0),
             authenticator_pubkey: req.authenticator_pubkey.unwrap_or(U256::from(0u64)),
         },
     };
