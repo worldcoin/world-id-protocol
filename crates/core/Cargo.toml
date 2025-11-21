@@ -34,7 +34,6 @@ ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 oprf-client = { workspace = true, optional = true }
 oprf-types = { workspace = true, optional = true }
-oprf-test = { workspace = true, optional = true }
 oprf-world-types = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
