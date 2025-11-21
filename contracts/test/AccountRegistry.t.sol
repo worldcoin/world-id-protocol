@@ -665,4 +665,28 @@ contract AccountRegistryTest is Test {
         bytes memory signature = updateRecoveryAddressSignature(1, address(0), nonce);
         accountRegistry.updateRecoveryAddress(1, address(0), signature, nonce);
     }
+
+    function test_CannotRecoverAccountWhichHasNoRecoveryAgent() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        accountRegistry.createAccount(
+            address(0), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256[] memory siblingNodes = new uint256[](30);
+
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.RecoveryNotEnabled.selector));
+        accountRegistry.recoverAccount(
+            1,
+            authenticatorAddress1,
+            0,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            bytes(""),
+            siblingNodes,
+            0
+        );
+    }
 }
