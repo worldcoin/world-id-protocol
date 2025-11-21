@@ -17,13 +17,14 @@ license = "MIT"
 authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
+rust-version = "1.86"
 
 [workspace.dependencies]
 alloy = { version = "1", default-features = false }
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false } 
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false, features = ["babyjubjub"] } 
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
@@ -41,7 +42,6 @@ k256 = { version = "0.13" }
 num-bigint = "0.4"
 oprf-client = { path = "crates/oprf-client" }
 oprf-core = { package = "taceo-oprf-core", version="0.1", default-features = false }
-oprf-test = { git = "https://github.com/TaceoLabs/nullifier-oracle-service", rev = "584cdcc" } # TODO: update to crates.io or remove
 oprf-types = { package = "taceo-oprf-types", version="0.1" } 
 oprf-world-types = { path = "crates/oprf-world-types" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
