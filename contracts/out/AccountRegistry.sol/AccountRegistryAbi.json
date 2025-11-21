@@ -1251,6 +1251,11 @@
   },
   {
     "type": "error",
+    "name": "RecoveryNotEnabled",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
