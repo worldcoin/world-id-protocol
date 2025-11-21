@@ -4,6 +4,10 @@ use alloy_primitives::Address;
 
 use crate::PrimitiveError;
 
+const fn default_nullifier_oracle_threshold() -> usize {
+    2
+}
+
 /// Global configuration to interact with the different components of the Protocol.
 ///
 /// Used by Authenticators and RPs.
@@ -19,6 +23,9 @@ pub struct Config {
     gateway_url: String,
     /// The Base URLs of all Nullifier Oracles to use
     nullifier_oracle_urls: Vec<String>,
+    /// Minimum number of Nullifier Oracle responses required to build a nullifier.
+    #[serde(default = "default_nullifier_oracle_threshold")]
+    nullifier_oracle_threshold: usize,
 }
 
 impl Config {
@@ -30,6 +37,7 @@ impl Config {
         indexer_url: String,
         gateway_url: String,
         nullifier_oracle_urls: Vec<String>,
+        nullifier_oracle_threshold: usize,
     ) -> Self {
         Self {
             rpc_url,
@@ -37,6 +45,7 @@ impl Config {
             indexer_url,
             gateway_url,
             nullifier_oracle_urls,
+            nullifier_oracle_threshold,
         }
     }
 
@@ -78,5 +87,11 @@ impl Config {
     #[must_use]
     pub const fn nullifier_oracle_urls(&self) -> &Vec<String> {
         &self.nullifier_oracle_urls
+    }
+
+    /// The minimum number of Nullifier Oracle responses required to build a nullifier.
+    #[must_use]
+    pub const fn nullifier_oracle_threshold(&self) -> usize {
+        self.nullifier_oracle_threshold
     }
 }

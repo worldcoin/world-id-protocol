@@ -26,6 +26,7 @@ async fn test_register_issuer_schema() -> Result<()> {
             "http://127.0.0.1:0".to_string(),
             "http://127.0.0.1:0".to_string(),
             Vec::new(),
+            2,
         ),
     )?;
 

@@ -36,7 +36,7 @@ oprf-client = { workspace = true, optional = true }
 oprf-types = { workspace = true, optional = true }
 oprf-world-types = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 circom-types = { workspace = true, optional = true }
 rand = { workspace = true }
 ark-ec = { workspace = true }
@@ -75,3 +75,6 @@ alloy-node-bindings = "1.0.38"
 alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
+axum = { version = "0.8", features = ["macros", "json"] }
+k256 = { workspace = true, features = ["ecdsa"] }
+oprf-core = { workspace = true }

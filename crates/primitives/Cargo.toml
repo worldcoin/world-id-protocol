@@ -11,7 +11,10 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
-alloy-primitives = { version = "1", default-features = false, features = ["serde", "std"] }
+alloy-primitives = { version = "1", default-features = false, features = [
+    "serde",
+    "std",
+] }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
@@ -26,6 +29,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
+poseidon2 = { workspace = true }
 
 [dev-dependencies]
 ciborium = "0.2.2"
