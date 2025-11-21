@@ -42,13 +42,13 @@ use oprf_types::api::v1::{
 };
 use oprf_types::crypto::{PartyId, RpNullifierKey};
 use oprf_types::{crypto::RpNullifierKey as OprfRpNullifierKey, RpId as OprfRpId, ShareEpoch};
-use oprf_world_types::api::v1::OprfRequestAuth;
 use oprf_world_types::proof_inputs::nullifier::NullifierProofInput;
 use oprf_world_types::proof_inputs::query::QueryProofInput;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
 use reqwest::StatusCode;
 use uuid::Uuid;
+use world_id_primitives::oprf::OprfRequestAuthV1;
 use world_id_primitives::proof::SingleProofInput;
 
 use world_id_primitives::{Credential, FieldElement, TREE_DEPTH};
@@ -148,7 +148,7 @@ pub enum Error {
 /// - `blinding_factor`: The hash of the query used in proofs.
 pub struct SignedOprfQuery {
     request_id: Uuid,
-    oprf_request: OprfRequest<OprfRequestAuth>,
+    oprf_request: OprfRequest<OprfRequestAuthV1>,
     blinded_request: BlindedOprfRequest,
     query_input: QueryProofInput<TREE_DEPTH>,
     blinding_factor: BlindingFactor,
@@ -220,7 +220,7 @@ impl Challenge {
 
 impl SignedOprfQuery {
     /// Returns the [`OprfRequest`] for this signed query.
-    pub fn get_request(&self) -> OprfRequest<OprfRequestAuth> {
+    pub fn get_request(&self) -> OprfRequest<OprfRequestAuthV1> {
         self.oprf_request.clone()
     }
 
@@ -478,11 +478,11 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
                 rp_id,
                 share_epoch: ShareEpoch::new(args.share_epoch),
             },
-            auth: OprfRequestAuth {
+            auth: OprfRequestAuthV1 {
                 proof: proof.into(),
                 action: *args.action,
                 nonce: *args.nonce,
-                merkle_root: oprf_world_types::MerkleRoot::from(*args.inclusion_proof.root),
+                merkle_root: *args.inclusion_proof.root,
                 cred_pk: args.credential.issuer.clone(),
                 current_time_stamp: args.current_timestamp,
                 signature: args.rp_signature,

@@ -37,6 +37,9 @@ pub use credential::{Credential, CredentialVersion};
 /// Contains base types for operations with Merkle trees.
 pub mod merkle;
 
+/// Contains types specifically related to the OPRF services.
+pub mod oprf;
+
 /// Contains the quintessential proof type.
 pub mod proof;
 pub use proof::WorldIdProof;

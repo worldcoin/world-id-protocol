@@ -9492,6 +9492,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat 0.2.1",
+ "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "thiserror 1.0.69",
 ]
