@@ -30,6 +30,11 @@ pub mod authenticator;
 mod config;
 pub use config::Config;
 
+/// Contains the raw circuit input types for the World ID Protocol.
+///
+/// These types are used to prepare the inputs for the Groth16 circuits.
+pub mod circuit_inputs;
+
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
 pub use credential::{Credential, CredentialVersion};

@@ -9494,6 +9494,7 @@ dependencies = [
  "taceo-ark-serde-compat 0.2.1",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
+ "taceo-groth16-material",
  "thiserror 1.0.69",
 ]
 

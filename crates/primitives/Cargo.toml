@@ -15,7 +15,8 @@ ark-groth16 = { workspace = true }
 ark-serde-compat = { workspace = true }
 ark-serialize = { workspace = true }
 arrayvec = { version = "0.7", features = ["serde"] }
-circom-types = { workspace = true,  default-features = false, features = ["groth16"] }
+circom-types = { workspace = true, features = ["groth16"] }
+groth16-material = { workspace = true, features = ["circom"] }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
