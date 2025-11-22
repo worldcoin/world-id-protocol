@@ -1,5 +1,4 @@
 #![cfg(feature = "integration-tests")]
-
 mod common;
 
 use std::time::Duration;
@@ -13,7 +12,6 @@ use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[cfg(feature = "integration-tests")]
 #[serial]
 async fn test_backfill_and_live_sync() {
     let setup = TestSetup::new().await;

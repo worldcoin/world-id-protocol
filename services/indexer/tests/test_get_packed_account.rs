@@ -13,7 +13,6 @@ use world_id_indexer::config::{Environment, GlobalConfig, HttpConfig, IndexerCon
 
 /// Tests the packed_account endpoint that maps authenticator addresses to account indices
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[cfg(feature = "integration-tests")]
 #[serial]
 async fn test_packed_account_endpoint() {
     let setup = TestSetup::new().await;
