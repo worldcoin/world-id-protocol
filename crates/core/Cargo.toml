@@ -1,8 +1,14 @@
 [package]
 name = "world-id-core"
+description = "Reference SDKs for interacting with the World ID Protocol. For authenticator providers, issuers and RPs."
+publish = true
+edition.workspace = true
 version.workspace = true
 license.workspace = true
-edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "authenticator"
@@ -43,11 +49,10 @@ eyre = { workspace = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10", optional = true }
 world-id-primitives = { workspace = true }
-utoipa = { version = "5", optional = true }
-groth16-material = { workspace = true, features = ["circom"] }
-oprf-core = { workspace = true }
+utoipa = { workspace = true, optional = true }
+groth16-material = { workspace = true, features = ["circom"], optional = true }
+oprf-core = { workspace = true, optional = true }
 futures = { workspace = true }
-k256 = { workspace = true, features = ["ecdsa", "serde"] }
 
 [features]
 default = ["authenticator", "embed-zkeys"]
@@ -60,6 +65,8 @@ authenticator = [
     "dep:oprf-types",
     "dep:reqwest",
     "dep:secrecy",
+    "dep:groth16-material",
+    "dep:oprf-core"
 ]
 
 embed-zkeys = []
