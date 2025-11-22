@@ -34,7 +34,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tower-http = { version = "0.5", features = ["trace", "timeout"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
-utoipa = "5.4.0"
+utoipa = { workspace = true }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 [dev-dependencies]

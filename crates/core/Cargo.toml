@@ -1,8 +1,14 @@
 [package]
 name = "world-id-core"
+description = "Reference SDKs for interacting with the World ID Protocol. For authenticator providers, issuers and RPs."
+publish = true
+edition.workspace = true
 version.workspace = true
 license.workspace = true
-edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "authenticator"
@@ -32,7 +38,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
-oprf-client = { workspace = true, optional = true }
 oprf-types = { workspace = true, optional = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
@@ -44,21 +49,27 @@ eyre = { workspace = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10", optional = true }
 world-id-primitives = { workspace = true }
-utoipa = { version = "5", optional = true }
+utoipa = { workspace = true, optional = true }
+groth16-material = { workspace = true, features = ["circom"], optional = true }
+oprf-core = { workspace = true, optional = true }
+futures = { workspace = true }
 
 [features]
-default = ["authenticator"]
+default = ["authenticator", "embed-zkeys"]
 
 authenticator = [
     "alloy/contract",
     "alloy/signer-local",
     "alloy/reqwest-rustls-tls",
     "dep:circom-types",
-    "dep:oprf-client",
     "dep:oprf-types",
     "dep:reqwest",
     "dep:secrecy",
+    "dep:groth16-material",
+    "dep:oprf-core"
 ]
+
+embed-zkeys = []
 
 issuer = ["alloy/signer-local", "dep:secrecy"]
 

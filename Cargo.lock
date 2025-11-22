@@ -4230,36 +4230,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 
 [[package]]
-name = "oprf-client"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "eyre",
- "futures",
- "k256",
- "rand 0.8.5",
- "reqwest",
- "ruint",
- "taceo-ark-babyjubjub",
- "taceo-circom-types",
- "taceo-eddsa-babyjubjub",
- "taceo-groth16-material",
- "taceo-oprf-core",
- "taceo-oprf-types",
- "taceo-poseidon2 0.1.0",
- "test-utils",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "uuid",
- "world-id-core",
- "world-id-primitives",
-]
-
-[[package]]
 name = "outref"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7296,9 +7266,9 @@ dependencies = [
  "chrono",
  "ciborium",
  "eyre",
+ "futures",
  "hex",
  "k256",
- "oprf-client",
  "rand 0.8.5",
  "reqwest",
  "ruint",
@@ -7309,6 +7279,7 @@ dependencies = [
  "taceo-ark-serde-compat",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
+ "taceo-groth16-material",
  "taceo-oprf-core",
  "taceo-oprf-types",
  "taceo-poseidon2 0.1.0",
