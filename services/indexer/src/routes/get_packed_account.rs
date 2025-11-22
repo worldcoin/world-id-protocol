@@ -10,7 +10,7 @@ use crate::{
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({"authenticator_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"}))]
-pub struct PackedAccountRequest {
+pub(super) struct PackedAccountRequest {
     /// The authenticator address to look up
     #[schema(value_type = String, format = "hex", example = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")]
     pub authenticator_address: Address,
@@ -18,7 +18,7 @@ pub struct PackedAccountRequest {
 
 #[derive(Debug, Serialize, ToSchema)]
 #[schema(example = json!({"packed_account_index": "0x1"}))]
-pub struct PackedAccountResponse {
+pub(super) struct PackedAccountResponse {
     /// The packed account index [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
     #[schema(value_type = String, format = "hex", example = "0x1")]
     pub packed_account_index: U256,
