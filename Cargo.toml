@@ -15,7 +15,7 @@ license = "MIT"
 authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
-rust-version = "1.86"
+rust-version = "1.87"
 
 [workspace.dependencies]
 alloy = { version = "1", default-features = false }
