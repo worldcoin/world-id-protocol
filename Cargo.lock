@@ -7351,6 +7351,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.20",
  "url",
+ "utoipa",
  "world-id-core",
  "world-id-primitives",
 ]

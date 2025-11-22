@@ -27,6 +27,7 @@ ark-bn254 = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
 take_mut = "0.2.2"
+utoipa = { workspace = true }
 world-id-core = { workspace = true }
 world-id-primitives = { workspace = true }
 
@@ -37,4 +38,4 @@ reqwest = { workspace = true }
 serial_test = "3"
 
 [features]
-integration-tests = []
+integration-tests = [] # running integration tests requires running external services (i.e. Postgres)

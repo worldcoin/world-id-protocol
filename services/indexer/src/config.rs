@@ -1,7 +1,23 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use alloy::primitives::Address;
+use alloy::providers::DynProvider;
+use sqlx::PgPool;
+use world_id_core::account_registry::AccountRegistry::AccountRegistryInstance;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: PgPool,
+    pub registry: Arc<AccountRegistryInstance<DynProvider>>,
+}
+
+impl AppState {
+    pub fn new(pool: PgPool, registry: Arc<AccountRegistryInstance<DynProvider>>) -> Self {
+        Self { pool, registry }
+    }
+}
 
 #[derive(Debug)]
 pub enum RunMode {
@@ -56,6 +72,8 @@ pub struct GlobalConfig {
     pub environment: Environment,
     pub run_mode: RunMode,
     pub db_url: String,
+    pub rpc_url: String,
+    pub registry_address: Address,
 }
 
 #[derive(Debug)]
@@ -66,12 +84,6 @@ pub struct HttpConfig {
     ///
     /// The sanity check calls the `isValidRoot` function on the `AccountRegistry` contract to ensure the local Merkle root is valid.
     pub sanity_check_interval_secs: Option<u64>,
-
-    /// Optional RPC URL to use for the sanity check. If not set, the sanity check will not be run.
-    pub rpc_url: Option<String>,
-
-    /// Optional registry address to use for the sanity check. If not set, the sanity check will not be run.
-    pub registry_address: Option<Address>,
 }
 
 impl HttpConfig {
@@ -95,24 +107,10 @@ impl HttpConfig {
                     }
                 },
             ),
-            rpc_url: std::env::var("RPC_URL").ok().map(|s| s.to_string()),
-            registry_address: std::env::var("REGISTRY_ADDRESS")
-                .ok()
-                .map(|s| s.parse::<Address>().ok())
-                .unwrap_or(None),
         };
 
         if config.http_addr.port() != 8080 {
             tracing::warn!("Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
-        }
-
-        if config.sanity_check_interval_secs.is_some() {
-            if config.rpc_url.is_none() {
-                tracing::warn!("⚠️ Misconfiguration: SANITY_CHECK_INTERVAL_SECS is set but RPC_URL is not set. Sanity check will not be run.");
-            }
-            if config.registry_address.is_none() {
-                tracing::warn!("⚠️ Misconfiguration: SANITY_CHECK_INTERVAL_SECS is set but REGISTRY_ADDRESS is not set. Sanity check will not be run.");
-            }
         }
 
         tracing::info!(
@@ -125,9 +123,7 @@ impl HttpConfig {
 
 #[derive(Debug)]
 pub struct IndexerConfig {
-    pub rpc_url: String,
     pub ws_url: String,
-    pub registry_address: Address,
     pub start_block: u64,
     pub batch_size: u64,
 }
@@ -135,12 +131,7 @@ pub struct IndexerConfig {
 impl IndexerConfig {
     pub fn from_env() -> Self {
         let config = Self {
-            rpc_url: std::env::var("RPC_URL").expect("RPC_URL must be set."),
             ws_url: std::env::var("WS_URL").expect("WS_URL must be set."),
-            registry_address: std::env::var("REGISTRY_ADDRESS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .expect("REGISTRY_ADDRESS must be set."),
             start_block: std::env::var("START_BLOCK")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -166,10 +157,19 @@ impl GlobalConfig {
 
         let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set.");
 
+        let rpc_url = std::env::var("RPC_URL").expect("RPC_URL must be set.");
+
+        let registry_address = std::env::var("REGISTRY_ADDRESS")
+            .expect("REGISTRY_ADDRESS must be set.")
+            .parse::<Address>()
+            .expect("REGISTRY_ADDRESS must be a valid address");
+
         Self {
             environment,
             run_mode,
             db_url,
+            rpc_url,
+            registry_address,
         }
     }
 }
