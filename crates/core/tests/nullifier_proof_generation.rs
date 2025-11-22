@@ -1,19 +1,4 @@
-#![cfg(feature = "authenticator")]
-
-//! End-to-end integration test for nullifier proof generation.
-//!
-//! This test covers the complete workflow of generating a nullifier proof,
-//! but does NOT cover the full authenticator workflow (which includes
-//! creating credentials, registering accounts, etc.).
-//!
-//! The test performs:
-//! 1. Setting up on-chain contracts (AccountRegistry, CredentialSchemaIssuerRegistry)
-//! 2. Creating an account with off-chain public keys
-//! 3. Issuing a credential
-//! 4. Generating a signed OPRF query (πR)
-//! 5. Simulating OPRF service responses
-//! 6. Generating a nullifier proof (π2) offline
-//! 7. Verifying the proof
+#![cfg(all(feature = "authenticator", feature = "issuer"))]
 
 use std::convert::TryInto;
 
@@ -39,8 +24,10 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof, proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
 };
 
+/// Tests and verifies a Nullifier Proof with locally deployed contracts on Anvil and
+/// a simulated local vOPRF service.
 #[tokio::test]
-async fn e2e_proof_generation_nullifier() -> eyre::Result<()> {
+async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     let query_material = proof::load_embedded_query_material();
     let nullifier_material = proof::load_embedded_nullifier_material();
 
