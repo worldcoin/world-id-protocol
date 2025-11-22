@@ -32,7 +32,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
-oprf-client = { workspace = true, optional = true }
 oprf-types = { workspace = true, optional = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
@@ -45,20 +44,25 @@ reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10", optional = true }
 world-id-primitives = { workspace = true }
 utoipa = { version = "5", optional = true }
+groth16-material = { workspace = true, features = ["circom"] }
+oprf-core = { workspace = true }
+futures = { workspace = true }
+k256 = { workspace = true, features = ["ecdsa", "serde"] }
 
 [features]
-default = ["authenticator"]
+default = ["authenticator", "embed-zkeys"]
 
 authenticator = [
     "alloy/contract",
     "alloy/signer-local",
     "alloy/reqwest-rustls-tls",
     "dep:circom-types",
-    "dep:oprf-client",
     "dep:oprf-types",
     "dep:reqwest",
     "dep:secrecy",
 ]
+
+embed-zkeys = []
 
 issuer = ["alloy/signer-local", "dep:secrecy"]
 

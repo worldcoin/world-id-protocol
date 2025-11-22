@@ -134,7 +134,9 @@ impl<const MAX_DEPTH: usize> ProofInput for QueryProofCircuitInput<MAX_DEPTH> {
     }
 }
 
-/// The input for the circuit of the Nullifier Proof (also called "Final Proof" or `πF`).
+/// The input for the circuit of the Nullifier Proof (`π2`).
+///
+/// Externally, the Nullifier Proof is exposed to RPs as a Uniqueness Proof or a Session Proof respectively.
 #[derive(Debug, Clone)]
 pub struct NullifierProofCircuitInput<const MAX_DEPTH: usize> {
     /// The input for the circuit of the OPRF Query Proof from which this nullifier proof is constructed.

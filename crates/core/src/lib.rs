@@ -36,6 +36,12 @@ mod signer;
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 pub(crate) use signer::Signer;
 
+#[cfg(feature = "authenticator")]
+pub mod oprf;
+
+#[cfg(feature = "authenticator")]
+pub mod proof;
+
 /// Generic re-usable types
 pub mod types;
 pub use world_id_primitives::FieldElement;
