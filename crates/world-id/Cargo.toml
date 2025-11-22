@@ -12,4 +12,11 @@ repository.workspace = true
 
 
 [dependencies]
-world-id-core = { workspace = true }
+world-id-core = { workspace = true, default-features = false }
+
+[features]
+default = ["authenticator", "embed-zkeys"]
+authenticator = ["world-id-core/authenticator"]
+embed-zkeys = ["world-id-core/embed-zkeys"]
+issuer = ["world-id-core/issuer"]
+rp = ["world-id-core/rp"]
