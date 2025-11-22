@@ -11,26 +11,16 @@
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Nullifier Proof [`π2`]
 
+use crate::oprf::{compute_challenges, sign_oprf_query, ProofError};
+use circom_types::ark_bn254::Bn254;
+use circom_types::groth16::Proof;
+use oprf_types::crypto::RpNullifierKey as OprfRpNullifierKey;
+use rand::{CryptoRng, Rng};
 use std::io::Read;
 use std::path::Path;
-
-#[cfg(feature = "authenticator")]
-use circom_types::ark_bn254::Bn254;
-#[cfg(feature = "authenticator")]
-use circom_types::groth16::Proof;
-#[cfg(feature = "authenticator")]
-use oprf_types::crypto::RpNullifierKey as OprfRpNullifierKey;
-#[cfg(feature = "authenticator")]
-use rand::{CryptoRng, Rng};
-#[cfg(feature = "authenticator")]
 use uuid::Uuid;
-#[cfg(feature = "authenticator")]
 use world_id_primitives::proof::SingleProofInput;
-#[cfg(feature = "authenticator")]
 use world_id_primitives::TREE_DEPTH;
-
-#[cfg(feature = "authenticator")]
-use crate::oprf::{compute_challenges, sign_oprf_query};
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
@@ -155,27 +145,17 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 }
 
 // ============================================================================
-// High-level Nullifier Proof Generation
+// Nullifier Proof Generation
 // ============================================================================
-
-#[cfg(feature = "authenticator")]
-/// Re-export the `OprfError` type from the OPRF module.
-pub use crate::oprf::OprfError;
-
-#[cfg(feature = "authenticator")]
-type Result<T> = std::result::Result<T, OprfError>;
 
 /// Generates a nullifier proof for a given query.
 ///
-/// This is the main entry point for most users. It handles the full workflow:
+/// Full workflow:
 /// 1. Signs and blinds the OPRF query using the user's credentials and key material.
 /// 2. Initiates sessions with the provided OPRF services and waits for enough responses.
-///    This uses asynchronous HTTP requests via [`reqwest`] and requires a [`tokio`] runtime.
 /// 3. Computes the `DLog` equality challenges using Shamir interpolation.
 /// 4. Collects the responses and verifies the challenges.
 /// 5. Generates the final Groth16 nullifier proof along with public inputs.
-///
-/// **Note**: the timestamps in the credentials must be given as UNIX seconds
 ///
 /// # Arguments
 ///
@@ -197,11 +177,10 @@ type Result<T> = std::result::Result<T, OprfError>;
 ///
 /// # Errors
 ///
-/// Returns [`OprfError`] in the following cases:
+/// Returns [`ProofError`] in the following cases:
 /// * `InvalidPublicKeyIndex` – the user key index is out of range.
 /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
 /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
-#[cfg(feature = "authenticator")]
 pub async fn nullifier<R: Rng + CryptoRng>(
     services: &[String],
     threshold: usize,
@@ -210,12 +189,15 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     args: SingleProofInput<TREE_DEPTH>,
     private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
     rng: &mut R,
-) -> Result<(
-    Proof<Bn254>,
-    Vec<ark_babyjubjub::Fq>,
-    ark_babyjubjub::Fq,
-    ark_babyjubjub::Fq,
-)> {
+) -> Result<
+    (
+        Proof<Bn254>,
+        Vec<ark_babyjubjub::Fq>,
+        ark_babyjubjub::Fq,
+        ark_babyjubjub::Fq,
+    ),
+    ProofError,
+> {
     let request_id = Uuid::new_v4();
 
     let signed_query = sign_oprf_query(&args, query_material, private_key, request_id, rng)?;

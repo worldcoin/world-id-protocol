@@ -21,9 +21,9 @@ use world_id_primitives::{Credential, FieldElement, TREE_DEPTH};
 
 use crate::proof::CircomGroth16Material;
 
-use super::OprfError;
+use super::ProofError;
 
-type Result<T> = std::result::Result<T, OprfError>;
+type Result<T> = std::result::Result<T, ProofError>;
 
 /// A signed OPRF query ready to be sent to OPRF service peers.
 ///
@@ -84,7 +84,7 @@ impl SignedOprfQuery {
 ///
 /// # Errors
 ///
-/// Returns an [`OprfError`] if:
+/// Returns a [`ProofError`] if:
 /// - The public key index is out of bounds.
 /// - Groth16 proof generation fails.
 ///
@@ -107,7 +107,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         .credential
         .signature
         .clone()
-        .ok_or_else(|| OprfError::InternalError(eyre::eyre!("Credential not signed")))?;
+        .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
 
     let query_hash = oprf::client::generate_query(
         args.inclusion_proof.account_id.into(),
@@ -179,7 +179,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
 fn compute_claims_hash(credential: &Credential) -> Result<ark_babyjubjub::Fq> {
     let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
     if credential.claims.len() > Credential::MAX_CLAIMS {
-        return Err(OprfError::InternalError(eyre::eyre!(
+        return Err(ProofError::InternalError(eyre::eyre!(
             "There can be at most {} claims",
             Credential::MAX_CLAIMS
         )));

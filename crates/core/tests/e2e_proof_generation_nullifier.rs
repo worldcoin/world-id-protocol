@@ -1,3 +1,5 @@
+#![cfg(feature = "authenticator")]
+
 //! End-to-end integration test for nullifier proof generation.
 //!
 //! This test covers the complete workflow of generating a nullifier proof,

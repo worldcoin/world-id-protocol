@@ -17,9 +17,9 @@ pub use http::{finish_sessions, init_sessions};
 pub use query::{sign_oprf_query, SignedOprfQuery};
 pub use session::{compute_challenges, verify_challenges, Challenge, OprfSessions};
 
-/// General error type for the OPRF client.
+/// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
-pub enum OprfError {
+pub enum ProofError {
     /// API error returned by the OPRF service.
     #[error("API error {status}: {message}")]
     ApiError {

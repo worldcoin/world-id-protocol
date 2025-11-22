@@ -26,9 +26,9 @@ use world_id_primitives::TREE_DEPTH;
 use crate::proof::CircomGroth16Material;
 
 use super::query::SignedOprfQuery;
-use super::OprfError;
+use super::ProofError;
 
-type Result<T> = std::result::Result<T, OprfError>;
+type Result<T> = std::result::Result<T, ProofError>;
 
 /// Holds information about active OPRF sessions with multiple peers.
 ///
@@ -178,7 +178,7 @@ pub fn compute_challenges(
 ///
 /// # Errors
 ///
-/// Returns [`OprfError::InvalidDLogProof`] if the combined `DLogEquality` proof
+/// Returns [`ProofError::InvalidDLogProof`] if the combined `DLogEquality` proof
 /// fails verification, or any [`Groth16Error`] if proof generation fails.
 pub fn verify_challenges<R: Rng + CryptoRng>(
     nullifier_material: &CircomGroth16Material,
@@ -216,7 +216,7 @@ pub fn verify_challenges<R: Rng + CryptoRng>(
             challenges.blinded_response,
             ark_babyjubjub::EdwardsAffine::generator(),
         )
-        .map_err(|_| OprfError::InvalidDLogProof)?;
+        .map_err(|_| ProofError::InvalidDLogProof)?;
 
     let nullifier_input = NullifierProofCircuitInput::new(
         challenges.query_input,

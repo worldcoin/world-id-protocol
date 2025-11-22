@@ -18,9 +18,9 @@ use tokio::task::JoinSet;
 use world_id_primitives::oprf::OprfRequestAuthV1;
 
 use super::session::OprfSessions;
-use super::OprfError;
+use super::ProofError;
 
-type Result<T> = std::result::Result<T, OprfError>;
+type Result<T> = std::result::Result<T, ProofError>;
 
 /// Sends an `init` request to one OPRF peer.
 ///
@@ -41,7 +41,7 @@ async fn oprf_request(
     } else {
         let status = response.status();
         let message = response.text().await?;
-        Err(OprfError::ApiError { status, message })
+        Err(ProofError::ApiError { status, message })
     }
 }
 
@@ -64,7 +64,7 @@ async fn oprf_challenge(
     } else {
         let status = response.status();
         let message = response.text().await?;
-        Err(OprfError::ApiError { status, message })
+        Err(ProofError::ApiError { status, message })
     }
 }
 
@@ -132,7 +132,7 @@ pub async fn init_sessions(
     if sessions.len() == threshold {
         Ok(sessions)
     } else {
-        Err(OprfError::NotEnoughOprfResponses {
+        Err(ProofError::NotEnoughOprfResponses {
             n: sessions.len(),
             threshold,
         })
