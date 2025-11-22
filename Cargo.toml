@@ -54,6 +54,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utoipa = "5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1" }
-world-id-core = { version = "0.1.0", path = "crates/core"}
+world-id-core = { version = "0.1.0", default-features = false, path = "crates/core"}
 world-id-primitives = { version = "0.1.0", path = "crates/primitives"}
 zeroize = "1"

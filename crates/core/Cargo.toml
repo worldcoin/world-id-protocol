@@ -9,6 +9,15 @@ authors.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+include = [
+    "src/**/*",
+    "bin/**/*",
+    "../../contracts/out/AccountRegistry.sol/AccountRegistryAbi.json",
+    "../../circom/*.bin",
+    "../../circom/*.zkey",
+    "Cargo.toml",
+    "README.md",
+]
 
 [[bin]]
 name = "authenticator"
