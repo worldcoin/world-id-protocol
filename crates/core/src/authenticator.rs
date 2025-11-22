@@ -327,8 +327,8 @@ impl Authenticator {
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         // TODO: load once and from bytes
-        let query_material = oprf_client::load_embedded_query_material();
-        let nullifier_material = oprf_client::load_embedded_nullifier_material();
+        let query_material = crate::proof::load_embedded_query_material();
+        let nullifier_material = crate::proof::load_embedded_nullifier_material();
 
         // TODO: convert rp_request to primitives types
         let primitives_rp_id =
@@ -375,7 +375,7 @@ impl Authenticator {
         let threshold = requested_threshold.min(services.len());
 
         let mut rng = rand::thread_rng();
-        let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
+        let (proof, _public, nullifier, _id_commitment) = crate::proof::nullifier(
             services,
             threshold,
             &query_material,

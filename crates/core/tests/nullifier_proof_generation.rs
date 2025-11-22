@@ -1,3 +1,5 @@
+#![cfg(all(feature = "authenticator", feature = "issuer"))]
+
 use std::convert::TryInto;
 
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
@@ -6,7 +8,6 @@ use ark_ec::CurveGroup;
 use ark_ff::{AdditiveGroup, PrimeField};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
-use oprf_client::sign_oprf_query;
 use oprf_core::dlog_equality::DLogEqualityProof;
 use rand::thread_rng;
 use ruint::aliases::U256;
@@ -17,16 +18,18 @@ use test_utils::{
 };
 use uuid::Uuid;
 
-use world_id_core::{Authenticator, HashableCredential, OnchainKeyRepresentable};
+use world_id_core::{oprf, proof, Authenticator, HashableCredential, OnchainKeyRepresentable};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
     merkle::MerkleInclusionProof, proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
 };
 
+/// Tests and verifies a Nullifier Proof with locally deployed contracts on Anvil and
+/// a simulated local vOPRF service.
 #[tokio::test]
-async fn e2e_nullifier() -> eyre::Result<()> {
-    let query_material = oprf_client::load_embedded_query_material();
-    let nullifier_material = oprf_client::load_embedded_nullifier_material();
+async fn test_nullifier_proof_generation() -> eyre::Result<()> {
+    let query_material = proof::load_embedded_query_material();
+    let nullifier_material = proof::load_embedded_nullifier_material();
 
     let RegistryTestContext {
         anvil,
@@ -193,7 +196,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     // Produce πR (signed OPRF query) — blinded request + query inputs
     let request_id = Uuid::new_v4();
     let signed_query =
-        sign_oprf_query(&proof_args, &query_material, &user_sk, request_id, &mut rng)
+        oprf::sign_oprf_query(&proof_args, &query_material, &user_sk, request_id, &mut rng)
             .wrap_err("failed to sign oprf query")?;
 
     let oprf_request = signed_query.get_request();
@@ -205,7 +208,7 @@ async fn e2e_nullifier() -> eyre::Result<()> {
     // Create and check Chaum‑Pedersen DLog equality proof for (K, C)
     let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_fixture.rp_secret, &mut rng);
 
-    // Build nullifier proof input (πF witness payload)
+    // Build nullifier proof input (π2 witness payload)
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH>::new(
         signed_query.query_input().clone(),
         &dlog_proof,

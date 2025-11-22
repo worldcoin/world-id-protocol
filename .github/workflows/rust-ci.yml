@@ -62,7 +62,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.86 # MSRV
+          - 1.87 # MSRV (see rust-version.workspace in Cargo.toml)
 
     steps:
       - name: Checkout code

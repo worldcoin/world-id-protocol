@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "crates/core",
-    "crates/oprf-client",
     "crates/primitives",
     "crates/test-utils",
     "services/indexer",
@@ -16,7 +15,7 @@ license = "MIT"
 authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
-rust-version = "1.86"
+rust-version = "1.87"
 
 [workspace.dependencies]
 alloy = { version = "1", default-features = false }
@@ -39,7 +38,6 @@ hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
-oprf-client = { path = "crates/oprf-client" }
 oprf-core = { package = "taceo-oprf-core", version="0.1", default-features = false }
 oprf-types = { package = "taceo-oprf-types", version="0.1" } 
 ruint = { version = "1.16", features = ["ark-ff-05"] }

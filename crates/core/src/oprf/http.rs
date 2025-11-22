@@ -1,26 +1,26 @@
-//! Tokio/reqwest backend for the sans-I/O OPRF client.
+//! HTTP backend for OPRF client operations.
 //!
-//! It wires up the I/O-free core with HTTP calls against OPRF peers.
+//! This module provides the Tokio/reqwest-based HTTP implementation for
+//! communicating with OPRF service peers.
 //!
-//! Key pieces:
-//! - [`init_sessions`] — kicks off OPRF sessions by POSTing to `/api/v1/init`
+//! Key functions:
+//! - [`init_sessions`] — kicks off OPRF sessions by `POSTing` to `/api/v1/init`
 //!   until the configured threshold of valid responses is reached.
-//! - [`finish_sessions`] — completes all stored sessions in parallel by POSTing
+//! - [`finish_sessions`] — completes all stored sessions in parallel by `POSTing`
 //!   to `/api/v1/finish`.
 //!
 //! Errors from individual peers are tolerated during init, as long as the
-//! threshold can still be met. If too many services fail, the client bails
-//! out with [`Error::NotEnoughOprfResponses`].
-//!
-//! Under the hood, requests use `reqwest::Client` and responses are deserialized
-//! into the types defined in [`oprf_types::api::v1`].
+//! threshold can still be met.
 
 use eyre::Context;
 use oprf_types::api::v1::{ChallengeRequest, ChallengeResponse, OprfRequest, OprfResponse};
 use tokio::task::JoinSet;
 use world_id_primitives::oprf::OprfRequestAuthV1;
 
-use crate::{Error, OprfSessions};
+use super::session::OprfSessions;
+use super::ProofError;
+
+type Result<T> = std::result::Result<T, ProofError>;
 
 /// Sends an `init` request to one OPRF peer.
 ///
@@ -29,7 +29,7 @@ async fn oprf_request(
     client: reqwest::Client,
     service: String,
     req: OprfRequest<OprfRequestAuthV1>,
-) -> super::Result<(String, OprfResponse)> {
+) -> Result<(String, OprfResponse)> {
     let response = client
         .post(format!("{service}/api/v1/init"))
         .json(&req)
@@ -41,7 +41,7 @@ async fn oprf_request(
     } else {
         let status = response.status();
         let message = response.text().await?;
-        Err(Error::ApiError { status, message })
+        Err(ProofError::ApiError { status, message })
     }
 }
 
@@ -52,7 +52,7 @@ async fn oprf_challenge(
     client: reqwest::Client,
     service: String,
     req: ChallengeRequest,
-) -> super::Result<ChallengeResponse> {
+) -> Result<ChallengeResponse> {
     let response = client
         .post(format!("{service}/api/v1/finish"))
         .json(&req)
@@ -64,26 +64,27 @@ async fn oprf_challenge(
     } else {
         let status = response.status();
         let message = response.text().await?;
-        Err(Error::ApiError { status, message })
+        Err(ProofError::ApiError { status, message })
     }
 }
 
 /// Completes all OPRF sessions in parallel by calling `/api/v1/finish`
 /// on every peer in the [`OprfSessions`].
 ///
-/// **Important:**  
+/// **Important:**
 /// - These must be the *same parties* that were used during the initial
 ///   `init_sessions` call.
 /// - The order of the peers matters: we return responses in the order provided and they need
 ///   to match the original session list. This is crucial because Lagrange coefficients are
 ///   computed in the meantime, and they need to match the shares obtained earlier.
 ///
-/// Fails fast if any single request errors out.
+/// # Errors
+/// Returns an error if any peer request fails or returns an invalid response.
 pub async fn finish_sessions(
     client: &reqwest::Client,
     sessions: OprfSessions,
     req: ChallengeRequest,
-) -> super::Result<Vec<ChallengeResponse>> {
+) -> Result<Vec<ChallengeResponse>> {
     futures::future::try_join_all(
         sessions
             .services
@@ -100,16 +101,17 @@ pub async fn finish_sessions(
 /// Peers are queried concurrently. Errors from some services
 /// are logged and ignored, unless they prevent reaching the threshold.
 ///
-/// Returns an [`OprfSessions`] ready to be finalized with [`finish_sessions`].
+/// # Errors
+/// Returns an error if not enough valid responses are received to meet the threshold.
 pub async fn init_sessions(
     client: &reqwest::Client,
     oprf_services: &[String],
     threshold: usize,
     req: OprfRequest<OprfRequestAuthV1>,
-) -> super::Result<OprfSessions> {
+) -> Result<OprfSessions> {
     let mut requests = oprf_services
         .iter()
-        .map(|service| oprf_request(client.clone(), service.to_owned(), req.to_owned()))
+        .map(|service| oprf_request(client.clone(), service.to_owned(), req.clone()))
         .collect::<JoinSet<_>>();
 
     let mut sessions = OprfSessions::with_capacity(threshold);
@@ -130,7 +132,7 @@ pub async fn init_sessions(
     if sessions.len() == threshold {
         Ok(sessions)
     } else {
-        Err(super::Error::NotEnoughOprfResponses {
+        Err(ProofError::NotEnoughOprfResponses {
             n: sessions.len(),
             threshold,
         })
