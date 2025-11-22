@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 use http::StatusCode;
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use world_id_core::{types::AccountInclusionProof, EdDSAPublicKey};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, FieldElement,
@@ -12,13 +12,14 @@ use world_id_primitives::{
 };
 
 use crate::{
+    config::AppState,
     error::{ErrorCode, ErrorResponse},
     proof_to_vec, tree_capacity, GLOBAL_TREE,
 };
 
 pub(crate) async fn handler(
     Path(idx_str): Path<String>,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
 ) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, ErrorResponse> {
     let account_index: U256 = idx_str.parse().unwrap();
 
@@ -33,7 +34,7 @@ pub(crate) async fn handler(
         "select offchain_signer_commitment, authenticator_pubkeys from accounts where account_index = $1",
     )
     .bind(account_index.to_string())
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await
     .ok()
     .flatten();

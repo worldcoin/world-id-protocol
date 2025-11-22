@@ -1,8 +1,7 @@
 use axum::{extract::State, Json};
 use serde::Serialize;
-use sqlx::PgPool;
 
-use crate::error::ErrorResponse;
+use crate::{config::AppState, error::ErrorResponse};
 
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
@@ -10,10 +9,10 @@ pub struct HealthResponse {
 }
 
 pub(crate) async fn handler(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
 ) -> Result<Json<HealthResponse>, ErrorResponse> {
     let query = sqlx::query("select 1")
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await
         .map_err(|e| {
             tracing::error!("error querying the database for accounts: {}", e);

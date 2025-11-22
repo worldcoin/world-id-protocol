@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use alloy::primitives::{Address, Log, U256};
@@ -22,7 +22,7 @@ pub mod config;
 mod error;
 mod routes;
 mod sanity_check;
-use crate::config::{HttpConfig, IndexerConfig, RunMode};
+use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
 pub use config::GlobalConfig;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
@@ -212,8 +212,15 @@ fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
         .collect()
 }
 
-async fn start_http_server(addr: SocketAddr, pool: PgPool) -> anyhow::Result<()> {
-    let router = routes::handler(pool);
+async fn start_http_server(
+    rpc_url: &str,
+    registry_address: Address,
+    addr: SocketAddr,
+    pool: PgPool,
+) -> anyhow::Result<()> {
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
+    let registry = AccountRegistry::new(registry_address, provider.erased());
+    let router = routes::handler(AppState::new(pool, Arc::new(registry)));
     tracing::info!(%addr, "HTTP server listening");
     axum::serve(tokio::net::TcpListener::bind(addr).await?, router).await?;
     Ok(())
@@ -227,10 +234,13 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     MIGRATOR.run(&pool).await.expect("failed to run migrations");
     tracing::info!("🟢 Migrations synced successfully.");
 
+    let rpc_url = &cfg.rpc_url;
+    let registry_address = cfg.registry_address;
+
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
-            run_indexer_only(indexer_config, pool).await
+            run_indexer_only(rpc_url, registry_address, indexer_config, pool).await
         }
         RunMode::HttpOnly { http_config } => {
             tracing::info!("Running in HTTP-ONLY mode (building tree from DB)");
@@ -238,7 +248,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             let start_time = std::time::Instant::now();
             build_tree_from_db(&pool).await?;
             tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_http_only(http_config, pool).await
+            run_http_only(rpc_url, registry_address, http_config, pool).await
         }
         RunMode::Both {
             indexer_config,
@@ -249,14 +259,18 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             let start_time = std::time::Instant::now();
             build_tree_from_db(&pool).await?;
             tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_both(indexer_config, http_config, pool).await
+            run_both(rpc_url, registry_address, indexer_config, http_config, pool).await
         }
     }
 }
 
-async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
-    let provider =
-        ProviderBuilder::new().connect_http(indexer_cfg.rpc_url.parse().expect("invalid RPC URL"));
+async fn run_indexer_only(
+    rpc_url: &str,
+    registry_address: Address,
+    indexer_cfg: IndexerConfig,
+    pool: PgPool,
+) -> anyhow::Result<()> {
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool)
@@ -267,7 +281,7 @@ async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::R
     backfill(
         &provider,
         &pool,
-        indexer_cfg.registry_address,
+        registry_address,
         &mut from,
         indexer_cfg.batch_size,
         false, // Don't update in-memory tree
@@ -275,19 +289,17 @@ async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::R
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(
-        &indexer_cfg.ws_url,
-        &pool,
-        indexer_cfg.registry_address,
-        from,
-        false,
-    )
-    .await?;
+    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, false).await?;
 
     Ok(())
 }
 
-async fn run_http_only(http_cfg: HttpConfig, pool: PgPool) -> anyhow::Result<()> {
+async fn run_http_only(
+    rpc_url: &str,
+    registry_address: Address,
+    http_cfg: HttpConfig,
+    pool: PgPool,
+) -> anyhow::Result<()> {
     // Start DB poller for account updates
     let poller_pool = pool.clone();
     let poll_interval = http_cfg.db_poll_interval_secs;
@@ -300,25 +312,19 @@ async fn run_http_only(http_cfg: HttpConfig, pool: PgPool) -> anyhow::Result<()>
     // Start root sanity checker in the background
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
-        if let Some(sanity_rpc_url) = http_cfg.rpc_url {
-            if let Some(sanity_registry) = http_cfg.registry_address {
-                sanity_handle = Some(tokio::spawn(async move {
-                    if let Err(e) = sanity_check::root_sanity_check_loop(
-                        sanity_rpc_url,
-                        sanity_registry,
-                        sanity_interval,
-                    )
+        let rpc_url = rpc_url.to_string();
+        sanity_handle = Some(tokio::spawn(async move {
+            if let Err(e) =
+                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
                     .await
-                    {
-                        tracing::error!(?e, "Root sanity checker failed");
-                    }
-                }));
+            {
+                tracing::error!(?e, "Root sanity checker failed");
             }
-        }
+        }));
     }
 
     // Start HTTP server
-    let http_result = start_http_server(http_cfg.http_addr, pool).await;
+    let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
     if let Some(handle) = sanity_handle {
@@ -328,36 +334,34 @@ async fn run_http_only(http_cfg: HttpConfig, pool: PgPool) -> anyhow::Result<()>
 }
 
 async fn run_both(
+    rpc_url: &str,
+    registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    let provider =
-        ProviderBuilder::new().connect_http(indexer_cfg.rpc_url.parse().expect("invalid RPC URL"));
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
     // Start HTTP server
     let http_pool = pool.clone();
     let http_addr = http_cfg.http_addr;
-    let http_handle = tokio::spawn(async move { start_http_server(http_addr, http_pool).await });
+    let rpc_url_clone = rpc_url.to_string();
+    let http_handle = tokio::spawn(async move {
+        start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool).await
+    });
 
     // Start root sanity checker in the background
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
-        if let Some(sanity_rpc_url) = http_cfg.rpc_url {
-            if let Some(sanity_registry) = http_cfg.registry_address {
-                sanity_handle = Some(tokio::spawn(async move {
-                    if let Err(e) = sanity_check::root_sanity_check_loop(
-                        sanity_rpc_url,
-                        sanity_registry,
-                        sanity_interval,
-                    )
+        let rpc_url = rpc_url.to_string();
+        sanity_handle = Some(tokio::spawn(async move {
+            if let Err(e) =
+                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
                     .await
-                    {
-                        tracing::error!(?e, "Root sanity checker failed");
-                    }
-                }));
+            {
+                tracing::error!(?e, "Root sanity checker failed");
             }
-        }
+        }));
     }
 
     // Determine starting block from checkpoint or env
@@ -369,7 +373,7 @@ async fn run_both(
     backfill(
         &provider,
         &pool,
-        indexer_cfg.registry_address,
+        registry_address,
         &mut from,
         indexer_cfg.batch_size,
         true, // Update in-memory tree directly from events
@@ -377,14 +381,7 @@ async fn run_both(
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(
-        &indexer_cfg.ws_url,
-        &pool,
-        indexer_cfg.registry_address,
-        from,
-        true,
-    )
-    .await?;
+    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, true).await?;
 
     http_handle.abort();
     if let Some(handle) = sanity_handle {
