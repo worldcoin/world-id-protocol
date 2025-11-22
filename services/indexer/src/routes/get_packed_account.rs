@@ -5,21 +5,38 @@ use utoipa::ToSchema;
 
 use crate::{
     config::AppState,
-    error::{ErrorCode, ErrorResponse},
+    error::{ErrorCode, ErrorObject, ErrorResponse},
 };
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[schema(example = json!({"authenticator_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"}))]
 pub struct PackedAccountRequest {
-    #[schema(value_type = String, format = "hex")]
+    /// The authenticator address to look up
+    #[schema(value_type = String, format = "hex", example = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")]
     pub authenticator_address: Address,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[schema(example = json!({"packed_account_index": "0x1"}))]
 pub struct PackedAccountResponse {
-    #[schema(value_type = String, format = "hex")]
+    /// The packed account index [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+    #[schema(value_type = String, format = "hex", example = "0x1")]
     pub packed_account_index: U256,
 }
 
+/// Get the packed account index by authenticator address from the `AccountRegistry` contract.
+///
+/// Returns the packed account index for a given authenticator address.
+#[utoipa::path(
+    post,
+    path = "/packed_account",
+    request_body = PackedAccountRequest,
+    responses(
+        (status = 200, description = "Successfully retrieved packed account index", body = PackedAccountResponse),
+        (status = 400, description = "Account does not exist for the given authenticator address", body = ErrorObject),
+    ),
+    tag = "indexer"
+)]
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<PackedAccountRequest>,
