@@ -155,7 +155,7 @@ pub fn compute_challenges(
 /// 1. Combines the partial proofs from peers using Lagrange coefficients.
 /// 2. Verifies the resulting `DLogEquality` proof against the blinded query
 ///    and aggregated response.
-/// 3. Constructs a [`NullifierProofInput`] for the `OPRFNullifier` circuit.
+/// 3. Constructs a [`NullifierProofCircuitInput`] for the `OPRFNullifier` circuit.
 /// 4. Generates an `OPRFNullifier` Groth16 proof for the provided proving key.
 ///
 /// # Arguments

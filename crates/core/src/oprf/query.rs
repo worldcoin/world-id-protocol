@@ -69,7 +69,7 @@ impl SignedOprfQuery {
 /// 2. Generates a query hash from the Merkle index, RP identifier, and requested action.
 /// 3. Blinds the query hash using the user's public key and a random blinding factor.
 /// 4. Signs the blinded query with the user's private key.
-/// 5. Constructs a [`QueryProofInput`] containing the signature, credential data,
+/// 5. Constructs a [`QueryProofCircuitInput`] containing the signature, credential data,
 ///    Merkle membership information, and other metadata required for the proof.
 /// 6. Generates the `OPRFQuery` zero-knowledge proof using the provided
 ///    proving key material.
