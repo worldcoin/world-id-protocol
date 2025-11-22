@@ -9,6 +9,7 @@ pub enum ErrorCode {
     NotFound,
     InvalidAccountIndex,
     Locked,
+    AccountDoesNotExist,
 }
 
 #[derive(Debug, Clone)]

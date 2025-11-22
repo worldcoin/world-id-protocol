@@ -1,15 +1,21 @@
 use axum::Router;
-use sqlx::PgPool;
 
+use crate::config::AppState;
+
+mod get_packed_account;
 mod health;
 mod inclusion_proof;
 
-pub(crate) fn handler(pool: PgPool) -> Router {
+pub(crate) fn handler(state: AppState) -> Router {
     Router::new()
         .route(
             "/proof/:account_index",
             axum::routing::get(inclusion_proof::handler),
         )
+        .route(
+            "/packed_account",
+            axum::routing::post(get_packed_account::handler),
+        )
         .route("/health", axum::routing::get(health::handler))
-        .with_state(pool)
+        .with_state(state)
 }
