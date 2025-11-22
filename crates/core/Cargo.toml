@@ -1,6 +1,6 @@
 [package]
 name = "world-id-core"
-description = "Reference SDKs for interacting with the World ID Protocol. For authenticator providers, issuers and RPs."
+description = "Reference SDK for interacting with the World ID Protocol. For authenticator providers, issuers and RPs."
 publish = true
 edition.workspace = true
 version.workspace = true
