@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use alloy_primitives::Address;
+use url::Url;
 
 use crate::PrimitiveError;
 
@@ -13,8 +14,10 @@ const fn default_nullifier_oracle_threshold() -> usize {
 /// Used by Authenticators and RPs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
-    /// A fully qualified RPC domain to perform on-chain call functions
-    rpc_url: String, // TODO: Make optional
+    /// A fully qualified RPC domain to perform on-chain call functions.
+    ///
+    /// When not available, other services will be used (e.g. the indexer to fetch packed account index).
+    rpc_url: Option<Url>,
     /// The address of the `AccountRegistry` contract
     registry_address: Address,
     /// Base URL of a deployed `world-id-indexer`. Used to fetch inclusion proofs from the `AccountRegistry`.
@@ -30,23 +33,35 @@ pub struct Config {
 
 impl Config {
     /// Instantiates a new configuration.
-    #[must_use]
-    pub const fn new(
-        rpc_url: String,
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `rpc_url` is invalid.
+    pub fn new(
+        rpc_url: Option<String>,
         registry_address: Address,
         indexer_url: String,
         gateway_url: String,
         nullifier_oracle_urls: Vec<String>,
         nullifier_oracle_threshold: usize,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, PrimitiveError> {
+        let rpc_url = rpc_url
+            .map(|url| {
+                Url::parse(&url).map_err(|e| PrimitiveError::InvalidInput {
+                    reason: e.to_string(),
+                    attribute: "rpc_url".to_string(),
+                })
+            })
+            .transpose()?;
+
+        Ok(Self {
             rpc_url,
             registry_address,
             indexer_url,
             gateway_url,
             nullifier_oracle_urls,
             nullifier_oracle_threshold,
-        }
+        })
     }
 
     /// Loads a configuration from JSON.
@@ -60,8 +75,8 @@ impl Config {
 
     /// The RPC endpoint to perform RPC calls.
     #[must_use]
-    pub const fn rpc_url(&self) -> &String {
-        &self.rpc_url
+    pub const fn rpc_url(&self) -> Option<&Url> {
+        self.rpc_url.as_ref()
     }
 
     /// The address of the `AccountRegistry` contract.
