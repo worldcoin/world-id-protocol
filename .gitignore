@@ -12,9 +12,6 @@ contracts/lib/
 !contracts/out/AccountRegistry.sol/AccountRegistryAbi.json
 !contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
 
-# Build script copies for cargo publish (don't commit these)
-/crates/core/contracts
-/crates/core/circom
 
 # Node (if used later)
 node_modules/

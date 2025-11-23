@@ -15,7 +15,6 @@ include = [
     "tests/**/*",
     "contracts/**/*",
     "circom/**/*",
-    "build.rs",
     "Cargo.toml",
     "README.md",
 ]
