@@ -28,7 +28,7 @@ axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
 take_mut = "0.2.2"
 utoipa = { workspace = true }
-world-id-core = { workspace = true, features = ["authenticator"] }
+world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
 world-id-primitives = { workspace = true }
 
 [dev-dependencies]
