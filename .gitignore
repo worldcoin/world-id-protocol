@@ -2,10 +2,6 @@
 target/
 **/target/
 
-# Build script copies (for cargo publish)
-crates/core/contracts/
-crates/core/circom/
-
 # Foundry (forge)
 contracts/out/*
 contracts/cache/
@@ -15,6 +11,10 @@ contracts/lib/
 # commit contracts ABI to allow static documentation generation
 !contracts/out/AccountRegistry.sol/AccountRegistryAbi.json
 !contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
+
+# Build script copies for cargo publish (don't commit these)
+/crates/core/contracts
+/crates/core/circom
 
 # Node (if used later)
 node_modules/
