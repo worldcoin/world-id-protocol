@@ -22,7 +22,7 @@ aws-config = "1"
 aws-sdk-kms = "1"
 axum = { version = "0.8", features = ["macros", "json"] }
 clap = { version = "4", features = ["derive", "env"] }
-world-id-core = { workspace = true, features = ["openapi"] }
+world-id-core = { workspace = true, features = ["authenticator", "openapi", "embed-zkeys"] }
 dotenvy = "0.15"
 hex = "0.4"
 once_cell = "1"

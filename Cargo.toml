@@ -3,6 +3,7 @@ members = [
     "crates/core",
     "crates/primitives",
     "crates/test-utils",
+    "crates/world-id",
     "services/indexer",
     "services/gateway",
 ]
@@ -10,7 +11,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "0.1.0"
+version = "0.1.1"
 license = "MIT"
 authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
 homepage = "https://docs.world.org/world-id"
@@ -53,6 +54,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utoipa = "5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1" }
-world-id-core = { path = "crates/core"}
-world-id-primitives = { path = "crates/primitives"}
+world-id-core = { version = "0.1.1", default-features = false, path = "crates/core"}
+world-id-primitives = { version = "0.1.1", path = "crates/primitives"}
 zeroize = "1"
