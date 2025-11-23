@@ -18,6 +18,8 @@ pub struct Config {
     ///
     /// When not available, other services will be used (e.g. the indexer to fetch packed account index).
     rpc_url: Option<Url>,
+    /// The chain ID of the network where the `AccountRegistry` contract is deployed.
+    chain_id: u64,
     /// The address of the `AccountRegistry` contract
     registry_address: Address,
     /// Base URL of a deployed `world-id-indexer`. Used to fetch inclusion proofs from the `AccountRegistry`.
@@ -39,6 +41,7 @@ impl Config {
     /// Returns an error if the `rpc_url` is invalid.
     pub fn new(
         rpc_url: Option<String>,
+        chain_id: u64,
         registry_address: Address,
         indexer_url: String,
         gateway_url: String,
@@ -56,6 +59,7 @@ impl Config {
 
         Ok(Self {
             rpc_url,
+            chain_id,
             registry_address,
             indexer_url,
             gateway_url,
@@ -77,6 +81,12 @@ impl Config {
     #[must_use]
     pub const fn rpc_url(&self) -> Option<&Url> {
         self.rpc_url.as_ref()
+    }
+
+    /// The chain ID of the network where the `AccountRegistry` contract is deployed.
+    #[must_use]
+    pub const fn chain_id(&self) -> u64 {
+        self.chain_id
     }
 
     /// The address of the `AccountRegistry` contract.

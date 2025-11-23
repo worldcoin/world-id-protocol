@@ -65,7 +65,8 @@ impl Issuer {
                 self.signer.onchain_signer_address(),
             )
             .send()
-            .await?
+            .await
+            .map_err(|e| IssuerError::Generic(format!("unexpected contract error: {e}")))?
             .get_receipt()
             .await?;
 
@@ -79,7 +80,9 @@ impl Issuer {
                 .ok()
             })
             .ok_or_else(|| {
-                eyre::eyre!("IssuerSchemaRegistered event not found in transaction receipt")
+                IssuerError::Generic(
+                    "IssuerSchemaRegistered event not found in transaction receipt".to_string(),
+                )
             })?
             .issuerSchemaId;
 
@@ -93,7 +96,15 @@ pub enum IssuerError {
     #[error(transparent)]
     PrimitiveError(#[from] PrimitiveError),
 
-    /// Config error
+    /// Config is not correctly defined
     #[error("Configuration error: {0}")]
     ConfigError(String),
+
+    /// Alloy pending transaction error
+    #[error(transparent)]
+    PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
+
+    /// Generic unexpected error
+    #[error("Unexpected error: {0}")]
+    Generic(String),
 }

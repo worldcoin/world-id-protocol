@@ -50,8 +50,8 @@ pub struct Authenticator {
     /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `account_index` (192 bits)
     pub packed_account_index: U256,
     signer: Signer,
-    registry: Arc<AccountRegistryInstance<DynProvider>>,
-    provider: DynProvider,
+    registry: Option<Arc<AccountRegistryInstance<DynProvider>>>,
+    provider: Option<DynProvider>,
 }
 
 impl Authenticator {
@@ -66,24 +66,30 @@ impl Authenticator {
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
     pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
-        let provider =
-            ProviderBuilder::new().connect_http(config.rpc_url().parse().map_err(|e| {
-                PrimitiveError::InvalidInput {
-                    attribute: "RPC URL".to_string(),
-                    reason: format!("invalid URL: {e}"),
-                }
-            })?);
 
-        let registry = AccountRegistry::new(*config.registry_address(), provider.clone().erased());
+        let mut registry = None;
+        let mut provider = None;
+        if let Some(rpc_url) = config.rpc_url() {
+            let _provider = ProviderBuilder::new()
+                .with_chain_id(config.chain_id())
+                .connect_http(rpc_url.clone());
+            registry = Some(AccountRegistry::new(
+                *config.registry_address(),
+                _provider.clone().erased(),
+            ));
+            provider = Some(_provider);
+        }
+
         let packed_account_index =
-            Self::get_packed_account_index(signer.onchain_signer_address(), &registry).await?;
+            Self::get_packed_account_index(signer.onchain_signer_address(), registry.as_ref())
+                .await?;
 
         Ok(Self {
             packed_account_index,
             signer,
             config,
-            registry: Arc::new(registry),
-            provider: provider.erased(),
+            registry: registry.map(Arc::new),
+            provider: provider.map(|p| p.erased()),
         })
     }
 
@@ -203,12 +209,16 @@ impl Authenticator {
     /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
     pub async fn get_packed_account_index(
         onchain_signer_address: Address,
-        registry: &AccountRegistryInstance<DynProvider>,
+        registry: Option<&AccountRegistryInstance<DynProvider>>,
     ) -> Result<U256, AuthenticatorError> {
-        let raw_index = registry
-            .authenticatorAddressToPackedAccountIndex(onchain_signer_address)
-            .call()
-            .await?;
+        let raw_index = if let Some(registry) = registry {
+            registry
+                .authenticatorAddressToPackedAccountIndex(onchain_signer_address)
+                .call()
+                .await?
+        } else {
+            todo!("indexer call");
+        };
 
         if raw_index == U256::ZERO {
             return Err(AuthenticatorError::AccountDoesNotExist);
@@ -245,13 +255,13 @@ impl Authenticator {
 
     /// Returns a reference to the `AccountRegistry` contract instance.
     #[must_use]
-    pub fn registry(&self) -> Arc<AccountRegistryInstance<DynProvider>> {
-        Arc::clone(&self.registry)
+    pub fn registry(&self) -> Option<Arc<AccountRegistryInstance<DynProvider>>> {
+        self.registry.clone()
     }
 
     /// Returns a reference to the Ethereum provider.
     #[must_use]
-    pub fn provider(&self) -> DynProvider {
+    pub fn provider(&self) -> Option<DynProvider> {
         self.provider.clone()
     }
 
@@ -413,13 +423,7 @@ impl Authenticator {
 
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
-        let eip712_domain = domain(
-            self.provider()
-                .get_chain_id()
-                .await
-                .map_err(|e| AuthenticatorError::Generic(format!("Failed to get chain ID: {e}")))?,
-            *self.config.registry_address(),
-        );
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
         #[allow(clippy::cast_possible_truncation)]
         // truncating is intentional, and index will always fit in 32 bits
@@ -502,13 +506,7 @@ impl Authenticator {
 
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
-        let eip712_domain = domain(
-            self.provider()
-                .get_chain_id()
-                .await
-                .map_err(|e| AuthenticatorError::Generic(format!("Failed to get chain ID: {e}")))?,
-            *self.config.registry_address(),
-        );
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
         let signature = sign_update_authenticator(
             &self.signer.onchain_signer(),
@@ -595,13 +593,7 @@ impl Authenticator {
         };
         let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
-        let eip712_domain = domain(
-            self.provider()
-                .get_chain_id()
-                .await
-                .map_err(|e| AuthenticatorError::Generic(format!("Failed to get chain ID: {e}")))?,
-            *self.config.registry_address(),
-        );
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
         let signature = sign_remove_authenticator(
             &self.signer.onchain_signer(),
