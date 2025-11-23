@@ -40,13 +40,13 @@ pub const QUERY_GRAPH_FINGERPRINT: &str =
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
     "e6d818a0d6a76e98efbe35fba4664fcea33afc0da663041571c8d59c7a5f0fa0";
 
-const QUERY_GRAPH_BYTES: &[u8] = include_bytes!("../../../circom/OPRFQueryGraph.bin");
-const NULLIFIER_GRAPH_BYTES: &[u8] = include_bytes!("../../../circom/OPRFNullifierGraph.bin");
+const QUERY_GRAPH_BYTES: &[u8] = include_bytes!("../circom/OPRFQueryGraph.bin");
+const NULLIFIER_GRAPH_BYTES: &[u8] = include_bytes!("../circom/OPRFNullifierGraph.bin");
 
 #[cfg(feature = "embed-zkeys")]
-const QUERY_ZKEY_BYTES: &[u8] = include_bytes!("../../../circom/OPRFQuery.arks.zkey");
+const QUERY_ZKEY_BYTES: &[u8] = include_bytes!("../circom/OPRFQuery.arks.zkey");
 #[cfg(feature = "embed-zkeys")]
-const NULLIFIER_ZKEY_BYTES: &[u8] = include_bytes!("../../../circom/OPRFNullifier.arks.zkey");
+const NULLIFIER_ZKEY_BYTES: &[u8] = include_bytes!("../circom/OPRFNullifier.arks.zkey");
 
 // ============================================================================
 // Circuit Material Loaders

@@ -12,12 +12,14 @@ repository.workspace = true
 include = [
     "src/**/*",
     "bin/**/*",
-    "../../contracts/out/AccountRegistry.sol/AccountRegistryAbi.json",
-    "../../circom/*.bin",
-    "../../circom/*.zkey",
+    "tests/**/*",
+    "contracts/**/*",
+    "circom/**/*",
+    "build.rs",
     "Cargo.toml",
     "README.md",
 ]
+
 
 [[bin]]
 name = "authenticator"

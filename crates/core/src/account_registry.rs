@@ -11,7 +11,7 @@ sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     AccountRegistry,
-    "../../contracts/out/AccountRegistry.sol/AccountRegistryAbi.json"
+    "contracts/out/AccountRegistry.sol/AccountRegistryAbi.json"
 );
 
 sol! {
