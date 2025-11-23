@@ -5,6 +5,7 @@ use crate::config::AppState;
 use crate::error::ErrorObject;
 
 mod get_packed_account;
+mod get_signature_nonce;
 mod health;
 mod inclusion_proof;
 
@@ -12,10 +13,13 @@ mod inclusion_proof;
 #[openapi(
     paths(
         get_packed_account::handler,
+        get_signature_nonce::handler,
     ),
     components(schemas(
         get_packed_account::PackedAccountRequest,
         get_packed_account::PackedAccountResponse,
+        get_signature_nonce::SignatureNonceRequest,
+        get_signature_nonce::SignatureNonceResponse,
         ErrorObject,
     )),
     tags(
@@ -37,6 +41,10 @@ pub(crate) fn handler(state: AppState) -> Router {
         .route(
             "/packed_account",
             axum::routing::post(get_packed_account::handler),
+        )
+        .route(
+            "/signature_nonce",
+            axum::routing::post(get_signature_nonce::handler),
         )
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))

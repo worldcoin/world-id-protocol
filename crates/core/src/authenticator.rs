@@ -68,16 +68,17 @@ impl Authenticator {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let mut registry = None;
+        #[allow(clippy::useless_let_if_seq)]
         let mut provider = None;
         if let Some(rpc_url) = config.rpc_url() {
-            let _provider = ProviderBuilder::new()
+            let provider_init = ProviderBuilder::new()
                 .with_chain_id(config.chain_id())
                 .connect_http(rpc_url.clone());
             registry = Some(AccountRegistry::new(
                 *config.registry_address(),
-                _provider.clone().erased(),
+                provider_init.clone().erased(),
             ));
-            provider = Some(_provider);
+            provider = Some(provider_init);
         }
 
         let packed_account_index =
@@ -89,7 +90,7 @@ impl Authenticator {
             signer,
             config,
             registry: registry.map(Arc::new),
-            provider: provider.map(|p| p.erased()),
+            provider: provider.map(alloy::providers::Provider::erased),
         })
     }
 
@@ -313,8 +314,12 @@ impl Authenticator {
     /// Will return an error if the registry contract call fails.
     pub async fn signing_nonce(&self) -> Result<U256, AuthenticatorError> {
         let registry = self.registry();
-        let nonce = registry.signatureNonces(self.account_id()).call().await?;
-        Ok(nonce)
+        if let Some(registry) = registry {
+            let nonce = registry.signatureNonces(self.account_id()).call().await?;
+            Ok(nonce)
+        } else {
+            todo!("indexer call");
+        }
     }
 
     /// Generates a World ID Uniqueness Proof given a provided context.
