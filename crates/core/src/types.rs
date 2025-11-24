@@ -5,7 +5,6 @@ use ruint::aliases::U256;
 #[cfg(feature = "authenticator")]
 use serde::Serialize;
 
-#[cfg(feature = "authenticator")]
 use serde::Deserialize;
 
 #[cfg(feature = "authenticator")]
