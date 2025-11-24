@@ -3,7 +3,10 @@
 use ruint::aliases::U256;
 
 #[cfg(feature = "authenticator")]
-use serde::{self, Deserialize, Serialize};
+use serde::Serialize;
+
+#[cfg(feature = "authenticator")]
+use serde::Deserialize;
 
 #[cfg(feature = "authenticator")]
 use strum::EnumString;
@@ -319,6 +322,7 @@ where
     pub message: String,
 }
 
+#[cfg(feature = "authenticator")]
 impl<T> ServiceApiError<T>
 where
     T: Clone,
