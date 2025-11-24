@@ -1,28 +1,11 @@
 use alloy::primitives::U256;
 use axum::{extract::State, Json};
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use world_id_core::types::{IndexerSignatureNonceRequest, IndexerSignatureNonceResponse};
 
 use crate::{
     config::AppState,
     error::{ErrorCode, ErrorObject, ErrorResponse},
 };
-
-#[derive(Debug, Deserialize, ToSchema)]
-#[schema(example = json!({"account_index": "0x1"}))]
-pub(super) struct SignatureNonceRequest {
-    /// The account index to look up
-    #[schema(value_type = String, format = "hex", example = "0x1")]
-    pub account_index: U256,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-#[schema(example = json!({"signature_nonce": "0x0"}))]
-pub(super) struct SignatureNonceResponse {
-    /// The signature nonce for the account
-    #[schema(value_type = String, format = "hex", example = "0x0")]
-    pub signature_nonce: U256,
-}
 
 /// Get the signature nonce for a specific accountfrom the `AccountRegistry` contract.
 ///
@@ -30,17 +13,17 @@ pub(super) struct SignatureNonceResponse {
 #[utoipa::path(
     post,
     path = "/signature_nonce",
-    request_body = SignatureNonceRequest,
+    request_body = IndexerSignatureNonceRequest,
     responses(
-        (status = 200, description = "Successfully retrieved signature nonce", body = SignatureNonceResponse),
+        (status = 200, description = "Successfully retrieved signature nonce", body = IndexerSignatureNonceResponse),
         (status = 400, description = "Invalid account index provided", body = ErrorObject),
     ),
     tag = "indexer"
 )]
 pub(crate) async fn handler(
     State(state): State<AppState>,
-    Json(req): Json<SignatureNonceRequest>,
-) -> Result<Json<SignatureNonceResponse>, ErrorResponse> {
+    Json(req): Json<IndexerSignatureNonceRequest>,
+) -> Result<Json<IndexerSignatureNonceResponse>, ErrorResponse> {
     if req.account_index == U256::ZERO {
         return Err(ErrorResponse::bad_request(
             ErrorCode::InvalidAccountIndex,
@@ -58,5 +41,5 @@ pub(crate) async fn handler(
             ErrorResponse::internal_server_error()
         })?;
 
-    Ok(Json(SignatureNonceResponse { signature_nonce }))
+    Ok(Json(IndexerSignatureNonceResponse { signature_nonce }))
 }

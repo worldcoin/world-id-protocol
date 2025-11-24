@@ -1,5 +1,9 @@
 use axum::{response::IntoResponse, Json, Router};
 use utoipa::OpenApi;
+use world_id_core::types::{
+    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerSignatureNonceRequest,
+    IndexerSignatureNonceResponse,
+};
 
 use crate::config::AppState;
 use crate::error::ErrorObject;
@@ -16,10 +20,10 @@ mod inclusion_proof;
         get_signature_nonce::handler,
     ),
     components(schemas(
-        get_packed_account::PackedAccountRequest,
-        get_packed_account::PackedAccountResponse,
-        get_signature_nonce::SignatureNonceRequest,
-        get_signature_nonce::SignatureNonceResponse,
+        IndexerPackedAccountRequest,
+        IndexerPackedAccountResponse,
+        IndexerSignatureNonceRequest,
+        IndexerSignatureNonceResponse,
         ErrorObject,
     )),
     tags(

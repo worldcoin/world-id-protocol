@@ -241,3 +241,43 @@ pub enum GatewayRequestState {
         error: String,
     },
 }
+
+/// Request to fetch a packed account index from the indexer.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerPackedAccountRequest {
+    /// The authenticator address to look up
+    #[schema(value_type = String, format = "hex", example = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")]
+    pub authenticator_address: Address,
+}
+
+/// Response containing the packed account index from the indexer.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerPackedAccountResponse {
+    /// The packed account index [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+    #[schema(value_type = String, format = "hex", example = "0x1")]
+    pub packed_account_index: U256,
+}
+
+/// Request to fetch a signature nonce from the indexer.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerSignatureNonceRequest {
+    /// The account index to look up
+    #[schema(value_type = String, format = "hex", example = "0x1")]
+    pub account_index: U256,
+}
+
+/// Response containing the signature nonce from the indexer.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerSignatureNonceResponse {
+    /// The signature nonce for the account
+    #[schema(value_type = String, format = "hex", example = "0x0")]
+    pub signature_nonce: U256,
+}
