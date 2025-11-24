@@ -43,12 +43,14 @@ pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const NULLIFIER_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifierGraph.bin"));
+const NULLIFIER_GRAPH_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifierGraph.bin"));
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_ZKEY_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQuery.arks.zkey"));
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const NULLIFIER_ZKEY_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifier.arks.zkey"));
+const NULLIFIER_ZKEY_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifier.arks.zkey"));
 
 // ============================================================================
 // Circuit Material Loaders
