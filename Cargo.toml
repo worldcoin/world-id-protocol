@@ -3,7 +3,6 @@ members = [
     "crates/core",
     "crates/primitives",
     "crates/test-utils",
-    "crates/world-id",
     "services/indexer",
     "services/gateway",
 ]
