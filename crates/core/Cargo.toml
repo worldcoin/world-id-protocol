@@ -14,7 +14,6 @@ include = [
     "bin/**/*",
     "tests/**/*",
     "contracts/**/*",
-    "circom/**/*",
     "build.rs",
     "Cargo.toml",
     "README.md",
@@ -82,7 +81,7 @@ authenticator = [
     "dep:futures"
 ]
 
-embed-zkeys = []
+embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
 issuer = ["alloy/signer-local", "dep:secrecy"]
 
@@ -92,6 +91,12 @@ cli = []
 
 # OpenAPI/Swagger docs
 openapi = ["dep:utoipa"]
+
+[build-dependencies]
+reqwest = { workspace = true, features = ["blocking"], optional = true }
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
 alloy-node-bindings = "1.0.38"

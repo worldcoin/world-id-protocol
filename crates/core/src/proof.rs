@@ -40,13 +40,17 @@ pub const QUERY_GRAPH_FINGERPRINT: &str =
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
     "e6d818a0d6a76e98efbe35fba4664fcea33afc0da663041571c8d59c7a5f0fa0";
 
-const QUERY_GRAPH_BYTES: &[u8] = include_bytes!("../circom/OPRFQueryGraph.bin");
-const NULLIFIER_GRAPH_BYTES: &[u8] = include_bytes!("../circom/OPRFNullifierGraph.bin");
+#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
+const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
+#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
+const NULLIFIER_GRAPH_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifierGraph.bin"));
 
-#[cfg(feature = "embed-zkeys")]
-const QUERY_ZKEY_BYTES: &[u8] = include_bytes!("../circom/OPRFQuery.arks.zkey");
-#[cfg(feature = "embed-zkeys")]
-const NULLIFIER_ZKEY_BYTES: &[u8] = include_bytes!("../circom/OPRFNullifier.arks.zkey");
+#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
+const QUERY_ZKEY_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQuery.arks.zkey"));
+#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
+const NULLIFIER_ZKEY_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifier.arks.zkey"));
 
 // ============================================================================
 // Circuit Material Loaders
@@ -57,7 +61,7 @@ const NULLIFIER_ZKEY_BYTES: &[u8] = include_bytes!("../circom/OPRFNullifier.arks
 /// # Panics
 /// Will panic if the embedded material cannot be loaded or verified.
 #[must_use]
-#[cfg(feature = "embed-zkeys")]
+#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
     build_nullifier_builder()
         .build_from_bytes(NULLIFIER_ZKEY_BYTES, NULLIFIER_GRAPH_BYTES)
@@ -69,11 +73,26 @@ pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
 /// # Panics
 /// Will panic if the embedded material cannot be loaded or verified.
 #[must_use]
-#[cfg(feature = "embed-zkeys")]
+#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 pub fn load_embedded_query_material() -> CircomGroth16Material {
     build_query_builder()
         .build_from_bytes(QUERY_ZKEY_BYTES, QUERY_GRAPH_BYTES)
         .expect("works when loading embedded groth16-material")
+}
+
+// Stub implementations for docs.rs
+#[cfg(docsrs)]
+#[must_use]
+pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
+    // TODO: This is a stub for docs.rs compilation only
+    todo!("load_embedded_nullifier_material is not available on docs.rs - use load_nullifier_material_from_paths or load_nullifier_material_from_reader instead")
+}
+
+#[cfg(docsrs)]
+#[must_use]
+pub fn load_embedded_query_material() -> CircomGroth16Material {
+    // TODO: This is a stub for docs.rs compilation only
+    todo!("load_embedded_query_material is not available on docs.rs - use load_query_material_from_paths or load_query_material_from_reader instead")
 }
 
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided reader.
