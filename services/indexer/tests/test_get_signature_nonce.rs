@@ -94,7 +94,7 @@ async fn test_signature_nonce_endpoint() {
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let json: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(json["code"].as_str().unwrap(), "account_does_not_exist");
+    assert_eq!(json["code"].as_str().unwrap(), "invalid_account_index");
 
     indexer_task.abort();
 }
