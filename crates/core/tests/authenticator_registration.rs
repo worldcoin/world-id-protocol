@@ -35,13 +35,15 @@ async fn test_authenticator_registration() {
         .expect("failed to spawn gateway");
 
     let config = Config::new(
-        anvil.endpoint().to_string(),
+        Some(anvil.endpoint().to_string()),
+        anvil.instance.chain_id(),
         registry_address,
         "http://127.0.0.1:0".to_string(), // not needed for this test
         format!("http://127.0.0.1:{GW_PORT}"),
         Vec::new(),
         2,
-    );
+    )
+    .unwrap();
 
     let seed = [1u8; 32];
     let recovery_address = anvil.signer(1).unwrap().address();

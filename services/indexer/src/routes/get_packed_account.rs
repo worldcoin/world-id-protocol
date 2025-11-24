@@ -1,28 +1,11 @@
-use alloy::primitives::{Address, U256};
+use alloy::primitives::U256;
 use axum::{extract::State, Json};
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use world_id_core::types::{IndexerPackedAccountRequest, IndexerPackedAccountResponse};
 
 use crate::{
     config::AppState,
-    error::{ErrorCode, ErrorObject, ErrorResponse},
+    error::{ErrorBody, ErrorCode, ErrorResponse},
 };
-
-#[derive(Debug, Deserialize, ToSchema)]
-#[schema(example = json!({"authenticator_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"}))]
-pub(super) struct PackedAccountRequest {
-    /// The authenticator address to look up
-    #[schema(value_type = String, format = "hex", example = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")]
-    pub authenticator_address: Address,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-#[schema(example = json!({"packed_account_index": "0x1"}))]
-pub(super) struct PackedAccountResponse {
-    /// The packed account index [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
-    #[schema(value_type = String, format = "hex", example = "0x1")]
-    pub packed_account_index: U256,
-}
 
 /// Get the packed account index by authenticator address from the `AccountRegistry` contract.
 ///
@@ -30,17 +13,17 @@ pub(super) struct PackedAccountResponse {
 #[utoipa::path(
     post,
     path = "/packed_account",
-    request_body = PackedAccountRequest,
+    request_body = IndexerPackedAccountRequest,
     responses(
-        (status = 200, description = "Successfully retrieved packed account index", body = PackedAccountResponse),
-        (status = 400, description = "Account does not exist for the given authenticator address", body = ErrorObject),
+        (status = 200, description = "Successfully retrieved packed account index", body = IndexerPackedAccountResponse),
+        (status = 400, description = "Account does not exist for the given authenticator address", body = ErrorBody),
     ),
     tag = "indexer"
 )]
 pub(crate) async fn handler(
     State(state): State<AppState>,
-    Json(req): Json<PackedAccountRequest>,
-) -> Result<Json<PackedAccountResponse>, ErrorResponse> {
+    Json(req): Json<IndexerPackedAccountRequest>,
+) -> Result<Json<IndexerPackedAccountResponse>, ErrorResponse> {
     let packed_account_index = state
         .registry
         .authenticatorAddressToPackedAccountIndex(req.authenticator_address)
@@ -58,7 +41,7 @@ pub(crate) async fn handler(
         ));
     }
 
-    Ok(Json(PackedAccountResponse {
+    Ok(Json(IndexerPackedAccountResponse {
         packed_account_index,
     }))
 }

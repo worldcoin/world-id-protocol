@@ -1,10 +1,13 @@
 use axum::{response::IntoResponse, Json, Router};
 use utoipa::OpenApi;
+use world_id_core::types::{
+    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerSignatureNonceRequest,
+    IndexerSignatureNonceResponse,
+};
 
-use crate::config::AppState;
-use crate::error::ErrorObject;
-
+use crate::{config::AppState, error::ErrorBody};
 mod get_packed_account;
+mod get_signature_nonce;
 mod health;
 mod inclusion_proof;
 
@@ -12,11 +15,14 @@ mod inclusion_proof;
 #[openapi(
     paths(
         get_packed_account::handler,
+        get_signature_nonce::handler,
     ),
     components(schemas(
-        get_packed_account::PackedAccountRequest,
-        get_packed_account::PackedAccountResponse,
-        ErrorObject,
+        IndexerPackedAccountRequest,
+        IndexerPackedAccountResponse,
+        IndexerSignatureNonceRequest,
+        IndexerSignatureNonceResponse,
+        ErrorBody,
     )),
     tags(
         (name = "indexer", description = "World ID Indexer. Provides Merkle inclusion proofs and packed account indices from the on-chain registry.")
@@ -37,6 +43,10 @@ pub(crate) fn handler(state: AppState) -> Router {
         .route(
             "/packed_account",
             axum::routing::post(get_packed_account::handler),
+        )
+        .route(
+            "/signature_nonce",
+            axum::routing::post(get_signature_nonce::handler),
         )
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
