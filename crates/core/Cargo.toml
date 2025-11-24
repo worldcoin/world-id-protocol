@@ -48,11 +48,12 @@ uuid = { workspace = true }
 eyre = { workspace = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10", optional = true }
+strum = { workspace = true }
 world-id-primitives = { workspace = true }
 utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 oprf-core = { workspace = true, optional = true }
-futures = { workspace = true }
+futures = { workspace = true, optional = true }
 
 [features]
 default = ["authenticator", "embed-zkeys"]
@@ -66,7 +67,8 @@ authenticator = [
     "dep:reqwest",
     "dep:secrecy",
     "dep:groth16-material",
-    "dep:oprf-core"
+    "dep:oprf-core",
+    "dep:futures"
 ]
 
 embed-zkeys = []

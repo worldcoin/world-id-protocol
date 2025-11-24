@@ -4,7 +4,7 @@ use world_id_core::types::{IndexerPackedAccountRequest, IndexerPackedAccountResp
 
 use crate::{
     config::AppState,
-    error::{ErrorCode, ErrorObject, ErrorResponse},
+    error::{ErrorBody, ErrorCode, ErrorResponse},
 };
 
 /// Get the packed account index by authenticator address from the `AccountRegistry` contract.
@@ -16,7 +16,7 @@ use crate::{
     request_body = IndexerPackedAccountRequest,
     responses(
         (status = 200, description = "Successfully retrieved packed account index", body = IndexerPackedAccountResponse),
-        (status = 400, description = "Account does not exist for the given authenticator address", body = ErrorObject),
+        (status = 400, description = "Account does not exist for the given authenticator address", body = ErrorBody),
     ),
     tag = "indexer"
 )]

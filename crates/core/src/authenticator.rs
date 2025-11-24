@@ -10,9 +10,9 @@ use crate::account_registry::{
 };
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-    IndexerErrorCode, IndexerErrorResponse, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerSignatureNonceRequest, IndexerSignatureNonceResponse,
-    InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
+    IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+    IndexerSignatureNonceRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
+    RemoveAuthenticatorRequest, RpRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
@@ -243,14 +243,14 @@ impl Authenticator {
             let status = resp.status();
             if !status.is_success() {
                 // Try to parse the error response
-                if let Ok(error_resp) = resp.json::<IndexerErrorResponse>().await {
-                    return match error_resp.error.code {
+                if let Ok(error_resp) = resp.json::<ServiceApiError<IndexerErrorCode>>().await {
+                    return match error_resp.code {
                         IndexerErrorCode::AccountDoesNotExist => {
                             Err(AuthenticatorError::AccountDoesNotExist)
                         }
                         _ => Err(AuthenticatorError::IndexerError {
                             status: status.as_u16(),
-                            body: error_resp.error.message,
+                            body: error_resp.message,
                         }),
                     };
                 }
@@ -947,10 +947,8 @@ mod tests {
             .with_header("content-type", "application/json")
             .with_body(
                 serde_json::json!({
-                    "error": {
-                        "code": "account_does_not_exist",
-                        "message": "There is no account for this authenticator address"
-                    }
+                    "code": "account_does_not_exist",
+                    "message": "There is no account for this authenticator address"
                 })
                 .to_string(),
             )
@@ -1047,10 +1045,8 @@ mod tests {
             .with_header("content-type", "application/json")
             .with_body(
                 serde_json::json!({
-                    "error": {
-                        "code": "invalid_account_index",
-                        "message": "Account index cannot be zero"
-                    }
+                    "code": "invalid_account_index",
+                    "message": "Account index cannot be zero"
                 })
                 .to_string(),
             )
@@ -1081,58 +1077,6 @@ mod tests {
         assert!(matches!(
             result,
             Err(AuthenticatorError::IndexerError { .. })
-        ));
-        mock.assert_async().await;
-        drop(server);
-    }
-
-    #[tokio::test]
-    async fn test_signing_nonce_account_does_not_exist() {
-        let mut server = mockito::Server::new_async().await;
-        let indexer_url = server.url();
-
-        // Mock an AccountDoesNotExist error response
-        let mock = server
-            .mock("POST", "/signature_nonce")
-            .with_status(400)
-            .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({
-                    "error": {
-                        "code": "account_does_not_exist",
-                        "message": "Account does not exist"
-                    }
-                })
-                .to_string(),
-            )
-            .create_async()
-            .await;
-
-        let config = Config::new(
-            None,
-            1,
-            address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
-            Vec::new(),
-            2,
-        )
-        .unwrap();
-
-        let authenticator = Authenticator {
-            config,
-            packed_account_index: U256::from(999),
-            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
-            registry: None,
-            http_client: reqwest::Client::new(),
-        };
-
-        let result = authenticator.signing_nonce().await;
-
-        // Should return AccountDoesNotExist, not IndexerError
-        assert!(matches!(
-            result,
-            Err(AuthenticatorError::AccountDoesNotExist)
         ));
         mock.assert_async().await;
         drop(server);

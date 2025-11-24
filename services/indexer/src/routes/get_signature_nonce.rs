@@ -4,7 +4,7 @@ use world_id_core::types::{IndexerSignatureNonceRequest, IndexerSignatureNonceRe
 
 use crate::{
     config::AppState,
-    error::{ErrorCode, ErrorObject, ErrorResponse},
+    error::{ErrorCode, ErrorResponse},
 };
 
 /// Get the signature nonce for a specific accountfrom the `AccountRegistry` contract.
@@ -16,7 +16,6 @@ use crate::{
     request_body = IndexerSignatureNonceRequest,
     responses(
         (status = 200, description = "Successfully retrieved signature nonce", body = IndexerSignatureNonceResponse),
-        (status = 400, description = "Invalid account index provided", body = ErrorObject),
     ),
     tag = "indexer"
 )]

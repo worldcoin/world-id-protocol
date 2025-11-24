@@ -1,8 +1,12 @@
+#![allow(clippy::option_if_let_else)]
 #[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
+#[cfg(feature = "authenticator")]
 use serde::{self, Deserialize, Serialize};
 
+#[cfg(feature = "authenticator")]
+use strum::EnumString;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 pub use world_id_primitives::merkle::AccountInclusionProof;
@@ -248,7 +252,7 @@ pub enum GatewayRequestState {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerPackedAccountRequest {
     /// The authenticator address to look up
-    #[schema(value_type = String, format = "hex", example = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"))]
     pub authenticator_address: Address,
 }
 
@@ -258,7 +262,7 @@ pub struct IndexerPackedAccountRequest {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerPackedAccountResponse {
     /// The packed account index [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
-    #[schema(value_type = String, format = "hex", example = "0x1")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
     pub packed_account_index: U256,
 }
 
@@ -268,7 +272,7 @@ pub struct IndexerPackedAccountResponse {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerSignatureNonceRequest {
     /// The account index to look up
-    #[schema(value_type = String, format = "hex", example = "0x1")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
     pub account_index: U256,
 }
 
@@ -278,13 +282,15 @@ pub struct IndexerSignatureNonceRequest {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerSignatureNonceResponse {
     /// The signature nonce for the account
-    #[schema(value_type = String, format = "hex", example = "0x0")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x0"))]
     pub signature_nonce: U256,
 }
 
-/// Error code returned by the indexer.
+/// Error codes returned by the indexer.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, strum::Display, EnumString, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerErrorCode {
     /// Internal server error occurred in the indexer.
@@ -299,20 +305,26 @@ pub enum IndexerErrorCode {
     AccountDoesNotExist,
 }
 
-/// Error object returned by the indexer.
+/// Error object returned by the services APIs (indexer, gateway).
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize)]
-pub struct IndexerErrorObject {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct ServiceApiError<T>
+where
+    T: Clone,
+{
     /// The error code.
-    pub code: IndexerErrorCode,
+    pub code: T,
     /// Human-readable error message.
     pub message: String,
 }
 
-/// Error response returned by the indexer.
-#[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize)]
-pub struct IndexerErrorResponse {
-    /// The error object.
-    pub error: IndexerErrorObject,
+impl<T> ServiceApiError<T>
+where
+    T: Clone,
+{
+    /// Creates a new error object.
+    pub const fn new(code: T, message: String) -> Self {
+        Self { code, message }
+    }
 }

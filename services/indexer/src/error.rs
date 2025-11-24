@@ -1,37 +1,22 @@
 use axum::response::IntoResponse;
 use http::StatusCode;
-use serde::Serialize;
-use strum::EnumString;
-use utoipa::ToSchema;
 
-#[derive(Debug, Clone, strum::Display, EnumString, Serialize, ToSchema)]
-#[strum(serialize_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-pub enum ErrorCode {
-    InternalServerError,
-    NotFound,
-    InvalidAccountIndex,
-    Locked,
-    AccountDoesNotExist,
-}
+pub use world_id_core::types::IndexerErrorCode as ErrorCode;
+use world_id_core::types::ServiceApiError;
+
+pub type ErrorBody = ServiceApiError<ErrorCode>;
 
 #[derive(Debug, Clone)]
 pub struct ErrorResponse {
     status: StatusCode,
-    error: ErrorObject,
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct ErrorObject {
-    code: ErrorCode,
-    message: String,
+    error: ErrorBody,
 }
 
 impl ErrorResponse {
     pub fn new(code: ErrorCode, message: String, status: StatusCode) -> Self {
         Self {
             status,
-            error: ErrorObject { code, message },
+            error: ServiceApiError::new(code, message),
         }
     }
 
@@ -73,14 +58,6 @@ impl std::error::Error for ErrorResponse {}
 
 impl IntoResponse for ErrorResponse {
     fn into_response(self) -> axum::response::Response {
-        #[derive(Serialize)]
-        struct ErrorResponseBody {
-            error: ErrorObject,
-        }
-        (
-            self.status,
-            axum::Json(ErrorResponseBody { error: self.error }),
-        )
-            .into_response()
+        (self.status, axum::Json(self.error)).into_response()
     }
 }
