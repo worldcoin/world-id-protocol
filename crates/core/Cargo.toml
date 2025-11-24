@@ -88,3 +88,4 @@ world-id-gateway = { path = "../../services/gateway" }
 axum = { version = "0.8", features = ["macros", "json"] }
 k256 = { workspace = true, features = ["ecdsa"] }
 oprf-core = { workspace = true }
+mockito = "1.6"

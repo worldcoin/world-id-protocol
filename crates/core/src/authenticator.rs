@@ -10,6 +10,8 @@ use crate::account_registry::{
 };
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
+    IndexerErrorCode, IndexerErrorResponse, IndexerPackedAccountRequest,
+    IndexerPackedAccountResponse, IndexerSignatureNonceRequest, IndexerSignatureNonceResponse,
     InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
 };
 use crate::{Credential, FieldElement, Signer};
@@ -51,7 +53,7 @@ pub struct Authenticator {
     pub packed_account_index: U256,
     signer: Signer,
     registry: Option<Arc<AccountRegistryInstance<DynProvider>>>,
-    provider: Option<DynProvider>,
+    http_client: reqwest::Client,
 }
 
 impl Authenticator {
@@ -67,30 +69,35 @@ impl Authenticator {
     pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
-        let mut registry = None;
-        #[allow(clippy::useless_let_if_seq)]
-        let mut provider = None;
-        if let Some(rpc_url) = config.rpc_url() {
-            let provider_init = ProviderBuilder::new()
-                .with_chain_id(config.chain_id())
-                .connect_http(rpc_url.clone());
-            registry = Some(AccountRegistry::new(
-                *config.registry_address(),
-                provider_init.clone().erased(),
-            ));
-            provider = Some(provider_init);
-        }
+        let registry = config.rpc_url().map_or_else(
+            || None,
+            |rpc_url| {
+                let provider = ProviderBuilder::new()
+                    .with_chain_id(config.chain_id())
+                    .connect_http(rpc_url.clone());
+                Some(AccountRegistry::new(
+                    *config.registry_address(),
+                    provider.erased(),
+                ))
+            },
+        );
 
-        let packed_account_index =
-            Self::get_packed_account_index(signer.onchain_signer_address(), registry.as_ref())
-                .await?;
+        let http_client = reqwest::Client::new();
+
+        let packed_account_index = Self::get_packed_account_index(
+            signer.onchain_signer_address(),
+            registry.as_ref(),
+            &config,
+            &http_client,
+        )
+        .await?;
 
         Ok(Self {
             packed_account_index,
             signer,
             config,
             registry: registry.map(Arc::new),
-            provider: provider.map(alloy::providers::Provider::erased),
+            http_client,
         })
     }
 
@@ -111,7 +118,8 @@ impl Authenticator {
         match Self::init(seed, config.clone()).await {
             Ok(authenticator) => Ok(Some(authenticator)),
             Err(AuthenticatorError::AccountDoesNotExist) => {
-                Self::create_account(seed, &config, recovery_address).await?;
+                let http_client = reqwest::Client::new();
+                Self::create_account(seed, &config, recovery_address, &http_client).await?;
                 Ok(None)
             }
             Err(e) => Err(e),
@@ -138,8 +146,12 @@ impl Authenticator {
             Err(e) => return Err(e),
         }
 
+        // Create HTTP client for account creation and polling
+        let http_client = reqwest::Client::new();
+
         // Create the account and get the request ID
-        let request_id = Self::create_account(seed, &config, recovery_address).await?;
+        let request_id =
+            Self::create_account(seed, &config, recovery_address, &http_client).await?;
 
         // Poll for confirmation with exponential backoff
         let start = std::time::Instant::now();
@@ -155,7 +167,7 @@ impl Authenticator {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
 
             // Poll the gateway status
-            match Self::poll_gateway_status(&config, &request_id).await {
+            match Self::poll_gateway_status(&config, &request_id, &http_client).await {
                 Ok(GatewayRequestState::Finalized { .. }) => {
                     return Self::init(seed, config).await;
                 }
@@ -181,8 +193,9 @@ impl Authenticator {
     async fn poll_gateway_status(
         config: &Config,
         request_id: &str,
+        http_client: &reqwest::Client,
     ) -> Result<GatewayRequestState, AuthenticatorError> {
-        let resp = reqwest::Client::new()
+        let resp = http_client
             .get(format!("{}/status/{}", config.gateway_url(), request_id))
             .send()
             .await?;
@@ -211,14 +224,44 @@ impl Authenticator {
     pub async fn get_packed_account_index(
         onchain_signer_address: Address,
         registry: Option<&AccountRegistryInstance<DynProvider>>,
+        config: &Config,
+        http_client: &reqwest::Client,
     ) -> Result<U256, AuthenticatorError> {
+        // If the registry is available through direct RPC calls, use it. Otherwise fallback to the indexer.
         let raw_index = if let Some(registry) = registry {
             registry
                 .authenticatorAddressToPackedAccountIndex(onchain_signer_address)
                 .call()
                 .await?
         } else {
-            todo!("indexer call");
+            let url = format!("{}/packed_account", config.indexer_url());
+            let req = IndexerPackedAccountRequest {
+                authenticator_address: onchain_signer_address,
+            };
+            let resp = http_client.post(&url).json(&req).send().await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                // Try to parse the error response
+                if let Ok(error_resp) = resp.json::<IndexerErrorResponse>().await {
+                    return match error_resp.error.code {
+                        IndexerErrorCode::AccountDoesNotExist => {
+                            Err(AuthenticatorError::AccountDoesNotExist)
+                        }
+                        _ => Err(AuthenticatorError::IndexerError {
+                            status: status.as_u16(),
+                            body: error_resp.error.message,
+                        }),
+                    };
+                }
+                return Err(AuthenticatorError::IndexerError {
+                    status: status.as_u16(),
+                    body: "Failed to parse indexer error response".to_string(),
+                });
+            }
+
+            let response: IndexerPackedAccountResponse = resp.json().await?;
+            response.packed_account_index
         };
 
         if raw_index == U256::ZERO {
@@ -258,12 +301,6 @@ impl Authenticator {
     #[must_use]
     pub fn registry(&self) -> Option<Arc<AccountRegistryInstance<DynProvider>>> {
         self.registry.clone()
-    }
-
-    /// Returns a reference to the Ethereum provider.
-    #[must_use]
-    pub fn provider(&self) -> Option<DynProvider> {
-        self.provider.clone()
     }
 
     /// Returns the account index for the holder's World ID.
@@ -318,7 +355,25 @@ impl Authenticator {
             let nonce = registry.signatureNonces(self.account_id()).call().await?;
             Ok(nonce)
         } else {
-            todo!("indexer call");
+            let url = format!("{}/signature_nonce", self.config.indexer_url());
+            let req = IndexerSignatureNonceRequest {
+                account_index: self.account_id(),
+            };
+            let resp = self.http_client.post(&url).json(&req).send().await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                return Err(AuthenticatorError::IndexerError {
+                    status: status.as_u16(),
+                    body: resp
+                        .json()
+                        .await
+                        .unwrap_or_else(|_| "Unable to parse response".to_string()),
+                });
+            }
+
+            let response: IndexerSignatureNonceResponse = resp.json().await?;
+            Ok(response.signature_nonce)
         }
     }
 
@@ -465,7 +520,8 @@ impl Authenticator {
             nonce,
         };
 
-        let resp = reqwest::Client::new()
+        let resp = self
+            .http_client
             .post(format!(
                 "{}/insert-authenticator",
                 self.config.gateway_url()
@@ -548,7 +604,8 @@ impl Authenticator {
             new_authenticator_pubkey: Some(encoded_offchain_pubkey),
         };
 
-        let resp = reqwest::Client::new()
+        let resp = self
+            .http_client
             .post(format!(
                 "{}/update-authenticator",
                 self.config.gateway_url()
@@ -633,7 +690,8 @@ impl Authenticator {
             authenticator_pubkey: Some(encoded_old_offchain_pubkey),
         };
 
-        let resp = reqwest::Client::new()
+        let resp = self
+            .http_client
             .post(format!(
                 "{}/remove-authenticator",
                 self.config.gateway_url()
@@ -676,6 +734,7 @@ impl Authenticator {
         seed: &[u8],
         config: &Config,
         recovery_address: Option<Address>,
+        http_client: &reqwest::Client,
     ) -> Result<String, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
@@ -698,7 +757,7 @@ impl Authenticator {
             offchain_signer_commitment: leaf_hash.into(),
         };
 
-        let resp = reqwest::Client::new()
+        let resp = http_client
             .post(format!("{}/create-account", config.gateway_url()))
             .json(&req)
             .send()
@@ -786,6 +845,15 @@ pub enum AuthenticatorError {
         body: String,
     },
 
+    /// Indexer returned an error response.
+    #[error("Indexer error (status {status}): {body}")]
+    IndexerError {
+        /// HTTP status code
+        status: u16,
+        /// Response body
+        body: String,
+    },
+
     /// Account creation timed out while polling for confirmation.
     #[error("Account creation timed out after {0} seconds")]
     Timeout(u64),
@@ -802,4 +870,271 @@ pub enum AuthenticatorError {
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::{address, U256};
+
+    /// Tests that `get_packed_account_index` correctly fetches the packed account index from the indexer
+    /// when no RPC is configured.
+    #[tokio::test]
+    async fn test_get_packed_account_index_from_indexer() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        let test_address = address!("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0");
+        let expected_packed_index = U256::from(42);
+
+        let mock = server
+            .mock("POST", "/packed_account")
+            .match_header("content-type", "application/json")
+            .match_body(mockito::Matcher::JsonString(
+                serde_json::json!({
+                    "authenticator_address": test_address
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "packed_account_index": format!("{:#x}", expected_packed_index)
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let http_client = reqwest::Client::new();
+
+        let result = Authenticator::get_packed_account_index(
+            test_address,
+            None, // No registry, force indexer usage
+            &config,
+            &http_client,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result, expected_packed_index);
+        mock.assert_async().await;
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_get_packed_account_index_from_indexer_error() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        let test_address = address!("0x0000000000000000000000000000000000000099");
+
+        let mock = server
+            .mock("POST", "/packed_account")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "error": {
+                        "code": "account_does_not_exist",
+                        "message": "There is no account for this authenticator address"
+                    }
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let http_client = reqwest::Client::new();
+
+        let result =
+            Authenticator::get_packed_account_index(test_address, None, &config, &http_client)
+                .await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::AccountDoesNotExist)
+        ));
+        mock.assert_async().await;
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_signing_nonce_from_indexer() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        let account_index = U256::from(1);
+        let expected_nonce = U256::from(5);
+
+        let mock = server
+            .mock("POST", "/signature_nonce")
+            .match_header("content-type", "application/json")
+            .match_body(mockito::Matcher::JsonString(
+                serde_json::json!({
+                    "account_index": format!("{:#x}", account_index)
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "signature_nonce": format!("{:#x}", expected_nonce)
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let authenticator = Authenticator {
+            config,
+            packed_account_index: account_index, // This sets account_id() to 1
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None, // No registry - forces indexer usage
+            http_client: reqwest::Client::new(),
+        };
+
+        let nonce = authenticator.signing_nonce().await.unwrap();
+
+        assert_eq!(nonce, expected_nonce);
+        mock.assert_async().await;
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_signing_nonce_from_indexer_error() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        let mock = server
+            .mock("POST", "/signature_nonce")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "error": {
+                        "code": "invalid_account_index",
+                        "message": "Account index cannot be zero"
+                    }
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let authenticator = Authenticator {
+            config,
+            packed_account_index: U256::ZERO,
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+        };
+
+        let result = authenticator.signing_nonce().await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::IndexerError { .. })
+        ));
+        mock.assert_async().await;
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_signing_nonce_account_does_not_exist() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        // Mock an AccountDoesNotExist error response
+        let mock = server
+            .mock("POST", "/signature_nonce")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "error": {
+                        "code": "account_does_not_exist",
+                        "message": "Account does not exist"
+                    }
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let authenticator = Authenticator {
+            config,
+            packed_account_index: U256::from(999),
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+        };
+
+        let result = authenticator.signing_nonce().await;
+
+        // Should return AccountDoesNotExist, not IndexerError
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::AccountDoesNotExist)
+        ));
+        mock.assert_async().await;
+        drop(server);
+    }
 }

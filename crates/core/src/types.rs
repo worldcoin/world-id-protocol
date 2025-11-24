@@ -281,3 +281,38 @@ pub struct IndexerSignatureNonceResponse {
     #[schema(value_type = String, format = "hex", example = "0x0")]
     pub signature_nonce: U256,
 }
+
+/// Error code returned by the indexer.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexerErrorCode {
+    /// Internal server error occurred in the indexer.
+    InternalServerError,
+    /// Requested resource was not found.
+    NotFound,
+    /// The provided account index is invalid.
+    InvalidAccountIndex,
+    /// The resource is locked and cannot be accessed.
+    Locked,
+    /// The account does not exist.
+    AccountDoesNotExist,
+}
+
+/// Error object returned by the indexer.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Deserialize)]
+pub struct IndexerErrorObject {
+    /// The error code.
+    pub code: IndexerErrorCode,
+    /// Human-readable error message.
+    pub message: String,
+}
+
+/// Error response returned by the indexer.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Deserialize)]
+pub struct IndexerErrorResponse {
+    /// The error object.
+    pub error: IndexerErrorObject,
+}
