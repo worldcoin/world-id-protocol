@@ -31,6 +31,7 @@ ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+url = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 poseidon2 = { workspace = true }
 

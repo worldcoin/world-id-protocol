@@ -63,13 +63,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .address();
 
     let creation_config = Config::new(
-        anvil.endpoint().to_string(),
+        Some(anvil.endpoint().to_string()),
+        anvil.instance.chain_id(),
         registry_address,
         "http://127.0.0.1:0".to_string(), // placeholder for future indexer stub
         format!("http://127.0.0.1:{GW_PORT}"),
         Vec::new(),
         2,
-    );
+    )
+    .unwrap();
 
     // Account should not yet exist.
     let init_result = Authenticator::init(&seed, creation_config.clone()).await;
@@ -137,13 +139,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to set working directory to workspace root")?;
 
     let proof_config = Config::new(
-        anvil.endpoint().to_string(),
+        Some(anvil.endpoint().to_string()),
+        anvil.instance.chain_id(),
         registry_address,
         indexer_url.clone(),
         format!("http://127.0.0.1:{GW_PORT}"),
         vec![oprf_server.base_url.clone()],
         2,
-    );
+    )
+    .unwrap();
+
     let authenticator = Authenticator::init(&seed, proof_config)
         .await
         .wrap_err("failed to reinitialize authenticator with proof config")?;

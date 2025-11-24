@@ -64,9 +64,9 @@ sol!(
 );
 
 pub struct TestAnvil {
-    instance: AnvilInstance,
-    rpc_url: String,
-    ws_url: String,
+    pub instance: AnvilInstance,
+    pub rpc_url: String,
+    pub ws_url: String,
 }
 
 impl TestAnvil {

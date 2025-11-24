@@ -11,10 +11,10 @@ use serial_test::serial;
 use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode};
 
-/// Tests the packed_account endpoint that maps authenticator addresses to account indices
+/// Tests the signature_nonce endpoint that retrieves signature nonces by account index
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn test_packed_account_endpoint() {
+async fn test_signature_nonce_endpoint() {
     let setup = TestSetup::new().await;
     let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
     let pk = sk.public().to_compressed_bytes().unwrap();
@@ -34,7 +34,7 @@ async fn test_packed_account_endpoint() {
                 batch_size: 1000,
             },
             http_config: HttpConfig {
-                http_addr: "0.0.0.0:8083".parse().unwrap(),
+                http_addr: "0.0.0.0:8084".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
             },
@@ -61,15 +61,15 @@ async fn test_packed_account_endpoint() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
-    TestSetup::wait_for_health("http://127.0.0.1:8083").await;
+    TestSetup::wait_for_health("http://127.0.0.1:8084").await;
 
     let client = reqwest::Client::new();
 
-    // Test successful lookup
+    // Test successful lookup for account index 1
     let resp = client
-        .post("http://127.0.0.1:8083/packed_account")
+        .post("http://127.0.0.1:8084/signature_nonce")
         .json(&serde_json::json!({
-            "authenticator_address": auth_addr
+            "account_index": "0x1"
         }))
         .send()
         .await
@@ -77,16 +77,16 @@ async fn test_packed_account_endpoint() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let json: serde_json::Value = resp.json().await.unwrap();
-    let packed_account_index = json["packed_account_index"].as_str().unwrap();
+    let signature_nonce = json["signature_nonce"].as_str().unwrap();
 
-    // Account index 1 should map to packed account index of 1
-    assert_eq!(packed_account_index, "0x1");
+    // New account should have nonce 0
+    assert_eq!(signature_nonce, "0x0");
 
-    // Test non-existent authenticator address
+    // Test zero account index (should fail)
     let resp = client
-        .post("http://127.0.0.1:8083/packed_account")
+        .post("http://127.0.0.1:8084/signature_nonce")
         .json(&serde_json::json!({
-            "authenticator_address": "0x0000000000000000000000000000000000000099"
+            "account_index": "0x0"
         }))
         .send()
         .await
@@ -94,7 +94,7 @@ async fn test_packed_account_endpoint() {
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let json: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(json["code"].as_str().unwrap(), "account_does_not_exist");
+    assert_eq!(json["code"].as_str().unwrap(), "invalid_account_index");
 
     indexer_task.abort();
 }
