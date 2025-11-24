@@ -3,9 +3,11 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "embed-zkeys")]
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
-// TODO: Figure out a better way for static commits
-const CIRCUIT_COMMIT: &str = "cebbe92ba48fac9dd5f60c3f9272a2b82f075ecc";
+
+#[cfg(feature = "embed-zkeys")]
+const CIRCUIT_COMMIT: &str = "cebbe92ba48fac9dd5f60c3f9272a2b82f075ecc"; // TODO: Figure out a better way for static commits
 
 const CIRCUIT_FILES: &[(&str, &str)] = &[
     ("OPRFQueryGraph.bin", "circom/OPRFQueryGraph.bin"),

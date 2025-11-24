@@ -81,7 +81,7 @@ authenticator = [
     "dep:futures"
 ]
 
-embed-zkeys = []
+embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
 issuer = ["alloy/signer-local", "dep:secrecy"]
 
