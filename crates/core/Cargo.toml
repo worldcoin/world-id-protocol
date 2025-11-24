@@ -1,6 +1,6 @@
 [package]
 name = "world-id-core"
-description = "Reference SDKs for interacting with the World ID Protocol. For authenticator providers, issuers and RPs."
+description = "Reference SDK for interacting with the World ID Protocol. For authenticator providers, issuers and RPs."
 publish = true
 edition.workspace = true
 version.workspace = true
@@ -9,6 +9,17 @@ authors.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+include = [
+    "src/**/*",
+    "bin/**/*",
+    "tests/**/*",
+    "contracts/**/*",
+    "circom/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+]
+
 
 [[bin]]
 name = "authenticator"

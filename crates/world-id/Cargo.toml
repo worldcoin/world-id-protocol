@@ -1,0 +1,22 @@
+[package]
+name = "world-id"
+description = "World ID is an anonymous proof of human for the age of AI"
+publish = true
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+
+[dependencies]
+world-id-core = { workspace = true, default-features = false }
+
+[features]
+default = ["authenticator", "embed-zkeys"]
+authenticator = ["world-id-core/authenticator"]
+embed-zkeys = ["world-id-core/embed-zkeys"]
+issuer = ["world-id-core/issuer"]
+rp = ["world-id-core/rp"]

@@ -2,6 +2,10 @@
 target/
 **/target/
 
+# Build script copies (for cargo publish)
+crates/core/contracts/
+crates/core/circom/
+
 # Foundry (forge)
 contracts/out/*
 contracts/cache/
