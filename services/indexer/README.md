@@ -15,5 +15,5 @@ The indexer will backfill `AccountCreated` events into Postgres tables defined u
 2. Run Postgres (e.g. through Docker)
 
 ```
-    docker compose -f indexer/docker-compose.tests.yml up
+    docker compose -f services/indexer/docker-compose.tests.yml up
 ```
