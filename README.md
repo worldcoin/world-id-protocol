@@ -27,7 +27,7 @@ Monorepo containing:
 
 | Contract / Service               | Address                                               |
 | -------------------------------- | ----------------------------------------------------- |
-| `AccountRegistry`                | `0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2`          |
+| `AccountRegistry`                | `0xc9A0165FA64fD336035C7D9183C211034E8021B3`          |
 | `CredentialSchemaIssuerRegistry` | `0xCd987d2C973B099FD291Bf5AF332031Dc980a96B`          |
 | `world-id-indexer`               | `https://world-id-indexer.stage-crypto.worldcoin.org` |
 | `world-id-gateway`               | `https://world-id-gateway.stage-crypto.worldcoin.org` |
