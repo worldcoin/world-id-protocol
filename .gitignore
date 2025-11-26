@@ -14,3 +14,11 @@ node_modules/
 # Misc
 .env
 .DS_Store
+
+# IDE
+.idea
+.vscode
+.claude
+.cursor
+
+CLAUDE.md
