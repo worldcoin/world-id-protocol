@@ -1,13 +1,10 @@
-use std::process::Command;
 use std::time::Duration;
 
-use alloy::network::EthereumWallet;
-use alloy::node_bindings::Anvil;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
-use regex::Regex;
 use reqwest::{Client, StatusCode};
+use test_utils::anvil::TestAnvil;
 use world_id_core::account_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
     sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
@@ -18,7 +15,6 @@ use world_id_core::types::{
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 
-const ANVIL_MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
@@ -96,39 +92,6 @@ fn default_sibling_nodes() -> Vec<String> {
     .collect()
 }
 
-fn deploy_registry(rpc_url: &str) -> String {
-    // TODO: improve this and use alloy's deploy (linking needs to be figured out)
-    let mut cmd = Command::new("forge");
-    cmd.current_dir("../../contracts")
-        .arg("script")
-        .arg("script/AccountRegistry.s.sol:DeployScript")
-        .arg("--rpc-url")
-        .arg(rpc_url)
-        .arg("--broadcast")
-        .arg("--mnemonics")
-        .arg(ANVIL_MNEMONIC)
-        .arg("--mnemonic-indexes")
-        .arg("0")
-        .arg("--sender")
-        .arg("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-        .arg("-vvvv");
-    let output = cmd.output().expect("failed to run forge script");
-    assert!(
-        output.status.success(),
-        "forge script failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    let re = Regex::new(r"AccountRegistry deployed to:\s*(0x[0-9a-fA-F]{40})").unwrap();
-    let addr = re
-        .captures(&stdout)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .expect("failed to parse deployed address from script output");
-    addr
-}
-
 async fn wait_http_ready(client: &Client) {
     let base = format!("http://127.0.0.1:{}", GW_PORT);
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -147,24 +110,26 @@ async fn wait_http_ready(client: &Client) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_gateway_full_flow() {
-    let anvil = Anvil::new().fork(RPC_FORK_URL).try_spawn().unwrap();
-
-    let registry = deploy_registry(anvil.endpoint_url().to_string().as_str());
+    let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
+    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+    let registry_addr = anvil
+        .deploy_account_registry(deployer)
+        .await
+        .expect("failed to deploy AccountRegistry");
+    let rpc_url = anvil.endpoint().to_string();
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
     let cfg = GatewayConfig {
-        registry_addr: registry.parse().unwrap(),
-        rpc_url: anvil.endpoint_url().to_string(),
-        ethereum_wallet: EthereumWallet::from(
-            GW_PRIVATE_KEY
-                .to_string()
-                .parse::<PrivateKeySigner>()
-                .unwrap(),
-        ),
+        registry_addr,
+        rpc_url: rpc_url.clone(),
+        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
+        aws_kms_key_id: None,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+        max_create_batch_size: 10,
+        max_ops_batch_size: 10,
     };
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
@@ -176,8 +141,8 @@ async fn e2e_gateway_full_flow() {
     // Build Alloy provider for on-chain assertions and chain id
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(anvil.endpoint_url());
-    let contract = AccountRegistry::new(registry.parse().unwrap(), provider.clone());
+        .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
+    let contract = AccountRegistry::new(registry_addr, provider.clone());
 
     // First, create the initial account through the API so tree depth stays 0 for following ops
     let body_create = serde_json::json!({
@@ -195,10 +160,7 @@ async fn e2e_gateway_full_flow() {
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
-        panic!(
-            "create-account failed: status={}, body={}",
-            status_code, body
-        );
+        panic!("create-account failed: status={status_code}, body={body}",);
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let create_request_id = accepted.request_id.clone();
@@ -228,8 +190,8 @@ async fn e2e_gateway_full_flow() {
     // Sanity: build provider and contract for on-chain assertions
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(anvil.endpoint_url());
-    let contract = AccountRegistry::new(registry.parse().unwrap(), provider.clone());
+        .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
+    let contract = AccountRegistry::new(registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
         .authenticatorAddressToPackedAccountIndex(wallet_addr)
@@ -244,7 +206,7 @@ async fn e2e_gateway_full_flow() {
     let chain_id = provider.get_chain_id().await.unwrap();
 
     // EIP-712 domain via common helpers
-    let domain = ag_domain(chain_id, registry.parse::<Address>().unwrap());
+    let domain = ag_domain(chain_id, registry_addr);
 
     // Nonce tracker
     let mut nonce = U256::from(0);
@@ -255,7 +217,7 @@ async fn e2e_gateway_full_flow() {
         &signer,
         U256::from(1),
         new_auth2,
-        U256::from(1),
+        1,
         U256::from(200),
         U256::from(2),
         nonce,
@@ -274,7 +236,7 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_ins.as_bytes().to_vec(),
         nonce,
-        pubkey_id: U256::from(1),
+        pubkey_id: 1,
         new_authenticator_pubkey: U256::from(200),
     };
     // Issue request to gateway
@@ -323,7 +285,7 @@ async fn e2e_gateway_full_flow() {
         &signer,
         U256::from(1),
         new_auth2,
-        U256::from(1),
+        1,
         U256::from(200),
         U256::from(3),
         nonce,
@@ -342,11 +304,11 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_rem.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(U256::from(1)),
+        pubkey_id: Some(1),
         authenticator_pubkey: Some(U256::from(200)),
     };
     let resp = client
-        .post(format!("{}/remove-authenticator", base))
+        .post(format!("{base}/remove-authenticator"))
         .json(&body_rem)
         .send()
         .await
@@ -354,10 +316,7 @@ async fn e2e_gateway_full_flow() {
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
-        panic!(
-            "remove-authenticator failed: status={}, body={}",
-            status_code, body
-        );
+        panic!("remove-authenticator failed: status={status_code}, body={body}",);
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let remove_request_id = accepted.request_id.clone();
@@ -418,6 +377,7 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
@@ -458,7 +418,7 @@ async fn e2e_gateway_full_flow() {
         U256::from(1),
         wallet_addr_new,
         new_auth4,
-        U256::from(0),
+        0,
         U256::from(400),
         U256::from(5),
         nonce,
@@ -478,7 +438,7 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_upd.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(U256::from(0)),
+        pubkey_id: Some(0),
         new_authenticator_pubkey: Some(U256::from(400)),
     };
     let resp = client

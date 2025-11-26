@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use alloy::primitives::{Address, Log, U256};
@@ -7,8 +7,6 @@ use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
-use axum::extract::{Path, State};
-use axum::response::IntoResponse;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use semaphore_rs_hasher::Hasher;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
@@ -18,10 +16,13 @@ use sqlx::migrate::Migrator;
 use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
 use world_id_core::account_registry::AccountRegistry;
-use world_id_core::types::InclusionProofResponse;
+use world_id_primitives::TREE_DEPTH;
 
-mod config;
-use crate::config::{HttpConfig, IndexerConfig, RunMode};
+pub mod config;
+mod error;
+mod routes;
+mod sanity_check;
+use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
 pub use config::GlobalConfig;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
@@ -38,7 +39,7 @@ pub struct AccountCreatedEvent {
 #[derive(Debug, Clone)]
 pub struct AccountUpdatedEvent {
     pub account_index: U256,
-    pub pubkey_id: U256,
+    pub pubkey_id: u32,
     pub new_authenticator_pubkey: U256,
     pub old_authenticator_address: Address,
     pub new_authenticator_address: Address,
@@ -49,7 +50,7 @@ pub struct AccountUpdatedEvent {
 #[derive(Debug, Clone)]
 pub struct AuthenticatorInsertedEvent {
     pub account_index: U256,
-    pub pubkey_id: U256,
+    pub pubkey_id: u32,
     pub authenticator_address: Address,
     pub new_authenticator_pubkey: U256,
     pub old_offchain_signer_commitment: U256,
@@ -59,7 +60,7 @@ pub struct AuthenticatorInsertedEvent {
 #[derive(Debug, Clone)]
 pub struct AuthenticatorRemovedEvent {
     pub account_index: U256,
-    pub pubkey_id: U256,
+    pub pubkey_id: u32,
     pub authenticator_address: Address,
     pub authenticator_pubkey: U256,
     pub old_offchain_signer_commitment: U256,
@@ -103,14 +104,12 @@ impl Hasher for PoseidonHasher {
     }
 }
 
-static TREE_DEPTH: usize = 30;
-
 fn tree_capacity() -> usize {
     1usize << TREE_DEPTH
 }
 
 // Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
-static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
+pub(crate) static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
     LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
 
 async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
@@ -142,7 +141,7 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
         if account_index == U256::ZERO {
             continue;
         }
-        let leaf_index = account_index.as_limbs()[0] as usize - 1;
+        let leaf_index = account_index.as_limbs()[0] as usize;
         let leaf_val = offchain.parse::<U256>()?;
         leaves.push((leaf_index, leaf_val));
     }
@@ -177,7 +176,7 @@ async fn update_tree_with_commitment(
     if account_index == 0 {
         anyhow::bail!("account index cannot be zero");
     }
-    let leaf_index = account_index.as_limbs()[0] as usize - 1;
+    let leaf_index = account_index.as_limbs()[0] as usize;
     set_leaf_at_index(leaf_index, new_commitment).await?;
     Ok(())
 }
@@ -213,72 +212,17 @@ fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
         .collect()
 }
 
-async fn http_get_proof(
-    Path(idx_str): Path<String>,
-    State(pool): State<PgPool>,
-) -> impl axum::response::IntoResponse {
-    let account_index: U256 = idx_str.parse().unwrap();
-    if account_index == 0 {
-        return (axum::http::StatusCode::BAD_REQUEST, "invalid account index").into_response();
-    }
-
-    let account_row = sqlx::query(
-        "select offchain_signer_commitment, authenticator_pubkeys from accounts where account_index = $1",
-    )
-    .bind(account_index.to_string())
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten();
-
-    if account_row.is_none() {
-        return (axum::http::StatusCode::NOT_FOUND, "account not found").into_response();
-    }
-
-    let row = account_row.unwrap();
-    let pubkeys_json: Json<Vec<String>> = row.get("authenticator_pubkeys");
-    let authenticator_pubkeys: Vec<U256> = pubkeys_json
-        .0
-        .iter()
-        .filter_map(|s| s.parse::<U256>().ok())
-        .collect();
-
-    let leaf_index = account_index.as_limbs()[0] as usize - 1;
-    if leaf_index >= tree_capacity() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            "leaf index out of range",
-        )
-            .into_response();
-    }
-    let tree = GLOBAL_TREE.read().await;
-    let proof = tree.proof(leaf_index);
-    let resp = InclusionProofResponse::new(
-        account_index.as_limbs()[0],
-        leaf_index as u64,
-        tree.root(),
-        proof_to_vec(&proof),
-        authenticator_pubkeys,
-    );
-    (axum::http::StatusCode::OK, axum::Json(resp)).into_response()
-}
-
-async fn http_health() -> impl IntoResponse {
-    // TODO: check DB connection
-    (
-        axum::http::StatusCode::OK,
-        axum::Json(serde_json::json!({"status":"ok"})),
-    )
-}
-
-async fn start_http_server(addr: SocketAddr, pool: PgPool) -> anyhow::Result<()> {
-    let app = axum::Router::new()
-        .route("/proof/:account_index", axum::routing::get(http_get_proof))
-        .route("/health", axum::routing::get(http_health))
-        .with_state(pool);
-
+async fn start_http_server(
+    rpc_url: &str,
+    registry_address: Address,
+    addr: SocketAddr,
+    pool: PgPool,
+) -> anyhow::Result<()> {
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
+    let registry = AccountRegistry::new(registry_address, provider.erased());
+    let router = routes::handler(AppState::new(pool, Arc::new(registry)));
     tracing::info!(%addr, "HTTP server listening");
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+    axum::serve(tokio::net::TcpListener::bind(addr).await?, router).await?;
     Ok(())
 }
 
@@ -290,10 +234,13 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     MIGRATOR.run(&pool).await.expect("failed to run migrations");
     tracing::info!("🟢 Migrations synced successfully.");
 
+    let rpc_url = &cfg.rpc_url;
+    let registry_address = cfg.registry_address;
+
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
-            run_indexer_only(indexer_config, pool).await
+            run_indexer_only(rpc_url, registry_address, indexer_config, pool).await
         }
         RunMode::HttpOnly { http_config } => {
             tracing::info!("Running in HTTP-ONLY mode (building tree from DB)");
@@ -301,7 +248,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             let start_time = std::time::Instant::now();
             build_tree_from_db(&pool).await?;
             tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_http_only(http_config, pool).await
+            run_http_only(rpc_url, registry_address, http_config, pool).await
         }
         RunMode::Both {
             indexer_config,
@@ -312,14 +259,18 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             let start_time = std::time::Instant::now();
             build_tree_from_db(&pool).await?;
             tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_both(indexer_config, http_config, pool).await
+            run_both(rpc_url, registry_address, indexer_config, http_config, pool).await
         }
     }
 }
 
-async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::Result<()> {
-    let provider =
-        ProviderBuilder::new().connect_http(indexer_cfg.rpc_url.parse().expect("invalid RPC URL"));
+async fn run_indexer_only(
+    rpc_url: &str,
+    registry_address: Address,
+    indexer_cfg: IndexerConfig,
+    pool: PgPool,
+) -> anyhow::Result<()> {
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool)
@@ -327,34 +278,28 @@ async fn run_indexer_only(indexer_cfg: IndexerConfig, pool: PgPool) -> anyhow::R
         .unwrap_or(indexer_cfg.start_block);
 
     // Backfill until head (update_tree = false for indexer-only mode)
-    while let Err(err) = backfill(
+    backfill(
         &provider,
         &pool,
-        indexer_cfg.registry_address,
+        registry_address,
         &mut from,
         indexer_cfg.batch_size,
         false, // Don't update in-memory tree
     )
-    .await
-    {
-        tracing::error!(?err, "backfill error; retrying after delay");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
+    .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(
-        &indexer_cfg.ws_url,
-        &pool,
-        indexer_cfg.registry_address,
-        from,
-        false,
-    )
-    .await?;
+    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, false).await?;
 
     Ok(())
 }
 
-async fn run_http_only(http_cfg: HttpConfig, pool: PgPool) -> anyhow::Result<()> {
+async fn run_http_only(
+    rpc_url: &str,
+    registry_address: Address,
+    http_cfg: HttpConfig,
+    pool: PgPool,
+) -> anyhow::Result<()> {
     // Start DB poller for account updates
     let poller_pool = pool.clone();
     let poll_interval = http_cfg.db_poll_interval_secs;
@@ -364,25 +309,60 @@ async fn run_http_only(http_cfg: HttpConfig, pool: PgPool) -> anyhow::Result<()>
         }
     });
 
+    // Start root sanity checker in the background
+    let mut sanity_handle = None;
+    if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
+        let rpc_url = rpc_url.to_string();
+        sanity_handle = Some(tokio::spawn(async move {
+            if let Err(e) =
+                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
+                    .await
+            {
+                tracing::error!(?e, "Root sanity checker failed");
+            }
+        }));
+    }
+
     // Start HTTP server
-    let http_result = start_http_server(http_cfg.http_addr, pool).await;
+    let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
+    if let Some(handle) = sanity_handle {
+        handle.abort();
+    }
     http_result
 }
 
 async fn run_both(
+    rpc_url: &str,
+    registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    let provider =
-        ProviderBuilder::new().connect_http(indexer_cfg.rpc_url.parse().expect("invalid RPC URL"));
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
     // Start HTTP server
     let http_pool = pool.clone();
     let http_addr = http_cfg.http_addr;
-    let http_handle = tokio::spawn(async move { start_http_server(http_addr, http_pool).await });
+    let rpc_url_clone = rpc_url.to_string();
+    let http_handle = tokio::spawn(async move {
+        start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool).await
+    });
+
+    // Start root sanity checker in the background
+    let mut sanity_handle = None;
+    if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
+        let rpc_url = rpc_url.to_string();
+        sanity_handle = Some(tokio::spawn(async move {
+            if let Err(e) =
+                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
+                    .await
+            {
+                tracing::error!(?e, "Root sanity checker failed");
+            }
+        }));
+    }
 
     // Determine starting block from checkpoint or env
     let mut from = load_checkpoint(&pool)
@@ -390,31 +370,23 @@ async fn run_both(
         .unwrap_or(indexer_cfg.start_block);
 
     // Backfill until head (update_tree = true for both mode)
-    while let Err(err) = backfill(
+    backfill(
         &provider,
         &pool,
-        indexer_cfg.registry_address,
+        registry_address,
         &mut from,
         indexer_cfg.batch_size,
         true, // Update in-memory tree directly from events
     )
-    .await
-    {
-        tracing::error!(?err, "backfill error; retrying after delay");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-
-    tracing::info!("switching to websocket live follow");
-    stream_logs(
-        &indexer_cfg.ws_url,
-        &pool,
-        indexer_cfg.registry_address,
-        from,
-        true,
-    )
     .await?;
 
+    tracing::info!("switching to websocket live follow");
+    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, true).await?;
+
     http_handle.abort();
+    if let Some(handle) = sanity_handle {
+        handle.abort();
+    }
     Ok(())
 }
 
@@ -451,21 +423,17 @@ pub async fn save_checkpoint(pool: &PgPool, block: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn backfill<P: Provider>(
+async fn backfill_batch<P: Provider>(
     provider: &P,
     pool: &PgPool,
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
     update_tree: bool,
+    head: u64,
 ) -> anyhow::Result<()> {
-    // Determine current head
-    let head = provider.get_block_number().await?;
     if *from_block == 0 {
         *from_block = 1;
-    }
-    if *from_block > head {
-        return Ok(());
     }
 
     let to_block = (*from_block + batch_size - 1).min(head);
@@ -497,7 +465,7 @@ pub async fn backfill<P: Provider>(
     for lg in logs {
         match decode_registry_event(&lg) {
             Ok(event) => {
-                tracing::info!(?event, "decoded registry event");
+                tracing::debug!(?event, "decoded registry event");
                 let block_number = lg.block_number;
                 let tx_hash = lg.transaction_hash;
                 let log_index = lg.log_index;
@@ -521,7 +489,62 @@ pub async fn backfill<P: Provider>(
     }
 
     save_checkpoint(pool, to_block).await?;
+    tracing::debug!(
+        from = *from_block,
+        to = to_block,
+        "✔️ finished processing batch until block {to_block}"
+    );
     *from_block = to_block + 1;
+    Ok(())
+}
+
+/// Backfill the entire history of the registry.
+pub async fn backfill<P: Provider>(
+    provider: &P,
+    pool: &PgPool,
+    registry: Address,
+    from_block: &mut u64,
+    batch_size: u64,
+    update_tree: bool,
+) -> anyhow::Result<()> {
+    let mut head = provider.get_block_number().await?;
+    loop {
+        match backfill_batch(
+            provider,
+            pool,
+            registry,
+            from_block,
+            batch_size,
+            update_tree,
+            head,
+        )
+        .await
+        {
+            Ok(()) => {
+                // Check if we're caught up to chain head
+                let new_head = provider.get_block_number().await;
+                if let Ok(new_head) = new_head {
+                    head = new_head;
+                } else {
+                    tracing::error!("failed to get current chain head; retrying after delay");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+                if *from_block > head {
+                    tracing::info!(
+                        from = *from_block,
+                        head,
+                        "✅ backfill complete, caught up to chain head"
+                    );
+                    break;
+                }
+            }
+            Err(err) => {
+                tracing::error!(?err, "backfill error; retrying after delay");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -530,6 +553,7 @@ pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<Acc
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
     let typed = AccountRegistry::AccountCreated::decode_log(&prim)?;
 
+    // TODO: Validate pubkey is valid affine compressed
     Ok(AccountCreatedEvent {
         account_index: typed.data.accountIndex,
         recovery_address: typed.data.recoveryAddress,
@@ -694,7 +718,7 @@ pub async fn update_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id)) // JSONB path format: {0}, {1}, etc
+    .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
@@ -720,7 +744,7 @@ pub async fn insert_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id))
+    .bind(format!("{{{pubkey_id}}}"))
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
@@ -744,7 +768,7 @@ pub async fn remove_authenticator_at_index(
         where account_index = $1"#,
     )
     .bind(account_index.to_string())
-    .bind(format!("{{{}}}", pubkey_id))
+    .bind(format!("{{{pubkey_id}}}"))
     .bind(new_commitment.to_string())
     .execute(pool)
     .await?;
@@ -794,18 +818,17 @@ pub async fn handle_registry_event(
                     "created",
                     ev.offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
             }
         }
         RegistryEvent::AccountUpdated(ev) => {
-            let pubkey_id = ev.pubkey_id.to::<u32>();
             update_authenticator_at_index(
                 pool,
                 ev.account_index,
-                pubkey_id,
+                ev.pubkey_id,
                 ev.new_authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
@@ -818,18 +841,17 @@ pub async fn handle_registry_event(
                     "updated",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
             }
         }
         RegistryEvent::AuthenticatorInserted(ev) => {
-            let pubkey_id = ev.pubkey_id.to::<u32>();
             insert_authenticator_at_index(
                 pool,
                 ev.account_index,
-                pubkey_id,
+                ev.pubkey_id,
                 ev.authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
@@ -842,18 +864,17 @@ pub async fn handle_registry_event(
                     "inserted",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
             }
         }
         RegistryEvent::AuthenticatorRemoved(ev) => {
-            let pubkey_id = ev.pubkey_id.to::<u32>();
             remove_authenticator_at_index(
                 pool,
                 ev.account_index,
-                pubkey_id,
+                ev.pubkey_id,
                 ev.new_offchain_signer_commitment,
             )
             .await?;
@@ -864,7 +885,7 @@ pub async fn handle_registry_event(
                     "removed",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;
@@ -888,7 +909,7 @@ pub async fn handle_registry_event(
                     "recovered",
                     ev.new_offchain_signer_commitment,
                     bn,
-                    &format!("{:?}", tx),
+                    &format!("{tx:?}"),
                     li,
                 )
                 .await?;

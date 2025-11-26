@@ -62,7 +62,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.86 # MSRV
+          - 1.87 # MSRV (see rust-version.workspace in Cargo.toml)
 
     steps:
       - name: Checkout code
@@ -79,10 +79,19 @@ jobs:
         run: |
           make sol-build
 
+      - name: Run services
+        run: |
+          docker compose -f services/indexer/docker-compose.tests.yml up -d
+          sleep 5
+
       - name: Run tests
         run: |
           cargo test --all --all-features
           cargo test -p world-id-core --no-default-features
+
+      - name: Clean up services
+        run: |
+          docker compose -f services/indexer/docker-compose.tests.yml down
 
       - name: Build non-default features
         run: |
@@ -149,7 +158,8 @@ jobs:
 
       - name: Run Docker container
         run: |
-          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env RG_HTTP_ADDR=0.0.0.0:8080 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
+          # We run the http-only mode to avoid having to set up the RPC provider
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 --env RUN_MODE=http-only --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
 
           # Wait for the application to start
           sleep 10

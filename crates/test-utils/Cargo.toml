@@ -1,0 +1,34 @@
+[package]
+name = "test-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+alloy = { workspace = true, default-features = false, features = [
+    "contract",
+    "reqwest",
+    "rpc",
+    "rpc-types",
+    "signer-local",
+    "sol-types",
+    "json",
+] }
+alloy-node-bindings = "1.0.38"
+eyre = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+poseidon2 = { workspace = true }
+ark-babyjubjub = { workspace = true }
+ark-ff = { workspace = true }
+world-id-primitives = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+k256 = { workspace = true, features = ["ecdsa"] }
+rand = { workspace = true }
+ark-ec = { workspace = true }
+oprf-types = { workspace = true }
+oprf-core = { workspace = true }
+axum = { version = "0.8", features = ["json"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
+uuid = { workspace = true }
