@@ -27,6 +27,7 @@ groth16-material = { workspace = true, features = ["circom"] }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
 oprf-core = { workspace = true }
+oprf-types = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }

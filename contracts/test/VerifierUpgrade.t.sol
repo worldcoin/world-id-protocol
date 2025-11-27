@@ -33,7 +33,7 @@ contract VerifierUpgradeTest is Test {
     address public nonOwner;
     address public credentialIssuerRegistry;
     address public accountRegistry;
-    address public rpRegistry;
+    address public oprfKeyRegistry;
     address public groth16Verifier;
     uint256 public proofTimestampDelta;
 
@@ -42,7 +42,7 @@ contract VerifierUpgradeTest is Test {
         nonOwner = address(0xBEEF);
         credentialIssuerRegistry = address(0x1111);
         accountRegistry = address(new AccountRegistryMock());
-        rpRegistry = address(0x3333);
+        oprfKeyRegistry = address(0x3333);
         groth16Verifier = address(0x4444);
         proofTimestampDelta = 5 hours;
 
@@ -63,13 +63,13 @@ contract VerifierUpgradeTest is Test {
     }
 
     function test_UpgradeSuccess() public {
-        // Set RP registry in V1
-        verifier.updateRpRegistry(rpRegistry);
+        // Set OPRF key registry in V1
+        verifier.updateOprfKeyRegistry(oprfKeyRegistry);
 
         // Verify state before upgrade
         assertEq(address(verifier.credentialSchemaIssuerRegistry()), credentialIssuerRegistry);
         assertEq(address(verifier.accountRegistry()), accountRegistry);
-        assertEq(address(verifier.rpRegistry()), rpRegistry);
+        assertEq(address(verifier.oprfKeyRegistry()), oprfKeyRegistry);
 
         // Deploy V2 implementation
         VerifierV2Mock implementationV2 = new VerifierV2Mock();
@@ -83,7 +83,7 @@ contract VerifierUpgradeTest is Test {
         // Verify storage was preserved
         assertEq(address(verifierV2.credentialSchemaIssuerRegistry()), credentialIssuerRegistry);
         assertEq(address(verifierV2.accountRegistry()), accountRegistry);
-        assertEq(address(verifierV2.rpRegistry()), rpRegistry);
+        assertEq(address(verifierV2.oprfKeyRegistry()), oprfKeyRegistry);
 
         // Verify new functionality works
         assertEq(verifierV2.version(), "V2");
@@ -91,9 +91,9 @@ contract VerifierUpgradeTest is Test {
         assertEq(verifierV2.newFeature(), 42);
 
         // Verify old functionality still works
-        address newRpRegistry = address(0x4444);
-        verifierV2.updateRpRegistry(newRpRegistry);
-        assertEq(address(verifierV2.rpRegistry()), newRpRegistry);
+        address newOprfKeyRegistry = address(0x4444);
+        verifierV2.updateOprfKeyRegistry(newOprfKeyRegistry);
+        assertEq(address(verifierV2.oprfKeyRegistry()), newOprfKeyRegistry);
     }
 
     function test_UpgradeFailsForNonOwner() public {
@@ -173,29 +173,29 @@ contract VerifierUpgradeTest is Test {
         assertEq(address(verifier.accountRegistry()), newRegistry);
     }
 
-    function test_UpdateRpRegistry() public {
-        address newRegistry = address(0x7777);
+    function test_UpdateOprfKeyRegistry() public {
+        address newOprfKeyRegistry = address(0x7777);
 
         vm.expectEmit(true, true, true, true);
-        emit Verifier.RpRegistryUpdated(address(0), newRegistry);
+        emit Verifier.OprfKeyRegistryUpdated(address(0), newOprfKeyRegistry);
 
-        verifier.updateRpRegistry(newRegistry);
-        assertEq(address(verifier.rpRegistry()), newRegistry);
+        verifier.updateOprfKeyRegistry(newOprfKeyRegistry);
+        assertEq(address(verifier.oprfKeyRegistry()), newOprfKeyRegistry);
     }
 
     function test_OnlyOwnerCanUpdate() public {
-        address newRegistry = address(0x8888);
+        address newContract = address(0x8888);
 
         vm.startPrank(nonOwner);
 
         vm.expectRevert();
-        verifier.updateCredentialSchemaIssuerRegistry(newRegistry);
+        verifier.updateCredentialSchemaIssuerRegistry(newContract);
 
         vm.expectRevert();
-        verifier.updateAccountRegistry(newRegistry);
+        verifier.updateAccountRegistry(newContract);
 
         vm.expectRevert();
-        verifier.updateRpRegistry(newRegistry);
+        verifier.updateOprfKeyRegistry(newContract);
 
         vm.stopPrank();
     }

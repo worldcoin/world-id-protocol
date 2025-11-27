@@ -8,7 +8,9 @@ use ark_ec::CurveGroup;
 use ark_ff::{AdditiveGroup, PrimeField};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
-use oprf_core::dlog_equality::DLogEqualityProof;
+use oprf_client::BlindingFactor;
+use oprf_core::{dlog_equality::DLogEqualityProof, oprf::BlindedOprfResponse};
+use oprf_types::crypto::OprfPublicKey;
 use rand::thread_rng;
 use ruint::aliases::U256;
 use test_utils::{
@@ -16,14 +18,13 @@ use test_utils::{
     fixtures::{build_base_credential, generate_rp_fixture, RegistryTestContext},
     merkle::first_leaf_merkle_path,
 };
-use uuid::Uuid;
 
 use world_id_core::{
-    oprf, proof, Authenticator, FieldElement, HashableCredential, OnchainKeyRepresentable,
+    proof, Authenticator, FieldElement, HashableCredential, OnchainKeyRepresentable,
 };
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
-    merkle::MerkleInclusionProof, proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
+    merkle::MerkleInclusionProof, proof::SingleProofInput, TREE_DEPTH,
 };
 
 /// Tests and verifies a Nullifier Proof with locally deployed contracts on Anvil and
@@ -179,7 +180,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     let signal_hash = FieldElement::from_arbitrary_raw_bytes(b"hello world!");
 
     // Build OPRF query context (RP id, action, nonce, timestamp)
-    let rp_nullifier_key = RpNullifierKey::new(rp_fixture.rp_nullifier_point);
+    let oprf_public_key = OprfPublicKey::new(rp_fixture.rp_nullifier_point);
 
     let proof_args = SingleProofInput::<TREE_DEPTH> {
         credential,
@@ -193,35 +194,51 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         nonce: rp_fixture.nonce.into(),
         current_timestamp: rp_fixture.current_timestamp,
         rp_signature: rp_fixture.signature,
-        rp_nullifier_key,
+        oprf_public_key,
         signal_hash,
     };
 
     // Produce πR (signed OPRF query) — blinded request + query inputs
-    let request_id = Uuid::new_v4();
-    let signed_query =
-        oprf::sign_oprf_query(&proof_args, &query_material, &user_sk, request_id, &mut rng)
-            .wrap_err("failed to sign oprf query")?;
+    let query_hash = world_id_core::proof::query_hash(
+        proof_args.inclusion_proof.leaf_index,
+        proof_args.rp_id,
+        proof_args.action,
+    );
+    let blinding_factor = BlindingFactor::rand(&mut rng);
+    let (_, query_input) = proof::oprf_request_auth(
+        &proof_args,
+        &query_material,
+        &user_sk,
+        query_hash,
+        &blinding_factor,
+        &mut rng,
+    )?;
 
-    let oprf_request = signed_query.get_request();
+    let blinded_request = oprf_core::oprf::client::blind_query(query_hash, blinding_factor.clone());
 
     // Derive blinded response C = x * B, where B is the blinded query
-    let blinded_query = oprf_request.blinded_query;
+    let blinded_query = blinded_request.blinded_query();
     let blinded_response = (blinded_query * rp_fixture.rp_secret).into_affine();
+
+    // Create unblinded OPRF response from blinded response and blinding factor
+    let blinding_factor_prepared = blinding_factor.prepare();
+    let oprf_blinded_response = BlindedOprfResponse::new(blinded_response);
+    let unblinded_response = oprf_blinded_response.unblind_response(&blinding_factor_prepared);
 
     // Create and check Chaum‑Pedersen DLog equality proof for (K, C)
     let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_fixture.rp_secret, &mut rng);
 
     // Build nullifier proof input (π2 witness payload)
-    let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH>::new(
-        signed_query.query_input().clone(),
-        &dlog_proof,
-        rp_nullifier_key.into_inner(),
-        blinded_response,
-        *signal_hash,
-        *rp_fixture.rp_session_id_r_seed,
-        signed_query.blinding_factor().clone(),
-    );
+    let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
+        query_input,
+        dlog_e: dlog_proof.e,
+        dlog_s: dlog_proof.s,
+        oprf_pk: oprf_public_key.inner(),
+        oprf_response_blinded: blinded_response,
+        oprf_response: unblinded_response,
+        signal_hash: *signal_hash,
+        id_commitment_r: *rp_fixture.rp_session_id_r_seed,
+    };
 
     // Generate witness JSON and create the Groth16 proof offline
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, &mut rng)?;

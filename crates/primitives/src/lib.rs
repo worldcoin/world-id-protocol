@@ -18,7 +18,7 @@ pub mod serde_utils;
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ruint::aliases::U256;
+use ruint::aliases::{U160, U256};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fmt,
@@ -180,6 +180,16 @@ impl TryFrom<U256> for FieldElement {
         Ok(Self(
             value.try_into().map_err(|_| PrimitiveError::NotInField)?,
         ))
+    }
+}
+
+// safe because U160 is guaranteed to be less than the field modulus.
+impl From<U160> for FieldElement {
+    fn from(value: U160) -> Self {
+        // convert U160 to U256 to reuse existing implementations
+        let u256 = U256::from(value);
+        let big_int = ark_ff::BigInt(u256.into_limbs());
+        Self(ark_babyjubjub::Fq::new(big_int))
     }
 }
 
