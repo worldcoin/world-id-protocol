@@ -1,0 +1,19 @@
+services:
+  localstack:
+    image: localstack/localstack
+    container_name: localstack
+    stop_grace_period: 1s
+    ports:
+      - "4566:4566"            
+    environment:
+      - SERVICES=secretsmanager
+      - DEBUG=1
+  postgres:
+    container_name: "postgres"
+    image: postgres
+    ports:
+      - "5432:5432"            
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres

@@ -23,7 +23,10 @@ use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
 use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use oprf_client::Connector;
 use oprf_types::ShareEpoch;
+use ruint::aliases::U160;
+use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
 use world_id_primitives::merkle::MerkleInclusionProof;
@@ -405,14 +408,12 @@ impl Authenticator {
 
         // TODO: convert rp_request to primitives types
         let primitives_rp_id =
-            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
+            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<U160>().map_err(|e| {
                 PrimitiveError::InvalidInput {
                     attribute: "RP ID".to_string(),
                     reason: format!("invalid RP ID: {e}"),
                 }
             })?);
-        let primitives_rp_nullifier_key =
-            world_id_primitives::rp::RpNullifierKey::new(rp_request.rp_nullifier_key.inner());
 
         let args = SingleProofInput::<TREE_DEPTH> {
             credential,
@@ -426,7 +427,7 @@ impl Authenticator {
             nonce: rp_request.nonce,
             current_timestamp: rp_request.current_time_stamp, // TODO
             rp_signature: rp_request.signature,
-            rp_nullifier_key: primitives_rp_nullifier_key,
+            oprf_public_key: rp_request.oprf_public_key,
             signal_hash: message_hash,
         };
 
@@ -447,6 +448,15 @@ impl Authenticator {
         }
         let threshold = requested_threshold.min(services.len());
 
+        // TODO decide on rustls or native_tls? make configurable?
+        // TODO store the connector somewhere (maybe in Authenticator?) to avoid recreating it every time because it is expensive
+        let mut root_store = RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let rustls_config = ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        let connector = Connector::Rustls(Arc::new(rustls_config));
+
         let mut rng = rand::thread_rng();
         let (proof, _public, nullifier, _id_commitment) = crate::proof::nullifier(
             services,
@@ -455,6 +465,7 @@ impl Authenticator {
             &nullifier_material,
             args,
             private_key,
+            connector,
             &mut rng,
         )
         .await

@@ -62,11 +62,14 @@ strum = { workspace = true }
 world-id-primitives = { workspace = true }
 utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
+oprf-client = { workspace = true, optional = true }
 oprf-core = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
 
 [features]
-default = ["authenticator", "embed-zkeys"]
+default = ["authenticator", "embed-zkeys", "issuer"]
 
 authenticator = [
     "alloy/contract",
@@ -77,8 +80,11 @@ authenticator = [
     "dep:reqwest",
     "dep:secrecy",
     "dep:groth16-material",
+    "dep:oprf-client",
     "dep:oprf-core",
-    "dep:futures"
+    "dep:futures",
+    "dep:rustls",
+    "dep:webpki-roots"
 ]
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
@@ -107,3 +113,4 @@ axum = { version = "0.8", features = ["macros", "json"] }
 k256 = { workspace = true, features = ["ecdsa"] }
 oprf-core = { workspace = true }
 mockito = "1.6"
+oprf-service = { workspace  = true }

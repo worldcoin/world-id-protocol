@@ -11,34 +11,43 @@
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Nullifier Proof [`π2`]
 
-use crate::oprf::{compute_challenges, sign_oprf_query, ProofError};
+use ark_ff::PrimeField as _;
 use circom_types::ark_bn254::Bn254;
 use circom_types::groth16::Proof;
-use oprf_types::crypto::RpNullifierKey as OprfRpNullifierKey;
+use groth16_material::Groth16Error;
+use oprf_client::Connector;
+use oprf_core::oprf::BlindingFactor;
+use oprf_types::{OprfKeyId, ShareEpoch};
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
 use std::io::Read;
 use std::path::Path;
-use uuid::Uuid;
-use world_id_primitives::proof::SingleProofInput;
-use world_id_primitives::TREE_DEPTH;
+use world_id_primitives::circuit_inputs::QueryProofCircuitInput;
+use world_id_primitives::oprf::OprfRequestAuthV1;
+use world_id_primitives::rp::RpId;
+use world_id_primitives::{circuit_inputs::NullifierProofCircuitInput, proof::SingleProofInput};
+use world_id_primitives::{Credential, FieldElement, TREE_DEPTH};
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
 };
 
+const OPRF_QUERY_DS: &[u8] = b"World ID Query";
+const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
+
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "5796f71d0a2b70878a96eb0e0839e31c4f532e660258c3d0bd32047de00fbe02";
+    "50386ea28e3c8cd01fe59ab68e7ecd0a6b8b07d3b8ad6460c04a430ef5c2121f";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "892f3f46e80330d4f69df776e3ed74383dea127658516182751984ad6a7f4f59";
+    "bb1301f25cbe8d624a227c5f0875fa5dec9501c09357d82b49f59ee73505e94d";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
-    "ac4caabf7d35a3424f49b627d213a19f17c7572743370687befd3fa8f82610a3";
+    "1016fc75f79a872a33ec0537c074857c6750c21f7e2e4e2a34acbbad5d0997b3";
 /// The SHA-256 fingerprint of the `OPRFNullifier` witness graph.
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
-    "e6d818a0d6a76e98efbe35fba4664fcea33afc0da663041571c8d59c7a5f0fa0";
+    "87756ce49e17f89e28b963d53e1fd55e17f9a2b413b7630632241a9a03af663a";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
@@ -51,6 +60,20 @@ const QUERY_ZKEY_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQu
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const NULLIFIER_ZKEY_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifier.arks.zkey"));
+
+/// Error type for OPRF operations and proof generation.
+#[derive(Debug, thiserror::Error)]
+pub enum ProofError {
+    /// Error originating from `oprf_client`.
+    #[error(transparent)]
+    OprfError(#[from] oprf_client::Error),
+    /// Errors originating from Groth16 proof generation or verification.
+    #[error(transparent)]
+    ZkError(#[from] Groth16Error),
+    /// Catch-all for other internal errors.
+    #[error(transparent)]
+    InternalError(#[from] eyre::Report),
+}
 
 // ============================================================================
 // Circuit Material Loaders
@@ -184,6 +207,7 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 /// * `nullifier_material` - Groth16 material (proving key and matrices) used for the nullifier proof.
 /// * `args` - [`SingleProofInput`] containing all input data (credentials, Merkle membership, query, keys, signal, etc.).
 /// * `private_key` - The user's private key for signing the blinded query.
+/// * `connector` - Connector for WebSocket communication with OPRF nodes.
 /// * `rng` - A cryptographically secure random number generator.
 ///
 /// # Returns
@@ -197,9 +221,10 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 /// # Errors
 ///
 /// Returns [`ProofError`] in the following cases:
-/// * `InvalidPublicKeyIndex` – the user key index is out of range.
 /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
 /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
+#[expect(clippy::missing_panics_doc)]
+#[expect(clippy::too_many_arguments)]
 pub async fn nullifier<R: Rng + CryptoRng>(
     services: &[String],
     threshold: usize,
@@ -207,6 +232,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     nullifier_material: &CircomGroth16Material,
     args: SingleProofInput<TREE_DEPTH>,
     private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
+    connector: Connector,
     rng: &mut R,
 ) -> Result<
     (
@@ -217,25 +243,170 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     ),
     ProofError,
 > {
-    let request_id = Uuid::new_v4();
+    // TODO get from rp_id -> oprf_key_id mapping?
+    let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
+    let share_epoch = ShareEpoch::new(args.share_epoch);
+    let query_hash = query_hash(args.inclusion_proof.account_id, args.rp_id, args.action);
+    let blinding_factor = BlindingFactor::rand(rng);
 
-    let signed_query = sign_oprf_query(&args, query_material, private_key, request_id, rng)?;
-
-    let oprf_rp_nullifier_key = OprfRpNullifierKey::new(args.rp_nullifier_key.into_inner());
-
-    let client = reqwest::Client::new();
-    let req = signed_query.get_request();
-    let sessions = crate::oprf::init_sessions(&client, services, threshold, req).await?;
-
-    let challenges = compute_challenges(signed_query, &sessions, oprf_rp_nullifier_key)?;
-    let req = challenges.get_request();
-    let responses = crate::oprf::finish_sessions(&client, sessions, req).await?;
-    crate::oprf::verify_challenges(
-        nullifier_material,
-        challenges,
-        responses,
-        *args.signal_hash,
-        *args.rp_session_id_r_seed,
+    let (oprf_request_auth, query_input) = oprf_request_auth(
+        &args,
+        query_material,
+        private_key,
+        query_hash,
+        &blinding_factor,
         rng,
+    )?;
+
+    let verifiable_oprf_output = oprf_client::distributed_oprf(
+        services,
+        threshold,
+        args.oprf_public_key,
+        oprf_key_id,
+        share_epoch,
+        query_hash,
+        blinding_factor,
+        ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
+        oprf_request_auth,
+        connector,
     )
+    .await?;
+
+    let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
+        query_input,
+        dlog_e: verifiable_oprf_output.dlog_proof.e,
+        dlog_s: verifiable_oprf_output.dlog_proof.s,
+        oprf_pk: args.oprf_public_key.inner(),
+        oprf_response_blinded: verifiable_oprf_output.blinded_response,
+        oprf_response: verifiable_oprf_output.unblinded_response,
+        signal_hash: *args.signal_hash,
+        id_commitment_r: *args.rp_session_id_r_seed,
+    };
+
+    tracing::debug!("generate nullifier proof");
+    let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
+    nullifier_material.verify_proof(&proof, &public)?;
+
+    // 2 outputs, 0 is id_commitment, 1 is nullifier
+    let id_commitment = public[0];
+    let nullifier = public[1];
+
+    assert_eq!(nullifier, verifiable_oprf_output.output);
+
+    Ok((proof.into(), public, nullifier, id_commitment))
+}
+
+/// Helper function to generate the OPRF request authentication structure and query proof.
+///
+/// # Arguments
+///
+/// * `args` - [`SingleProofInput`] containing all input data (credentials, Merkle membership, query, keys, signal, etc.).
+/// * `query_material` - Groth16 material (proving key and matrices) used
+///   for the query proof.
+/// * `private_key` - The user's private key for signing the blinded query.
+/// * `query_hash` - The hash of the OPRF query.
+/// * `blinding_factor` - The blinding factor used for the OPRF query
+/// * `rng` - A cryptographically secure random number generator.
+///
+/// # Returns
+///
+/// On success, returns a tuple:
+/// 1. `OprfRequestAuthV1` – the authentication structure for the OPRF request.
+/// 2. `QueryProofCircuitInput<TREE_DEPTH>` – the input used for generating the query proof.
+///
+/// # Errors
+///
+/// Returns [`ProofError`] in the following cases:
+/// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
+/// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
+pub fn oprf_request_auth<R: Rng + CryptoRng>(
+    args: &SingleProofInput<TREE_DEPTH>,
+    query_material: &CircomGroth16Material,
+    private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
+    query_hash: ark_babyjubjub::Fq,
+    blinding_factor: &BlindingFactor,
+    rng: &mut R,
+) -> Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>), ProofError> {
+    let cred_signature = args
+        .credential
+        .signature
+        .clone()
+        .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
+
+    let signature = private_key.sign(query_hash);
+
+    // Compute claims hash from credential
+    let claims_hash = compute_claims_hash(&args.credential)?;
+
+    let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = args.inclusion_proof.siblings.map(|s| *s);
+
+    let query_input = QueryProofCircuitInput::<TREE_DEPTH> {
+        pk: args.key_set.as_affine_array(),
+        pk_index: args.key_index.into(),
+        s: signature.s,
+        r: signature.r,
+        cred_type_id: args.credential.issuer_schema_id.into(),
+        cred_pk: args.credential.issuer.pk,
+        cred_hashes: [claims_hash, *args.credential.associated_data_hash],
+        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
+        cred_expires_at: args.credential.expires_at.into(),
+        cred_s: cred_signature.s,
+        cred_r: cred_signature.r,
+        current_timestamp: args.current_timestamp.into(),
+        merkle_root: *args.inclusion_proof.root,
+        depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
+        mt_index: args.inclusion_proof.account_id.into(),
+        siblings,
+        beta: blinding_factor.beta(),
+        rp_id: *FieldElement::from(args.rp_id),
+        action: *args.action,
+        nonce: *args.nonce,
+    };
+
+    tracing::debug!("generate query proof");
+    let (proof, public_inputs) = query_material.generate_proof(&query_input, rng)?;
+    query_material.verify_proof(&proof, &public_inputs)?;
+
+    let auth = OprfRequestAuthV1 {
+        proof: proof.into(),
+        action: *args.action,
+        nonce: *args.nonce,
+        merkle_root: *args.inclusion_proof.root,
+        cred_pk: args.credential.issuer.clone(),
+        current_time_stamp: args.current_timestamp,
+        signature: args.rp_signature,
+    };
+
+    Ok((auth, query_input))
+}
+
+/// Helper function to compute the query hash for a given account, RP ID, and action.
+#[must_use]
+pub fn query_hash(account_id: u64, rp_id: RpId, action: FieldElement) -> ark_babyjubjub::Fq {
+    let input = [
+        ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
+        account_id.into(),
+        *FieldElement::from(rp_id),
+        *action,
+    ];
+    let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
+    poseidon2_4.permutation(&input)[1]
+}
+
+/// Helper function to compute the claims hash for a credential.
+/// TODO: Move to primitives.
+fn compute_claims_hash(credential: &Credential) -> Result<ark_babyjubjub::Fq, ProofError> {
+    let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
+    if credential.claims.len() > Credential::MAX_CLAIMS {
+        return Err(ProofError::InternalError(eyre::eyre!(
+            "There can be at most {} claims",
+            Credential::MAX_CLAIMS
+        )));
+    }
+    let mut input = [*FieldElement::ZERO; Credential::MAX_CLAIMS];
+    for (i, claim) in credential.claims.iter().enumerate() {
+        input[i] = **claim;
+    }
+    hasher.permutation_in_place(&mut input);
+    Ok(input[1])
 }

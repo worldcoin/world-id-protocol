@@ -18,7 +18,7 @@ use world_id_primitives::FieldElement;
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 use alloy::signers::k256::ecdsa::Signature;
 #[cfg(any(feature = "authenticator", feature = "rp"))]
-use oprf_types::crypto::RpNullifierKey;
+use oprf_types::crypto::OprfPublicKey;
 
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
@@ -29,8 +29,8 @@ use alloy::primitives::Address;
 pub struct RpRequest {
     /// The ID of the RP.
     pub rp_id: String,
-    /// The nullifier key of the RP.
-    pub rp_nullifier_key: RpNullifierKey,
+    /// The oprf public key of the RP.
+    pub oprf_public_key: OprfPublicKey,
     /// The signature of the RP.
     pub signature: Signature,
     /// The current timestamp.
