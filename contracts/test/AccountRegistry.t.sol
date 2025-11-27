@@ -71,11 +71,12 @@ contract AccountRegistryTest is Test {
         return proof;
     }
 
-    function updateAuthenticatorProofAndSignature(uint256 accountIndex, uint32 pubkeyId, uint256 newLeaf, uint256 nonce)
-        private
-        view
-        returns (bytes memory, uint256[] memory)
-    {
+    function updateAuthenticatorProofAndSignature(
+        uint256 accountIndex,
+        uint32 pubkeyId,
+        uint256 newLeaf,
+        uint256 nonce
+    ) private view returns (bytes memory, uint256[] memory) {
         bytes memory signature = eip712Sign(
             accountRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(accountIndex, authenticatorAddress1, authenticatorAddress2, pubkeyId, newLeaf, newLeaf, nonce),
