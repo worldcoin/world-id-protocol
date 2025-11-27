@@ -1,0 +1,43 @@
+[package]
+name = "world-id-oprf-node"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+alloy = { workspace = true, features = ["full", "rpc", "rpc-client-ws"] }
+ark-babyjubjub = { workspace = true }
+ark-bn254.workspace = true
+ark-groth16.workspace = true
+async-trait = "0.1"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+axum = { version = "0.8", features = ["json", "macros"] }
+circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
+clap = { version = "4", features = ["derive", "env"] }
+eyre.workspace = true
+futures = { workspace = true }
+humantime = "2"
+nodes-telemetry = { git = "https://github.com/TaceoLabs/nodes-telemetry.git", rev = "00824cd" }
+oprf-service = { workspace = true }
+oprf-types = { workspace = true }
+parking_lot = "0.12"
+rustls = "0.23"
+secrecy = "0.10"
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = [
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+  "tokio-macros",
+] }
+tokio-util = "0.7"
+tracing.workspace = true
+uuid = { workspace = true, features = ["serde", "v4"] }
+world-id-primitives = { workspace = true }

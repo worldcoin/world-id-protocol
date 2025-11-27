@@ -8,9 +8,8 @@
 //! The signed query is then sent to OPRF service peers to initiate sessions.
 
 use oprf_core::oprf::{self, BlindedOprfRequest, BlindingFactor};
-use oprf_types::api::v1::NullifierShareIdentifier;
-use oprf_types::api::v1::OprfRequest;
-use oprf_types::{RpId as OprfRpId, ShareEpoch};
+use oprf_types::api::v1::{OprfRequest, ShareIdentifier};
+use oprf_types::{OprfKeyId, ShareEpoch};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
 use uuid::Uuid;
@@ -28,14 +27,12 @@ type Result<T> = std::result::Result<T, ProofError>;
 /// A signed OPRF query ready to be sent to OPRF service peers.
 ///
 /// This struct holds all information needed to initiate OPRF sessions:
-/// - `request_id`: Unique identifier for this query/request.
 /// - `oprf_request`: The fully formed [`OprfRequest`] including the
 ///   blinded query point and Groth16 proof.
 /// - `blinded_request`: The result of blinding the query with the user's key.
 /// - `query_input`: Input data for the `OPRFQuery` proof.
 /// - `blinding_factor`: The hash of the query used in proofs.
 pub struct SignedOprfQuery {
-    pub(super) request_id: Uuid,
     pub(super) oprf_request: OprfRequest<OprfRequestAuthV1>,
     pub(super) blinded_request: BlindedOprfRequest,
     pub(super) query_input: QueryProofCircuitInput<TREE_DEPTH>,
@@ -53,6 +50,12 @@ impl SignedOprfQuery {
     #[must_use]
     pub const fn query_input(&self) -> &QueryProofCircuitInput<TREE_DEPTH> {
         &self.query_input
+    }
+
+    /// Returns the [`BlindedOprfRequest`] for this signed query
+    #[must_use]
+    pub const fn blinded_request(&self) -> &BlindedOprfRequest {
+        &self.blinded_request
     }
 
     /// Returns the [`BlindingFactor`] for this signed query
@@ -94,6 +97,7 @@ impl SignedOprfQuery {
 /// - The generated `OprfRequest` ready to initiate sessions with OPRF peers.
 /// - The blinding factor and query hash used for later computations.
 /// - The Groth16 proof input for verification in the nullifier step.
+#[expect(clippy::missing_panics_doc)]
 pub fn sign_oprf_query<R: Rng + CryptoRng>(
     args: &SingleProofInput<TREE_DEPTH>,
     query_material: &CircomGroth16Material,
@@ -101,7 +105,12 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
     request_id: Uuid,
     rng: &mut R,
 ) -> Result<SignedOprfQuery> {
-    let rp_id = OprfRpId::new(args.rp_id.into_inner()); // Convert to `oprf_types`
+    let oprf_key_id = OprfKeyId::new(
+        args.rp_id
+            .into_inner()
+            .try_into()
+            .expect("u128 fits into U160"),
+    ); // Convert to `oprf_types`
 
     let cred_signature = args
         .credential
@@ -141,23 +150,23 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         mt_index: args.inclusion_proof.account_id.into(),
         siblings,
         beta: blinding_factor.beta(),
-        rp_id: rp_id.into_inner().into(),
+        rp_id: oprf_key_id.into(),
         action: *args.action,
         nonce: *args.nonce,
     };
 
     tracing::debug!("generate query proof");
-    let (proof, _) = query_material.generate_proof(&query_input, rng)?;
+    let (proof, public_inputs) = query_material.generate_proof(&query_input, rng)?;
+    query_material.verify_proof(&proof, &public_inputs)?;
 
     Ok(SignedOprfQuery {
-        request_id,
         blinding_factor,
         query_input,
         oprf_request: OprfRequest {
             request_id,
             blinded_query: blinded_request.blinded_query(),
-            rp_identifier: NullifierShareIdentifier {
-                rp_id,
+            share_identifier: ShareIdentifier {
+                oprf_key_id,
                 share_epoch: ShareEpoch::new(args.share_epoch),
             },
             auth: OprfRequestAuthV1 {

@@ -1,5 +1,6 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
+use alloy::primitives::Address;
 use ark_babyjubjub::{EdwardsAffine, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
@@ -18,14 +19,17 @@ use oprf_core::{
 use oprf_types::{
     api::v1::{ChallengeRequest, ChallengeResponse, OprfRequest, OprfResponse},
     crypto::PartyId,
-    RpId, ShareEpoch,
+    OprfKeyId, ShareEpoch,
 };
 use rand::thread_rng;
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
+use world_id_oprf_node::config::WorldOprfNodeConfig;
 use world_id_primitives::{
     merkle::AccountInclusionProof, oprf::OprfRequestAuthV1, FieldElement, TREE_DEPTH,
 };
+
+use crate::test_secret_manager::TestSecretManager;
 
 #[derive(Clone)]
 struct IndexerState {
@@ -75,7 +79,7 @@ pub struct OprfServerHandle {
 struct OprfStubState {
     rp_secret: Fr,
     rp_public: EdwardsAffine,
-    rp_id: RpId,
+    rp_id: OprfKeyId,
     share_epoch: ShareEpoch,
     party_id: PartyId,
     expected_root: FieldElement,
@@ -87,7 +91,7 @@ struct OprfStubState {
 pub async fn spawn_oprf_stub(
     expected_root: FieldElement,
     verifier: VerifyingKey,
-    rp_id: RpId,
+    rp_id: OprfKeyId,
     share_epoch: ShareEpoch,
     rp_secret: Fr,
 ) -> Result<OprfServerHandle> {
@@ -145,8 +149,8 @@ async fn oprf_init(
     req: OprfRequest<OprfRequestAuthV1>,
 ) -> Result<Json<OprfResponse>, StatusCode> {
     if req.blinded_query.is_zero()
-        || req.rp_identifier.rp_id != state.rp_id
-        || req.rp_identifier.share_epoch != state.share_epoch
+        || req.share_identifier.oprf_key_id != state.rp_id
+        || req.share_identifier.share_epoch != state.share_epoch
         || req.auth.merkle_root != *state.expected_root
     {
         return Err(StatusCode::BAD_REQUEST);
@@ -176,7 +180,8 @@ async fn oprf_finish(
     State(state): State<Arc<OprfStubState>>,
     req: ChallengeRequest,
 ) -> Result<Json<ChallengeResponse>, StatusCode> {
-    if req.rp_identifier.rp_id != state.rp_id || req.rp_identifier.share_epoch != state.share_epoch
+    if req.share_identifier.oprf_key_id != state.rp_id
+        || req.share_identifier.share_epoch != state.share_epoch
     {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -206,4 +211,88 @@ async fn oprf_finish(
         request_id: req.request_id,
         proof_share,
     }))
+}
+
+async fn spawn_orpf_node(
+    id: usize,
+    chain_ws_rpc_url: &str,
+    secret_manager: TestSecretManager,
+    rp_registry_contract: Address,
+    account_registry_contract: Address,
+) -> String {
+    let dir = PathBuf::from("/home/gruber/Work/nullifier-oracle-service/oprf-service");
+    let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
+    let config = WorldOprfNodeConfig {
+        bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
+        max_wait_time_shutdown: Duration::from_secs(10),
+        user_verification_key_path: dir.join("../circom/main/query/OPRFQuery.vk.json"),
+        max_merkle_store_size: 10,
+        current_time_stamp_max_difference: Duration::from_secs(10),
+        signature_history_cleanup_interval: Duration::from_secs(30),
+        account_registry_contract,
+        node_config: oprf_service::config::OprfNodeConfig {
+            environment: oprf_service::config::Environment::Dev,
+            request_lifetime: Duration::from_secs(5 * 60),
+            session_cleanup_interval: Duration::from_micros(1000000),
+            rp_secret_id_prefix: format!("oprf/rp/n{id}"),
+            oprf_key_registry_contract: rp_registry_contract,
+            chain_ws_rpc_url: chain_ws_rpc_url.into(),
+            key_gen_witness_graph_path: dir.join("../circom/main/key-gen/OPRFKeyGenGraph.13.bin"),
+            key_gen_zkey_path: dir.join("../circom/main/key-gen/OPRFKeyGen.13.arks.zkey"),
+            wallet_private_key_secret_id: "wallet/privatekey".to_string(),
+        },
+    };
+    let never = async { futures::future::pending::<()>().await };
+
+    tokio::spawn(async move {
+        let res = world_id_oprf_node::start(config, Arc::new(secret_manager), never).await;
+        eprintln!("service failed to start: {res:?}");
+    });
+    // very graceful timeout for CI
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if reqwest::get(url.clone() + "/health").await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    })
+    .await
+    .expect("can start");
+    url
+}
+
+pub async fn spawn_oprf_nodes(
+    chain_ws_rpc_url: &str,
+    secret_manager: [TestSecretManager; 3],
+    key_gen_contract: Address,
+    account_registry_contract: Address,
+) -> [String; 3] {
+    let [secret_manager0, secret_manager1, secret_manager2] = secret_manager;
+    [
+        spawn_orpf_node(
+            0,
+            chain_ws_rpc_url,
+            secret_manager0,
+            key_gen_contract,
+            account_registry_contract,
+        )
+        .await,
+        spawn_orpf_node(
+            1,
+            chain_ws_rpc_url,
+            secret_manager1,
+            key_gen_contract,
+            account_registry_contract,
+        )
+        .await,
+        spawn_orpf_node(
+            2,
+            chain_ws_rpc_url,
+            secret_manager2,
+            key_gen_contract,
+            account_registry_contract,
+        )
+        .await,
+    ]
 }
