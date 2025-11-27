@@ -1,10 +1,6 @@
 use std::collections::HashMap;
 
 use groth16_material::circom::ProofInput;
-use oprf_core::{
-    dlog_equality::DLogEqualityProof,
-    oprf::{BlindedOprfResponse, BlindingFactor},
-};
 use ruint::aliases::U256;
 
 use crate::authenticator::MAX_AUTHENTICATOR_KEYS;
@@ -157,37 +153,6 @@ pub struct NullifierProofCircuitInput<const MAX_DEPTH: usize> {
     ///
     /// TODO: Rename to match new terms and avoid confusion with World ID <3.0's `identity_commitment`.
     pub id_commitment_r: BaseField,
-}
-
-impl<const MAX_DEPTH: usize> NullifierProofCircuitInput<MAX_DEPTH> {
-    /// Constructs a new `NullifierProofCircuitInput` from the given inputs.
-    #[must_use]
-    pub fn new(
-        query_input: QueryProofCircuitInput<MAX_DEPTH>,
-        dlog_proof: &DLogEqualityProof,
-        oprf_pk: Affine,
-        blinded_response: Affine,
-        signal_hash: BaseField,
-        id_commitment_r: BaseField,
-        blinding_factor: BlindingFactor,
-    ) -> Self {
-        let blinding_factor_prepared = blinding_factor.prepare();
-
-        let oprf_blinded_response = BlindedOprfResponse::new(blinded_response);
-
-        let unblinded_response = oprf_blinded_response.unblind_response(&blinding_factor_prepared);
-
-        Self {
-            query_input,
-            dlog_e: dlog_proof.e,
-            dlog_s: dlog_proof.s,
-            oprf_response_blinded: oprf_blinded_response.response(),
-            oprf_response: unblinded_response,
-            oprf_pk,
-            signal_hash,
-            id_commitment_r,
-        }
-    }
 }
 
 impl<const MAX_DEPTH: usize> ProofInput for NullifierProofCircuitInput<MAX_DEPTH> {

@@ -2,13 +2,12 @@ use std::io::Cursor;
 
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use oprf_types::crypto::OprfPublicKey;
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    authenticator::AuthenticatorPublicKeySet,
-    merkle::MerkleInclusionProof,
-    rp::{RpId, RpNullifierKey},
-    Credential, FieldElement, PrimitiveError,
+    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId, Credential,
+    FieldElement, PrimitiveError,
 };
 
 /// Represents a base World ID proof.
@@ -160,10 +159,10 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     ///
     /// TODO: Refactor what is actually signed.
     pub rp_signature: k256::ecdsa::Signature,
-    /// The public key of the RP used to verify the computed nullifier.
+    /// The public key used to verify the computed nullifier. It can be retrieved from the `OprfKeyRegistry` contract.
     ///
     /// TODO: This requires more details.
-    pub rp_nullifier_key: RpNullifierKey,
+    pub oprf_public_key: OprfPublicKey,
     /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
     /// to ensure the integrity of the proof. For example, in a voting application, the signal could
     /// be used to encode the user's vote.
