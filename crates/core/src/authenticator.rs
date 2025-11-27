@@ -25,7 +25,9 @@ use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
 use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use oprf_client::Connector;
 use oprf_types::ShareEpoch;
+use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
 use world_id_primitives::merkle::MerkleInclusionProof;
@@ -437,7 +439,7 @@ impl Authenticator {
             nonce: proof_request.nonce,
             current_timestamp: proof_request.created_at,
             rp_signature: proof_request.signature,
-            rp_nullifier_key: proof_request.rp_nullifier_key,
+            oprf_public_key: proof_request.oprf_public_key,
             signal_hash: request_item.signal_hash(),
         };
 
@@ -458,6 +460,15 @@ impl Authenticator {
         }
         let threshold = requested_threshold.min(services.len());
 
+        // TODO decide on rustls or native_tls? make configurable?
+        // TODO store the connector somewhere (maybe in Authenticator?) to avoid recreating it every time because it is expensive
+        let mut root_store = RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let rustls_config = ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        let connector = Connector::Rustls(Arc::new(rustls_config));
+
         let mut rng = rand::thread_rng();
         let (proof, _public, nullifier, _id_commitment) = crate::proof::nullifier(
             services,
@@ -466,6 +477,7 @@ impl Authenticator {
             &nullifier_material,
             args,
             private_key,
+            connector,
             &mut rng,
         )
         .await
