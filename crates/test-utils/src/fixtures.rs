@@ -12,7 +12,7 @@ use ark_ff::{BigInteger, PrimeField, UniformRand};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{eyre, Context as _, Result};
 use k256::ecdsa::{signature::Signer, Signature, SigningKey};
-use oprf_types::{RpId as OprfRpId, ShareEpoch};
+use oprf_types::{OprfKeyId, ShareEpoch};
 use rand::{thread_rng, Rng};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, credential::Credential, merkle::MerkleInclusionProof,
@@ -147,7 +147,7 @@ pub fn single_leaf_merkle_fixture(
 
 pub struct RpFixture {
     pub world_rp_id: WorldRpId,
-    pub oprf_rp_id: OprfRpId,
+    pub oprf_rp_id: OprfKeyId,
     pub share_epoch: ShareEpoch,
     pub action: Fq,
     pub nonce: Fq,
@@ -165,7 +165,7 @@ pub fn generate_rp_fixture() -> RpFixture {
     let mut rng = thread_rng();
     let rp_id_value: u128 = rng.gen();
     let world_rp_id = WorldRpId::new(rp_id_value);
-    let oprf_rp_id = OprfRpId::new(rp_id_value);
+    let oprf_rp_id = OprfKeyId::new(rp_id_value.try_into().expect("u128 fits into U160"));
 
     let action = Fq::rand(&mut rng);
     let nonce = Fq::rand(&mut rng);

@@ -7,7 +7,7 @@ use std::{
 
 use alloy::primitives::U256;
 use eyre::{eyre, Context as _, Result};
-use oprf_types::crypto::RpNullifierKey;
+use oprf_types::crypto::OprfPublicKey;
 use test_utils::{
     fixtures::{
         build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
@@ -168,7 +168,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_request = world_id_core::types::RpRequest {
         rp_id: rp_fixture.oprf_rp_id.into_inner().to_string(),
-        rp_nullifier_key: RpNullifierKey::new(rp_fixture.rp_nullifier_point),
+        oprf_public_key: OprfPublicKey::new(rp_fixture.rp_nullifier_point),
         signature: rp_fixture.signature,
         current_time_stamp: rp_fixture.current_timestamp,
         action_id: rp_fixture.action.into(),

@@ -7,44 +7,20 @@
 //! not requiring the user to maintain a single secret that cannot be rotated.
 
 use groth16_material::Groth16Error;
-use reqwest::StatusCode;
 
-mod http;
 mod query;
-pub(crate) mod session;
 
-pub use http::{finish_sessions, init_sessions};
 pub use query::{sign_oprf_query, SignedOprfQuery};
-pub use session::{compute_challenges, verify_challenges, Challenge, OprfSessions};
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
-    /// API error returned by the OPRF service.
-    #[error("API error {status}: {message}")]
-    ApiError {
-        /// the HTTP status code
-        status: StatusCode,
-        /// the error message
-        message: String,
-    },
-    /// HTTP or network errors from OPRF service requests.
+    /// Provided public key index is out of valid range.
+    #[error("Index in public-key batch must be in range [0..6], but is {0}")]
+    InvalidPublicKeyIndex(u64),
+    /// Error originating from `oprf_client`.
     #[error(transparent)]
-    Request(#[from] reqwest::Error),
-    /// Not enough OPRF responses received to satisfy the required threshold.
-    #[error("expected degree {threshold} responses, got {n}")]
-    NotEnoughOprfResponses {
-        /// actual amount responses
-        n: usize,
-        /// expected threshold
-        threshold: usize,
-    },
-    /// The `DLog` equality proof failed verification.
-    #[error("DLog proof could not be verified")]
-    InvalidDLogProof,
-    /// Provided public key index is invalid or out of bounds.
-    #[error("Index in public key is invalid or out of bounds.")]
-    InvalidPublicKeyIndex,
+    OprfError(#[from] oprf_client::Error),
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
