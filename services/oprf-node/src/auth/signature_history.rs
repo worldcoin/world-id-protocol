@@ -110,11 +110,9 @@ mod tests {
             .add_signature(b"bar".to_vec(), current_time)
             .expect("can add signature");
         // will fail because signature is in history
-        assert!(
-            signature_history
-                .add_signature(b"foo".to_vec(), current_time)
-                .is_err()
-        );
+        assert!(signature_history
+            .add_signature(b"foo".to_vec(), current_time)
+            .is_err());
         // run cleanup once
         signature_history.cleanup(max_signature_age);
         // will succeed because signature was removed in cleanup
