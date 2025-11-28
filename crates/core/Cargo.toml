@@ -62,6 +62,7 @@ strum = { workspace = true }
 world-id-primitives = { workspace = true }
 utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
+oprf-client = { workspace = true, optional = true }
 oprf-core = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 
@@ -77,6 +78,7 @@ authenticator = [
     "dep:reqwest",
     "dep:secrecy",
     "dep:groth16-material",
+    "dep:oprf-client",
     "dep:oprf-core",
     "dep:futures"
 ]
@@ -107,3 +109,4 @@ axum = { version = "0.8", features = ["macros", "json"] }
 k256 = { workspace = true, features = ["ecdsa"] }
 oprf-core = { workspace = true }
 mockito = "1.6"
+oprf-service = { workspace  = true }

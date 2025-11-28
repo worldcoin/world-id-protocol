@@ -409,7 +409,7 @@ impl Authenticator {
                 }
             })?);
         let primitives_rp_nullifier_key =
-            world_id_primitives::rp::RpNullifierKey::new(rp_request.rp_nullifier_key.inner());
+            world_id_primitives::rp::RpNullifierKey::new(rp_request.oprf_public_key.inner());
 
         let args = SingleProofInput::<TREE_DEPTH> {
             credential,

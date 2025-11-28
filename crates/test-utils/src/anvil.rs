@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, Bytes, TxKind, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
@@ -7,6 +9,8 @@ use alloy::sol;
 use alloy::sol_types::SolCall;
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
+use oprf_types::crypto::OprfPublicKey;
+use oprf_types::OprfKeyId;
 
 sol!(
     #[sol(rpc, ignore_unlinked)]
@@ -51,6 +55,36 @@ sol!(
     concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    Groth16VerifierKeyGen13,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/Groth16VerifierKeyGen13.sol/Groth16Verifier.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    BabyJubJub,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    OprfKeyRegistry,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/OprfKeyRegistry.sol/OprfKeyRegistry.json"
     )
 );
 
@@ -239,6 +273,116 @@ impl TestAnvil {
             .context("failed to deploy AccountRegistry proxy")?;
 
         Ok(*proxy.address())
+    }
+
+    /// Deploys the `OprfKeyRegistry` contract using the supplied signer.
+    #[allow(dead_code)]
+    pub async fn deploy_oprf_key_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+
+        // Step 1: Deploy Groth16VerifierKeyGen13 contract (no dependencies)
+        let groth16_verifier = Groth16VerifierKeyGen13::deploy(provider.clone())
+            .await
+            .context("failed to deploy Groth16VerifierKeyGen13 contract")?;
+
+        // Step 2: Deploy BabyJubJub contract (no dependencies)
+        let babyjubjub = BabyJubJub::deploy(provider.clone())
+            .await
+            .context("failed to deploy BabyJubJub contract")?;
+
+        // Step 2: Deploy OprfKeyRegistry contract
+        let oprf_key_registry = OprfKeyRegistry::deploy(provider.clone())
+            .await
+            .context("failed to deploy OprfKeyRegistry contract")?;
+
+        let init_data = Bytes::from(
+            OprfKeyRegistry::initializeCall {
+                _keygenAdmin: signer.address(),
+                _keyGenVerifierAddress: *groth16_verifier.address(),
+                _accumulatorAddress: *babyjubjub.address(),
+            }
+            .abi_encode(),
+        );
+
+        let proxy = ERC1967Proxy::deploy(provider, *oprf_key_registry.address(), init_data)
+            .await
+            .context("failed to deploy OprfKeyRegistry proxy")?;
+
+        Ok(*proxy.address())
+    }
+
+    /// Registers the oprf nodes at the `OprfKeyRegistry`.
+    pub async fn register_oprf_nodes(
+        &self,
+        oprf_key_registry_contract: Address,
+        signer: PrivateKeySigner,
+        node_addresses: Vec<Address>,
+    ) -> Result<()> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let receipt = oprf_key_registry
+            .registerOprfPeers(node_addresses)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+        if !receipt.status() {
+            eyre::bail!("failed to init oprf key gen");
+        }
+        Ok(())
+    }
+
+    /// Init a key gen at the `OprfKeyRegistry` contract using the supplied signer.
+    pub async fn init_oprf_key_gen(
+        &self,
+        oprf_key_registry_contract: Address,
+        signer: PrivateKeySigner,
+    ) -> Result<(OprfKeyId, OprfPublicKey)> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_id = OprfKeyId::new(
+            rand::random::<u128>()
+                .try_into()
+                .expect("u128 fits into U160"),
+        );
+        let receipt = oprf_key_registry
+            .initKeyGen(oprf_key_id.into_inner())
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+        if !receipt.status() {
+            eyre::bail!("failed to init oprf key gen");
+        }
+
+        let mut interval = tokio::time::interval(Duration::from_millis(500));
+        // very graceful timeout for CI
+        let oprf_public_key = tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                interval.tick().await;
+                let maybe_oprf_public_key = oprf_key_registry
+                    .getOprfPublicKey(oprf_key_id.into_inner())
+                    .call()
+                    .await;
+                if let Ok(oprf_public_key) = maybe_oprf_public_key {
+                    let p = ark_babyjubjub::EdwardsAffine::new(
+                        oprf_public_key.x.try_into().expect("valid x"),
+                        oprf_public_key.y.try_into().expect("valid y"),
+                    );
+                    break OprfPublicKey::new(p);
+                }
+            }
+        })
+        .await
+        .context("could not finish key-gen in 60 seconds")?;
+
+        Ok((oprf_key_id, oprf_public_key))
     }
 
     /// Links a library address into contract bytecode by replacing all placeholder references.

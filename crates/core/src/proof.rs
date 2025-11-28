@@ -11,16 +11,16 @@
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Nullifier Proof [`π2`]
 
-use crate::oprf::{compute_challenges, sign_oprf_query, ProofError};
+use crate::oprf::{sign_oprf_query, ProofError};
 use circom_types::ark_bn254::Bn254;
 use circom_types::groth16::Proof;
-use oprf_types::crypto::RpNullifierKey as OprfRpNullifierKey;
+use oprf_types::crypto::OprfPublicKey;
 use rand::{CryptoRng, Rng};
 use std::io::Read;
 use std::path::Path;
 use uuid::Uuid;
-use world_id_primitives::proof::SingleProofInput;
 use world_id_primitives::TREE_DEPTH;
+use world_id_primitives::{circuit_inputs::NullifierProofCircuitInput, proof::SingleProofInput};
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
@@ -28,17 +28,17 @@ pub use groth16_material::circom::{
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "5796f71d0a2b70878a96eb0e0839e31c4f532e660258c3d0bd32047de00fbe02";
+    "50386ea28e3c8cd01fe59ab68e7ecd0a6b8b07d3b8ad6460c04a430ef5c2121f";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "892f3f46e80330d4f69df776e3ed74383dea127658516182751984ad6a7f4f59";
+    "bb1301f25cbe8d624a227c5f0875fa5dec9501c09357d82b49f59ee73505e94d";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
-    "ac4caabf7d35a3424f49b627d213a19f17c7572743370687befd3fa8f82610a3";
+    "1016fc75f79a872a33ec0537c074857c6750c21f7e2e4e2a34acbbad5d0997b3";
 /// The SHA-256 fingerprint of the `OPRFNullifier` witness graph.
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
-    "e6d818a0d6a76e98efbe35fba4664fcea33afc0da663041571c8d59c7a5f0fa0";
+    "87756ce49e17f89e28b963d53e1fd55e17f9a2b413b7630632241a9a03af663a";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
@@ -221,21 +221,34 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 
     let signed_query = sign_oprf_query(&args, query_material, private_key, request_id, rng)?;
 
-    let oprf_rp_nullifier_key = OprfRpNullifierKey::new(args.rp_nullifier_key.into_inner());
+    let oprf_public_key = OprfPublicKey::new(args.rp_nullifier_key.into_inner());
 
-    let client = reqwest::Client::new();
-    let req = signed_query.get_request();
-    let sessions = crate::oprf::init_sessions(&client, services, threshold, req).await?;
+    let (challenge, dlog_proof) = oprf_client::distributed_oprf(
+        request_id,
+        oprf_public_key,
+        services,
+        threshold,
+        signed_query.get_request(),
+        signed_query.blinded_request(),
+    )
+    .await?;
 
-    let challenges = compute_challenges(signed_query, &sessions, oprf_rp_nullifier_key)?;
-    let req = challenges.get_request();
-    let responses = crate::oprf::finish_sessions(&client, sessions, req).await?;
-    crate::oprf::verify_challenges(
-        nullifier_material,
-        challenges,
-        responses,
+    let nullifier_input = NullifierProofCircuitInput::new(
+        signed_query.query_input().clone(),
+        &dlog_proof,
+        oprf_public_key.inner(),
+        challenge.blinded_response(),
         *args.signal_hash,
         *args.rp_session_id_r_seed,
-        rng,
-    )
+        signed_query.blinding_factor().clone(),
+    );
+
+    tracing::debug!("generate nullifier proof");
+    let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
+
+    // 2 outputs, 0 is id_commitment, 1 is nullifier
+    let id_commitment = public[0];
+    let nullifier = public[1];
+
+    Ok((proof.into(), public, nullifier, id_commitment))
 }

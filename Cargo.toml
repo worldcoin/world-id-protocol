@@ -5,6 +5,7 @@ members = [
     "crates/test-utils",
     "services/indexer",
     "services/gateway",
+    "services/oprf-node",
 ]
 resolver = "2"
 
@@ -38,8 +39,10 @@ hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
-oprf-core = { package = "taceo-oprf-core", version="0.1", default-features = false }
-oprf-types = { package = "taceo-oprf-types", version="0.1" } 
+oprf-core = { package = "taceo-oprf-core", version = "0.1", default-features = false, git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "bb23e49" }
+oprf-types = { package = "taceo-oprf-types", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "bb23e49" } 
+oprf-client = { package = "oprf-client", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "bb23e49" } 
+oprf-service = { package = "oprf-service", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "bb23e49" } 
 ruint = { version = "1.16", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
 rand = "0.8"
@@ -57,4 +60,5 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 uuid = { version = "1" }
 world-id-core = { version = "0.1.3", default-features = false, path = "crates/core"}
 world-id-primitives = { version = "0.1.3", path = "crates/primitives"}
+world-id-oprf-node = { version = "0.1", path = "./services/oprf-node"} 
 zeroize = "1"
