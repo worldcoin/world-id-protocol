@@ -142,7 +142,7 @@ async fn e2e_authenticator_generate_proof_oprf_nodes() -> Result<()> {
     )
     .await;
 
-    // init key gen for a new RP, wait until its dont and fetch the public key
+    // init key gen for a new RP, wait until its done and fetch the public key
     let (oprf_key_id, oprf_public_key) = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;
 
     // Config for proof generation uses the indexer + OPRF stubs.
