@@ -391,7 +391,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
 }
 
 /// Helper function to compute the query hash for a given account, RP ID, and action.
-fn query_hash(account_id: u64, rp_id: RpId, action: FieldElement) -> ark_babyjubjub::Fq {
+pub fn query_hash(account_id: u64, rp_id: RpId, action: FieldElement) -> ark_babyjubjub::Fq {
     let input = [
         ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
         account_id.into(),
