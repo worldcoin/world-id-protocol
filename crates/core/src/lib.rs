@@ -37,11 +37,6 @@ mod signer;
 pub(crate) use signer::Signer;
 
 #[cfg(feature = "authenticator")]
-pub mod oprf;
-#[cfg(feature = "authenticator")]
-pub use oprf::ProofError;
-
-#[cfg(feature = "authenticator")]
 pub mod proof;
 
 #[cfg(feature = "authenticator")]
