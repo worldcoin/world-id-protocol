@@ -156,7 +156,7 @@ contract AccountRegistryTest is Test {
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // authenticatorAddress1 is assigned to account 1
-        uint256 packed1 = accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1);
+        uint256 packed1 = accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1);
         assertEq(uint192(packed1), accountIndex);
 
         (bytes memory signature, uint256[] memory proof) =
@@ -179,9 +179,9 @@ contract AccountRegistryTest is Test {
         console.log("Gas used per update:", (startGas - endGas));
 
         // authenticatorAddress1 has been removed
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 0);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1), 0);
         // authenticatorAddress2 has been added
-        uint256 packed2 = accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress2);
+        uint256 packed2 = accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress2);
         assertEq(uint192(packed2), 1);
     }
 
@@ -201,7 +201,7 @@ contract AccountRegistryTest is Test {
         (bytes memory signature, uint256[] memory proof) =
             updateAuthenticatorProofAndSignature(accountIndex, 0, newCommitment, nonce);
 
-        vm.expectRevert("Invalid account index");
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.AccountDoesNotExist.selector, accountIndex));
 
         accountRegistry.updateAuthenticator(
             accountIndex,
@@ -231,13 +231,13 @@ contract AccountRegistryTest is Test {
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // authenticatorAddress1 is assigned to account 1
-        uint256 packed = accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1);
+        uint256 packed = accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1);
         assertEq(uint192(packed), accountIndex);
 
         (bytes memory signature, uint256[] memory proof) =
             updateAuthenticatorProofAndSignature(accountIndex, 0, newCommitment, nonce);
 
-        vm.expectRevert("Invalid nonce");
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.MismatchedSignatureNonce.selector, accountIndex, 0, 1));
 
         accountRegistry.updateAuthenticator(
             accountIndex,
@@ -288,8 +288,8 @@ contract AccountRegistryTest is Test {
         console.log("Gas used per insert:", (startGas - endGas));
 
         // Both authenticators should now belong to the same account
-        assertEq(uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)), accountIndex);
-        assertEq(uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress2)), accountIndex);
+        assertEq(uint192(accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)), accountIndex);
+        assertEq(uint192(accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress2)), accountIndex);
     }
 
     function test_InsertAuthenticatorDuplicatePubkeyId() public {
@@ -389,8 +389,8 @@ contract AccountRegistryTest is Test {
         );
 
         // authenticatorAddress2 should be removed; authenticatorAddress1 remains
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress2), 0);
-        assertEq(uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)), accountIndex);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress2), 0);
+        assertEq(uint192(accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)), accountIndex);
     }
 
     function test_UpdateRecoveryAddress_SetNewAddress() public {
@@ -431,7 +431,7 @@ contract AccountRegistryTest is Test {
         bytes memory signature = updateRecoveryAddressSignature(accountIndex, newRecovery, nonce);
 
         vm.prank(authenticatorAddress1);
-        vm.expectRevert("Invalid nonce");
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.MismatchedSignatureNonce.selector, accountIndex, 0, 1));
         accountRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
     }
 
@@ -474,25 +474,25 @@ contract AccountRegistryTest is Test {
 
         // authenticatorAddress1 still associated with accountIndex = 1
         assertEq(
-            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)),
+            uint192(accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)),
             uint192(accountIndex)
         );
         // Recovery counter is 0 as it will only be incremented on the NEW_AUTHENTICATOR
         assertEq(
             PackedAccountData.recoveryCounter(
-                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+                accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)
             ),
             0
         );
 
         // New authenticator added with higher recovery counter
         assertEq(
-            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)),
+            uint192(accountRegistry.authenticatorAddressToPackedAccountData(newAuthenticatorAddress)),
             uint192(accountIndex)
         );
         assertEq(
             PackedAccountData.recoveryCounter(
-                accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)
+                accountRegistry.authenticatorAddressToPackedAccountData(newAuthenticatorAddress)
             ),
             1
         );
@@ -510,14 +510,14 @@ contract AccountRegistryTest is Test {
         // authenticatorAddress1 now associated with accountIndex = 2
         assertEq(
             PackedAccountData.accountIndex(
-                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+                accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)
             ),
             2
         );
         // Recovery counter is 0 for accountIndex = 2
         assertEq(
             PackedAccountData.recoveryCounter(
-                accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
+                accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)
             ),
             0
         );
@@ -540,7 +540,7 @@ contract AccountRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1), 1);
     }
 
     function test_TreeDepth() public view {
@@ -588,12 +588,12 @@ contract AccountRegistryTest is Test {
 
         // Verify recovery was successful
         assertEq(
-            uint192(accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)),
+            uint192(accountRegistry.authenticatorAddressToPackedAccountData(newAuthenticatorAddress)),
             uint192(accountIndex)
         );
         assertEq(
             PackedAccountData.recoveryCounter(
-                accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)
+                accountRegistry.authenticatorAddressToPackedAccountData(newAuthenticatorAddress)
             ),
             1
         );
@@ -640,7 +640,7 @@ contract AccountRegistryTest is Test {
         accountRegistry.createAccount(
             address(0), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
-        assertEq(accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1), 1);
+        assertEq(accountRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1), 1);
         assertEq(accountRegistry.getRecoveryAddress(1), address(0));
 
         // Now test that we can update the recovery address to a non-zero address
