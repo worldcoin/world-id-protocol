@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {AccountRegistry} from "../src/AccountRegistry.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
-import {PackedAccountIndex} from "../src/lib/PackedAccountIndex.sol";
+import {PackedAccountData} from "../src/lib/PackedAccountData.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -412,7 +412,7 @@ contract AccountRegistryTest is Test {
         accountRegistry.updateRecoveryAddress(accountIndex, newRecovery, signature, nonce);
 
         assertEq(accountRegistry.getRecoveryAddress(accountIndex), newRecovery);
-        assertEq(accountRegistry.signatureNonces(accountIndex), 1);
+        assertEq(accountRegistry.accountIndexToSignatureNonce(accountIndex), 1);
     }
 
     function test_UpdateRecoveryAddress_RevertInvalidNonce() public {
@@ -479,7 +479,7 @@ contract AccountRegistryTest is Test {
         );
         // Recovery counter is 0 as it will only be incremented on the NEW_AUTHENTICATOR
         assertEq(
-            PackedAccountIndex.recoveryCounter(
+            PackedAccountData.recoveryCounter(
                 accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
             ),
             0
@@ -491,7 +491,7 @@ contract AccountRegistryTest is Test {
             uint192(accountIndex)
         );
         assertEq(
-            PackedAccountIndex.recoveryCounter(
+            PackedAccountData.recoveryCounter(
                 accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)
             ),
             1
@@ -509,14 +509,14 @@ contract AccountRegistryTest is Test {
 
         // authenticatorAddress1 now associated with accountIndex = 2
         assertEq(
-            PackedAccountIndex.accountIndex(
+            PackedAccountData.accountIndex(
                 accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
             ),
             2
         );
         // Recovery counter is 0 for accountIndex = 2
         assertEq(
-            PackedAccountIndex.recoveryCounter(
+            PackedAccountData.recoveryCounter(
                 accountRegistry.authenticatorAddressToPackedAccountIndex(authenticatorAddress1)
             ),
             0
@@ -592,12 +592,12 @@ contract AccountRegistryTest is Test {
             uint192(accountIndex)
         );
         assertEq(
-            PackedAccountIndex.recoveryCounter(
+            PackedAccountData.recoveryCounter(
                 accountRegistry.authenticatorAddressToPackedAccountIndex(newAuthenticatorAddress)
             ),
             1
         );
-        assertEq(accountRegistry.accountRecoveryCounter(accountIndex), 1);
+        assertEq(accountRegistry.accountIndexToRecoveryCounter(accountIndex), 1);
     }
 
     function test_MockERC1271Wallet_Validation() public {
