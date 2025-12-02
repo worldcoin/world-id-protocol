@@ -32,7 +32,7 @@ pub(crate) async fn handler(
 
     let signature_nonce = state
         .registry
-        .signatureNonces(req.account_index)
+        .accountIndexToSignatureNonce(req.account_index)
         .call()
         .await
         .map_err(|e| {
