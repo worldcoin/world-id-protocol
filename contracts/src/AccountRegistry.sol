@@ -149,7 +149,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     error PubkeyIdOutOfBounds();
 
     /**
-     * @dev Thrown when a pubkey ID does not exist.
+     * @dev Thrown when a pubkey ID does not exist. We use a bitmap to track how many pubkey IDs are in use for an account.
      */
     error PubkeyIdDoesNotExist();
 
@@ -181,10 +181,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /**
      * @dev Thrown when the provided array lengths do not match.
-     * @param array1Length The length of the first array.
-     * @param array2Length The length of the second array.
      */
-    error MismatchingArrayLengths(uint256 array1Length, uint256 array2Length);
+    error MismatchingArrayLengths();
 
     /**
      * @dev Thrown when the provided address array is empty.
@@ -470,7 +468,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             revert EmptyAddressArray();
         }
         if (authenticatorAddresses.length != authenticatorPubkeys.length) {
-            revert MismatchingArrayLengths(authenticatorAddresses.length, authenticatorPubkeys.length);
+            revert MismatchingArrayLengths();
         }
 
         uint256 accountIndex = nextAccountIndex;
@@ -530,13 +528,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         }
 
         if (recoveryAddresses.length != authenticatorAddresses.length) {
-            revert MismatchingArrayLengths(recoveryAddresses.length, authenticatorAddresses.length);
+            revert MismatchingArrayLengths();
         }
         if (recoveryAddresses.length != authenticatorPubkeys.length) {
-            revert MismatchingArrayLengths(recoveryAddresses.length, authenticatorPubkeys.length);
+            revert MismatchingArrayLengths();
         }
         if (recoveryAddresses.length != offchainSignerCommitments.length) {
-            revert MismatchingArrayLengths(recoveryAddresses.length, offchainSignerCommitments.length);
+            revert MismatchingArrayLengths();
         }
 
         for (uint256 i = 0; i < recoveryAddresses.length; i++) {
@@ -579,9 +577,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (oldAuthenticatorAddress == newAuthenticatorAddress) {
             revert ReusedAuthenticatorAddress();
         }
-        if (newAuthenticatorAddress == address(0)) {
-            revert ZeroAddress();
-        }
         if (pubkeyId >= MAX_AUTHENTICATORS) {
             revert PubkeyIdOutOfBounds();
         }
@@ -609,10 +604,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (signer != oldAuthenticatorAddress) {
             revert MismatchedAuthenticatorSigner(oldAuthenticatorAddress, signer);
         }
-        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
+        accountIndexToSignatureNonce[accountIndex]++;
+
         uint256 actualPubkeyId = PackedAccountData.pubkeyId(packedAccountData);
         if (actualPubkeyId != pubkeyId) {
             revert MismatchedPubkeyId(pubkeyId, actualPubkeyId);
@@ -660,9 +658,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (newAuthenticatorAddress == address(0)) {
-            revert ZeroAddress();
-        }
         _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
         if (pubkeyId >= MAX_AUTHENTICATORS) {
@@ -693,10 +688,12 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
-        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
+        accountIndexToSignatureNonce[accountIndex]++;
 
         // Add new authenticator
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
@@ -757,10 +754,12 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
-        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
+        accountIndexToSignatureNonce[accountIndex]++;
 
         uint256 packedToRemove = authenticatorAddressToPackedAccountData[authenticatorAddress];
         if (packedToRemove == 0) {
@@ -815,10 +814,13 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (accountIndex == 0 || nextAccountIndex <= accountIndex) {
             revert AccountDoesNotExist(accountIndex);
         }
-        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
+        accountIndexToSignatureNonce[accountIndex]++;
+
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -841,9 +843,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         }
         if (authenticatorAddressToPackedAccountData[newAuthenticatorAddress] != 0) {
             revert AuthenticatorAlreadyExists(newAuthenticatorAddress);
-        }
-        if (newAuthenticatorAddress == address(0)) {
-            revert ZeroAddress();
         }
 
         accountIndexToRecoveryCounter[accountIndex]++;
@@ -888,10 +887,12 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
         }
-        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex]++;
+
+        uint256 expectedNonce = accountIndexToSignatureNonce[accountIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(accountIndex, expectedNonce, nonce);
         }
+        accountIndexToSignatureNonce[accountIndex]++;
 
         address oldRecoveryAddress = _getRecoveryAddress(accountIndex);
 
