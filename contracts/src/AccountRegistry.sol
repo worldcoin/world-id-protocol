@@ -210,7 +210,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     error MismatchedAccountIndex(uint256 expectedAccountIndex, uint256 actualAccountIndex);
 
     /**
-     * @dev Thrown when the recovered signature does match the expected authenticator address.
+     * @dev Thrown when the recovered signature does not match the expected authenticator address.
      * @param expectedAuthenticatorAddress The expected authenticator address.
      * @param actualAuthenticatorAddress The actual authenticator address.
      */
