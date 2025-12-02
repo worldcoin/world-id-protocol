@@ -24,6 +24,7 @@ use ark_serialize::CanonicalSerialize;
 use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use oprf_types::ShareEpoch;
+use ruint::aliases::U160;
 use secrecy::ExposeSecret;
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
 use world_id_primitives::merkle::MerkleInclusionProof;
@@ -402,7 +403,7 @@ impl Authenticator {
 
         // TODO: convert rp_request to primitives types
         let primitives_rp_id =
-            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
+            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<U160>().map_err(|e| {
                 PrimitiveError::InvalidInput {
                     attribute: "RP ID".to_string(),
                     reason: format!("invalid RP ID: {e}"),

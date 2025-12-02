@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
     network::EthereumWallet,
-    primitives::{Address, U256},
+    primitives::{Address, U160, U256},
     providers::ProviderBuilder,
     sol_types::SolEvent,
 };
@@ -163,9 +163,9 @@ pub struct RpFixture {
 /// Generates RP identifiers, signatures, and ancillary inputs shared across tests.
 pub fn generate_rp_fixture() -> RpFixture {
     let mut rng = thread_rng();
-    let rp_id_value: u128 = rng.gen();
+    let rp_id_value: U160 = rng.gen();
     let world_rp_id = WorldRpId::new(rp_id_value);
-    let oprf_rp_id = OprfKeyId::new(rp_id_value.try_into().expect("u128 fits into U160"));
+    let oprf_rp_id = OprfKeyId::new(rp_id_value);
 
     let action = Fq::rand(&mut rng);
     let nonce = Fq::rand(&mut rng);
