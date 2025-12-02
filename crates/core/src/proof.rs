@@ -239,13 +239,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     ),
     ProofError,
 > {
-    // TODO sync types so we dont have to convert here
-    let oprf_key_id = OprfKeyId::new(
-        args.rp_id
-            .into_inner()
-            .try_into()
-            .expect("u128 fits into U160"),
-    ); // Convert to `oprf_types`
+    let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
     let share_epoch = ShareEpoch::new(args.share_epoch);
     let oprf_public_key = OprfPublicKey::new(args.rp_nullifier_key.into_inner());
     let query_hash = query_hash(args.inclusion_proof.account_id, args.rp_id, args.action);
@@ -320,7 +314,6 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 /// Returns [`ProofError`] in the following cases:
 /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
 /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
-#[expect(clippy::missing_panics_doc)]
 pub fn oprf_request_auth<R: Rng + CryptoRng>(
     args: &SingleProofInput<TREE_DEPTH>,
     query_material: &CircomGroth16Material,
@@ -329,13 +322,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
     blinding_factor: ark_babyjubjub::Fr,
     rng: &mut R,
 ) -> Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>), ProofError> {
-    // TODO sync types so we dont have to convert here
-    let oprf_key_id = OprfKeyId::new(
-        args.rp_id
-            .into_inner()
-            .try_into()
-            .expect("u128 fits into U160"),
-    ); // Convert to `oprf_types`
+    let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
 
     let cred_signature = args
         .credential
@@ -396,7 +383,7 @@ pub fn query_hash(account_id: u64, rp_id: RpId, action: FieldElement) -> ark_bab
     let input = [
         ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
         account_id.into(),
-        rp_id.into_inner().into(),
+        *FieldElement::from(rp_id),
         *action,
     ];
     let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
