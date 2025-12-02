@@ -13,7 +13,7 @@ use oprf_service::secret_manager::SecretManagerService;
 use secrecy::ExposeSecret;
 
 use crate::{
-    auth::{merkle_watcher::MerkleWatcher, WorldOprfReqAuthenticator},
+    auth::{merkle_watcher::MerkleWatcher, WorldOprfRequestAuthenticator},
     config::WorldOprfNodeConfig,
 };
 
@@ -58,7 +58,7 @@ pub async fn start(
     .context("while starting merkle watcher")?;
 
     tracing::info!("init oprf request auth service..");
-    let oprf_req_auth_service = Arc::new(WorldOprfReqAuthenticator::init(
+    let oprf_req_auth_service = Arc::new(WorldOprfRequestAuthenticator::init(
         merkle_watcher,
         vk.into(),
         config.current_time_stamp_max_difference,

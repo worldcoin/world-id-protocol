@@ -14,7 +14,7 @@ use crate::auth::{
 use ark_bn254::Bn254;
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
-use oprf_service::OprfReqAuthenticator;
+use oprf_service::OprfRequestAuthenticator;
 use oprf_types::api::v1::OprfRequest;
 use std::{
     sync::Arc,
@@ -83,14 +83,14 @@ impl IntoResponse for OprfRequestAuthError {
     }
 }
 
-pub(crate) struct WorldOprfReqAuthenticator {
+pub(crate) struct WorldOprfRequestAuthenticator {
     merkle_watcher: MerkleWatcher,
     signature_history: SignatureHistory,
     vk: Arc<ark_groth16::PreparedVerifyingKey<Bn254>>,
     current_time_stamp_max_difference: Duration,
 }
 
-impl WorldOprfReqAuthenticator {
+impl WorldOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
         vk: ark_groth16::VerifyingKey<Bn254>,
@@ -110,11 +110,14 @@ impl WorldOprfReqAuthenticator {
 }
 
 #[async_trait]
-impl OprfReqAuthenticator for WorldOprfReqAuthenticator {
-    type ReqAuth = OprfRequestAuthV1;
-    type ReqAuthError = OprfRequestAuthError;
+impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
+    type RequestAuth = OprfRequestAuthV1;
+    type RequestAuthError = OprfRequestAuthError;
 
-    async fn verify(&self, request: &OprfRequest<Self::ReqAuth>) -> Result<(), Self::ReqAuthError> {
+    async fn verify(
+        &self,
+        request: &OprfRequest<Self::RequestAuth>,
+    ) -> Result<(), Self::RequestAuthError> {
         // check the time stamp against system time +/- difference
         let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
         let current_time = SystemTime::now()
