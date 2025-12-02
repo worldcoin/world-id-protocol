@@ -352,7 +352,10 @@ impl Authenticator {
     pub async fn signing_nonce(&self) -> Result<U256, AuthenticatorError> {
         let registry = self.registry();
         if let Some(registry) = registry {
-            let nonce = registry.accountIndexToSignatureNonce(self.account_id()).call().await?;
+            let nonce = registry
+                .accountIndexToSignatureNonce(self.account_id())
+                .call()
+                .await?;
             Ok(nonce)
         } else {
             let url = format!("{}/signature_nonce", self.config.indexer_url());
