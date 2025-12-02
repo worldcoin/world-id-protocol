@@ -35,8 +35,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     // accountIndex -> nonce, used to prevent replays
     mapping(uint256 => uint256) public accountIndexToSignatureNonce;
 
-    // authenticatorAddressToPackedAccountData
-
     // accountIndex -> recoveryCounter
     mapping(uint256 => uint256) public accountIndexToRecoveryCounter;
 
