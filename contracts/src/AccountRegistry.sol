@@ -752,10 +752,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
-        if (signer != authenticatorAddress) {
-            revert MismatchedAuthenticatorSigner(authenticatorAddress, signer);
-        }
+        (, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
