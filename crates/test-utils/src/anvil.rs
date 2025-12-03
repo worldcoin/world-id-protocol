@@ -346,11 +346,7 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
         let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
-        let oprf_key_id = OprfKeyId::new(
-            rand::random::<u128>()
-                .try_into()
-                .expect("u128 fits into U160"),
-        );
+        let oprf_key_id = OprfKeyId::new(rand::random());
         let receipt = oprf_key_registry
             .initKeyGen(oprf_key_id.into_inner())
             .send()
