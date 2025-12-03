@@ -15,10 +15,14 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     using BinaryIMT for BinaryIMTData;
 
     modifier onlyInitialized() {
+        _onlyInitialized();
+        _;
+    }
+
+    function _onlyInitialized() internal view {
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-        _;
     }
 
     ////////////////////////////////////////////////////////////
@@ -26,7 +30,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     ////////////////////////////////////////////////////////////
 
     // accountIndex -> [96 bits pubkeyId bitmap][160 bits recoveryAddress]
-    // Note that while 96 bits are reserved for the pubkeyId bitmap, only MAX_AUTHENTICATORS bits are used in practice.
+    // Note that while 96 bits are reserved for the pubkeyId bitmap, only `maxAuthenticators` bits are used in practice.
     mapping(uint256 => uint256) internal _accountIndexToRecoveryAddressPacked;
 
     // authenticatorAddress -> [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
@@ -41,11 +45,12 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     BinaryIMTData public tree;
     uint256 public nextAccountIndex;
     uint256 public treeDepth;
+    uint256 public maxAuthenticators;
 
     // Root history tracking
     mapping(uint256 => uint256) public rootToTimestamp;
     uint256 public latestRoot;
-    uint256 public rootValidityWindow = 3600;
+    uint256 public rootValidityWindow;
 
     ////////////////////////////////////////////////////////////
     //                        Events                          //
@@ -95,12 +100,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     );
     event RootRecorded(uint256 indexed root, uint256 timestamp);
     event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
+    event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
-
-    uint256 public constant MAX_AUTHENTICATORS = 7;
 
     bytes32 public constant UPDATE_AUTHENTICATOR_TYPEHASH = keccak256(
         "UpdateAuthenticator(uint256 accountIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint32 pubkeyId,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
@@ -144,7 +148,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     error PubkeyIdInUse();
 
     /**
-     * @dev Thrown when attempting to use a pubKeyId that is greater than MAX_AUTHENTICATORS.
+     * @dev Thrown when attempting to use a pubKeyId that is greater than `maxAuthenticators`.
      */
     error PubkeyIdOutOfBounds();
 
@@ -288,6 +292,9 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         tree.insert(uint256(0));
         nextAccountIndex = 1;
         _recordCurrentRoot();
+
+        maxAuthenticators = 7;
+        rootValidityWindow = 3600;
     }
 
     ////////////////////////////////////////////////////////////
@@ -321,15 +328,6 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         returns (address)
     {
         return _getRecoveryAddress(accountIndex);
-    }
-
-    /**
-     * @dev Sets the validity window for historic roots. 0 means roots never expire.
-     */
-    function setRootValidityWindow(uint256 newWindow) external virtual onlyOwner onlyProxy onlyInitialized {
-        uint256 old = rootValidityWindow;
-        rootValidityWindow = newWindow;
-        emit RootValidityWindowUpdated(old, newWindow);
     }
 
     /**
@@ -461,7 +459,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
     ) internal virtual {
-        if (authenticatorAddresses.length > MAX_AUTHENTICATORS) {
+        if (authenticatorAddresses.length > maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
         if (authenticatorAddresses.length == 0) {
@@ -577,7 +575,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (oldAuthenticatorAddress == newAuthenticatorAddress) {
             revert ReusedAuthenticatorAddress();
         }
-        if (pubkeyId >= MAX_AUTHENTICATORS) {
+        if (pubkeyId >= maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
 
@@ -660,7 +658,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     ) external virtual onlyProxy onlyInitialized {
         _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
-        if (pubkeyId >= MAX_AUTHENTICATORS) {
+        if (pubkeyId >= maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
 
@@ -731,7 +729,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (pubkeyId >= MAX_AUTHENTICATORS) {
+        if (pubkeyId >= maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
 
@@ -900,6 +898,28 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _setRecoveryAddressAndBitmap(accountIndex, newRecoveryAddress, bitmap);
 
         emit RecoveryAddressUpdated(accountIndex, oldRecoveryAddress, newRecoveryAddress);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                      Owner Functions                   //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Sets the validity window for historic roots. 0 means roots never expire.
+     */
+    function setRootValidityWindow(uint256 newWindow) external virtual onlyOwner onlyProxy onlyInitialized {
+        uint256 old = rootValidityWindow;
+        rootValidityWindow = newWindow;
+        emit RootValidityWindowUpdated(old, newWindow);
+    }
+
+    /**
+     * @dev Set an updated maximum number of authenticators allowed.
+     */
+    function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
+        uint256 old = maxAuthenticators;
+        maxAuthenticators = newMaxAuthenticators;
+        emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
     }
 
     ////////////////////////////////////////////////////////////

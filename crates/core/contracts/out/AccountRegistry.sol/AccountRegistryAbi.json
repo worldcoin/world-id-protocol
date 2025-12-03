@@ -45,19 +45,6 @@
   },
   {
     "type": "function",
-    "name": "MAX_AUTHENTICATORS",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "RECOVER_ACCOUNT_TYPEHASH",
     "inputs": [],
     "outputs": [
@@ -429,6 +416,19 @@
   },
   {
     "type": "function",
+    "name": "maxAuthenticators",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "nextAccountIndex",
     "inputs": [],
     "outputs": [
@@ -618,6 +618,19 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setMaxAuthenticators",
+    "inputs": [
+      {
+        "name": "newMaxAuthenticators",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1020,6 +1033,25 @@
   },
   {
     "type": "event",
+    "name": "MaxAuthenticatorsUpdated",
+    "inputs": [
+      {
+        "name": "oldMax",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newMax",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnershipTransferStarted",
     "inputs": [
       {
@@ -1369,18 +1401,7 @@
   {
     "type": "error",
     "name": "MismatchingArrayLengths",
-    "inputs": [
-      {
-        "name": "array1Length",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "array2Length",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
+    "inputs": []
   },
   {
     "type": "error",

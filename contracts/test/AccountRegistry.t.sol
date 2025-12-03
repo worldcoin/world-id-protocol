@@ -303,7 +303,6 @@ contract AccountRegistryTest is Test {
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
-        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         uint256[] memory siblingNodes = new uint256[](30);
 
@@ -334,7 +333,6 @@ contract AccountRegistryTest is Test {
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
-        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
         address newAuthenticatorAddress = address(0x4);
 
         uint256[] memory siblingNodes = new uint256[](30);
