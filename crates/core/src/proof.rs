@@ -15,6 +15,7 @@ use ark_ff::PrimeField as _;
 use circom_types::ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use groth16_material::Groth16Error;
+use oprf_client::Connector;
 use oprf_core::oprf::BlindingFactor;
 use oprf_types::{OprfKeyId, ShareEpoch};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
@@ -206,6 +207,7 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 /// * `nullifier_material` - Groth16 material (proving key and matrices) used for the nullifier proof.
 /// * `args` - [`SingleProofInput`] containing all input data (credentials, Merkle membership, query, keys, signal, etc.).
 /// * `private_key` - The user's private key for signing the blinded query.
+/// * `connector` - Connector for WebSocket communication with OPRF nodes.
 /// * `rng` - A cryptographically secure random number generator.
 ///
 /// # Returns
@@ -222,6 +224,7 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
 /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
 #[expect(clippy::missing_panics_doc)]
+#[expect(clippy::too_many_arguments)]
 pub async fn nullifier<R: Rng + CryptoRng>(
     services: &[String],
     threshold: usize,
@@ -229,6 +232,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     nullifier_material: &CircomGroth16Material,
     args: SingleProofInput<TREE_DEPTH>,
     private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
+    connector: Connector,
     rng: &mut R,
 ) -> Result<
     (
@@ -264,6 +268,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         blinding_factor,
         ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
         oprf_request_auth,
+        connector,
     )
     .await?;
 

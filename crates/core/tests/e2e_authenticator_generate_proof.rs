@@ -7,13 +7,13 @@ use std::{
 
 use alloy::primitives::U256;
 use eyre::{eyre, Context as _, Result};
-use oprf_types::crypto::OprfPublicKey;
 use test_utils::{
     fixtures::{
         build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
         RegistryTestContext,
     },
-    stubs::{spawn_indexer_stub, spawn_oprf_stub},
+    stubs::{spawn_indexer_stub, spawn_oprf_nodes},
+    test_secret_manager::create_secret_managers,
 };
 use world_id_core::{Authenticator, AuthenticatorError, HashableCredential};
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
@@ -23,6 +23,10 @@ const GW_PORT: u16 = 4104;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("can install");
+
     let RegistryTestContext {
         anvil,
         account_registry: registry_address,
@@ -39,6 +43,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
+
+    // deploy the OprfKeyRegistry
+    let oprf_registry = anvil.deploy_oprf_key_registry(deployer.clone()).await?;
+    let oprf_node_signers = [anvil.signer(1)?, anvil.signer(2)?, anvil.signer(3)?];
+    anvil
+        .register_oprf_nodes(
+            oprf_registry,
+            deployer.clone(),
+            oprf_node_signers.iter().map(|s| s.address()).collect(),
+        )
+        .await?;
 
     // Spawn the gateway wired to this Anvil instance.
     let gateway_config = GatewayConfig {
@@ -106,7 +121,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let MerkleFixture {
         key_set,
         inclusion_proof: merkle_inclusion_proof,
-        root,
+        root: _,
         ..
     } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], account_id_u64)
         .wrap_err("failed to construct merkle fixture")?;
@@ -121,17 +136,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    // Local OPRF peer stub setup
-    let rp_verifying_key = rp_fixture.signing_key.verifying_key();
-    let oprf_server = spawn_oprf_stub(
-        root,
-        *rp_verifying_key,
-        rp_fixture.oprf_rp_id,
-        rp_fixture.share_epoch,
-        rp_fixture.rp_secret,
+    // OPRF nodes setup
+    let nodes = spawn_oprf_nodes(
+        anvil.ws_endpoint(),
+        create_secret_managers(&oprf_node_signers),
+        oprf_registry,
+        registry_address,
     )
-    .await
-    .wrap_err("failed to start OPRF stub")?;
+    .await;
+
+    // init key gen for a new RP, wait until its done and fetch the public key
+    let (oprf_key_id, oprf_public_key) = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;
 
     // Config for proof generation uses the indexer + OPRF stubs.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -144,7 +159,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         registry_address,
         indexer_url.clone(),
         format!("http://127.0.0.1:{GW_PORT}"),
-        vec![oprf_server.base_url.clone()],
+        nodes.to_vec(),
         2,
     )
     .unwrap();
@@ -167,8 +182,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     credential.signature = Some(issuer_sk.sign(*credential_hash));
 
     let rp_request = world_id_core::types::RpRequest {
-        rp_id: rp_fixture.oprf_rp_id.into_inner().to_string(),
-        oprf_public_key: OprfPublicKey::new(rp_fixture.rp_nullifier_point),
+        rp_id: oprf_key_id.into_inner().to_string(),
+        oprf_public_key,
         signature: rp_fixture.signature,
         current_time_stamp: rp_fixture.current_timestamp,
         action_id: rp_fixture.action.into(),
@@ -183,6 +198,5 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_ne!(nullifier, FieldElement::ZERO);
 
     indexer_handle.abort();
-    oprf_server.join_handle.abort();
     Ok(())
 }
