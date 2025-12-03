@@ -117,44 +117,6 @@
   },
   {
     "type": "function",
-    "name": "accountIndexToRecoveryCounter",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "accountIndexToSignatureNonce",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "authenticatorAddressToPackedAccountData",
     "inputs": [
       {
@@ -302,7 +264,7 @@
     "name": "getRecoveryAddress",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -334,7 +296,7 @@
     "name": "insertAuthenticator",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -416,6 +378,44 @@
   },
   {
     "type": "function",
+    "name": "leafIndexToRecoveryCounter",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "leafIndexToSignatureNonce",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "maxAuthenticators",
     "inputs": [],
     "outputs": [
@@ -429,7 +429,7 @@
   },
   {
     "type": "function",
-    "name": "nextAccountIndex",
+    "name": "nextLeafIndex",
     "inputs": [],
     "outputs": [
       {
@@ -484,7 +484,7 @@
     "name": "recoverAccount",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -532,7 +532,7 @@
     "name": "removeAuthenticator",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -704,7 +704,7 @@
     "name": "updateAuthenticator",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -762,7 +762,7 @@
     "name": "updateRecoveryAddress",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -808,7 +808,7 @@
     "name": "AccountCreated",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -845,7 +845,7 @@
     "name": "AccountRecovered",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -882,7 +882,7 @@
     "name": "AccountUpdated",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -931,7 +931,7 @@
     "name": "AuthenticatorInserted",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -974,7 +974,7 @@
     "name": "AuthenticatorRemoved",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -1093,7 +1093,7 @@
     "name": "RecoveryAddressUpdated",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -1169,7 +1169,7 @@
     "name": "AccountDoesNotExist",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1213,12 +1213,12 @@
     "name": "AuthenticatorDoesNotBelongToAccount",
     "inputs": [
       {
-        "name": "expectedAccountIndex",
+        "name": "expectedLeafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "actualAccountIndex",
+        "name": "actualLeafIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1313,12 +1313,12 @@
     "name": "MismatchedAccountIndex",
     "inputs": [
       {
-        "name": "expectedAccountIndex",
+        "name": "expectedLeafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "actualAccountIndex",
+        "name": "actualLeafIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1361,7 +1361,7 @@
     "name": "MismatchedRecoveryCounter",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -1382,7 +1382,7 @@
     "name": "MismatchedSignatureNonce",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -1461,7 +1461,7 @@
     "name": "RecoveryAddressNotSet",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
