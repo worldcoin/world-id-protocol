@@ -4664,7 +4664,7 @@ dependencies = [
 [[package]]
 name = "oprf-client"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=73d6709#73d6709b16eb24e2254df1ac316cbe1fff3b53fb"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=e1ec8b5#e1ec8b54adbb6628286049019132abfab5a42c90"
 dependencies = [
  "ark-ec 0.5.0",
  "futures",
@@ -4683,7 +4683,7 @@ dependencies = [
 [[package]]
 name = "oprf-service"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=73d6709#73d6709b16eb24e2254df1ac316cbe1fff3b53fb"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=e1ec8b5#e1ec8b54adbb6628286049019132abfab5a42c90"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -6624,7 +6624,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-core"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=73d6709#73d6709b16eb24e2254df1ac316cbe1fff3b53fb"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=e1ec8b5#e1ec8b54adbb6628286049019132abfab5a42c90"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -6645,7 +6645,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-types"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=73d6709#73d6709b16eb24e2254df1ac316cbe1fff3b53fb"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=e1ec8b5#e1ec8b54adbb6628286049019132abfab5a42c90"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
