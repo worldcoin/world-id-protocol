@@ -22,7 +22,6 @@ use world_id_primitives::{merkle::AccountInclusionProof, Config, FieldElement, T
 const GW_PORT: u16 = 4104;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-#[ignore = "needs lfs in CI"]
 async fn e2e_authenticator_generate_proof_oprf_nodes() -> Result<()> {
     let RegistryTestContext {
         anvil,
