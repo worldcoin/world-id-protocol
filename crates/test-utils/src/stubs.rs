@@ -220,12 +220,12 @@ async fn spawn_orpf_node(
     rp_registry_contract: Address,
     account_registry_contract: Address,
 ) -> String {
-    let dir = PathBuf::from("/home/gruber/Work/nullifier-oracle-service/oprf-service");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
     let config = WorldOprfNodeConfig {
         bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
         max_wait_time_shutdown: Duration::from_secs(10),
-        user_verification_key_path: dir.join("../circom/main/query/OPRFQuery.vk.json"),
+        user_verification_key_path: dir.join("../../circom/OPRFQuery.vk.json"),
         max_merkle_store_size: 10,
         current_time_stamp_max_difference: Duration::from_secs(10),
         signature_history_cleanup_interval: Duration::from_secs(30),
@@ -237,8 +237,8 @@ async fn spawn_orpf_node(
             rp_secret_id_prefix: format!("oprf/rp/n{id}"),
             oprf_key_registry_contract: rp_registry_contract,
             chain_ws_rpc_url: chain_ws_rpc_url.into(),
-            key_gen_witness_graph_path: dir.join("../circom/main/key-gen/OPRFKeyGenGraph.13.bin"),
-            key_gen_zkey_path: dir.join("../circom/main/key-gen/OPRFKeyGen.13.arks.zkey"),
+            key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.13.bin"),
+            key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.13.arks.zkey"),
             wallet_private_key_secret_id: "wallet/privatekey".to_string(),
         },
     };
