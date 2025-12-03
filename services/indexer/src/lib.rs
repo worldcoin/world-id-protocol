@@ -29,7 +29,7 @@ static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Debug, Clone)]
 pub struct AccountCreatedEvent {
-    pub account_index: U256,
+    pub leaf_index: U256,
     pub recovery_address: Address,
     pub authenticator_addresses: Vec<Address>,
     pub authenticator_pubkeys: Vec<U256>,
@@ -38,7 +38,7 @@ pub struct AccountCreatedEvent {
 
 #[derive(Debug, Clone)]
 pub struct AccountUpdatedEvent {
-    pub account_index: U256,
+    pub leaf_index: U256,
     pub pubkey_id: u32,
     pub new_authenticator_pubkey: U256,
     pub old_authenticator_address: Address,
@@ -49,7 +49,7 @@ pub struct AccountUpdatedEvent {
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatorInsertedEvent {
-    pub account_index: U256,
+    pub leaf_index: U256,
     pub pubkey_id: u32,
     pub authenticator_address: Address,
     pub new_authenticator_pubkey: U256,
@@ -59,7 +59,7 @@ pub struct AuthenticatorInsertedEvent {
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatorRemovedEvent {
-    pub account_index: U256,
+    pub leaf_index: U256,
     pub pubkey_id: u32,
     pub authenticator_address: Address,
     pub authenticator_pubkey: U256,
@@ -69,7 +69,7 @@ pub struct AuthenticatorRemovedEvent {
 
 #[derive(Debug, Clone)]
 pub struct AccountRecoveredEvent {
-    pub account_index: U256,
+    pub leaf_index: U256,
     pub new_authenticator_address: Address,
     pub new_authenticator_pubkey: U256,
     pub old_offchain_signer_commitment: U256,
@@ -126,7 +126,7 @@ async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()>
 
 async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     let rows = sqlx::query(
-        "select account_index, offchain_signer_commitment from accounts order by account_index asc",
+        "select leaf_index, offchain_signer_commitment from accounts order by leaf_index asc",
     )
     .fetch_all(pool)
     .await?;
@@ -135,13 +135,13 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
 
     let mut leaves: Vec<(usize, U256)> = Vec::with_capacity(rows.len());
     for r in rows {
-        let account_index: String = r.get("account_index");
+        let leaf_index: String = r.get("leaf_index");
         let offchain: String = r.get("offchain_signer_commitment");
-        let account_index: U256 = account_index.parse::<U256>()?;
-        if account_index == U256::ZERO {
+        let leaf_index: U256 = leaf_index.parse::<U256>()?;
+        if leaf_index == U256::ZERO {
             continue;
         }
-        let leaf_index = account_index.as_limbs()[0] as usize;
+        let leaf_index = leaf_index.as_limbs()[0] as usize;
         let leaf_val = offchain.parse::<U256>()?;
         leaves.push((leaf_index, leaf_val));
     }
@@ -170,13 +170,13 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
 }
 
 async fn update_tree_with_commitment(
-    account_index: U256,
+    leaf_index: U256,
     new_commitment: U256,
 ) -> anyhow::Result<()> {
-    if account_index == 0 {
+    if leaf_index == 0 {
         anyhow::bail!("account index cannot be zero");
     }
-    let leaf_index = account_index.as_limbs()[0] as usize;
+    let leaf_index = leaf_index.as_limbs()[0] as usize;
     set_leaf_at_index(leaf_index, new_commitment).await?;
     Ok(())
 }
@@ -184,19 +184,19 @@ async fn update_tree_with_commitment(
 async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
     match ev {
         RegistryEvent::AccountCreated(e) => {
-            update_tree_with_commitment(e.account_index, e.offchain_signer_commitment).await
+            update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment).await
         }
         RegistryEvent::AccountUpdated(e) => {
-            update_tree_with_commitment(e.account_index, e.new_offchain_signer_commitment).await
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
         }
         RegistryEvent::AuthenticatorInserted(e) => {
-            update_tree_with_commitment(e.account_index, e.new_offchain_signer_commitment).await
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
         }
         RegistryEvent::AuthenticatorRemoved(e) => {
-            update_tree_with_commitment(e.account_index, e.new_offchain_signer_commitment).await
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
         }
         RegistryEvent::AccountRecovered(e) => {
-            update_tree_with_commitment(e.account_index, e.new_offchain_signer_commitment).await
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
         }
     }
 }
@@ -555,7 +555,7 @@ pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<Acc
 
     // TODO: Validate pubkey is valid affine compressed
     Ok(AccountCreatedEvent {
-        account_index: typed.data.accountIndex,
+        leaf_index: typed.data.leafIndex,
         recovery_address: typed.data.recoveryAddress,
         authenticator_addresses: typed.data.authenticatorAddresses,
         authenticator_pubkeys: typed.data.authenticatorPubkeys,
@@ -569,7 +569,7 @@ pub fn decode_account_updated(lg: &alloy::rpc::types::Log) -> anyhow::Result<Acc
     let typed = AccountRegistry::AccountUpdated::decode_log(&prim)?;
 
     Ok(AccountUpdatedEvent {
-        account_index: typed.data.accountIndex,
+        leaf_index: typed.data.leafIndex,
         pubkey_id: typed.data.pubkeyId,
         new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
         old_authenticator_address: typed.data.oldAuthenticatorAddress,
@@ -587,7 +587,7 @@ pub fn decode_authenticator_inserted(
     let typed = AccountRegistry::AuthenticatorInserted::decode_log(&prim)?;
 
     Ok(AuthenticatorInsertedEvent {
-        account_index: typed.data.accountIndex,
+        leaf_index: typed.data.leafIndex,
         pubkey_id: typed.data.pubkeyId,
         authenticator_address: typed.data.authenticatorAddress,
         new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
@@ -604,7 +604,7 @@ pub fn decode_authenticator_removed(
     let typed = AccountRegistry::AuthenticatorRemoved::decode_log(&prim)?;
 
     Ok(AuthenticatorRemovedEvent {
-        account_index: typed.data.accountIndex,
+        leaf_index: typed.data.leafIndex,
         pubkey_id: typed.data.pubkeyId,
         authenticator_address: typed.data.authenticatorAddress,
         authenticator_pubkey: typed.data.authenticatorPubkey,
@@ -621,7 +621,7 @@ pub fn decode_account_recovered(
     let typed = AccountRegistry::AccountRecovered::decode_log(&prim)?;
 
     Ok(AccountRecoveredEvent {
-        account_index: typed.data.accountIndex,
+        leaf_index: typed.data.leafIndex,
         new_authenticator_address: typed.data.newAuthenticatorAddress,
         new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
         old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
@@ -660,11 +660,11 @@ pub fn decode_registry_event(lg: &alloy::rpc::types::Log) -> anyhow::Result<Regi
 pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::Result<()> {
     sqlx::query(
         r#"insert into accounts
-        (account_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
+        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
         values ($1, $2, $3, $4, $5)
-        on conflict (account_index) do nothing"#,
+        on conflict (leaf_index) do nothing"#,
     )
-    .bind(ev.account_index.to_string())
+    .bind(ev.leaf_index.to_string())
     .bind(ev.recovery_address.to_string())
     .bind(Json(
         ev.authenticator_addresses
@@ -686,15 +686,15 @@ pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::
 
 pub async fn update_commitment(
     pool: &PgPool,
-    account_index: U256,
+    leaf_index: U256,
     new_commitment: U256,
 ) -> anyhow::Result<()> {
     sqlx::query(
         r#"update accounts
         set offchain_signer_commitment = $2
-        where account_index = $1"#,
+        where leaf_index = $1"#,
     )
-    .bind(account_index.to_string())
+    .bind(leaf_index.to_string())
     .bind(new_commitment.to_string())
     .execute(pool)
     .await?;
@@ -703,7 +703,7 @@ pub async fn update_commitment(
 
 pub async fn update_authenticator_at_index(
     pool: &PgPool,
-    account_index: U256,
+    leaf_index: U256,
     pubkey_id: u32,
     new_address: Address,
     new_pubkey: U256,
@@ -715,9 +715,9 @@ pub async fn update_authenticator_at_index(
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), false),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), false),
             offchain_signer_commitment = $5
-        where account_index = $1"#,
+        where leaf_index = $1"#,
     )
-    .bind(account_index.to_string())
+    .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
@@ -729,7 +729,7 @@ pub async fn update_authenticator_at_index(
 
 pub async fn insert_authenticator_at_index(
     pool: &PgPool,
-    account_index: U256,
+    leaf_index: U256,
     pubkey_id: u32,
     new_address: Address,
     new_pubkey: U256,
@@ -741,9 +741,9 @@ pub async fn insert_authenticator_at_index(
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), true),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), true),
             offchain_signer_commitment = $5
-        where account_index = $1"#,
+        where leaf_index = $1"#,
     )
-    .bind(account_index.to_string())
+    .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}"))
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
@@ -755,7 +755,7 @@ pub async fn insert_authenticator_at_index(
 
 pub async fn remove_authenticator_at_index(
     pool: &PgPool,
-    account_index: U256,
+    leaf_index: U256,
     pubkey_id: u32,
     new_commitment: U256,
 ) -> anyhow::Result<()> {
@@ -765,9 +765,9 @@ pub async fn remove_authenticator_at_index(
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, 'null'::jsonb, false),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, 'null'::jsonb, false),
             offchain_signer_commitment = $3
-        where account_index = $1"#,
+        where leaf_index = $1"#,
     )
-    .bind(account_index.to_string())
+    .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}"))
     .bind(new_commitment.to_string())
     .execute(pool)
@@ -777,7 +777,7 @@ pub async fn remove_authenticator_at_index(
 
 pub async fn record_commitment_update(
     pool: &PgPool,
-    account_index: U256,
+    leaf_index: U256,
     event_type: &str,
     new_commitment: U256,
     block_number: u64,
@@ -786,11 +786,11 @@ pub async fn record_commitment_update(
 ) -> anyhow::Result<()> {
     sqlx::query(
         r#"insert into commitment_update_events
-        (account_index, event_type, new_commitment, block_number, tx_hash, log_index)
+        (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
         values ($1, $2, $3, $4, $5, $6)
         on conflict (tx_hash, log_index) do nothing"#,
     )
-    .bind(account_index.to_string())
+    .bind(leaf_index.to_string())
     .bind(event_type)
     .bind(new_commitment.to_string())
     .bind(block_number as i64)
@@ -814,7 +814,7 @@ pub async fn handle_registry_event(
             if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
                 record_commitment_update(
                     pool,
-                    ev.account_index,
+                    ev.leaf_index,
                     "created",
                     ev.offchain_signer_commitment,
                     bn,
@@ -827,7 +827,7 @@ pub async fn handle_registry_event(
         RegistryEvent::AccountUpdated(ev) => {
             update_authenticator_at_index(
                 pool,
-                ev.account_index,
+                ev.leaf_index,
                 ev.pubkey_id,
                 ev.new_authenticator_address,
                 ev.new_authenticator_pubkey,
@@ -837,7 +837,7 @@ pub async fn handle_registry_event(
             if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
                 record_commitment_update(
                     pool,
-                    ev.account_index,
+                    ev.leaf_index,
                     "updated",
                     ev.new_offchain_signer_commitment,
                     bn,
@@ -850,7 +850,7 @@ pub async fn handle_registry_event(
         RegistryEvent::AuthenticatorInserted(ev) => {
             insert_authenticator_at_index(
                 pool,
-                ev.account_index,
+                ev.leaf_index,
                 ev.pubkey_id,
                 ev.authenticator_address,
                 ev.new_authenticator_pubkey,
@@ -860,7 +860,7 @@ pub async fn handle_registry_event(
             if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
                 record_commitment_update(
                     pool,
-                    ev.account_index,
+                    ev.leaf_index,
                     "inserted",
                     ev.new_offchain_signer_commitment,
                     bn,
@@ -873,7 +873,7 @@ pub async fn handle_registry_event(
         RegistryEvent::AuthenticatorRemoved(ev) => {
             remove_authenticator_at_index(
                 pool,
-                ev.account_index,
+                ev.leaf_index,
                 ev.pubkey_id,
                 ev.new_offchain_signer_commitment,
             )
@@ -881,7 +881,7 @@ pub async fn handle_registry_event(
             if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
                 record_commitment_update(
                     pool,
-                    ev.account_index,
+                    ev.leaf_index,
                     "removed",
                     ev.new_offchain_signer_commitment,
                     bn,
@@ -895,7 +895,7 @@ pub async fn handle_registry_event(
             // Recovery resets to a single authenticator at index 0
             update_authenticator_at_index(
                 pool,
-                ev.account_index,
+                ev.leaf_index,
                 0,
                 ev.new_authenticator_address,
                 ev.new_authenticator_pubkey,
@@ -905,7 +905,7 @@ pub async fn handle_registry_event(
             if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
                 record_commitment_update(
                     pool,
-                    ev.account_index,
+                    ev.leaf_index,
                     "recovered",
                     ev.new_offchain_signer_commitment,
                     bn,
@@ -939,18 +939,18 @@ pub async fn poll_db_changes(pool: PgPool, poll_interval_secs: u64) -> anyhow::R
                 if !updates.is_empty() {
                     tracing::info!(count = updates.len(), "Found account updates from DB");
 
-                    for (account_index, commitment) in updates {
+                    for (leaf_index, commitment) in updates {
                         tracing::debug!(
-                            account_index = %account_index,
+                            leaf_index = %leaf_index,
                             commitment = %commitment,
                             "Updating tree from DB poll"
                         );
 
-                        if let Err(e) = update_tree_with_commitment(account_index, commitment).await
+                        if let Err(e) = update_tree_with_commitment(leaf_index, commitment).await
                         {
                             tracing::error!(
                                 ?e,
-                                account_index = %account_index,
+                                leaf_index = %leaf_index,
                                 "Failed to update tree from DB poll"
                             );
                         }
@@ -979,12 +979,12 @@ async fn fetch_recent_account_updates(
     // Query commitment_update_events for recent changes
     let rows = sqlx::query(
         r#"
-        SELECT DISTINCT ON (account_index)
-            account_index,
+        SELECT DISTINCT ON (leaf_index)
+            leaf_index,
             new_commitment
         FROM commitment_update_events
         WHERE created_at > to_timestamp($1)
-        ORDER BY account_index, created_at DESC
+        ORDER BY leaf_index, created_at DESC
         "#,
     )
     .bind(since_timestamp)
@@ -993,11 +993,11 @@ async fn fetch_recent_account_updates(
 
     let mut updates = Vec::new();
     for row in rows {
-        let account_index_str: String = row.try_get("account_index")?;
+        let leaf_index_str: String = row.try_get("leaf_index")?;
         let commitment_str: String = row.try_get("new_commitment")?;
 
         if let (Ok(idx), Ok(comm)) = (
-            account_index_str.parse::<U256>(),
+            leaf_index_str.parse::<U256>(),
             commitment_str.parse::<U256>(),
         ) {
             updates.push((idx, comm));

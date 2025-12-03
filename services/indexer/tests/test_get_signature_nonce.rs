@@ -69,7 +69,7 @@ async fn test_signature_nonce_endpoint() {
     let resp = client
         .post("http://127.0.0.1:8084/signature_nonce")
         .json(&serde_json::json!({
-            "account_index": "0x1"
+            "leaf_index": "0x1"
         }))
         .send()
         .await
@@ -86,7 +86,7 @@ async fn test_signature_nonce_endpoint() {
     let resp = client
         .post("http://127.0.0.1:8084/signature_nonce")
         .json(&serde_json::json!({
-            "account_index": "0x0"
+            "leaf_index": "0x0"
         }))
         .send()
         .await
@@ -94,7 +94,7 @@ async fn test_signature_nonce_endpoint() {
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let json: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(json["code"].as_str().unwrap(), "invalid_account_index");
+    assert_eq!(json["code"].as_str().unwrap(), "invalid_leaf_index");
 
     indexer_task.abort();
 }

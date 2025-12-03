@@ -21,19 +21,19 @@ pub(crate) async fn handler(
     Path(idx_str): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, ErrorResponse> {
-    let account_index: U256 = idx_str.parse().unwrap();
+    let leaf_index: U256 = idx_str.parse().unwrap();
 
-    if account_index == 0 {
+    if leaf_index == 0 {
         return Err(ErrorResponse::bad_request(
-            ErrorCode::InvalidAccountIndex,
+            ErrorCode::InvalidLeafIndex,
             "Account index cannot be 0.".to_string(),
         ));
     }
 
     let account_row = sqlx::query(
-        "select offchain_signer_commitment, authenticator_pubkeys from accounts where account_index = $1",
+        "select offchain_signer_commitment, authenticator_pubkeys from accounts where leaf_index = $1",
     )
-    .bind(account_index.to_string())
+    .bind(leaf_index.to_string())
     .fetch_optional(&state.pool)
     .await
     .ok()
@@ -51,17 +51,17 @@ pub(crate) async fn handler(
         .filter_map(|s| {
             // TODO: store validated pubkeys
             let pubkey = s.parse::<U256>().map_err(|_| {
-                tracing::error!(account_id = %account_index, "Invalid public key stored for account: {s}")
+                tracing::error!(account_id = %leaf_index, "Invalid public key stored for account: {s}")
             }).ok()?;
 
             // Encoding matches insertion in core::authenticator::Authenticator operations
             EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|_| {
-                tracing::error!(account_id = %account_index, "Invalid public key stored for account (not affine compressed): {s}");
+                tracing::error!(account_id = %leaf_index, "Invalid public key stored for account (not affine compressed): {s}");
             }).ok()
         }).collect();
 
     let authenticator_pubkeys = AuthenticatorPublicKeySet::new(Some(pubkeys)).map_err(|e| {
-        tracing::error!(account_id = %account_index, "Invalid public key set stored for account: {e}");
+        tracing::error!(account_id = %leaf_index, "Invalid public key set stored for account: {e}");
         ErrorResponse::internal_server_error()
     })?;
 
@@ -72,10 +72,10 @@ pub(crate) async fn handler(
 
     let tree = GLOBAL_TREE.read().await;
 
-    let index_as_usize = account_index.as_limbs()[0] as usize;
+    let index_as_usize = leaf_index.as_limbs()[0] as usize;
     if index_as_usize >= tree_capacity() {
         return Err(ErrorResponse::bad_request(
-            ErrorCode::InvalidAccountIndex,
+            ErrorCode::InvalidLeafIndex,
             "Leaf index out of range.".to_string(),
         ));
     }
@@ -92,7 +92,7 @@ pub(crate) async fn handler(
 
     if leaf != offchain_signer_commitment {
         tracing::error!(
-            account_id = %account_index,
+            account_id = %leaf_index,
             leaf_hash = %leaf,
             offchain_signer_commitment = %offchain_signer_commitment,
            "Tree is out of sync with DB. Leaf hash does not match offchain signer commitment.",
@@ -111,7 +111,7 @@ pub(crate) async fn handler(
 
     let merkle_proof = MerkleInclusionProof::new(
         tree.root().try_into().unwrap(),
-        account_index.as_limbs()[0],
+        leaf_index.as_limbs()[0],
         siblings,
     );
 

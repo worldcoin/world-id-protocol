@@ -150,7 +150,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     sqlx::query(
         r#"insert into accounts
-        (account_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
+        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
         values ($1, $2, $3, $4, $5)"#,
     )
     .bind("1")
@@ -166,7 +166,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     sqlx::query(
         r#"insert into commitment_update_events
-        (account_index, event_type, new_commitment, block_number, tx_hash, log_index)
+        (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
         values ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind("1")
