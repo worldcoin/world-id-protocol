@@ -303,7 +303,6 @@ contract AccountRegistryTest is Test {
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
-        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         uint256[] memory siblingNodes = new uint256[](30);
 
@@ -334,7 +333,6 @@ contract AccountRegistryTest is Test {
 
         uint256 accountIndex = 1;
         uint256 nonce = 0;
-        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
         address newAuthenticatorAddress = address(0x4);
 
         uint256[] memory siblingNodes = new uint256[](30);
@@ -687,6 +685,35 @@ contract AccountRegistryTest is Test {
             bytes(""),
             siblingNodes,
             0
+        );
+    }
+
+    function test_SetMaxAuthenticators() public {
+        // Set max authenticators to 1
+        accountRegistry.setMaxAuthenticators(1);
+        assertEq(accountRegistry.maxAuthenticators(), 1);
+
+        // Create account with 1 authenticator should succeed
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        accountRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // Trying to create account with 2 authenticators should fail
+        address[] memory twoAuthenticators = new address[](2);
+        twoAuthenticators[0] = authenticatorAddress2;
+        twoAuthenticators[1] = authenticatorAddress3;
+        uint256[] memory twoAuthenticatorPubkeys = new uint256[](2);
+        twoAuthenticatorPubkeys[0] = 0;
+        twoAuthenticatorPubkeys[1] = 0;
+
+        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.PubkeyIdOutOfBounds.selector));
+        accountRegistry.createAccount(
+            alternateRecoveryAddress, twoAuthenticators, twoAuthenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
     }
 }
