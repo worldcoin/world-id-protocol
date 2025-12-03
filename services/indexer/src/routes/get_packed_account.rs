@@ -26,7 +26,7 @@ pub(crate) async fn handler(
 ) -> Result<Json<IndexerPackedAccountResponse>, ErrorResponse> {
     let packed_account_index = state
         .registry
-        .authenticatorAddressToPackedAccountIndex(req.authenticator_address)
+        .authenticatorAddressToPackedAccountData(req.authenticator_address)
         .call()
         .await
         .map_err(|e| {
