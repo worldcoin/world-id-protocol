@@ -85,12 +85,12 @@ deploy-account-registry-anvil:
     forge script AccountRegistry.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 [private]
-[working-directory('contracts/lib/nullifier-oracle-service/contracts/script/deploy')]
+[working-directory('contracts/lib/oprf-service/contracts/script/deploy')]
 deploy-oprf-key-registry-with-deps-anvil:
     TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 forge script OprfKeyRegistryWithDeps.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 [private]
-[working-directory('contracts/lib/nullifier-oracle-service/contracts/script/deploy')]
+[working-directory('contracts/lib/oprf-service/contracts/script/deploy')]
 register-participants-anvil:
     ALICE_ADDRESS=0x14dC79964da2C08b23698B3D3cc7Ca32193d9955 BOB_ADDRESS=0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f CAROL_ADDRESS=0xa0Ee7A142d267C1f36714E4a8F75612F20a79720 forge script RegisterParticipants.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
