@@ -77,10 +77,10 @@ async fn test_packed_account_endpoint() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let json: serde_json::Value = resp.json().await.unwrap();
-    let packed_leaf_index = json["packed_leaf_index"].as_str().unwrap();
+    let packed_account_data = json["packed_account_data"].as_str().unwrap();
 
     // Account index 1 should map to packed account index of 1
-    assert_eq!(packed_leaf_index, "0x1");
+    assert_eq!(packed_account_data, "0x1");
 
     // Test non-existent authenticator address
     let resp = client

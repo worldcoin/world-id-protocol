@@ -169,10 +169,7 @@ async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn update_tree_with_commitment(
-    leaf_index: U256,
-    new_commitment: U256,
-) -> anyhow::Result<()> {
+async fn update_tree_with_commitment(leaf_index: U256, new_commitment: U256) -> anyhow::Result<()> {
     if leaf_index == 0 {
         anyhow::bail!("account index cannot be zero");
     }
@@ -946,8 +943,7 @@ pub async fn poll_db_changes(pool: PgPool, poll_interval_secs: u64) -> anyhow::R
                             "Updating tree from DB poll"
                         );
 
-                        if let Err(e) = update_tree_with_commitment(leaf_index, commitment).await
-                        {
+                        if let Err(e) = update_tree_with_commitment(leaf_index, commitment).await {
                             tracing::error!(
                                 ?e,
                                 leaf_index = %leaf_index,
