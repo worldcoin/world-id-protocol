@@ -10,6 +10,6 @@
 [submodule "contracts/lib/openzeppelin-contracts-upgradeable"]
 	path = contracts/lib/openzeppelin-contracts-upgradeable
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
-[submodule "contracts/lib/nullifier-oracle-service"]
-	path = contracts/lib/nullifier-oracle-service
-	url = https://github.com/TaceoLabs/nullifier-oracle-service
+[submodule "contracts/lib/oprf-service"]
+	path = contracts/lib/oprf-service
+	url = https://github.com/TaceoLabs/oprf-service
