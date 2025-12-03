@@ -412,7 +412,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @return signer Address recovered from the signature.
      * @return packedAccountData Packed authenticator data for the signer.
      */
-    function recoverAccountDataFromSignature(bytes32 messageHash, bytes memory signature)
+    function _recoverAccountDataFromSignature(bytes32 messageHash, bytes memory signature)
         internal
         view
         virtual
@@ -596,7 +596,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        (address signer, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
+        (address signer, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
@@ -683,7 +683,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        (, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
+        (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
@@ -749,7 +749,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             )
         );
 
-        (, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
+        (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
@@ -841,9 +841,8 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         if (!SignatureChecker.isValidSignatureNow(recoverySigner, messageHash, signature)) {
             revert InvalidSignature();
         }
-        if (authenticatorAddressToPackedAccountData[newAuthenticatorAddress] != 0) {
-            revert AuthenticatorAlreadyExists(newAuthenticatorAddress);
-        }
+
+        _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
         accountIndexToRecoveryCounter[accountIndex]++;
 
@@ -882,7 +881,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
             keccak256(abi.encode(UPDATE_RECOVERY_ADDRESS_TYPEHASH, accountIndex, newRecoveryAddress, nonce))
         );
 
-        (, uint256 packedAccountData) = recoverAccountDataFromSignature(messageHash, signature);
+        (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredAccountIndex = PackedAccountData.accountIndex(packedAccountData);
         if (accountIndex != recoveredAccountIndex) {
             revert MismatchedAccountIndex(accountIndex, recoveredAccountIndex);
