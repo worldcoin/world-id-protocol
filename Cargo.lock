@@ -8108,6 +8108,7 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-oprf-core",
+ "taceo-oprf-types",
  "taceo-poseidon2 0.1.0",
  "thiserror 1.0.69",
  "url",

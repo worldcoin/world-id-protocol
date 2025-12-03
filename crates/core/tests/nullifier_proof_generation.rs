@@ -9,6 +9,7 @@ use ark_ff::{AdditiveGroup, PrimeField, UniformRand as _};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
 use oprf_core::{dlog_equality::DLogEqualityProof, oprf::BlindedOprfResponse};
+use oprf_types::crypto::OprfPublicKey;
 use rand::thread_rng;
 use ruint::aliases::U256;
 use test_utils::{
@@ -20,7 +21,7 @@ use test_utils::{
 use world_id_core::{proof, Authenticator, HashableCredential, OnchainKeyRepresentable};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
-    merkle::MerkleInclusionProof, proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
+    merkle::MerkleInclusionProof, proof::SingleProofInput, TREE_DEPTH,
 };
 
 /// Tests and verifies a Nullifier Proof with locally deployed contracts on Anvil and
@@ -174,7 +175,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     };
 
     // Build OPRF query context (RP id, action, nonce, timestamp)
-    let rp_nullifier_key = RpNullifierKey::new(rp_fixture.rp_nullifier_point);
+    let oprf_public_key = OprfPublicKey::new(rp_fixture.rp_nullifier_point);
 
     let proof_args = SingleProofInput::<TREE_DEPTH> {
         credential,
@@ -188,7 +189,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         nonce: rp_fixture.nonce.into(),
         current_timestamp: rp_fixture.current_timestamp,
         rp_signature: rp_fixture.signature,
-        rp_nullifier_key,
+        oprf_public_key,
         signal_hash: rp_fixture.signal_hash,
     };
 
@@ -228,7 +229,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         query_input,
         dlog_e: dlog_proof.e,
         dlog_s: dlog_proof.s,
-        oprf_pk: rp_nullifier_key.into_inner(),
+        oprf_pk: oprf_public_key.inner(),
         oprf_response_blinded: blinded_response,
         oprf_response: unblinded_response,
         signal_hash: *rp_fixture.signal_hash,
