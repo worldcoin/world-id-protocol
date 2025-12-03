@@ -227,7 +227,7 @@ async fn spawn_orpf_node(
         max_wait_time_shutdown: Duration::from_secs(10),
         user_verification_key_path: dir.join("../../circom/OPRFQuery.vk.json"),
         max_merkle_store_size: 10,
-        current_time_stamp_max_difference: Duration::from_secs(60),
+        current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         signature_history_cleanup_interval: Duration::from_secs(30),
         account_registry_contract,
         node_config: oprf_service::config::OprfNodeConfig {
