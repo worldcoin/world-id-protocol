@@ -409,8 +409,6 @@ impl Authenticator {
                     reason: format!("invalid RP ID: {e}"),
                 }
             })?);
-        let primitives_rp_nullifier_key =
-            world_id_primitives::rp::RpNullifierKey::new(rp_request.oprf_public_key.inner());
 
         let args = SingleProofInput::<TREE_DEPTH> {
             credential,
@@ -424,7 +422,7 @@ impl Authenticator {
             nonce: rp_request.nonce,
             current_timestamp: rp_request.current_time_stamp, // TODO
             rp_signature: rp_request.signature,
-            rp_nullifier_key: primitives_rp_nullifier_key,
+            oprf_public_key: rp_request.oprf_public_key,
             signal_hash: message_hash,
         };
 

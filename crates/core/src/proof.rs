@@ -15,7 +15,6 @@ use ark_ff::{PrimeField as _, UniformRand as _};
 use circom_types::ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use groth16_material::Groth16Error;
-use oprf_types::crypto::OprfPublicKey;
 use oprf_types::{OprfKeyId, ShareEpoch};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
@@ -239,9 +238,9 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     ),
     ProofError,
 > {
+    // TODO get from rp_id -> oprf_key_id mapping?
     let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
     let share_epoch = ShareEpoch::new(args.share_epoch);
-    let oprf_public_key = OprfPublicKey::new(args.rp_nullifier_key.into_inner());
     let query_hash = query_hash(args.inclusion_proof.account_id, args.rp_id, args.action);
     let blinding_factor = ark_babyjubjub::Fr::rand(rng);
 
@@ -257,7 +256,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     let verifiable_oprf_output = oprf_client::distributed_oprf(
         services,
         threshold,
-        oprf_public_key,
+        args.oprf_public_key,
         oprf_key_id,
         share_epoch,
         query_hash,
@@ -271,7 +270,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         query_input,
         dlog_e: verifiable_oprf_output.dlog_proof.e,
         dlog_s: verifiable_oprf_output.dlog_proof.s,
-        oprf_pk: oprf_public_key.inner(),
+        oprf_pk: args.oprf_public_key.inner(),
         oprf_response_blinded: verifiable_oprf_output.blinded_response,
         oprf_response: verifiable_oprf_output.unblinded_response,
         signal_hash: *args.signal_hash,
@@ -322,8 +321,6 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
     blinding_factor: ark_babyjubjub::Fr,
     rng: &mut R,
 ) -> Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>), ProofError> {
-    let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
-
     let cred_signature = args
         .credential
         .signature
@@ -355,7 +352,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         mt_index: args.inclusion_proof.account_id.into(),
         siblings,
         beta: blinding_factor,
-        rp_id: oprf_key_id.into(),
+        rp_id: *FieldElement::from(args.rp_id),
         action: *args.action,
         nonce: *args.nonce,
     };

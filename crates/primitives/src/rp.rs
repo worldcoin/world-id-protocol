@@ -3,7 +3,6 @@
 use std::{fmt, str::FromStr};
 
 use alloy_primitives::U160;
-use ark_serde_compat::babyjubjub;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::FieldElement;
@@ -83,32 +82,6 @@ impl<'de> Deserialize<'de> for RpId {
             let value = U160::deserialize(deserializer)?;
             Ok(Self(value))
         }
-    }
-}
-
-/// The public key of a relying party, used to verify computed nullifiers.
-///
-/// Constructed by multiplying the `BabyJubJub` generator with the secret shared among the OPRF peers.
-///
-/// TODO: Refactor to use `EdDSAPublicKey` instead and serialize compressed.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(transparent)]
-pub struct RpNullifierKey(
-    #[serde(serialize_with = "babyjubjub::serialize_affine")]
-    #[serde(deserialize_with = "babyjubjub::deserialize_affine")]
-    ark_babyjubjub::EdwardsAffine,
-);
-
-impl RpNullifierKey {
-    /// Creates a new `RpNullifierKey` by wrapping an `EdwardsAffine` point
-    #[must_use]
-    pub const fn new(value: ark_babyjubjub::EdwardsAffine) -> Self {
-        Self(value)
-    }
-
-    /// Returns the inner `EdwardsAffine` point
-    pub const fn into_inner(self) -> ark_babyjubjub::EdwardsAffine {
-        self.0
     }
 }
 
