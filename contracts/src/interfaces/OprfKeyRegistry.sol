@@ -14,6 +14,6 @@ library Types {
     }
 }
 
-interface IRpRegistry {
-    function getRpNullifierKey(uint128 rpId) external view returns (Types.BabyJubJubElement memory);
+interface IOprfKeyRegistry {
+    function getOprfPublicKey(uint160 oprfKeyId) external view returns (Types.BabyJubJubElement memory);
 }
