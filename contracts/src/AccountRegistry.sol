@@ -267,6 +267,11 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     error AuthenticatorDoesNotBelongToAccount(uint256 expectedAccountIndex, uint256 actualAccountIndex);
 
+    /**
+     * @dev Thrown when trying to update max authenticators beyond the natural limit.
+     */
+    error OwnerMaxAuthenticatorsOutOfBounds();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -907,7 +912,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     /**
      * @dev Sets the validity window for historic roots. 0 means roots never expire.
      */
-    function setRootValidityWindow(uint256 newWindow) external virtual onlyOwner onlyProxy onlyInitialized {
+    function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
         rootValidityWindow = newWindow;
         emit RootValidityWindowUpdated(old, newWindow);
@@ -917,6 +922,10 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
+        if (maxAuthenticators >= 160) {
+            // 160 because we use a pubkey bitmap that has 160 bits available
+            revert OwnerMaxAuthenticatorsOutOfBounds();
+        }
         uint256 old = maxAuthenticators;
         maxAuthenticators = newMaxAuthenticators;
         emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
