@@ -5,9 +5,10 @@ use std::convert::TryInto;
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol_types::SolEvent};
 use ark_babyjubjub::Fq;
 use ark_ec::CurveGroup;
-use ark_ff::{AdditiveGroup, PrimeField, UniformRand as _};
+use ark_ff::{AdditiveGroup, PrimeField};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
+use oprf_client::BlindingFactor;
 use oprf_core::{dlog_equality::DLogEqualityProof, oprf::BlindedOprfResponse};
 use oprf_types::crypto::OprfPublicKey;
 use rand::thread_rng;
@@ -199,18 +200,17 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         proof_args.rp_id,
         proof_args.action,
     );
-    let blinding_factor = ark_babyjubjub::Fr::rand(&mut rng);
+    let blinding_factor = BlindingFactor::rand(&mut rng);
     let (_, query_input) = proof::oprf_request_auth(
         &proof_args,
         &query_material,
         &user_sk,
         query_hash,
-        blinding_factor,
+        &blinding_factor,
         &mut rng,
     )?;
 
-    let (blinded_request, blinding_factor) =
-        oprf_core::oprf::client::blind_query(query_hash, blinding_factor);
+    let blinded_request = oprf_core::oprf::client::blind_query(query_hash, blinding_factor.clone());
 
     // Derive blinded response C = x * B, where B is the blinded query
     let blinded_query = blinded_request.blinded_query();

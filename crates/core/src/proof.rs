@@ -11,10 +11,11 @@
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Nullifier Proof [`π2`]
 
-use ark_ff::{PrimeField as _, UniformRand as _};
+use ark_ff::PrimeField as _;
 use circom_types::ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use groth16_material::Groth16Error;
+use oprf_core::oprf::BlindingFactor;
 use oprf_types::{OprfKeyId, ShareEpoch};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
@@ -242,14 +243,14 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
     let share_epoch = ShareEpoch::new(args.share_epoch);
     let query_hash = query_hash(args.inclusion_proof.account_id, args.rp_id, args.action);
-    let blinding_factor = ark_babyjubjub::Fr::rand(rng);
+    let blinding_factor = BlindingFactor::rand(rng);
 
     let (oprf_request_auth, query_input) = oprf_request_auth(
         &args,
         query_material,
         private_key,
         query_hash,
-        blinding_factor,
+        &blinding_factor,
         rng,
     )?;
 
@@ -318,7 +319,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
     query_material: &CircomGroth16Material,
     private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
     query_hash: ark_babyjubjub::Fq,
-    blinding_factor: ark_babyjubjub::Fr,
+    blinding_factor: &BlindingFactor,
     rng: &mut R,
 ) -> Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>), ProofError> {
     let cred_signature = args
@@ -351,7 +352,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
         mt_index: args.inclusion_proof.account_id.into(),
         siblings,
-        beta: blinding_factor,
+        beta: blinding_factor.beta(),
         rp_id: *FieldElement::from(args.rp_id),
         action: *args.action,
         nonce: *args.nonce,
