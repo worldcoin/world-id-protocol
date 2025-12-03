@@ -51,17 +51,17 @@ pub(crate) async fn handler(
         .filter_map(|s| {
             // TODO: store validated pubkeys
             let pubkey = s.parse::<U256>().map_err(|_| {
-                tracing::error!(account_id = %leaf_index, "Invalid public key stored for account: {s}")
+                tracing::error!(leaf_index = %leaf_index, "Invalid public key stored for account: {s}")
             }).ok()?;
 
             // Encoding matches insertion in core::authenticator::Authenticator operations
             EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|_| {
-                tracing::error!(account_id = %leaf_index, "Invalid public key stored for account (not affine compressed): {s}");
+                tracing::error!(leaf_index = %leaf_index, "Invalid public key stored for account (not affine compressed): {s}");
             }).ok()
         }).collect();
 
     let authenticator_pubkeys = AuthenticatorPublicKeySet::new(Some(pubkeys)).map_err(|e| {
-        tracing::error!(account_id = %leaf_index, "Invalid public key set stored for account: {e}");
+        tracing::error!(leaf_index = %leaf_index, "Invalid public key set stored for account: {e}");
         ErrorResponse::internal_server_error()
     })?;
 
@@ -92,7 +92,7 @@ pub(crate) async fn handler(
 
     if leaf != offchain_signer_commitment {
         tracing::error!(
-            account_id = %leaf_index,
+            leaf_index = %leaf_index,
             leaf_hash = %leaf,
             offchain_signer_commitment = %offchain_signer_commitment,
            "Tree is out of sync with DB. Leaf hash does not match offchain signer commitment.",

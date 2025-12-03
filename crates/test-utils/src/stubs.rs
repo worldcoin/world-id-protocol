@@ -29,13 +29,13 @@ use world_id_primitives::{
 
 #[derive(Clone)]
 struct IndexerState {
-    account_id: u64,
+    leaf_index: u64,
     proof: AccountInclusionProof<{ TREE_DEPTH }>,
 }
 
 /// Spawns a minimal HTTP server that serves the provided inclusion proof.
 pub async fn spawn_indexer_stub(
-    account_id: u64,
+    leaf_index: u64,
     proof: AccountInclusionProof<{ TREE_DEPTH }>,
 ) -> Result<(String, JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -44,14 +44,14 @@ pub async fn spawn_indexer_stub(
     let addr = listener
         .local_addr()
         .wrap_err("failed to read listener address")?;
-    let state = IndexerState { account_id, proof };
+    let state = IndexerState { leaf_index, proof };
     let handle = tokio::spawn(async move {
         let app = Router::new()
             .route(
-                "/proof/{account_id}",
+                "/proof/{leaf_index}",
                 get(
                     |Path(requested): Path<u64>, State(state): State<IndexerState>| async move {
-                        if requested != state.account_id {
+                        if requested != state.leaf_index {
                             return Err(StatusCode::NOT_FOUND);
                         }
                         Ok::<_, StatusCode>(Json(state.proof.clone()))

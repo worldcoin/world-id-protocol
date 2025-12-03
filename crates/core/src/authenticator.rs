@@ -35,7 +35,7 @@ static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
 static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
-static MASK_ACCOUNT_INDEX: U256 =
+static MASK_LEAF_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
 /// Maximum timeout for polling account creation status (30 seconds)
@@ -305,10 +305,10 @@ impl Authenticator {
 
     /// Returns the account index for the holder's World ID.
     ///
-    /// This is the index at the tree where the holder's World ID account is registered (1-indexed).
+    /// This is the index at the Merkle tree where the holder's World ID account is registered.
     #[must_use]
-    pub fn account_id(&self) -> U256 {
-        self.packed_account_data & MASK_ACCOUNT_INDEX
+    pub fn leaf_index(&self) -> U256 {
+        self.packed_account_data & MASK_LEAF_INDEX
     }
 
     /// Returns the recovery counter for the holder's World ID.
@@ -338,7 +338,7 @@ impl Authenticator {
         &self,
     ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
     {
-        let url = format!("{}/proof/{}", self.config.indexer_url(), self.account_id());
+        let url = format!("{}/proof/{}", self.config.indexer_url(), self.leaf_index());
         let response = reqwest::get(url).await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
@@ -353,14 +353,14 @@ impl Authenticator {
         let registry = self.registry();
         if let Some(registry) = registry {
             let nonce = registry
-                .leafIndexToSignatureNonce(self.account_id())
+                .leafIndexToSignatureNonce(self.leaf_index())
                 .call()
                 .await?;
             Ok(nonce)
         } else {
             let url = format!("{}/signature_nonce", self.config.indexer_url());
             let req = IndexerSignatureNonceRequest {
-                leaf_index: self.account_id(),
+                leaf_index: self.leaf_index(),
             };
             let resp = self.http_client.post(&url).json(&req).send().await?;
 
@@ -476,7 +476,7 @@ impl Authenticator {
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_offchain_signer_commitment = Self::leaf_hash(&key_set);
@@ -492,7 +492,7 @@ impl Authenticator {
         // truncating is intentional, and index will always fit in 32 bits
         let signature = sign_insert_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             new_authenticator_address,
             index as u32,
             encoded_offchain_pubkey,
@@ -508,7 +508,7 @@ impl Authenticator {
         #[allow(clippy::cast_possible_truncation)]
         // truncating is intentional, and index will always fit in 32 bits
         let req = InsertAuthenticatorRequest {
-            leaf_index: account_id,
+            leaf_index,
             new_authenticator_address,
             pubkey_id: index as u32,
             new_authenticator_pubkey: encoded_offchain_pubkey,
@@ -561,7 +561,7 @@ impl Authenticator {
         new_authenticator_pubkey: EdDSAPublicKey,
         index: u32,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = Self::leaf_hash(&key_set).into();
@@ -574,7 +574,7 @@ impl Authenticator {
 
         let signature = sign_update_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             old_authenticator_address,
             new_authenticator_address,
             index,
@@ -595,7 +595,7 @@ impl Authenticator {
             .collect();
 
         let req = UpdateAuthenticatorRequest {
-            leaf_index: account_id,
+            leaf_index,
             old_authenticator_address,
             new_authenticator_address,
             old_offchain_signer_commitment: old_commitment,
@@ -643,7 +643,7 @@ impl Authenticator {
         authenticator_address: Address,
         index: u32,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = Self::leaf_hash(&key_set).into();
@@ -662,7 +662,7 @@ impl Authenticator {
 
         let signature = sign_remove_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             authenticator_address,
             index,
             encoded_old_offchain_pubkey,
@@ -682,7 +682,7 @@ impl Authenticator {
             .collect();
 
         let req = RemoveAuthenticatorRequest {
-            leaf_index: account_id,
+            leaf_index,
             authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
@@ -823,7 +823,7 @@ pub enum AuthenticatorError {
     #[error("Account is not registered for this authenticator.")]
     AccountDoesNotExist,
 
-    /// The account already exists for this authenticator. Call `account_id` to get the account index.
+    /// The account already exists for this authenticator. Call `leaf_index` to get the leaf index.
     #[error("Account already exists for this authenticator.")]
     AccountAlreadyExists,
 
@@ -1023,7 +1023,7 @@ mod tests {
 
         let authenticator = Authenticator {
             config,
-            packed_account_data: leaf_index, // This sets account_id() to 1
+            packed_account_data: leaf_index, // This sets leaf_index() to 1
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),

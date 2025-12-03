@@ -1310,22 +1310,6 @@
   },
   {
     "type": "error",
-    "name": "MismatchedAccountIndex",
-    "inputs": [
-      {
-        "name": "expectedLeafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "actualLeafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "MismatchedAuthenticatorSigner",
     "inputs": [
       {
@@ -1337,6 +1321,22 @@
         "name": "actualAuthenticatorAddress",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedLeafIndex",
+    "inputs": [
+      {
+        "name": "expectedLeafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualLeafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

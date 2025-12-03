@@ -170,7 +170,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     let rp_fixture = generate_rp_fixture();
     let inclusion_proof = MerkleInclusionProof {
         root: expected_root_fq,
-        account_id: leaf_index,
+        leaf_index,
         siblings: merkle_siblings,
     };
 

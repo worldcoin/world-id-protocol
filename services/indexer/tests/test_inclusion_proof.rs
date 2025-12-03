@@ -200,7 +200,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     let proof: serde_json::Value = resp.json().await.unwrap();
     assert!(proof["root"].is_string());
-    assert_eq!(proof["account_id"].as_u64().unwrap(), 1);
+    assert_eq!(proof["leaf_index"].as_u64().unwrap(), 1);
 
     http_task.abort();
 }

@@ -185,7 +185,7 @@ contract AccountRegistryTest is Test {
         assertEq(uint192(packed2), 1);
     }
 
-    function test_UpdateAuthenticatorInvalidAccountIndex() public {
+    function test_UpdateAuthenticatorInvalidLeafIndex() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = authenticatorAddress1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);

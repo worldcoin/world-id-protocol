@@ -79,7 +79,7 @@ pub struct QueryProofCircuitInput<const MAX_DEPTH: usize> {
     pub depth: BaseField,
     /// The leaf index of the World ID in the Merkle tree of the `AccountRegistry` contract.
     ///
-    /// In the `MerkleInclusionProof` type, this is the `account_id` field.
+    /// In the `MerkleInclusionProof` type, this is the `leaf_index` field.
     pub mt_index: BaseField,
     /// The siblings of the Merkle proof of the account in the `AccountRegistry` contract.
     pub siblings: [BaseField; MAX_DEPTH],

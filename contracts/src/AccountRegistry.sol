@@ -209,7 +209,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @param expectedLeafIndex The expected leaf index.
      * @param actualLeafIndex The actual leaf index.
      */
-    error MismatchedAccountIndex(uint256 expectedLeafIndex, uint256 actualLeafIndex);
+    error MismatchedLeafIndex(uint256 expectedLeafIndex, uint256 actualLeafIndex);
 
     /**
      * @dev Thrown when the recovered signature does not match the expected authenticator address.
@@ -593,7 +593,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         (address signer, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
-            revert MismatchedAccountIndex(leafIndex, recoveredLeafIndex);
+            revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
         if (signer != oldAuthenticatorAddress) {
             revert MismatchedAuthenticatorSigner(oldAuthenticatorAddress, signer);
@@ -680,7 +680,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
-            revert MismatchedAccountIndex(leafIndex, recoveredLeafIndex);
+            revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
 
         uint256 expectedNonce = leafIndexToSignatureNonce[leafIndex];
@@ -746,7 +746,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
-            revert MismatchedAccountIndex(leafIndex, recoveredLeafIndex);
+            revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
 
         uint256 expectedNonce = leafIndexToSignatureNonce[leafIndex];
@@ -878,7 +878,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
-            revert MismatchedAccountIndex(leafIndex, recoveredLeafIndex);
+            revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
 
         uint256 expectedNonce = leafIndexToSignatureNonce[leafIndex];
