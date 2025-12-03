@@ -226,7 +226,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_ins = InsertAuthenticatorRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         new_authenticator_address: new_auth2,
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
@@ -294,7 +294,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_rem = RemoveAuthenticatorRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         authenticator_address: new_auth2,
         old_offchain_signer_commitment: U256::from(2),
         new_offchain_signer_commitment: U256::from(3),
@@ -359,7 +359,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_rec = RecoverAccountRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         new_authenticator_address: wallet_addr_new,
         old_offchain_signer_commitment: U256::from(3),
         new_offchain_signer_commitment: U256::from(4),
@@ -427,7 +427,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_upd = UpdateAuthenticatorRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         old_authenticator_address: wallet_addr_new,
         new_authenticator_address: new_auth4,
         old_offchain_signer_commitment: U256::from(4),
