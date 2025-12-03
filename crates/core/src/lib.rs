@@ -39,11 +39,6 @@ pub(crate) use signer::Signer;
 #[cfg(feature = "authenticator")]
 pub mod proof;
 
-#[cfg(feature = "authenticator")]
-pub use oprf_core;
-#[cfg(feature = "authenticator")]
-pub use oprf_types;
-
 /// Generic re-usable types
 pub mod types;
 pub use world_id_primitives::FieldElement;

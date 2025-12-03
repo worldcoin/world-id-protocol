@@ -65,9 +65,11 @@ groth16-material = { workspace = true, features = ["circom"], optional = true }
 oprf-client = { workspace = true, optional = true }
 oprf-core = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
 
 [features]
-default = ["authenticator", "embed-zkeys"]
+default = ["authenticator", "embed-zkeys", "issuer"]
 
 authenticator = [
     "alloy/contract",
@@ -80,7 +82,9 @@ authenticator = [
     "dep:groth16-material",
     "dep:oprf-client",
     "dep:oprf-core",
-    "dep:futures"
+    "dep:futures",
+    "dep:rustls",
+    "dep:webpki-roots"
 ]
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]

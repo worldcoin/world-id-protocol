@@ -62,6 +62,10 @@ run-oprf-key-registry-and-nodes $OPRF_SERVICE_ACCOUNT_REGISTRY_CONTRACT:
     echo "starting OPRF services..."
     OPRF_SERVICE_RP_REGISTRY_CONTRACT=$oprf_key_registry just run-nodes
 
+run-dev-client *args:
+    cargo build -p world-id-oprf-dev-client --release
+    ./target/release/world-id-oprf-dev-client {{ args }}
+
 [private]
 run-indexer-and-gateway:
     #!/usr/bin/env bash
