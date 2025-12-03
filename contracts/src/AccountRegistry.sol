@@ -424,7 +424,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         }
         packedAccountData = authenticatorAddressToPackedAccountData[signer];
         if (packedAccountData == 0) {
-            revert AccountDoesNotExist(0);
+            revert AuthenticatorDoesNotExist(signer);
         }
         uint256 accountIndex = PackedAccountData.accountIndex(packedAccountData);
         uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
