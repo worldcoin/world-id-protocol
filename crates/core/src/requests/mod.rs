@@ -6,12 +6,37 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
-use ruint::aliases::U256;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
-use world_id_primitives::rp::RpId;
+use world_id_primitives::rp::{RpId, RpNullifierKey};
+use world_id_primitives::{FieldElement, WorldIdProof};
+
+/// Custom serde module for base64 encoding/decoding of byte arrays
+mod base64_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        serializer.serialize_str(&encoded)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use base64::Engine;
+        let s = String::deserialize(deserializer)?;
+        base64::engine::general_purpose::STANDARD
+            .decode(&s)
+            .map_err(serde::de::Error::custom)
+    }
+}
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -47,7 +72,7 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 /// A proof request from a relying party for an authenticator
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RpRequest {
+pub struct ProofRequest {
     /// Unique identifier for this request
     pub id: String,
     /// Version of the request
@@ -63,11 +88,24 @@ pub struct RpRequest {
     pub expires_at: OffsetDateTime,
     /// Registered RP id
     pub rp_id: RpId,
-    /// Encoded action string (act_...)
+    /// The raw representation of the action. This is normally a string but bytes is used to support
+    /// advanced on-chain use cases.
+    ///
+    /// Encoded as base64 when serialized to JSON.
+    #[serde(with = "base64_serde")]
     pub action: Vec<u8>,
-    /// Credential proof requests
+    /// The nullifier key of the RP (optional for backwards compatibility)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rp_nullifier_key: Option<RpNullifierKey>,
+    /// The RP's ECDSA signature over the request (optional for backwards compatibility)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<k256::ecdsa::Signature>,
+    /// Unique nonce for this request (optional for backwards compatibility)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<FieldElement>,
+    /// Specific credential requests. This defines which credentials to ask for.
     #[serde(rename = "proof_requests")]
-    pub requests: Vec<CredentialRequest>,
+    pub requests: Vec<RequestItem>,
     /// Constraint expression (all/any) optional
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constraints: Option<ConstraintExpr<'static>>,
@@ -76,42 +114,45 @@ pub struct RpRequest {
 /// Per-credential request payload
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CredentialRequest {
-    /// Issuer schema id
-    /// TODO consider splitting into credential type and issuer id to support queries for multiple issuers of same type
-    #[serde(rename = "type")]
+pub struct RequestItem {
+    /// The specific credential being requested as registered in the `CredentialIssuerSchemaRegistry`.
     pub issuer_schema_id: String,
-    /// Optional signal
+    /// Optional signal (TODO: improve documentation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
 }
 
-/// Authenticator response per docs spec
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Overall response from the Authenticator to the RP
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthenticatorResponse {
-    /// Response id references request id
+pub struct ProofResponse {
+    /// The response id references request id
     pub id: String,
     /// Version corresponding to request version
-    pub version: Version,
+    pub version: RequestVersion,
     /// Per-credential results
     pub responses: Vec<ResponseItem>,
 }
 
 /// Per-credential response item
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// TODO: Improve documentation
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
     /// Issuer schema id string this item refers to
-    #[serde(rename = "type")]
     pub issuer_schema_id: String,
     /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub proof: Option<String>,
+    pub proof: Option<WorldIdProof>,
     /// Computed nullifier
+    ///
+    /// /// TODO: Correct type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nullifier: Option<String>,
     /// Session identifier
+    ///
+    /// TODO: Correct type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     /// Present if credential not provided
@@ -119,7 +160,7 @@ pub struct ResponseItem {
     pub error: Option<String>,
 }
 
-impl AuthenticatorResponse {
+impl ProofResponse {
     /// Determine if constraints are satisfied given a constraint expression.
     #[must_use]
     pub fn constraints_satisfied(&self, constraints: &ConstraintExpr<'_>) -> bool {
@@ -133,7 +174,7 @@ impl AuthenticatorResponse {
     }
 }
 
-impl AuthenticatorRequest {
+impl ProofRequest {
     /// Determine which requested credentials to prove given available credentials.
     /// Returns None if constraints (or lack thereof) cannot be satisfied with the available set.
     /// Determine which requested credentials to prove given available credentials.
@@ -142,10 +183,7 @@ impl AuthenticatorRequest {
     /// Panics if constraints are present but invalid according to the type invariants
     /// (this should not occur as constraints are provided by trusted request issuer).
     #[must_use]
-    pub fn credentials_to_prove(
-        &self,
-        available: &HashSet<&str>,
-    ) -> Option<Vec<&CredentialRequest>> {
+    pub fn credentials_to_prove(&self, available: &HashSet<&str>) -> Option<Vec<&RequestItem>> {
         // Build set of requested types
         let requested: std::collections::HashSet<&str> = self
             .requests
@@ -176,7 +214,7 @@ impl AuthenticatorRequest {
         let selected_set: std::collections::HashSet<&str> = selected_types.into_iter().collect();
 
         // Return proof_requests in original order filtered by selected types
-        let result: Vec<&CredentialRequest> = self
+        let result: Vec<&RequestItem> = self
             .requests
             .iter()
             .filter(|r| selected_set.contains(r.issuer_schema_id.as_str()))
@@ -195,10 +233,7 @@ impl AuthenticatorRequest {
     /// # Errors
     /// Returns a `ValidationError` if the response does not correspond to this request or
     /// does not satisfy the declared constraints.
-    pub fn validate_response(
-        &self,
-        response: &AuthenticatorResponse,
-    ) -> Result<(), ValidationError> {
+    pub fn validate_response(&self, response: &ProofResponse) -> Result<(), ValidationError> {
         // Validate id and version match
         if self.id != response.id {
             return Err(ValidationError::RequestIdMismatch);
@@ -263,16 +298,24 @@ impl AuthenticatorRequest {
         Ok(v)
     }
 
+    /// Serialize to JSON
+    ///
+    /// # Errors
+    /// Returns an error if serialization unexpectedly fails.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
     /// Serialize to pretty JSON
     ///
     /// # Errors
-    /// Returns an error if serialization fails.
+    /// Returns an error if serialization unexpectedly fails.
     pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 }
 
-impl AuthenticatorResponse {
+impl ProofResponse {
     /// Parse from JSON
     ///
     /// # Errors
@@ -359,26 +402,25 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proof_requests::{ConstraintExpr, ConstraintNode};
     use time::macros::datetime;
 
     #[test]
     fn constraints_all_any_nested() {
         // Build a response that has orb and passport successful, gov-id missing
-        let response = AuthenticatorResponse {
+        let response = ProofResponse {
             id: "req_123".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
                     issuer_schema_id: "orb".into(),
-                    proof: Some("0x0".into()),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
                     issuer_schema_id: "passport".into(),
-                    proof: Some("0x0".into()),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_2".into()),
                     session_id: None,
                     error: None,
@@ -420,20 +462,22 @@ mod tests {
 
     #[test]
     fn request_validate_response_none_constraints_means_all() {
-        let request = AuthenticatorRequest {
+        let request = ProofRequest {
             id: "req_1".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             created_at: None,
             expires_at: datetime!(2025-01-01 00:00:00 UTC),
-            rp_id: U256::from(1u64),
-            app_id: "app_1".into(),
-            encoded_action: "act_...".into(),
+            rp_id: RpId::from(1u128),
+            action: b"act_...".to_vec(),
+            rp_nullifier_key: None,
+            signature: None,
+            nonce: None,
             requests: vec![
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "orb".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "passport".into(),
                     signal: None,
                 },
@@ -441,20 +485,20 @@ mod tests {
             constraints: None,
         };
 
-        let ok = AuthenticatorResponse {
+        let ok = ProofResponse {
             id: "req_1".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
                     issuer_schema_id: "orb".into(),
-                    proof: Some("0x".into()),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
                     issuer_schema_id: "passport".into(),
-                    proof: Some("0x".into()),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
                     error: None,
@@ -463,12 +507,12 @@ mod tests {
         };
         assert!(request.validate_response(&ok).is_ok());
 
-        let missing = AuthenticatorResponse {
+        let missing = ProofResponse {
             id: "req_1".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![ResponseItem {
                 issuer_schema_id: "orb".into(),
-                proof: Some("0x".into()),
+                proof: Some(WorldIdProof::default()),
                 nullifier: None,
                 session_id: None,
                 error: None,
@@ -489,27 +533,29 @@ mod tests {
             })],
         };
 
-        let request = AuthenticatorRequest {
+        let request = ProofRequest {
             id: "req_2".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             created_at: None,
             expires_at: datetime!(2025-01-01 00:00:00 UTC),
-            rp_id: U256::from(1u64),
-            app_id: "app_1".into(),
-            encoded_action: "act_...".into(),
-            requests: vec![CredentialRequest {
+            rp_id: RpId::from(1u128),
+            action: b"act_...".to_vec(),
+            rp_nullifier_key: None,
+            signature: None,
+            nonce: None,
+            requests: vec![RequestItem {
                 issuer_schema_id: "orb".into(),
                 signal: None,
             }],
             constraints: Some(deep),
         };
 
-        let response = AuthenticatorResponse {
+        let response = ProofResponse {
             id: "req_2".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![ResponseItem {
                 issuer_schema_id: "orb".into(),
-                proof: Some("0x".into()),
+                proof: Some(WorldIdProof::default()),
                 nullifier: None,
                 session_id: None,
                 error: None,
@@ -546,48 +592,50 @@ mod tests {
             ],
         };
 
-        let request = AuthenticatorRequest {
+        let request = ProofRequest {
             id: "req_nodes_ok".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             created_at: None,
             expires_at: datetime!(2025-01-01 00:00:00 UTC),
-            rp_id: U256::from(1u64),
-            app_id: "app".into(),
-            encoded_action: "act".into(),
+            rp_id: RpId::from(1u128),
+            action: b"act".to_vec(),
+            rp_nullifier_key: None,
+            signature: None,
+            nonce: None,
             requests: vec![
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t0".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t1".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t2".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t3".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t4".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t5".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t6".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t7".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t8".into(),
                     signal: None,
                 },
@@ -596,27 +644,27 @@ mod tests {
         };
 
         // Provide just enough to satisfy both any-groups and the single type
-        let response = AuthenticatorResponse {
+        let response = ProofResponse {
             id: "req_nodes_ok".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
                     issuer_schema_id: "t0".into(),
-                    proof: Some("0x".into()),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
                     issuer_schema_id: "t1".into(),
-                    proof: Some("0x".into()),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
                     issuer_schema_id: "t5".into(),
-                    proof: Some("0x".into()),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
                     error: None,
@@ -655,52 +703,54 @@ mod tests {
             ],
         };
 
-        let request = AuthenticatorRequest {
+        let request = ProofRequest {
             id: "req_nodes_too_many".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             created_at: None,
             expires_at: datetime!(2025-01-01 00:00:00 UTC),
-            rp_id: U256::from(1u64),
-            app_id: "app".into(),
-            encoded_action: "act".into(),
+            rp_id: RpId::from(1u128),
+            action: b"act".to_vec(),
+            rp_nullifier_key: None,
+            signature: None,
+            nonce: None,
             requests: vec![
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t0".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t1".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t2".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t3".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t4".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t5".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t6".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t7".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t8".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "t9".into(),
                     signal: None,
                 },
@@ -709,12 +759,12 @@ mod tests {
         };
 
         // Response content is irrelevant; validation should fail before evaluation due to size
-        let response = AuthenticatorResponse {
+        let response = ProofResponse {
             id: "req_nodes_too_many".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![ResponseItem {
                 issuer_schema_id: "t0".into(),
-                proof: Some("0x".into()),
+                proof: Some(WorldIdProof::default()),
                 nullifier: None,
                 session_id: None,
                 error: None,
@@ -732,26 +782,25 @@ mod tests {
   "version": 1,
   "created_at": "2025-09-03T17:33:12Z",
   "expires_at": "2025-09-03T17:38:12Z",
-  "rp_id": "1",
-  "app_id": "app_123",
-  "encoded_action": "act_0000000000000000000000000000000000001",
+  "rp_id": "rp_00000000000000000000000000000001",
+  "action": "YWN0XzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDE=",
   "proof_requests": [
-    { "type": "gov-id", "signal": "abcd-efgh-ijkl" }
+    { "issuer_schema_id": "0x1", "signal": "abcd-efgh-ijkl" }
   ]
 }"#;
 
-        let req = AuthenticatorRequest::from_json(json).unwrap();
+        let req = ProofRequest::from_json(json).unwrap();
         assert_eq!(req.id, "req_18c0f7f03e7d");
         assert_eq!(req.requests.len(), 1);
-        assert_eq!(req.requests[0].issuer_schema_id, "gov-id");
+        assert_eq!(req.requests[0].issuer_schema_id, "0x1");
 
         // Build matching successful response
-        let resp = AuthenticatorResponse {
+        let resp = ProofResponse {
             id: req.id.clone(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![ResponseItem {
-                issuer_schema_id: "gov-id".into(),
-                proof: Some("0x".into()),
+                issuer_schema_id: "0x1".into(),
+                proof: Some(WorldIdProof::default()),
                 nullifier: Some("nil_1".into()),
                 session_id: None,
                 error: None,
@@ -767,32 +816,31 @@ mod tests {
   "version": 1,
   "created_at": "2025-09-03T17:33:12Z",
   "expires_at": "2025-09-03T17:38:12Z",
-  "rp_id": "1",
-  "app_id": "app_123",
-  "encoded_action": "act_0000000000000000000000000000000000001",
+  "rp_id": "rp_00000000000000000000000000000001",
+  "action": "YWN0XzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDE=",
   "proof_requests": [
-    { "type": "gov-id", "signal": "abcd-efgh-ijkl" },
-    { "type": "orb", "signal": "abcd-efgh-ijkl" }
+    { "issuer_schema_id": "0x1", "signal": "abcd-efgh-ijkl" },
+    { "issuer_schema_id": "0x2", "signal": "abcd-efgh-ijkl" }
   ],
-  "constraints": { "all": ["gov-id", "orb"] }
+  "constraints": { "all": ["0x1", "0x2"] }
 }"#;
 
-        let req = AuthenticatorRequest::from_json(json).unwrap();
+        let req = ProofRequest::from_json(json).unwrap();
 
-        // Build response that fails constraints (gov-id error)
-        let resp = AuthenticatorResponse {
+        // Build response that fails constraints (0x1 error)
+        let resp = ProofResponse {
             id: req.id.clone(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
-                    issuer_schema_id: "orb".into(),
-                    proof: Some("0x".into()),
+                    issuer_schema_id: "0x2".into(),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "gov-id".into(),
+                    issuer_schema_id: "0x1".into(),
                     proof: None,
                     nullifier: None,
                     session_id: None,
@@ -812,39 +860,38 @@ mod tests {
   "version": 1,
   "created_at": "2025-09-03T17:33:12Z",
   "expires_at": "2025-09-03T17:38:12Z",
-  "rp_id": "1",
-  "app_id": "app_123",
-  "encoded_action": "act_0000000000000000000000000000000000001",
+  "rp_id": "rp_00000000000000000000000000000001",
+  "action": "YWN0XzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDE=",
   "proof_requests": [
-    { "type": "passport", "signal": "abcd-efgh-ijkl" },
-    { "type": "my-number-card", "signal": "mnop-qrst-uvwx" },
-    { "type": "orb", "signal": "abcd-efgh-ijkl" }
+    { "issuer_schema_id": "0x1", "signal": "abcd-efgh-ijkl" },
+    { "issuer_schema_id": "0x2", "signal": "mnop-qrst-uvwx" },
+    { "issuer_schema_id": "0x3", "signal": "abcd-efgh-ijkl" }
   ],
   "constraints": {
     "all": [
-      "orb",
-      { "any": ["passport", "my-number-card"] }
+      "0x3",
+      { "any": ["0x1", "0x2"] }
     ]
   }
 }"#;
 
-        let req = AuthenticatorRequest::from_json(json).unwrap();
+        let req = ProofRequest::from_json(json).unwrap();
 
-        // Satisfy nested any with passport + orb
-        let resp = AuthenticatorResponse {
+        // Satisfy nested any with 0x1 + 0x3
+        let resp = ProofResponse {
             id: req.id.clone(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
-                    issuer_schema_id: "orb".into(),
-                    proof: Some("0x".into()),
+                    issuer_schema_id: "0x3".into(),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "passport".into(),
-                    proof: Some("0x".into()),
+                    issuer_schema_id: "0x1".into(),
+                    proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_2".into()),
                     session_id: None,
                     error: None,
@@ -857,19 +904,19 @@ mod tests {
 
     #[test]
     fn response_success_and_with_session_and_failure_parse() {
-        // Success OK
+        // Success OK - using default proof (all zeros) in hex
         let ok_json = r#"{
   "id": "req_18c0f7f03e7d",
   "version": 1,
   "responses": [
     {
-      "type": "orb",
-      "proof": "0x0",
+      "issuer_schema_id": "orb",
+      "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
       "nullifier": "nil_000...001"
     }
   ]
 }"#;
-        let ok = AuthenticatorResponse::from_json(ok_json).unwrap();
+        let ok = ProofResponse::from_json(ok_json).unwrap();
         assert_eq!(ok.successful_credentials(), vec!["orb"]);
 
         // Failure (constraints not satisfied) shape parsing
@@ -877,11 +924,11 @@ mod tests {
   "id": "req_18c0f7f03e7d",
   "version": 1,
   "responses": [
-    { "type": "orb", "proof": "0x0", "nullifier": "nil_000...001" },
-    { "type": "gov-id", "error": "credential_not_available" }
+    { "issuer_schema_id": "orb", "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "nullifier": "nil_000...001" },
+    { "issuer_schema_id": "gov-id", "error": "credential_not_available" }
   ]
 }"#;
-        let fail = AuthenticatorResponse::from_json(fail_json).unwrap();
+        let fail = ProofResponse::from_json(fail_json).unwrap();
         assert_eq!(fail.successful_credentials(), vec!["orb"]);
 
         // Success with Session
@@ -890,14 +937,14 @@ mod tests {
   "version": 1,
   "responses": [
     {
-      "type": "orb",
-      "proof": "0x0",
+      "issuer_schema_id": "orb",
+      "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
       "nullifier": "nil_000...001",
       "session_id": "psub_0fff...002"
     }
   ]
 }"#;
-        let sess = AuthenticatorResponse::from_json(sess_json).unwrap();
+        let sess = ProofResponse::from_json(sess_json).unwrap();
         assert_eq!(sess.successful_credentials(), vec!["orb"]);
         assert!(sess.responses[0].session_id.is_some());
     }
@@ -909,36 +956,41 @@ mod tests {
   "version": 1,
   "created_at": "2025-09-03T17:33:12Z",
   "expires_at": "2025-09-03T17:38:12Z",
-  "rp_id": "1",
-  "app_id": "app_123",
-  "encoded_action": "act_0000000000000000000000000000000000001",
+  "rp_id": "rp_00000000000000000000000000000001",
+  "action": "YWN0XzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDE=",
   "proof_requests": [
-    { "type": "orb" },
-    { "type": "orb" }
+    { "issuer_schema_id": "0x1" },
+    { "issuer_schema_id": "0x1" }
   ]
 }"#;
 
-        let err = AuthenticatorRequest::from_json(json).unwrap_err();
+        let err = ProofRequest::from_json(json).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("duplicate issuer schema id"));
+        assert!(
+            msg.contains("duplicate issuer schema id"),
+            "Expected error message to contain 'duplicate issuer schema id', got: {}",
+            msg
+        );
     }
 
     #[test]
     fn credentials_to_prove_none_constraints_requires_all_and_drops_if_missing() {
-        let req = AuthenticatorRequest {
+        let req = ProofRequest {
             id: "req".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             created_at: None,
             expires_at: datetime!(2025-01-01 00:00:00 UTC),
-            rp_id: U256::from(1u64),
-            app_id: "app".into(),
-            encoded_action: "act".into(),
+            rp_id: RpId::from(1u128),
+            action: b"act".to_vec(),
+            rp_nullifier_key: None,
+            signature: None,
+            nonce: None,
             requests: vec![
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "orb".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "passport".into(),
                     signal: None,
                 },
@@ -960,24 +1012,26 @@ mod tests {
     #[test]
     fn credentials_to_prove_with_constraints_all_and_any() {
         // proof_requests: orb, passport, national-id
-        let req = AuthenticatorRequest {
+        let req = ProofRequest {
             id: "req".into(),
-            version: Version::V1,
+            version: RequestVersion::V1,
             created_at: None,
             expires_at: datetime!(2025-01-01 00:00:00 UTC),
-            rp_id: U256::from(1u64),
-            app_id: "app".into(),
-            encoded_action: "act".into(),
+            rp_id: RpId::from(1u128),
+            action: b"act".to_vec(),
+            rp_nullifier_key: None,
+            signature: None,
+            nonce: None,
             requests: vec![
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "orb".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "passport".into(),
                     signal: None,
                 },
-                CredentialRequest {
+                RequestItem {
                     issuer_schema_id: "national-id".into(),
                     signal: None,
                 },

@@ -7315,6 +7315,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
  "axum 0.8.7",
+ "base64 0.22.1",
  "chrono",
  "ciborium",
  "eyre",

@@ -38,6 +38,7 @@ poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
 anyhow = { workspace = true }
+base64 = "0.22"
 chrono = "0.4"
 ciborium = "0.2"
 hex = { workspace = true }
@@ -64,7 +65,7 @@ utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 oprf-core = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-time = { version = "0.3.44", features = ["serde"] }
+time = { version = "0.3.44", features = ["serde", "formatting", "serde-well-known"] }
 
 [features]
 default = ["authenticator", "embed-zkeys"]
@@ -105,6 +106,10 @@ alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
 axum = { version = "0.8", features = ["macros", "json"] }
-k256 = { workspace = true, features = ["ecdsa"] }
 oprf-core = { workspace = true }
 mockito = "1.6"
+time = { version = "0.3.44", features = ["macros"] }
+
+[dependencies.k256]
+workspace = true
+features = ["ecdsa", "serde"]
