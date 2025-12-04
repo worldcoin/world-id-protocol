@@ -175,17 +175,17 @@ jobs:
           docker stop ${{ matrix.service }}-container
           docker rm ${{ matrix.service }}-container
 
-# TODO: add docs check when relevant
-#   docs:
-#     name: Check docs
-#     runs-on: ubuntu-latest
-#     permissions:
-#       contents: read
-#     env:
-#       RUSTDOCFLAGS: -Dwarnings
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: dtolnay/rust-toolchain@nightly
-#       - uses: dtolnay/install@cargo-docs-rs
-#       - run: |
-#           cargo +nightly docs-rs -p world-id
+  docs:
+    name: Check docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RUSTDOCFLAGS: -Dwarnings
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/install@cargo-docs-rs
+      - run: |
+          cargo +nightly docs-rs -p world-id-primitives
+          cargo +nightly docs-rs -p world-id-core
