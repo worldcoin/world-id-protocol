@@ -69,6 +69,10 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     string public constant EIP712_NAME = "RpRegistry";
     string public constant EIP712_VERSION = "1.0";
 
+    bytes32 public constant UPDATE_RP_TYPEHASH = keccak256(
+        "UpdateRp(uint64 rpId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
+    );
+
     ////////////////////////////////////////////////////////////
     //                        Errors                         //
     ////////////////////////////////////////////////////////////
@@ -110,6 +114,11 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      */
     error InvalidNonce();
 
+    /**
+     * @dev Thrown when the provided signature is invalid for the operation.
+     */
+    error InvalidSignature();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -123,7 +132,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @dev Initializes the contract.
      */
     function initialize() public initializer {
-        __EIP712_init("RpRegistry", "1");
+        __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
     }
@@ -227,6 +236,14 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     /**
+     * @dev Returns the current nonce for a relying party. will return 0 even if the rpId does not exist.
+     * @param rpId the id of the relying party to get
+     */
+    function nonceOf(uint64 rpId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _rpIdToSignatureNonce[rpId];
+    }
+
+    /**
      * @dev Partially update a Relying Party record. Must be signed by the manager.
      * @param rpId the id of the relying party to update
      * @param manager the new manager of the relying party. set to zero address to maintain current manager.
@@ -249,15 +266,19 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
             revert RpIdDoesNotExist();
         }
 
-        if (!_relyingParties[rpId].active) {
-            revert RpIdInactive();
-        }
-
         if (nonce != _rpIdToSignatureNonce[rpId]) {
             revert InvalidNonce();
         }
 
-        // FIXME: sig validation
+        bytes32 messageHash = _hashTypedDataV4(
+            keccak256(
+                abi.encode(UPDATE_RP_TYPEHASH, rpId, manager, signer, toggleActive, unverifiedWellKnownDomain, nonce)
+            )
+        );
+
+        if (!SignatureChecker.isValidSignatureNow(_relyingParties[rpId].manager, messageHash, signature)) {
+            revert InvalidSignature();
+        }
 
         if (manager != address(0)) {
             _relyingParties[rpId].manager = manager;

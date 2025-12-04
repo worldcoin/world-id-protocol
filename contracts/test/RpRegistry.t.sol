@@ -4,20 +4,28 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {RpRegistry} from "../src/RpRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 
 contract RpRegistryTest is Test {
+    bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+
     RpRegistry private registry;
     address private owner;
     address private manager1;
+    uint256 private manager1Pk;
     address private signer1;
     address private manager2;
+    uint256 private manager2Pk;
     address private signer2;
 
     function setUp() public {
         owner = address(this);
-        manager1 = vm.addr(0x1111);
+        manager1Pk = 0x1111;
+        manager1 = vm.addr(manager1Pk);
         signer1 = vm.addr(0x2222);
-        manager2 = vm.addr(0x3333);
+        manager2Pk = 0x3333;
+        manager2 = vm.addr(manager2Pk);
         signer2 = vm.addr(0x4444);
 
         // Deploy implementation
@@ -229,5 +237,295 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         vm.expectRevert();
         registry.registerMany(rpIds, managers, signers, domains);
+    }
+
+    // Helper functions for updateRp tests
+    function _domainSeparator() internal view returns (bytes32) {
+        bytes32 nameHash = keccak256(bytes(registry.EIP712_NAME()));
+        bytes32 versionHash = keccak256(bytes(registry.EIP712_VERSION()));
+        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, nameHash, versionHash, block.chainid, address(registry)));
+    }
+
+    function _signUpdateRp(
+        uint256 pk,
+        uint64 rpId,
+        address manager,
+        address signer,
+        bool toggleActive,
+        string memory unverifiedWellKnownDomain,
+        uint256 nonce
+    ) internal view returns (bytes memory) {
+        // NOTE: The contract encodes the string directly, not its hash
+        // This is technically not compliant with EIP-712 spec for dynamic types
+        bytes32 structHash = keccak256(
+            abi.encode(
+                registry.UPDATE_RP_TYPEHASH(), rpId, manager, signer, toggleActive, unverifiedWellKnownDomain, nonce
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    // UpdateRp Tests
+
+    function testUpdateRpSuccess() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP
+        registry.register(rpId, manager1, signer1, initialDomain);
+
+        // Update all fields
+        address newManager = vm.addr(0x5555);
+        address newSigner = vm.addr(0x6666);
+        string memory newDomain = "app1-updated.world.org";
+
+        bytes memory sig = _signUpdateRp(manager1Pk, rpId, newManager, newSigner, false, newDomain, 0);
+
+        registry.updateRp(rpId, newManager, newSigner, false, newDomain, sig, 0);
+
+        // Verify updates
+        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        assertEq(rp.manager, newManager);
+        assertEq(rp.signer, newSigner);
+        assertEq(rp.unverifiedWellKnownDomain, newDomain);
+        assertTrue(rp.active);
+        assertEq(registry.nonceOf(rpId), 1);
+    }
+
+    function testUpdateRpPartialUpdate() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP
+        registry.register(rpId, manager1, signer1, initialDomain);
+
+        // Update only signer (manager = 0, domain = NO_UPDATE)
+        address newSigner = vm.addr(0x6666);
+        string memory noUpdate = registry.NO_UPDATE();
+
+        bytes memory sig = _signUpdateRp(manager1Pk, rpId, address(0), newSigner, false, noUpdate, 0);
+
+        registry.updateRp(rpId, address(0), newSigner, false, noUpdate, sig, 0);
+
+        // Verify only signer changed
+        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        assertEq(rp.manager, manager1); // Unchanged
+        assertEq(rp.signer, newSigner); // Changed
+        assertEq(rp.unverifiedWellKnownDomain, initialDomain); // Unchanged
+        assertTrue(rp.active);
+    }
+
+    function testUpdateRpToggleActive() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP (starts active)
+        registry.register(rpId, manager1, signer1, initialDomain);
+        assertTrue(registry.getRp(rpId).active);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // Toggle to inactive
+        bytes memory sig = _signUpdateRp(manager1Pk, rpId, address(0), address(0), true, noUpdate, 0);
+        registry.updateRp(rpId, address(0), address(0), true, noUpdate, sig, 0);
+
+        RpRegistry.RelyingParty memory rp = registry.getRpUnchecked(rpId);
+        assertFalse(rp.active);
+
+        // Toggle back to active
+        sig = _signUpdateRp(manager1Pk, rpId, address(0), address(0), true, noUpdate, 1);
+        registry.updateRp(rpId, address(0), address(0), true, noUpdate, sig, 1);
+
+        rp = registry.getRp(rpId);
+        assertTrue(rp.active);
+    }
+
+    function testUpdateRpWithNoUpdate() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP
+        registry.register(rpId, manager1, signer1, initialDomain);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // Update with NO_UPDATE sentinel value for domain
+        bytes memory sig = _signUpdateRp(manager1Pk, rpId, address(0), address(0), false, noUpdate, 0);
+        registry.updateRp(rpId, address(0), address(0), false, noUpdate, sig, 0);
+
+        // Verify domain unchanged
+        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        assertEq(rp.unverifiedWellKnownDomain, initialDomain);
+    }
+
+    function testUpdateRpWithEIP1271Signature() public {
+        // Create a mock ERC-1271 wallet controlled by a signer
+        uint256 walletOwnerPk = 0x7777;
+        address walletOwner = vm.addr(walletOwnerPk);
+        MockERC1271Wallet wallet = new MockERC1271Wallet(walletOwner);
+
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP with wallet as manager
+        registry.register(rpId, address(wallet), signer1, initialDomain);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // Update using EIP-1271 signature
+        address newSigner = vm.addr(0x8888);
+        bytes memory sig = _signUpdateRp(walletOwnerPk, rpId, address(0), newSigner, false, noUpdate, 0);
+
+        registry.updateRp(rpId, address(0), newSigner, false, noUpdate, sig, 0);
+
+        // Verify update
+        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        assertEq(rp.signer, newSigner);
+        assertEq(rp.manager, address(wallet));
+    }
+
+    function testUpdateRpInvalidSignature() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP
+        registry.register(rpId, manager1, signer1, initialDomain);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // Try to update with wrong private key
+        uint256 wrongPk = 0x9999;
+        bytes memory badSig = _signUpdateRp(wrongPk, rpId, address(0), signer2, false, noUpdate, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
+        registry.updateRp(rpId, address(0), signer2, false, noUpdate, badSig, 0);
+    }
+
+    function testUpdateRpInvalidEIP1271Signature() public {
+        // Create a mock ERC-1271 wallet
+        uint256 walletOwnerPk = 0x7777;
+        address walletOwner = vm.addr(walletOwnerPk);
+        MockERC1271Wallet wallet = new MockERC1271Wallet(walletOwner);
+
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP with wallet as manager
+        registry.register(rpId, address(wallet), signer1, initialDomain);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // Try to update with wrong private key for EIP-1271
+        uint256 wrongPk = 0x9999;
+        bytes memory badSig = _signUpdateRp(wrongPk, rpId, address(0), signer2, false, noUpdate, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
+        registry.updateRp(rpId, address(0), signer2, false, noUpdate, badSig, 0);
+    }
+
+    function testUpdateRpNonceMismatch() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP
+        registry.register(rpId, manager1, signer1, initialDomain);
+
+        assertEq(registry.nonceOf(rpId), 0);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // Try to update with wrong nonce
+        bytes memory sig = _signUpdateRp(manager1Pk, rpId, address(0), signer2, false, noUpdate, 5);
+
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidNonce.selector));
+        registry.updateRp(rpId, address(0), signer2, false, noUpdate, sig, 5);
+    }
+
+    function testUpdateRpNonExistentRp() public {
+        uint64 nonExistentRpId = 999;
+        string memory noUpdate = registry.NO_UPDATE();
+
+        bytes memory sig = _signUpdateRp(manager1Pk, nonExistentRpId, address(0), signer2, false, noUpdate, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdDoesNotExist.selector));
+        registry.updateRp(nonExistentRpId, address(0), signer2, false, noUpdate, sig, 0);
+    }
+
+    function testUpdateRpNonceIncrementsOnEachUpdate() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP
+        registry.register(rpId, manager1, signer1, initialDomain);
+
+        assertEq(registry.nonceOf(rpId), 0);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // First update (also tests that domain can be set to empty string)
+        bytes memory sig1 = _signUpdateRp(manager1Pk, rpId, address(0), signer2, false, "", 0);
+        registry.updateRp(rpId, address(0), signer2, false, "", sig1, 0);
+        assertEq(registry.nonceOf(rpId), 1);
+        assertEq(registry.getRp(rpId).unverifiedWellKnownDomain, "");
+
+        // Second update
+        bytes memory sig2 = _signUpdateRp(manager1Pk, rpId, address(0), signer1, false, noUpdate, 1);
+        registry.updateRp(rpId, address(0), signer1, false, noUpdate, sig2, 1);
+        assertEq(registry.nonceOf(rpId), 2);
+
+        // Third update
+        bytes memory sig3 = _signUpdateRp(manager1Pk, rpId, address(0), signer2, false, noUpdate, 2);
+        registry.updateRp(rpId, address(0), signer2, false, noUpdate, sig3, 2);
+        assertEq(registry.nonceOf(rpId), 3);
+    }
+
+    function testUpdateRpCannotReplayOldSignature() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP
+        registry.register(rpId, manager1, signer1, initialDomain);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // First update
+        bytes memory sig1 = _signUpdateRp(manager1Pk, rpId, address(0), signer2, false, noUpdate, 0);
+        registry.updateRp(rpId, address(0), signer2, false, noUpdate, sig1, 0);
+
+        // Try to replay the same signature
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidNonce.selector));
+        registry.updateRp(rpId, address(0), signer2, false, noUpdate, sig1, 0);
+    }
+
+    function testUpdateRpManagerTransfer() public {
+        uint64 rpId = 1;
+        string memory initialDomain = "app1.world.org";
+
+        // Register an RP
+        registry.register(rpId, manager1, signer1, initialDomain);
+
+        string memory noUpdate = registry.NO_UPDATE();
+
+        // Transfer manager from manager1 to manager2
+        bytes memory sig = _signUpdateRp(manager1Pk, rpId, manager2, address(0), false, noUpdate, 0);
+        registry.updateRp(rpId, manager2, address(0), false, noUpdate, sig, 0);
+
+        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        assertEq(rp.manager, manager2);
+
+        // Now only manager2 can sign updates
+        bytes memory sig2 = _signUpdateRp(manager2Pk, rpId, address(0), signer2, false, noUpdate, 1);
+        registry.updateRp(rpId, address(0), signer2, false, noUpdate, sig2, 1);
+
+        rp = registry.getRp(rpId);
+        assertEq(rp.signer, signer2);
+
+        // Old manager tries to sign an update
+        bytes memory badSig = _signUpdateRp(manager1Pk, rpId, address(0), signer2, false, noUpdate, 2);
+
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
+        registry.updateRp(rpId, address(0), signer2, false, noUpdate, badSig, 2);
     }
 }
