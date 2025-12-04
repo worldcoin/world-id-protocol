@@ -54,7 +54,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     //                        Events                          //
     ////////////////////////////////////////////////////////////
 
-    event RpCreated(uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, bytes unverifiedWellKnownDomain);
+    event RpRegistered(
+        uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, bytes unverifiedWellKnownDomain
+    );
 
     ////////////////////////////////////////////////////////////
     //                        Errors                         //
@@ -63,9 +65,19 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     error ImplementationNotInitialized();
 
     /**
-     * @dev Thrown when the requested `rpId` to be registered is already in use. `rpId`s must be unique.
+     * @dev Thrown when the requested rpId to be registered is already in use. rpIds must be unique.
      */
     error RpIdAlreadyInUse(uint64 rpId);
+
+    /**
+     * @dev Thrown when the provided rpId is not registered.
+     */
+    error RpIdDoesNotExist();
+
+    /**
+     * @dev Thrown the the provided rpId is not active.
+     */
+    error RpIdInactive();
 
     /**
      * @dev Thrown when trying to set a manager to the zero address.
@@ -94,7 +106,11 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @dev Initializes the contract.
      */
-    function initialize() public initializer {}
+    function initialize() public initializer {
+        __EIP712_init("RpRegistry", "1");
+        __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
+    }
 
     ////////////////////////////////////////////////////////////
     //                   Public Functions                     //
@@ -113,6 +129,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @param manager The address of the manager (on-chain operations).
      * @param signer The address of the signer (Proof requests).
      * @param unverifiedWellKnownDomain The (unverified) well-known domain of the relying party.
+     * TODO: At launch, only the owner can register a relying party.
      */
     function register(uint64 rpId, address manager, address signer, bytes calldata unverifiedWellKnownDomain)
         external
@@ -120,16 +137,23 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         onlyInitialized
         onlyOwner
     {
-        // TODO: At launch, only the owner can register a relying party.
         _register(rpId, manager, signer, unverifiedWellKnownDomain);
     }
 
-    function registerMany(uint64[] rpIds, address[] managers, address[] signers, bytes[] unverifiedWellKnownDomains)
-        external
-        onlyProxy
-        onlyInitialized
-        onlyOwner
-    {
+    /**
+     * @dev Registers multiple new relying parties at once.
+     * @param rpIds the list of rpIds
+     * @param managers the list of managers
+     * @param signers the list of signers
+     * @param unverifiedWellKnownDomains the list of unverified well-known domains
+     * TODO: At launch, only the owner can register a relying party.
+     */
+    function registerMany(
+        uint64[] calldata rpIds,
+        address[] calldata managers,
+        address[] calldata signers,
+        bytes[] calldata unverifiedWellKnownDomains
+    ) external onlyProxy onlyInitialized onlyOwner {
         if (
             rpIds.length != managers.length || rpIds.length != signers.length
                 || rpIds.length != unverifiedWellKnownDomains.length
@@ -142,11 +166,55 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         }
     }
 
+    /**
+     * @dev Get a relying party by id. will revert if it's not a valid id or is inactive.
+     * @param rpId the id of the relying party to get
+     */
+    function getRp(uint64 rpId) external view returns (RelyingParty memory) {
+        if (!_relyingParties[rpId].initialized) {
+            revert RpIdDoesNotExist();
+        }
+
+        if (!_relyingParties[rpId].active) {
+            revert RpIdInactive();
+        }
+
+        return _relyingParties[rpId];
+    }
+
+    /**
+     * @dev Get a relying party by id. will return even if the rp is inactive.
+     * @param rpId the id of the relying party to get
+     */
+    function getRpUnchecked(uint64 rpId) external view returns (RelyingParty memory) {
+        if (!_relyingParties[rpId].initialized) {
+            revert RpIdDoesNotExist();
+        }
+
+        return _relyingParties[rpId];
+    }
+
+    /**
+     * @dev Convenience method to get the oprf key id and signer of a relying party. Useful for proof generation/verification.
+     * @param rpId the id of the relying party to get
+     */
+    function getOprfKeyIdAndSigner(uint64 rpId) external view returns (uint160, address) {
+        if (!_relyingParties[rpId].initialized) {
+            revert RpIdDoesNotExist();
+        }
+
+        if (!_relyingParties[rpId].active) {
+            revert RpIdInactive();
+        }
+
+        return (_relyingParties[rpId].oprfKeyId, _relyingParties[rpId].signer);
+    }
+
     ////////////////////////////////////////////////////////////
     //                  Internal Functions                    //
     ////////////////////////////////////////////////////////////
 
-    function _register(uint64 rpId, address manager, address signer, bytes unverifiedWellKnownDomain) internal {
+    function _register(uint64 rpId, address manager, address signer, bytes memory unverifiedWellKnownDomain) internal {
         if (_relyingParties[rpId].initialized) {
             revert RpIdAlreadyInUse(rpId);
         }
@@ -170,7 +238,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
 
         _relyingParties[rpId] = rp;
 
-        emit RelyingPartyRegistered(rpId, manager, signer, unverifiedWellKnownDomain);
+        emit RpRegistered(rpId, 0, manager, unverifiedWellKnownDomain);
     }
 
     ////////////////////////////////////////////////////////////
