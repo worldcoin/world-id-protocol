@@ -196,7 +196,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
 
     // Produce πR (signed OPRF query) — blinded request + query inputs
     let query_hash = world_id_core::proof::query_hash(
-        proof_args.inclusion_proof.account_id,
+        proof_args.inclusion_proof.leaf_index,
         proof_args.rp_id,
         proof_args.action,
     );
