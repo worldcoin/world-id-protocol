@@ -174,6 +174,20 @@ async fn e2e_authenticator_insert_update_remove() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(1));
 
+    // Verify secondary authenticator is now registered in the contract
+    let provider = ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
+    let contract = AccountRegistry::new(registry_address, provider);
+    let packed = contract
+        .authenticatorAddressToPackedAccountData(secondary_address)
+        .call()
+        .await
+        .unwrap();
+    assert_ne!(
+        packed,
+        U256::from(0),
+        "secondary authenticator should be registered after insert"
+    );
+
     // UPDATE: replace primary authenticator (index 0) with new keys, signed by primary
     // Key set before: [primary, secondary]. Key set after: [updated, secondary]
     indexer.set_proof(make_inclusion_proof(
@@ -202,14 +216,34 @@ async fn e2e_authenticator_insert_update_remove() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Primary authenticator is now invalid, query contract directly
-    let provider = ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let contract = AccountRegistry::new(registry_address, provider);
     let nonce = contract
         .leafIndexToSignatureNonce(U256::from(1))
         .call()
         .await
         .unwrap();
     assert_eq!(nonce, U256::from(2));
+
+    // Verify updated authenticator is registered and old primary is cleared
+    let packed = contract
+        .authenticatorAddressToPackedAccountData(updated_address)
+        .call()
+        .await
+        .unwrap();
+    assert_ne!(
+        packed,
+        U256::from(0),
+        "updated authenticator should be registered after update"
+    );
+    let packed = contract
+        .authenticatorAddressToPackedAccountData(primary_address)
+        .call()
+        .await
+        .unwrap();
+    assert_eq!(
+        packed,
+        U256::from(0),
+        "old primary authenticator should be cleared after update"
+    );
 
     // REMOVE: remove updated authenticator (index 0), signed by secondary
     // Key set before: [updated, secondary]. Key set after: [_, secondary]
@@ -231,6 +265,30 @@ async fn e2e_authenticator_insert_update_remove() {
     wait_for_finalized(&client, &gateway_url, &req_id).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(3));
+
+    // Verify updated authenticator is cleared after removal
+    let packed = contract
+        .authenticatorAddressToPackedAccountData(updated_address)
+        .call()
+        .await
+        .unwrap();
+    assert_eq!(
+        packed,
+        U256::from(0),
+        "updated authenticator should be cleared after remove"
+    );
+
+    // Verify secondary authenticator is still registered (it was the signer for removal)
+    let packed = contract
+        .authenticatorAddressToPackedAccountData(secondary_address)
+        .call()
+        .await
+        .unwrap();
+    assert_ne!(
+        packed,
+        U256::from(0),
+        "secondary authenticator should still be registered"
+    );
 
     indexer.abort();
 }
