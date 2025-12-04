@@ -20,6 +20,9 @@
   "lib/openzeppelin-contracts-upgradeable": {
     "rev": "e725abddf1e01cf05ace496e950fc8e243cc7cab"
   },
+  "lib/oprf-service": {
+    "rev": "e1ec8b54adbb6628286049019132abfab5a42c90"
+  },
   "lib/poseidon-solidity": {
     "rev": "8205c97ec4a35a9adb854b70b2c9ba92668d1304"
   }
