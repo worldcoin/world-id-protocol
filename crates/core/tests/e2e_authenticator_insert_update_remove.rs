@@ -10,9 +10,8 @@ use reqwest::Client;
 use test_utils::{
     anvil::{AccountRegistry, TestAnvil},
     fixtures::{single_leaf_merkle_fixture, MerkleFixture},
-    stubs::spawn_indexer_stub,
+    stubs::MutableIndexerStub,
 };
-use tokio::task::JoinHandle;
 use world_id_core::types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_core::{Authenticator, AuthenticatorError};
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
@@ -50,18 +49,17 @@ async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {
     }
 }
 
-// Creates an indexer stub that serves the merkle inclusion proof for the given pubkeys
-async fn setup_indexer_stub(
+// Creates a merkle inclusion proof for the given pubkeys
+fn make_inclusion_proof(
     pubkeys: Vec<EdDSAPublicKey>,
     leaf_index: u64,
-) -> (String, JoinHandle<()>) {
+) -> AccountInclusionProof<{ TREE_DEPTH }> {
     let MerkleFixture {
         key_set,
         inclusion_proof,
         ..
     } = single_leaf_merkle_fixture(pubkeys, leaf_index).unwrap();
-    let proof = AccountInclusionProof::<{ TREE_DEPTH }>::new(inclusion_proof, key_set).unwrap();
-    spawn_indexer_stub(leaf_index, proof).await.unwrap()
+    AccountInclusionProof::<{ TREE_DEPTH }>::new(inclusion_proof, key_set).unwrap()
 }
 
 // Derives keys from seed using same logic as Authenticator's internal Signer
@@ -150,15 +148,19 @@ async fn e2e_authenticator_insert_update_remove() {
     let secondary_seed = [43u8; 32];
     let (secondary_pubkey, secondary_address) = derive_keys_from_seed(secondary_seed);
 
+    // Spawn a single indexer stub that we'll update throughout the test
+    let initial_proof = make_inclusion_proof(vec![primary.offchain_pubkey()], leaf_index);
+    let indexer = MutableIndexerStub::spawn(leaf_index, initial_proof)
+        .await
+        .unwrap();
+
     // INSERT: add secondary authenticator, signed by primary
     // Key set before: [primary]. Key set after: [primary, secondary]
-    let (indexer_url, handle) =
-        setup_indexer_stub(vec![primary.offchain_pubkey()], leaf_index).await;
     let config = make_config(
         &rpc_url,
         chain_id,
         registry_address,
-        &indexer_url,
+        &indexer.url,
         &gateway_url,
     );
     let mut auth = Authenticator::init(&primary_seed, config).await.unwrap();
@@ -171,20 +173,18 @@ async fn e2e_authenticator_insert_update_remove() {
     wait_for_finalized(&client, &gateway_url, &req_id).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(1));
-    handle.abort();
 
     // UPDATE: replace primary authenticator (index 0) with new keys, signed by primary
     // Key set before: [primary, secondary]. Key set after: [updated, secondary]
-    let (indexer_url, handle) = setup_indexer_stub(
+    indexer.set_proof(make_inclusion_proof(
         vec![primary.offchain_pubkey(), secondary_pubkey.clone()],
         leaf_index,
-    )
-    .await;
+    ));
     let config = make_config(
         &rpc_url,
         chain_id,
         registry_address,
-        &indexer_url,
+        &indexer.url,
         &gateway_url,
     );
     let mut auth = Authenticator::init(&primary_seed, config).await.unwrap();
@@ -210,20 +210,18 @@ async fn e2e_authenticator_insert_update_remove() {
         .await
         .unwrap();
     assert_eq!(nonce, U256::from(2));
-    handle.abort();
 
     // REMOVE: remove updated authenticator (index 0), signed by secondary
     // Key set before: [updated, secondary]. Key set after: [_, secondary]
-    let (indexer_url, handle) = setup_indexer_stub(
+    indexer.set_proof(make_inclusion_proof(
         vec![updated_pubkey.clone(), secondary_pubkey.clone()],
         leaf_index,
-    )
-    .await;
+    ));
     let config = make_config(
         &rpc_url,
         chain_id,
         registry_address,
-        &indexer_url,
+        &indexer.url,
         &gateway_url,
     );
     let mut auth = Authenticator::init(&secondary_seed, config).await.unwrap();
@@ -233,5 +231,6 @@ async fn e2e_authenticator_insert_update_remove() {
     wait_for_finalized(&client, &gateway_url, &req_id).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(3));
-    handle.abort();
+
+    indexer.abort();
 }

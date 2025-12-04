@@ -27,6 +27,8 @@ use world_id_primitives::{
     merkle::AccountInclusionProof, oprf::OprfRequestAuthV1, FieldElement, TREE_DEPTH,
 };
 
+use std::sync::RwLock;
+
 #[derive(Clone)]
 struct IndexerState {
     leaf_index: u64,
@@ -65,6 +67,72 @@ pub async fn spawn_indexer_stub(
     });
 
     Ok((format!("http://{addr}"), handle))
+}
+
+/// Handle to a mutable indexer stub that allows updating the proof at runtime.
+pub struct MutableIndexerStub {
+    pub url: String,
+    state: Arc<RwLock<IndexerState>>,
+    handle: JoinHandle<()>,
+}
+
+impl MutableIndexerStub {
+    /// Spawns a new mutable indexer stub server.
+    pub async fn spawn(
+        leaf_index: u64,
+        proof: AccountInclusionProof<{ TREE_DEPTH }>,
+    ) -> Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .wrap_err("failed to bind indexer stub listener")?;
+        let addr = listener
+            .local_addr()
+            .wrap_err("failed to read listener address")?;
+
+        let state = Arc::new(RwLock::new(IndexerState { leaf_index, proof }));
+        let router_state = Arc::clone(&state);
+
+        let handle = tokio::spawn(async move {
+            let app = Router::new()
+                .route(
+                    "/proof/{leaf_index}",
+                    get(
+                        |Path(requested): Path<u64>,
+                         State(state): State<Arc<RwLock<IndexerState>>>| async move {
+                            let guard = state
+                                .read()
+                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                            if requested != guard.leaf_index {
+                                return Err(StatusCode::NOT_FOUND);
+                            }
+                            Ok::<_, StatusCode>(Json(guard.proof.clone()))
+                        },
+                    ),
+                )
+                .with_state(router_state);
+            axum::serve(listener, app)
+                .await
+                .expect("indexer stub server crashed");
+        });
+
+        Ok(Self {
+            url: format!("http://{addr}"),
+            state,
+            handle,
+        })
+    }
+
+    /// Updates the proof served by this stub.
+    pub fn set_proof(&self, proof: AccountInclusionProof<{ TREE_DEPTH }>) {
+        if let Ok(mut guard) = self.state.write() {
+            guard.proof = proof;
+        }
+    }
+
+    /// Aborts the server task.
+    pub fn abort(self) {
+        self.handle.abort();
+    }
 }
 
 pub struct OprfServerHandle {
