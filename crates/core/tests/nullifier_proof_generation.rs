@@ -141,8 +141,8 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .find_map(|log| AccountRegistry::AccountCreated::decode_log(log.inner.as_ref()).ok())
         .ok_or_else(|| eyre!("AccountCreated event not emitted"))?;
 
-    let account_index: u64 = account_created
-        .accountIndex
+    let leaf_index: u64 = account_created
+        .leafIndex
         .try_into()
         .map_err(|_| eyre!("account index exceeded u64 range"))?;
     // Convert issuerSchemaId to field‑friendly u64 for circuits
@@ -159,7 +159,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
 
     let credential = build_base_credential(
         issuer_schema_id_u64,
-        account_index,
+        leaf_index,
         genesis_issued_at,
         expires_at,
     )
@@ -170,7 +170,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     let rp_fixture = generate_rp_fixture();
     let inclusion_proof = MerkleInclusionProof {
         root: expected_root_fq,
-        account_id: account_index,
+        leaf_index,
         siblings: merkle_siblings,
     };
 

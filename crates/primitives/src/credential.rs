@@ -52,7 +52,9 @@ pub struct Credential {
     /// Unique credential type id that is used to lookup of verifying information
     pub issuer_schema_id: u64,
     /// World ID to which the credential is issued. This ID comes from the `AccountRegistry`.
-    pub account_id: u64,
+    ///
+    /// This is the primary internal identifier of a World ID.
+    pub leaf_index: u64,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
     /// this timestamp should stay constant.
@@ -87,7 +89,7 @@ impl Credential {
         Self {
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
-            account_id: 0,
+            leaf_index: 0,
             genesis_issued_at: 0,
             expires_at: 0,
             claims: vec![FieldElement::ZERO; Self::MAX_CLAIMS],
@@ -113,10 +115,10 @@ impl Credential {
         self
     }
 
-    /// Set the `accountId` of the credential.
+    /// Set the `leafIndex` of the credential.
     #[must_use]
-    pub const fn account_id(mut self, account_id: u64) -> Self {
-        self.account_id = account_id;
+    pub const fn leaf_index(mut self, leaf_index: u64) -> Self {
+        self.leaf_index = leaf_index;
         self
     }
 

@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     let sk = EdDSAPrivateKey::random(&mut rng);
     let current_timestamp = Utc::now().timestamp() as u64;
     let credential = Credential::new()
-        .account_id(user_id)
+        .leaf_index(user_id)
         .issuer_schema_id(ISSUER_SCHEMA_ID)
         .genesis_issued_at(current_timestamp)
         .expires_at(current_timestamp + EXPIRATION_TIME)

@@ -67,7 +67,7 @@ pub struct CreateAccountRequest {
 pub struct UpdateAuthenticatorRequest {
     /// The account index.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub account_index: U256,
+    pub leaf_index: U256,
     /// The old authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub old_authenticator_address: Address,
@@ -104,7 +104,7 @@ pub struct UpdateAuthenticatorRequest {
 pub struct InsertAuthenticatorRequest {
     /// The account index.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub account_index: U256,
+    pub leaf_index: U256,
     /// The new authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
@@ -138,7 +138,7 @@ pub struct InsertAuthenticatorRequest {
 pub struct RemoveAuthenticatorRequest {
     /// The account index.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub account_index: U256,
+    pub leaf_index: U256,
     /// The authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub authenticator_address: Address,
@@ -172,7 +172,7 @@ pub struct RemoveAuthenticatorRequest {
 pub struct RecoverAccountRequest {
     /// The account index.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub account_index: U256,
+    pub leaf_index: U256,
     /// The new authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
@@ -263,9 +263,9 @@ pub struct IndexerPackedAccountRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerPackedAccountResponse {
-    /// The packed account index [32 bits recoveryCounter][32 bits pubkeyId][192 bits accountIndex]
+    /// The packed account data [32 bits recoveryCounter][32 bits pubkeyId][192 bits leafIndex]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
-    pub packed_account_index: U256,
+    pub packed_account_data: U256,
 }
 
 /// Request to fetch a signature nonce from the indexer.
@@ -275,7 +275,7 @@ pub struct IndexerPackedAccountResponse {
 pub struct IndexerSignatureNonceRequest {
     /// The account index to look up
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
-    pub account_index: U256,
+    pub leaf_index: U256,
 }
 
 /// Response containing the signature nonce from the indexer.
@@ -299,8 +299,8 @@ pub enum IndexerErrorCode {
     InternalServerError,
     /// Requested resource was not found.
     NotFound,
-    /// The provided account index is invalid.
-    InvalidAccountIndex,
+    /// The provided leaf index is invalid.
+    InvalidLeafIndex,
     /// The resource is locked and cannot be accessed.
     Locked,
     /// The account does not exist.
