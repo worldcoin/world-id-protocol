@@ -65,7 +65,7 @@ impl HashableCredential for Credential {
                 let mut input = [
                     *self.get_cred_ds(),
                     self.issuer_schema_id.into(),
-                    self.leaf_index.into(),
+                    self.sub.into(),
                     self.genesis_issued_at.into(),
                     self.expires_at.into(),
                     *self.claims_hash()?,
@@ -114,7 +114,7 @@ mod tests {
         let credential = Credential::new()
             .version(CredentialVersion::V1)
             .issuer_schema_id(123)
-            .leaf_index(456)
+            .sub(456)
             .genesis_issued_at(1234567890)
             .expires_at(1234567890 + 86_400)
             .claim(0, U256::from(999))
@@ -125,7 +125,7 @@ mod tests {
         let issuer_sk = EdDSAPrivateKey::from_bytes([0; 32]);
         let credential = credential.sign(&issuer_sk).unwrap();
 
-        assert_eq!(credential.leaf_index, 456);
+        assert_eq!(credential.sub, 456);
         assert!(credential.signature.is_some());
 
         let json = serde_json::to_string(&credential).unwrap();
