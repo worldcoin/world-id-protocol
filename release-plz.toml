@@ -26,7 +26,7 @@ changelog_update = true
 changelog_path = "CHANGELOG.md"
 
 [[package]]
-name = "world-id-test-utils"
+name = "test-utils"
 publish = false
 
 [[package]]
