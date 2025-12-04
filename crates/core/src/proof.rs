@@ -246,7 +246,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     // TODO get from rp_id -> oprf_key_id mapping?
     let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
     let share_epoch = ShareEpoch::new(args.share_epoch);
-    let query_hash = query_hash(args.inclusion_proof.account_id, args.rp_id, args.action);
+    let query_hash = query_hash(args.inclusion_proof.leaf_index, args.rp_id, args.action);
     let blinding_factor = BlindingFactor::rand(rng);
 
     let (oprf_request_auth, query_input) = oprf_request_auth(
@@ -355,7 +355,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         current_timestamp: args.current_timestamp.into(),
         merkle_root: *args.inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-        mt_index: args.inclusion_proof.account_id.into(),
+        mt_index: args.inclusion_proof.leaf_index.into(),
         siblings,
         beta: blinding_factor.beta(),
         rp_id: *FieldElement::from(args.rp_id),
@@ -383,10 +383,10 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
 
 /// Helper function to compute the query hash for a given account, RP ID, and action.
 #[must_use]
-pub fn query_hash(account_id: u64, rp_id: RpId, action: FieldElement) -> ark_babyjubjub::Fq {
+pub fn query_hash(leaf_index: u64, rp_id: RpId, action: FieldElement) -> ark_babyjubjub::Fq {
     let input = [
         ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
-        account_id.into(),
+        leaf_index.into(),
         *FieldElement::from(rp_id),
         *action,
     ];

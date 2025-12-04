@@ -95,7 +95,7 @@ pub struct OprfDevClientConfig {
     #[clap(
         long,
         env = "OPRF_DEV_CLIENT_ACCOUNT_REGISTRY_CONTRACT",
-        default_value = "0x466e4527497F8c1813391D54CCc7215945AE05dA"
+        default_value = "0xc38917F36cCB24b11dc908fe6ecCC22b1148F381"
     )]
     pub account_registry_contract: Address,
 
@@ -180,7 +180,7 @@ async fn fetch_oprf_public_key(
 fn create_and_sign_credential(
     issuer_pk: EdDSAPublicKey,
     issuer_sk: EdDSAPrivateKey,
-    account_id: u64,
+    leaf_index: u64,
 ) -> eyre::Result<Credential> {
     const ISSUER_SCHEMA_ID: u64 = 1;
     const EXPIRATION_TIME: u64 = 3600;
@@ -191,7 +191,7 @@ fn create_and_sign_credential(
         .as_secs();
 
     let mut credential = Credential::new()
-        .account_id(account_id)
+        .leaf_index(leaf_index)
         .issuer_schema_id(ISSUER_SCHEMA_ID)
         .genesis_issued_at(current_timestamp)
         .expires_at(current_timestamp + EXPIRATION_TIME);
@@ -218,9 +218,9 @@ async fn run_nullifier(
         issuer_pk,
         issuer_sk,
         authenticator
-            .account_id()
+            .leaf_index()
             .try_into()
-            .expect("user id fits into u64"),
+            .expect("leaf_index fits into u64"),
     )?;
 
     let action = ark_babyjubjub::Fq::rand(&mut rng);
@@ -279,9 +279,9 @@ fn prepare_nullifier_stress_test_oprf_request(
         issuer_pk,
         issuer_sk,
         authenticator
-            .account_id()
+            .leaf_index()
             .try_into()
-            .expect("user id fits into u64"),
+            .expect("leaf_index fits into u64"),
     )?;
 
     // TODO: convert rp_request to primitives types
@@ -321,7 +321,7 @@ fn prepare_nullifier_stress_test_oprf_request(
     };
 
     let query_hash =
-        world_id_core::proof::query_hash(args.inclusion_proof.account_id, args.rp_id, args.action);
+        world_id_core::proof::query_hash(args.inclusion_proof.leaf_index, args.rp_id, args.action);
     let blinding_factor = BlindingFactor::rand(&mut rng);
 
     let (oprf_request_auth, query_input) = world_id_core::proof::oprf_request_auth(
