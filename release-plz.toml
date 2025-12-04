@@ -1,6 +1,9 @@
 [workspace]
-# Automatically create GitHub releases
+# Automatically create GitHub releases for each package
+# This creates tags like: world-id-core-v0.1.4, world-id-primitives-v0.1.2
+# Services can have their own release process with tags like: indexer-v1.0.0
 git_release_enable = true
+git_release_type = "auto"
 # Don't update workspace-level changelog since we use per-crate changelogs
 changelog_update = false
 
