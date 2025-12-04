@@ -179,7 +179,7 @@ pub fn compute_challenges(
 /// # Errors
 ///
 /// Returns [`ProofError::InvalidDLogProof`] if the combined `DLogEquality` proof
-/// fails verification, or any [`Groth16Error`] if proof generation fails.
+/// fails verification, or any `Groth16Error` if proof generation fails.
 pub fn verify_challenges<R: Rng + CryptoRng>(
     nullifier_material: &CircomGroth16Material,
     challenges: Challenge,
