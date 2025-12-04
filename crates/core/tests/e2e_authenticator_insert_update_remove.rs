@@ -22,7 +22,7 @@ const GW_PORT: u16 = 4105;
 // Fork from mainnet to get Multicall3 at canonical address (required by gateway ops batcher)
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
 
-async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
+async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     loop {
         let resp = client
@@ -38,7 +38,7 @@ async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> St
         }
         let body: GatewayStatusResponse = resp.json().await.unwrap();
         match body.status {
-            GatewayRequestState::Finalized { tx_hash } => return tx_hash,
+            GatewayRequestState::Finalized { .. } => return,
             GatewayRequestState::Failed { error } => panic!("request failed: {error}"),
             _ => {
                 if std::time::Instant::now() > deadline {
