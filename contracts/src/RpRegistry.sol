@@ -41,7 +41,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         // the metadata file must be published in https://<unverifiedWellKnownDomain>/.well-known/world-id.json
         // examples: `world.org`, `example.world.org`
         // note this is unverified and it's every party responsibility to verify the domain through the well-known file.
-        bytes unverifiedWellKnownDomain;
+        string unverifiedWellKnownDomain;
     }
 
     // rpId -> RelyingParty, the main record for a relying party
@@ -55,8 +55,19 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     ////////////////////////////////////////////////////////////
 
     event RpRegistered(
-        uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, bytes unverifiedWellKnownDomain
+        uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, string unverifiedWellKnownDomain
     );
+
+    ////////////////////////////////////////////////////////////
+    //                        Constants                       //
+    ////////////////////////////////////////////////////////////
+
+    // sentinel value for no domain updates
+    string public constant NO_UPDATE = "__NO_UPDATE__";
+    bytes32 constant NO_UPDATE_HASH = keccak256(bytes(NO_UPDATE));
+
+    string public constant EIP712_NAME = "RpRegistry";
+    string public constant EIP712_VERSION = "1.0";
 
     ////////////////////////////////////////////////////////////
     //                        Errors                         //
@@ -93,6 +104,11 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @dev Thrown when the provided array lengths do not match.
      */
     error MismatchingArrayLengths();
+
+    /**
+     * @dev Thrown when the provided nonce does not match the expected nonce.
+     */
+    error InvalidNonce();
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -131,7 +147,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @param unverifiedWellKnownDomain The (unverified) well-known domain of the relying party.
      * TODO: At launch, only the owner can register a relying party.
      */
-    function register(uint64 rpId, address manager, address signer, bytes calldata unverifiedWellKnownDomain)
+    function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain)
         external
         onlyProxy
         onlyInitialized
@@ -152,7 +168,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         uint64[] calldata rpIds,
         address[] calldata managers,
         address[] calldata signers,
-        bytes[] calldata unverifiedWellKnownDomains
+        string[] calldata unverifiedWellKnownDomains
     ) external onlyProxy onlyInitialized onlyOwner {
         if (
             rpIds.length != managers.length || rpIds.length != signers.length
@@ -210,11 +226,63 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         return (_relyingParties[rpId].oprfKeyId, _relyingParties[rpId].signer);
     }
 
+    /**
+     * @dev Partially update a Relying Party record. Must be signed by the manager.
+     * @param rpId the id of the relying party to update
+     * @param manager the new manager of the relying party. set to zero address to maintain current manager.
+     * @param signer the new signer of the relying party. set to zero address to maintain current signer.
+     * @param toggleActive whether to toggle the active status of the relying party
+     * @param unverifiedWellKnownDomain the new unverified well-known domain of the relying party. set to sentinel value to skip update.
+     * @param signature the signature of the manager
+     * @param nonce the nonce used for this operation
+     */
+    function updateRp(
+        uint64 rpId,
+        address manager,
+        address signer,
+        bool toggleActive,
+        string calldata unverifiedWellKnownDomain,
+        bytes calldata signature,
+        uint256 nonce
+    ) external {
+        if (!_relyingParties[rpId].initialized) {
+            revert RpIdDoesNotExist();
+        }
+
+        if (!_relyingParties[rpId].active) {
+            revert RpIdInactive();
+        }
+
+        if (nonce != _rpIdToSignatureNonce[rpId]) {
+            revert InvalidNonce();
+        }
+
+        // FIXME: sig validation
+
+        if (manager != address(0)) {
+            _relyingParties[rpId].manager = manager;
+        }
+
+        if (signer != address(0)) {
+            _relyingParties[rpId].signer = signer;
+        }
+
+        if (keccak256(bytes(unverifiedWellKnownDomain)) != NO_UPDATE_HASH) {
+            _relyingParties[rpId].unverifiedWellKnownDomain = unverifiedWellKnownDomain;
+        }
+
+        if (toggleActive) {
+            _relyingParties[rpId].active = !_relyingParties[rpId].active;
+        }
+
+        _rpIdToSignatureNonce[rpId]++;
+    }
+
     ////////////////////////////////////////////////////////////
     //                  Internal Functions                    //
     ////////////////////////////////////////////////////////////
 
-    function _register(uint64 rpId, address manager, address signer, bytes memory unverifiedWellKnownDomain) internal {
+    function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
         if (_relyingParties[rpId].initialized) {
             revert RpIdAlreadyInUse(rpId);
         }
