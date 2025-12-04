@@ -69,7 +69,7 @@ rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
 
 [features]
-default = ["authenticator", "embed-zkeys", "issuer"]
+default = ["authenticator", "embed-zkeys"]
 
 authenticator = [
     "alloy/contract",
