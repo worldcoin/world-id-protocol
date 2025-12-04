@@ -109,13 +109,13 @@ impl RegistryTestContext {
 /// Helper for building a minimal credential used in tests.
 pub fn build_base_credential(
     issuer_schema_id: u64,
-    leaf_index: u64,
+    sub: u64,
     genesis_issued_at: u64,
     expires_at: u64,
 ) -> Credential {
     Credential::new()
         .issuer_schema_id(issuer_schema_id)
-        .leaf_index(leaf_index)
+        .sub(sub)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at)
 }
