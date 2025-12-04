@@ -7,8 +7,15 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract RpRegistry is
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    ReentrancyGuardUpgradeable
+{
     modifier onlyInitialized() {
         _onlyInitialized();
         _;
@@ -162,6 +169,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
+        __ReentrancyGuard_init();
 
         _feeRecipient = feeRecipient;
         _registrationFee = registrationFee;
@@ -190,6 +198,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         payable
         onlyProxy
         onlyInitialized
+        nonReentrant
     {
         if (msg.value < _registrationFee) revert InsufficientFunds();
         _register(rpId, manager, signer, unverifiedWellKnownDomain);
@@ -207,7 +216,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         address[] calldata managers,
         address[] calldata signers,
         string[] calldata unverifiedWellKnownDomains
-    ) external payable onlyProxy onlyInitialized {
+    ) external payable onlyProxy onlyInitialized nonReentrant {
         if (
             rpIds.length != managers.length || rpIds.length != signers.length
                 || rpIds.length != unverifiedWellKnownDomains.length
@@ -343,17 +352,14 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     ////////////////////////////////////////////////////////////
 
     function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
+        // Checks
         if (_relyingParties[rpId].initialized) revert RpIdAlreadyInUse(rpId);
 
         if (manager == address(0)) revert ManagerCannotBeZeroAddress();
 
         if (signer == address(0)) revert SignerCannotBeZeroAddress();
 
-        if (_registrationFee > 0) {
-            (bool ok,) = _feeRecipient.call{value: _registrationFee}("");
-            if (!ok) revert PaymentFailure();
-        }
-
+        // update state before external calls to prevent reentrancy
         RelyingParty memory rp = RelyingParty({
             initialized: true,
             active: true,
@@ -366,6 +372,12 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         _relyingParties[rpId] = rp;
 
         emit RpRegistered(rpId, 0, manager, unverifiedWellKnownDomain);
+
+        // Interactions - external calls last
+        if (_registrationFee > 0) {
+            (bool ok,) = _feeRecipient.call{value: _registrationFee}("");
+            if (!ok) revert PaymentFailure();
+        }
     }
 
     ////////////////////////////////////////////////////////////

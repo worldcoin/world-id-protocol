@@ -694,4 +694,77 @@ contract RpRegistryTest is Test {
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
         registry.registerMany{value: fee * 3 - 1}(rpIds, managers, signers, domains);
     }
+
+    // Reentrancy Protection Tests
+
+    function testReentrancyAttackPrevented() public {
+        uint256 fee = 0.1 ether;
+
+        // Deploy a new registry with a malicious fee recipient
+        RpRegistry implementation = new RpRegistry();
+        MaliciousFeeRecipient malicious = new MaliciousFeeRecipient(address(0), manager1, signer1);
+
+        bytes memory initData = abi.encodeWithSelector(RpRegistry.initialize.selector, address(malicious), fee);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        RpRegistry testRegistry = RpRegistry(address(proxy));
+
+        // Update the malicious contract to point to the correct registry
+        malicious = new MaliciousFeeRecipient(address(testRegistry), manager1, signer1);
+
+        // Update fee recipient to the malicious contract
+        testRegistry.setFeeRecipient(address(malicious));
+
+        uint256 maliciousBalanceBefore = address(malicious).balance;
+
+        // Fund the test contract
+        vm.deal(address(this), 10 ether);
+
+        // Attempt to register - the malicious contract will try to reenter
+        testRegistry.register{value: fee}(1, manager1, signer1, "first.world.org");
+
+        // Verify that only ONE fee was transferred (not multiple due to reentrancy)
+        assertEq(address(malicious).balance, maliciousBalanceBefore + fee);
+
+        // Verify that the malicious contract was called (attempted reentrancy)
+        assertGt(malicious.callCount(), 0);
+
+        // Verify that only the first RP was registered (reentrancy attempts failed)
+        // The first RP should exist
+        RpRegistry.RelyingParty memory rp1 = testRegistry.getRp(1);
+        assertEq(rp1.manager, manager1);
+
+        // The attempted reentrant registrations should have failed
+        // callCount 1 would try to register rpId 101, callCount 2 would try 102
+        vm.expectRevert();
+        testRegistry.getRp(101);
+
+        vm.expectRevert();
+        testRegistry.getRp(102);
+    }
+}
+
+/**
+ * @dev Malicious contract that attempts reentrancy attack during fee payment
+ */
+contract MaliciousFeeRecipient {
+    RpRegistry public registry;
+    uint256 public callCount;
+    uint256 public maxCalls = 3;
+    address public manager;
+    address public signer;
+
+    constructor(address _registry, address _manager, address _signer) {
+        registry = RpRegistry(payable(_registry));
+        manager = _manager;
+        signer = _signer;
+    }
+
+    receive() external payable {
+        callCount++;
+        if (callCount < maxCalls) {
+            // Attempt to register another RP with the same fee
+            try registry.register{value: msg.value}(uint64(callCount + 100), manager, signer, "malicious.world.org") {}
+                catch {}
+        }
+    }
 }
