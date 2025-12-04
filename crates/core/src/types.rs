@@ -12,34 +12,8 @@ use strum::EnumString;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 pub use world_id_primitives::merkle::AccountInclusionProof;
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use world_id_primitives::FieldElement;
-
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use alloy::signers::k256::ecdsa::Signature;
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use oprf_types::crypto::RpNullifierKey;
-
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
-
-/// The request to register an action for an RP.
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-#[derive(Serialize, Deserialize)]
-pub struct RpRequest {
-    /// The ID of the RP.
-    pub rp_id: String,
-    /// The nullifier key of the RP.
-    pub rp_nullifier_key: RpNullifierKey,
-    /// The signature of the RP.
-    pub signature: Signature,
-    /// The current timestamp.
-    pub current_time_stamp: u64,
-    /// The action ID.
-    pub action_id: FieldElement,
-    /// The nonce.
-    pub nonce: FieldElement,
-}
 
 /// The request to create a new World ID account.
 #[cfg(feature = "authenticator")]

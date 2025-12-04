@@ -8,11 +8,12 @@ use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::account_registry::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
+use crate::requests::ProofRequest;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
     IndexerSignatureNonceRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
-    RemoveAuthenticatorRequest, RpRequest, ServiceApiError, UpdateAuthenticatorRequest,
+    RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
@@ -382,6 +383,8 @@ impl Authenticator {
 
     /// Generates a World ID Uniqueness Proof given a provided context.
     ///
+    /// TODO: `ProofRequest` can include multiple proof requests, right now only one is used from the `Credential`.
+    ///
     /// # Errors
     /// - Will error if the any of the provided parameters are not valid.
     /// - Will error if any of the required network requests fail.
@@ -390,7 +393,7 @@ impl Authenticator {
     pub async fn generate_proof(
         &self,
         message_hash: FieldElement,
-        rp_request: RpRequest,
+        proof_request: ProofRequest,
         credential: Credential,
     ) -> Result<UniquenessProof, AuthenticatorError> {
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
@@ -403,30 +406,19 @@ impl Authenticator {
         let query_material = crate::proof::load_embedded_query_material();
         let nullifier_material = crate::proof::load_embedded_nullifier_material();
 
-        // TODO: convert rp_request to primitives types
-        let primitives_rp_id =
-            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
-                PrimitiveError::InvalidInput {
-                    attribute: "RP ID".to_string(),
-                    reason: format!("invalid RP ID: {e}"),
-                }
-            })?);
-        let primitives_rp_nullifier_key =
-            world_id_primitives::rp::RpNullifierKey::new(rp_request.rp_nullifier_key.inner());
-
         let args = SingleProofInput::<TREE_DEPTH> {
             credential,
             inclusion_proof,
             key_set,
             key_index,
             rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
-            rp_id: primitives_rp_id,
+            rp_id: proof_request.rp_id,
             share_epoch: ShareEpoch::default().into_inner(), // TODO
-            action: rp_request.action_id,
-            nonce: rp_request.nonce,
-            current_timestamp: rp_request.current_time_stamp, // TODO
-            rp_signature: rp_request.signature,
-            rp_nullifier_key: primitives_rp_nullifier_key,
+            action: proof_request.hashed_action(),
+            nonce: proof_request.nonce,
+            current_timestamp: proof_request.created_at,
+            rp_signature: proof_request.signature,
+            rp_nullifier_key: proof_request.rp_nullifier_key,
             signal_hash: message_hash,
         };
 

@@ -9,7 +9,6 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use time::OffsetDateTime;
 use world_id_primitives::rp::{RpId, RpNullifierKey};
 use world_id_primitives::{FieldElement, WorldIdProof};
 
@@ -77,15 +76,10 @@ pub struct ProofRequest {
     pub id: String,
     /// Version of the request
     pub version: RequestVersion,
-    /// ISO8601 timestamp when created
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        with = "time::serde::rfc3339::option"
-    )]
-    pub created_at: Option<OffsetDateTime>,
-    /// ISO8601 timestamp when request expires
-    #[serde(with = "time::serde::rfc3339")]
-    pub expires_at: OffsetDateTime,
+    /// Unix timestamp (seconds since epoch) when the request was created
+    pub created_at: u64,
+    /// Unix timestamp (seconds since epoch) when request expires
+    pub expires_at: u64,
     /// Registered RP id
     pub rp_id: RpId,
     /// The raw representation of the action. This is normally a string but bytes is used to support
@@ -94,15 +88,12 @@ pub struct ProofRequest {
     /// Encoded as base64 when serialized to JSON.
     #[serde(with = "base64_serde")]
     pub action: Vec<u8>,
-    /// The nullifier key of the RP (optional for backwards compatibility)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rp_nullifier_key: Option<RpNullifierKey>,
-    /// The RP's ECDSA signature over the request (optional for backwards compatibility)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<k256::ecdsa::Signature>,
-    /// Unique nonce for this request (optional for backwards compatibility)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<FieldElement>,
+    /// The nullifier key of the RP
+    pub rp_nullifier_key: RpNullifierKey,
+    /// The RP's ECDSA signature over the request
+    pub signature: k256::ecdsa::Signature,
+    /// Unique nonce for this request (serialized as hex string)
+    pub nonce: FieldElement,
     /// Specific credential requests. This defines which credentials to ask for.
     #[serde(rename = "proof_requests")]
     pub requests: Vec<RequestItem>,
@@ -116,7 +107,8 @@ pub struct ProofRequest {
 #[serde(deny_unknown_fields)]
 pub struct RequestItem {
     /// The specific credential being requested as registered in the `CredentialIssuerSchemaRegistry`.
-    pub issuer_schema_id: String,
+    /// Serialized as hex string in JSON.
+    pub issuer_schema_id: FieldElement,
     /// Optional signal (TODO: improve documentation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
@@ -140,8 +132,8 @@ pub struct ProofResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
-    /// Issuer schema id string this item refers to
-    pub issuer_schema_id: String,
+    /// Issuer schema id this item refers to (serialized as hex string)
+    pub issuer_schema_id: FieldElement,
     /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<WorldIdProof>,
@@ -164,11 +156,11 @@ impl ProofResponse {
     /// Determine if constraints are satisfied given a constraint expression.
     #[must_use]
     pub fn constraints_satisfied(&self, constraints: &ConstraintExpr<'_>) -> bool {
-        let provided: HashSet<&str> = self
+        let provided: HashSet<String> = self
             .responses
             .iter()
             .filter(|item| item.error.is_none())
-            .map(|item| item.issuer_schema_id.as_str())
+            .map(|item| item.issuer_schema_id.to_string())
             .collect();
         constraints.evaluate(&|t| provided.contains(t))
     }
@@ -183,12 +175,12 @@ impl ProofRequest {
     /// Panics if constraints are present but invalid according to the type invariants
     /// (this should not occur as constraints are provided by trusted request issuer).
     #[must_use]
-    pub fn credentials_to_prove(&self, available: &HashSet<&str>) -> Option<Vec<&RequestItem>> {
+    pub fn credentials_to_prove(&self, available: &HashSet<String>) -> Option<Vec<&RequestItem>> {
         // Build set of requested types
-        let requested: std::collections::HashSet<&str> = self
+        let requested: std::collections::HashSet<String> = self
             .requests
             .iter()
-            .map(|r| r.issuer_schema_id.as_str())
+            .map(|r| r.issuer_schema_id.to_string())
             .collect();
 
         // Predicate: only select if both available and requested
@@ -201,7 +193,7 @@ impl ProofRequest {
             return if self
                 .requests
                 .iter()
-                .all(|r| available.contains(r.issuer_schema_id.as_str()))
+                .all(|r| available.contains(&r.issuer_schema_id.to_string()))
             {
                 Some(self.requests.iter().collect())
             } else {
@@ -217,14 +209,99 @@ impl ProofRequest {
         let result: Vec<&RequestItem> = self
             .requests
             .iter()
-            .filter(|r| selected_set.contains(r.issuer_schema_id.as_str()))
+            .filter(|r| selected_set.contains(r.issuer_schema_id.to_string().as_str()))
             .collect();
         Some(result)
     }
-    /// Returns true if the request is expired relative to now
+    /// Returns true if the request is expired relative to now (unix timestamp in seconds)
     #[must_use]
-    pub fn is_expired(&self, now: OffsetDateTime) -> bool {
+    pub const fn is_expired(&self, now: u64) -> bool {
         now > self.expires_at
+    }
+
+    /// Compute the digest hash of this request that should be signed by the RP.
+    ///
+    /// This hash includes all critical fields of the request to ensure integrity.
+    /// The signature field in the request should be the RP's ECDSA signature over this digest.
+    ///
+    /// # Returns
+    /// A 32-byte hash that represents this request and should be signed by the RP.
+    ///
+    /// # Panics
+    /// Panics if `FieldElement` serialization fails (which should never occur in practice).
+    #[must_use]
+    pub fn digest_hash(&self) -> [u8; 32] {
+        use k256::sha2::{Digest, Sha256};
+
+        let mut hasher = Sha256::new();
+
+        // Include request ID
+        hasher.update(self.id.as_bytes());
+
+        // Include version
+        hasher.update([self.version as u8]);
+
+        // Include timestamps
+        hasher.update(self.created_at.to_be_bytes());
+        hasher.update(self.expires_at.to_be_bytes());
+
+        // Include RP ID
+        hasher.update(self.rp_id.into_inner().to_be_bytes());
+
+        // Include action
+        hasher.update(&self.action);
+
+        // Include nonce by serializing it
+        let mut nonce_bytes = Vec::new();
+        self.nonce
+            .serialize_as_bytes(&mut nonce_bytes)
+            .expect("FieldElement serialization should not fail");
+        hasher.update(&nonce_bytes);
+
+        // Include proof requests (issuer schema IDs)
+        for req in &self.requests {
+            let mut req_bytes = Vec::new();
+            req.issuer_schema_id
+                .serialize_as_bytes(&mut req_bytes)
+                .expect("FieldElement serialization should not fail");
+            hasher.update(&req_bytes);
+            if let Some(signal) = &req.signal {
+                hasher.update(signal.as_bytes());
+            }
+        }
+
+        hasher.finalize().into()
+    }
+
+    /// Hash the action bytes to a field element using Poseidon2
+    ///
+    /// Chunks the action into 31-byte chunks and hashes them using Poseidon2.
+    #[must_use]
+    pub fn hashed_action(&self) -> FieldElement {
+        use poseidon2::Poseidon2;
+
+        if self.action.is_empty() {
+            return FieldElement::default();
+        }
+
+        // For simplicity, use a fixed-size permutation
+        // Pad with zeros if action is short
+        let hasher = Poseidon2::<_, 16, 5>::default();
+        let mut input = [*FieldElement::ZERO; 16];
+
+        // Convert bytes to field elements (max 31 bytes per field element to stay in range)
+        for (idx, chunk) in self.action.chunks(31).enumerate() {
+            if idx >= 15 {
+                // Leave space for output
+                break;
+            }
+            let mut bytes = [0u8; 32];
+            bytes[..chunk.len()].copy_from_slice(chunk);
+            input[idx] = *FieldElement::from_be_bytes_mod_order(&bytes);
+        }
+
+        hasher.permutation_in_place(&mut input);
+        input[1].into()
     }
 
     /// Validate that a response satisfies this request: id match and constraints semantics.
@@ -243,20 +320,20 @@ impl ProofRequest {
         }
 
         // Build set of successful credentials
-        let provided: HashSet<&str> = response
+        let provided: HashSet<String> = response
             .responses
             .iter()
             .filter(|r| r.error.is_none())
-            .map(|r| r.issuer_schema_id.as_str())
+            .map(|r| r.issuer_schema_id.to_string())
             .collect();
 
         match &self.constraints {
             // None => all requested credential (via issuer_schema_id) are required
             None => {
                 for req in &self.requests {
-                    if !provided.contains(req.issuer_schema_id.as_str()) {
+                    if !provided.contains(&req.issuer_schema_id.to_string()) {
                         return Err(ValidationError::MissingCredential(
-                            req.issuer_schema_id.clone(),
+                            req.issuer_schema_id.to_string(),
                         ));
                     }
                 }
@@ -285,13 +362,12 @@ impl ProofRequest {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let v: Self = serde_json::from_str(json)?;
         // Enforce unique issuer schema ids within a single request
-        let mut seen: HashSet<&str> = HashSet::new();
+        let mut seen: HashSet<String> = HashSet::new();
         for r in &v.requests {
-            let t = r.issuer_schema_id.as_str();
-            if !seen.insert(t) {
+            let t = r.issuer_schema_id.to_string();
+            if !seen.insert(t.clone()) {
                 return Err(serde_json::Error::custom(format!(
-                    "duplicate issuer schema id: {}",
-                    r.issuer_schema_id
+                    "duplicate issuer schema id: {t}"
                 )));
             }
         }
@@ -334,11 +410,11 @@ impl ProofResponse {
 
     /// Return the list of successful issuer schema ids (no error)
     #[must_use]
-    pub fn successful_credentials(&self) -> Vec<&str> {
+    pub fn successful_credentials(&self) -> Vec<String> {
         self.responses
             .iter()
             .filter(|r| r.error.is_none())
-            .map(|r| r.issuer_schema_id.as_str())
+            .map(|r| r.issuer_schema_id.to_string())
             .collect()
     }
 }
@@ -402,31 +478,56 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use time::macros::datetime;
+    use k256::ecdsa::{signature::Signer, SigningKey};
+
+    // Test helpers
+    fn test_signature() -> k256::ecdsa::Signature {
+        let signing_key = SigningKey::from_bytes(&[1u8; 32].into()).unwrap();
+        signing_key.sign(b"test")
+    }
+
+    fn test_rp_nullifier_key() -> RpNullifierKey {
+        // Create a dummy point for testing
+        use ark_ec::AffineRepr;
+        RpNullifierKey::new(ark_babyjubjub::EdwardsAffine::generator())
+    }
+
+    fn test_nonce() -> FieldElement {
+        FieldElement::from(1u64)
+    }
+
+    fn test_field_element(n: u64) -> FieldElement {
+        FieldElement::from(n)
+    }
 
     #[test]
     fn constraints_all_any_nested() {
         // Build a response that has orb and passport successful, gov-id missing
+        let id1 = test_field_element(1);
+        let id2 = test_field_element(2);
+        let id3 = test_field_element(3);
+        let id4 = test_field_element(4);
+
         let response = ProofResponse {
             id: "req_123".into(),
             version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
-                    issuer_schema_id: "orb".into(),
+                    issuer_schema_id: id1,
                     proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "passport".into(),
+                    issuer_schema_id: id2,
                     proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_2".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "gov-id".into(),
+                    issuer_schema_id: id3,
                     proof: None,
                     nullifier: None,
                     session_id: None,
@@ -435,14 +536,14 @@ mod tests {
             ],
         };
 
-        // all: ["orb", any: ["passport", "national-id"]]
+        // all: [id1, any: [id2, id4]]
         let expr = ConstraintExpr::All {
             all: vec![
-                ConstraintNode::Type("orb".into()),
+                ConstraintNode::Type(id1.to_string().into()),
                 ConstraintNode::Expr(ConstraintExpr::Any {
                     any: vec![
-                        ConstraintNode::Type("passport".into()),
-                        ConstraintNode::Type("national-id".into()),
+                        ConstraintNode::Type(id2.to_string().into()),
+                        ConstraintNode::Type(id4.to_string().into()),
                     ],
                 }),
             ],
@@ -450,14 +551,71 @@ mod tests {
 
         assert!(response.constraints_satisfied(&expr));
 
-        // all: ["orb", "gov-id"] should fail due to gov-id error
+        // all: [id1, id3] should fail due to id3 error
         let fail_expr = ConstraintExpr::All {
             all: vec![
-                ConstraintNode::Type("orb".into()),
-                ConstraintNode::Type("gov-id".into()),
+                ConstraintNode::Type(id1.to_string().into()),
+                ConstraintNode::Type(id3.to_string().into()),
             ],
         };
         assert!(!response.constraints_satisfied(&fail_expr));
+    }
+
+    #[test]
+    fn test_hashed_action() {
+        let request = ProofRequest {
+            id: "test".into(),
+            version: RequestVersion::V1,
+            created_at: 1000,
+            expires_at: 1000,
+            rp_id: RpId::from(1u128),
+            action: b"test_action".to_vec(),
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![],
+            constraints: None,
+        };
+
+        let hashed = request.hashed_action();
+        // Just verify it doesn't panic and returns a value
+        assert!(hashed != FieldElement::default() || request.action.is_empty());
+    }
+
+    #[test]
+    fn test_digest_hash() {
+        let request = ProofRequest {
+            id: "test_request".into(),
+            version: RequestVersion::V1,
+            created_at: 1_700_000_000,
+            expires_at: 1_700_100_000,
+            rp_id: RpId::from(1u128),
+            action: b"test_action".to_vec(),
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                issuer_schema_id: test_field_element(1),
+                signal: Some("test_signal".into()),
+            }],
+            constraints: None,
+        };
+
+        let digest1 = request.digest_hash();
+        // Verify it returns a 32-byte hash
+        assert_eq!(digest1.len(), 32);
+
+        // Verify deterministic: same request produces same hash
+        let digest2 = request.digest_hash();
+        assert_eq!(digest1, digest2);
+
+        // Verify different requests produce different hashes
+        let request2 = ProofRequest {
+            id: "different_id".into(),
+            ..request
+        };
+        let digest3 = request2.digest_hash();
+        assert_ne!(digest1, digest3);
     }
 
     #[test]
@@ -465,20 +623,20 @@ mod tests {
         let request = ProofRequest {
             id: "req_1".into(),
             version: RequestVersion::V1,
-            created_at: None,
-            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600, // 2025-01-01
             rp_id: RpId::from(1u128),
             action: b"act_...".to_vec(),
-            rp_nullifier_key: None,
-            signature: None,
-            nonce: None,
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
             requests: vec![
                 RequestItem {
-                    issuer_schema_id: "orb".into(),
+                    issuer_schema_id: test_field_element(1),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "passport".into(),
+                    issuer_schema_id: test_field_element(2),
                     signal: None,
                 },
             ],
@@ -490,14 +648,14 @@ mod tests {
             version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
-                    issuer_schema_id: "orb".into(),
+                    issuer_schema_id: test_field_element(1),
                     proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "passport".into(),
+                    issuer_schema_id: test_field_element(2),
                     proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
@@ -511,7 +669,7 @@ mod tests {
             id: "req_1".into(),
             version: RequestVersion::V1,
             responses: vec![ResponseItem {
-                issuer_schema_id: "orb".into(),
+                issuer_schema_id: test_field_element(1),
                 proof: Some(WorldIdProof::default()),
                 nullifier: None,
                 session_id: None,
@@ -536,15 +694,15 @@ mod tests {
         let request = ProofRequest {
             id: "req_2".into(),
             version: RequestVersion::V1,
-            created_at: None,
-            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600,
             rp_id: RpId::from(1u128),
             action: b"act_...".to_vec(),
-            rp_nullifier_key: None,
-            signature: None,
-            nonce: None,
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
             requests: vec![RequestItem {
-                issuer_schema_id: "orb".into(),
+                issuer_schema_id: test_field_element(1),
                 signal: None,
             }],
             constraints: Some(deep),
@@ -554,7 +712,7 @@ mod tests {
             id: "req_2".into(),
             version: RequestVersion::V1,
             responses: vec![ResponseItem {
-                issuer_schema_id: "orb".into(),
+                issuer_schema_id: test_field_element(1),
                 proof: Some(WorldIdProof::default()),
                 nullifier: None,
                 session_id: None,
@@ -567,26 +725,37 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn constraint_node_limit_boundary_passes() {
         // Root All with: 1 Type + Any(4) + Any(4)
         // Node count = root(1) + type(1) + any(1+4) + any(1+4) = 12
+        let id10 = test_field_element(10);
+        let id11 = test_field_element(11);
+        let id12 = test_field_element(12);
+        let id13 = test_field_element(13);
+        let id14 = test_field_element(14);
+        let id15 = test_field_element(15);
+        let id16 = test_field_element(16);
+        let id17 = test_field_element(17);
+        let id18 = test_field_element(18);
+
         let expr = ConstraintExpr::All {
             all: vec![
-                ConstraintNode::Type("t0".into()),
+                ConstraintNode::Type(id10.to_string().into()),
                 ConstraintNode::Expr(ConstraintExpr::Any {
                     any: vec![
-                        ConstraintNode::Type("t1".into()),
-                        ConstraintNode::Type("t2".into()),
-                        ConstraintNode::Type("t3".into()),
-                        ConstraintNode::Type("t4".into()),
+                        ConstraintNode::Type(id11.to_string().into()),
+                        ConstraintNode::Type(id12.to_string().into()),
+                        ConstraintNode::Type(id13.to_string().into()),
+                        ConstraintNode::Type(id14.to_string().into()),
                     ],
                 }),
                 ConstraintNode::Expr(ConstraintExpr::Any {
                     any: vec![
-                        ConstraintNode::Type("t5".into()),
-                        ConstraintNode::Type("t6".into()),
-                        ConstraintNode::Type("t7".into()),
-                        ConstraintNode::Type("t8".into()),
+                        ConstraintNode::Type(id15.to_string().into()),
+                        ConstraintNode::Type(id16.to_string().into()),
+                        ConstraintNode::Type(id17.to_string().into()),
+                        ConstraintNode::Type(id18.to_string().into()),
                     ],
                 }),
             ],
@@ -595,48 +764,48 @@ mod tests {
         let request = ProofRequest {
             id: "req_nodes_ok".into(),
             version: RequestVersion::V1,
-            created_at: None,
-            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600,
             rp_id: RpId::from(1u128),
             action: b"act".to_vec(),
-            rp_nullifier_key: None,
-            signature: None,
-            nonce: None,
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
             requests: vec![
                 RequestItem {
-                    issuer_schema_id: "t0".into(),
+                    issuer_schema_id: id10,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t1".into(),
+                    issuer_schema_id: id11,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t2".into(),
+                    issuer_schema_id: id12,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t3".into(),
+                    issuer_schema_id: id13,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t4".into(),
+                    issuer_schema_id: id14,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t5".into(),
+                    issuer_schema_id: id15,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t6".into(),
+                    issuer_schema_id: id16,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t7".into(),
+                    issuer_schema_id: id17,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t8".into(),
+                    issuer_schema_id: id18,
                     signal: None,
                 },
             ],
@@ -649,21 +818,21 @@ mod tests {
             version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
-                    issuer_schema_id: "t0".into(),
+                    issuer_schema_id: id10,
                     proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "t1".into(),
+                    issuer_schema_id: id11,
                     proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "t5".into(),
+                    issuer_schema_id: id15,
                     proof: Some(WorldIdProof::default()),
                     nullifier: None,
                     session_id: None,
@@ -706,52 +875,52 @@ mod tests {
         let request = ProofRequest {
             id: "req_nodes_too_many".into(),
             version: RequestVersion::V1,
-            created_at: None,
-            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600,
             rp_id: RpId::from(1u128),
             action: b"act".to_vec(),
-            rp_nullifier_key: None,
-            signature: None,
-            nonce: None,
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
             requests: vec![
                 RequestItem {
-                    issuer_schema_id: "t0".into(),
+                    issuer_schema_id: test_field_element(20),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t1".into(),
+                    issuer_schema_id: test_field_element(21),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t2".into(),
+                    issuer_schema_id: test_field_element(22),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t3".into(),
+                    issuer_schema_id: test_field_element(23),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t4".into(),
+                    issuer_schema_id: test_field_element(24),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t5".into(),
+                    issuer_schema_id: test_field_element(25),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t6".into(),
+                    issuer_schema_id: test_field_element(26),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t7".into(),
+                    issuer_schema_id: test_field_element(27),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t8".into(),
+                    issuer_schema_id: test_field_element(28),
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "t9".into(),
+                    issuer_schema_id: test_field_element(29),
                     signal: None,
                 },
             ],
@@ -763,7 +932,7 @@ mod tests {
             id: "req_nodes_too_many".into(),
             version: RequestVersion::V1,
             responses: vec![ResponseItem {
-                issuer_schema_id: "t0".into(),
+                issuer_schema_id: test_field_element(20),
                 proof: Some(WorldIdProof::default()),
                 nullifier: None,
                 session_id: None,
@@ -777,29 +946,32 @@ mod tests {
 
     #[test]
     fn request_single_credential_parse_and_validate() {
-        let json = r#"{
-  "id": "req_18c0f7f03e7d",
-  "version": 1,
-  "created_at": "2025-09-03T17:33:12Z",
-  "expires_at": "2025-09-03T17:38:12Z",
-  "rp_id": "rp_00000000000000000000000000000001",
-  "action": "YWN0XzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDE=",
-  "proof_requests": [
-    { "issuer_schema_id": "0x1", "signal": "abcd-efgh-ijkl" }
-  ]
-}"#;
+        let req = ProofRequest {
+            id: "req_18c0f7f03e7d".into(),
+            version: RequestVersion::V1,
+            created_at: 1_725_381_192,
+            expires_at: 1_725_381_492,
+            rp_id: RpId::from(1u128),
+            action: b"test_action".to_vec(),
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                issuer_schema_id: test_field_element(1),
+                signal: Some("abcd-efgh-ijkl".into()),
+            }],
+            constraints: None,
+        };
 
-        let req = ProofRequest::from_json(json).unwrap();
         assert_eq!(req.id, "req_18c0f7f03e7d");
         assert_eq!(req.requests.len(), 1);
-        assert_eq!(req.requests[0].issuer_schema_id, "0x1");
 
         // Build matching successful response
         let resp = ProofResponse {
             id: req.id.clone(),
             version: RequestVersion::V1,
             responses: vec![ResponseItem {
-                issuer_schema_id: "0x1".into(),
+                issuer_schema_id: test_field_element(1),
                 proof: Some(WorldIdProof::default()),
                 nullifier: Some("nil_1".into()),
                 session_id: None,
@@ -811,21 +983,33 @@ mod tests {
 
     #[test]
     fn request_multiple_credentials_all_constraint_and_failure() {
-        let json = r#"{
-  "id": "req_18c0f7f03e7d",
-  "version": 1,
-  "created_at": "2025-09-03T17:33:12Z",
-  "expires_at": "2025-09-03T17:38:12Z",
-  "rp_id": "rp_00000000000000000000000000000001",
-  "action": "YWN0XzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDE=",
-  "proof_requests": [
-    { "issuer_schema_id": "0x1", "signal": "abcd-efgh-ijkl" },
-    { "issuer_schema_id": "0x2", "signal": "abcd-efgh-ijkl" }
-  ],
-  "constraints": { "all": ["0x1", "0x2"] }
-}"#;
-
-        let req = ProofRequest::from_json(json).unwrap();
+        let req = ProofRequest {
+            id: "req_18c0f7f03e7d".into(),
+            version: RequestVersion::V1,
+            created_at: 1_725_381_192,
+            expires_at: 1_725_381_492,
+            rp_id: RpId::from(1u128),
+            action: b"test_action".to_vec(),
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![
+                RequestItem {
+                    issuer_schema_id: test_field_element(1),
+                    signal: Some("abcd-efgh-ijkl".into()),
+                },
+                RequestItem {
+                    issuer_schema_id: test_field_element(2),
+                    signal: Some("abcd-efgh-ijkl".into()),
+                },
+            ],
+            constraints: Some(ConstraintExpr::All {
+                all: vec![
+                    ConstraintNode::Type(test_field_element(1).to_string().into()),
+                    ConstraintNode::Type(test_field_element(2).to_string().into()),
+                ],
+            }),
+        };
 
         // Build response that fails constraints (0x1 error)
         let resp = ProofResponse {
@@ -833,14 +1017,14 @@ mod tests {
             version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
-                    issuer_schema_id: "0x2".into(),
+                    issuer_schema_id: test_field_element(2),
                     proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "0x1".into(),
+                    issuer_schema_id: test_field_element(1),
                     proof: None,
                     nullifier: None,
                     session_id: None,
@@ -855,27 +1039,42 @@ mod tests {
 
     #[test]
     fn request_more_complex_constraints_nested_success() {
-        let json = r#"{
-  "id": "req_18c0f7f03e7d",
-  "version": 1,
-  "created_at": "2025-09-03T17:33:12Z",
-  "expires_at": "2025-09-03T17:38:12Z",
-  "rp_id": "rp_00000000000000000000000000000001",
-  "action": "YWN0XzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDE=",
-  "proof_requests": [
-    { "issuer_schema_id": "0x1", "signal": "abcd-efgh-ijkl" },
-    { "issuer_schema_id": "0x2", "signal": "mnop-qrst-uvwx" },
-    { "issuer_schema_id": "0x3", "signal": "abcd-efgh-ijkl" }
-  ],
-  "constraints": {
-    "all": [
-      "0x3",
-      { "any": ["0x1", "0x2"] }
-    ]
-  }
-}"#;
-
-        let req = ProofRequest::from_json(json).unwrap();
+        let req = ProofRequest {
+            id: "req_18c0f7f03e7d".into(),
+            version: RequestVersion::V1,
+            created_at: 1_725_381_192,
+            expires_at: 1_725_381_492,
+            rp_id: RpId::from(1u128),
+            action: b"test_action".to_vec(),
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![
+                RequestItem {
+                    issuer_schema_id: test_field_element(1),
+                    signal: Some("abcd-efgh-ijkl".into()),
+                },
+                RequestItem {
+                    issuer_schema_id: test_field_element(2),
+                    signal: Some("mnop-qrst-uvwx".into()),
+                },
+                RequestItem {
+                    issuer_schema_id: test_field_element(3),
+                    signal: Some("abcd-efgh-ijkl".into()),
+                },
+            ],
+            constraints: Some(ConstraintExpr::All {
+                all: vec![
+                    ConstraintNode::Type(test_field_element(3).to_string().into()),
+                    ConstraintNode::Expr(ConstraintExpr::Any {
+                        any: vec![
+                            ConstraintNode::Type(test_field_element(1).to_string().into()),
+                            ConstraintNode::Type(test_field_element(2).to_string().into()),
+                        ],
+                    }),
+                ],
+            }),
+        };
 
         // Satisfy nested any with 0x1 + 0x3
         let resp = ProofResponse {
@@ -883,14 +1082,14 @@ mod tests {
             version: RequestVersion::V1,
             responses: vec![
                 ResponseItem {
-                    issuer_schema_id: "0x3".into(),
+                    issuer_schema_id: test_field_element(3),
                     proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_1".into()),
                     session_id: None,
                     error: None,
                 },
                 ResponseItem {
-                    issuer_schema_id: "0x1".into(),
+                    issuer_schema_id: test_field_element(1),
                     proof: Some(WorldIdProof::default()),
                     nullifier: Some("nil_2".into()),
                     session_id: None,
@@ -905,144 +1104,175 @@ mod tests {
     #[test]
     fn response_success_and_with_session_and_failure_parse() {
         // Success OK - using default proof (all zeros) in hex
-        let ok_json = r#"{
+        let orb_id_str = test_field_element(100).to_string();
+        let gov_id_str = test_field_element(101).to_string();
+
+        let ok_json = format!(
+            r#"{{
   "id": "req_18c0f7f03e7d",
   "version": 1,
   "responses": [
-    {
-      "issuer_schema_id": "orb",
+    {{
+      "issuer_schema_id": "{orb_id_str}",
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
       "nullifier": "nil_000...001"
-    }
+    }}
   ]
-}"#;
-        let ok = ProofResponse::from_json(ok_json).unwrap();
-        assert_eq!(ok.successful_credentials(), vec!["orb"]);
+}}"#
+        );
+        let ok = ProofResponse::from_json(&ok_json).unwrap();
+        assert_eq!(ok.successful_credentials(), vec![orb_id_str.clone()]);
 
         // Failure (constraints not satisfied) shape parsing
-        let fail_json = r#"{
+        let fail_json = format!(
+            r#"{{
   "id": "req_18c0f7f03e7d",
   "version": 1,
   "responses": [
-    { "issuer_schema_id": "orb", "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "nullifier": "nil_000...001" },
-    { "issuer_schema_id": "gov-id", "error": "credential_not_available" }
+    {{ "issuer_schema_id": "{orb_id_str}", "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "nullifier": "nil_000...001" }},
+    {{ "issuer_schema_id": "{gov_id_str}", "error": "credential_not_available" }}
   ]
-}"#;
-        let fail = ProofResponse::from_json(fail_json).unwrap();
-        assert_eq!(fail.successful_credentials(), vec!["orb"]);
+}}"#
+        );
+        let fail = ProofResponse::from_json(&fail_json).unwrap();
+        assert_eq!(fail.successful_credentials(), vec![orb_id_str.clone()]);
 
         // Success with Session
-        let sess_json = r#"{
+        let sess_json = format!(
+            r#"{{
   "id": "req_18c0f7f03e7d",
   "version": 1,
   "responses": [
-    {
-      "issuer_schema_id": "orb",
+    {{
+      "issuer_schema_id": "{orb_id_str}",
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
       "nullifier": "nil_000...001",
       "session_id": "psub_0fff...002"
-    }
+    }}
   ]
-}"#;
-        let sess = ProofResponse::from_json(sess_json).unwrap();
-        assert_eq!(sess.successful_credentials(), vec!["orb"]);
+}}"#
+        );
+        let sess = ProofResponse::from_json(&sess_json).unwrap();
+        assert_eq!(sess.successful_credentials(), vec![orb_id_str]);
         assert!(sess.responses[0].session_id.is_some());
     }
 
     #[test]
     fn request_rejects_duplicate_issuer_schema_ids_on_parse() {
-        let json = r#"{
-  "id": "req_dup",
-  "version": 1,
-  "created_at": "2025-09-03T17:33:12Z",
-  "expires_at": "2025-09-03T17:38:12Z",
-  "rp_id": "rp_00000000000000000000000000000001",
-  "action": "YWN0XzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDE=",
-  "proof_requests": [
-    { "issuer_schema_id": "0x1" },
-    { "issuer_schema_id": "0x1" }
-  ]
-}"#;
-
-        let err = ProofRequest::from_json(json).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("duplicate issuer schema id"),
-            "Expected error message to contain 'duplicate issuer schema id', got: {}",
-            msg
-        );
-    }
-
-    #[test]
-    fn credentials_to_prove_none_constraints_requires_all_and_drops_if_missing() {
+        // Test duplicate detection by creating a serialized ProofRequest with duplicates
+        // and then trying to parse it with from_json which should detect the duplicates
+        let id1 = test_field_element(1);
         let req = ProofRequest {
-            id: "req".into(),
+            id: "req_dup".into(),
             version: RequestVersion::V1,
-            created_at: None,
-            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            created_at: 1_725_381_192,
+            expires_at: 1_725_381_492,
             rp_id: RpId::from(1u128),
-            action: b"act".to_vec(),
-            rp_nullifier_key: None,
-            signature: None,
-            nonce: None,
+            action: b"test".to_vec(),
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
             requests: vec![
                 RequestItem {
-                    issuer_schema_id: "orb".into(),
+                    issuer_schema_id: id1,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "passport".into(),
+                    issuer_schema_id: id1, // Duplicate!
                     signal: None,
                 },
             ],
             constraints: None,
         };
 
-        let available_ok: std::collections::HashSet<&str> =
-            ["orb", "passport"].into_iter().collect();
+        // Serialize then deserialize to trigger the duplicate check in from_json
+        let json = req.to_json().unwrap();
+        let err = ProofRequest::from_json(&json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("duplicate issuer schema id"),
+            "Expected error message to contain 'duplicate issuer schema id', got: {msg}"
+        );
+    }
+
+    #[test]
+    fn credentials_to_prove_none_constraints_requires_all_and_drops_if_missing() {
+        let orb_id = test_field_element(100);
+        let passport_id = test_field_element(101);
+
+        let req = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
+            rp_id: RpId::from(1u128),
+            action: b"act".to_vec(),
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![
+                RequestItem {
+                    issuer_schema_id: orb_id,
+                    signal: None,
+                },
+                RequestItem {
+                    issuer_schema_id: passport_id,
+                    signal: None,
+                },
+            ],
+            constraints: None,
+        };
+
+        let available_ok: HashSet<String> = [orb_id.to_string(), passport_id.to_string()]
+            .into_iter()
+            .collect();
         let sel_ok = req.credentials_to_prove(&available_ok).unwrap();
         assert_eq!(sel_ok.len(), 2);
-        assert_eq!(sel_ok[0].issuer_schema_id, "orb");
-        assert_eq!(sel_ok[1].issuer_schema_id, "passport");
+        assert_eq!(sel_ok[0].issuer_schema_id, orb_id);
+        assert_eq!(sel_ok[1].issuer_schema_id, passport_id);
 
-        let available_missing: std::collections::HashSet<&str> = std::iter::once("orb").collect();
+        let available_missing: HashSet<String> = std::iter::once(orb_id.to_string()).collect();
         assert!(req.credentials_to_prove(&available_missing).is_none());
     }
 
     #[test]
     fn credentials_to_prove_with_constraints_all_and_any() {
         // proof_requests: orb, passport, national-id
+        let orb_id = test_field_element(100);
+        let passport_id = test_field_element(101);
+        let national_id_id = test_field_element(102);
+
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
-            created_at: None,
-            expires_at: datetime!(2025-01-01 00:00:00 UTC),
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::from(1u128),
             action: b"act".to_vec(),
-            rp_nullifier_key: None,
-            signature: None,
-            nonce: None,
+            rp_nullifier_key: test_rp_nullifier_key(),
+            signature: test_signature(),
+            nonce: test_nonce(),
             requests: vec![
                 RequestItem {
-                    issuer_schema_id: "orb".into(),
+                    issuer_schema_id: orb_id,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "passport".into(),
+                    issuer_schema_id: passport_id,
                     signal: None,
                 },
                 RequestItem {
-                    issuer_schema_id: "national-id".into(),
+                    issuer_schema_id: national_id_id,
                     signal: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
                 all: vec![
-                    ConstraintNode::Type("orb".into()),
+                    ConstraintNode::Type(orb_id.to_string().into()),
                     ConstraintNode::Expr(ConstraintExpr::Any {
                         any: vec![
-                            ConstraintNode::Type("passport".into()),
-                            ConstraintNode::Type("national-id".into()),
+                            ConstraintNode::Type(passport_id.to_string().into()),
+                            ConstraintNode::Type(national_id_id.to_string().into()),
                         ],
                     }),
                 ],
@@ -1050,22 +1280,25 @@ mod tests {
         };
 
         // Available has orb + passport → should pick [orb, passport]
-        let available1: std::collections::HashSet<&str> = ["orb", "passport"].into_iter().collect();
+        let available1: HashSet<String> = [orb_id.to_string(), passport_id.to_string()]
+            .into_iter()
+            .collect();
         let sel1 = req.credentials_to_prove(&available1).unwrap();
         assert_eq!(sel1.len(), 2);
-        assert_eq!(sel1[0].issuer_schema_id, "orb");
-        assert_eq!(sel1[1].issuer_schema_id, "passport");
+        assert_eq!(sel1[0].issuer_schema_id, orb_id);
+        assert_eq!(sel1[1].issuer_schema_id, passport_id);
 
         // Available has orb + national-id → should pick [orb, national-id]
-        let available2: std::collections::HashSet<&str> =
-            ["orb", "national-id"].into_iter().collect();
+        let available2: HashSet<String> = [orb_id.to_string(), national_id_id.to_string()]
+            .into_iter()
+            .collect();
         let sel2 = req.credentials_to_prove(&available2).unwrap();
         assert_eq!(sel2.len(), 2);
-        assert_eq!(sel2[0].issuer_schema_id, "orb");
-        assert_eq!(sel2[1].issuer_schema_id, "national-id");
+        assert_eq!(sel2[0].issuer_schema_id, orb_id);
+        assert_eq!(sel2[1].issuer_schema_id, national_id_id);
 
         // Missing orb → cannot satisfy "all" → None
-        let available3: std::collections::HashSet<&str> = std::iter::once("passport").collect();
+        let available3: HashSet<String> = std::iter::once(passport_id.to_string()).collect();
         assert!(req.credentials_to_prove(&available3).is_none());
     }
 }
