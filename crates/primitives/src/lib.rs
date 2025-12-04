@@ -23,9 +23,6 @@ use std::{
     str::FromStr,
 };
 
-mod action;
-pub use action::{Action, ActionDecodeError};
-
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 

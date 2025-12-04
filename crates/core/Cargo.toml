@@ -64,6 +64,7 @@ utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 oprf-core = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+time = { version = "0.3.44", features = ["serde"] }
 
 [features]
 default = ["authenticator", "embed-zkeys"]

@@ -1,52 +1,27 @@
-use crate::proof_requests::constraints::{ConstraintExpr, ConstraintNode, MAX_CONSTRAINT_NODES};
+//! Module containing all the functionality to handle requests from Relying Parties (RPs) to Authenticators.
+//!
+//! Enables an RP to create a Proof request or a Session Proof request, and provides base functionality
+//! for Authneticators to handle such requests.
+
+mod constraints;
+pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
+
 use ruint::aliases::U256;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
-
-// Helper selection functions for constraint evaluation
-fn select_node<'a, F>(node: &'a ConstraintNode<'a>, pred: &F) -> Option<Vec<&'a str>>
-where
-    F: Fn(&str) -> bool,
-{
-    match node {
-        ConstraintNode::Type(t) => pred(t.as_ref()).then(|| vec![t.as_ref()]),
-        ConstraintNode::Expr(e) => select_expr(e, pred),
-    }
-}
-
-fn select_expr<'a, F>(expr: &'a ConstraintExpr<'a>, pred: &F) -> Option<Vec<&'a str>>
-where
-    F: Fn(&str) -> bool,
-{
-    match expr {
-        ConstraintExpr::All { all } => {
-            let mut seen: std::collections::HashSet<&'a str> = std::collections::HashSet::new();
-            let mut out: Vec<&'a str> = Vec::new();
-            for n in all {
-                let sub = select_node(n, pred)?;
-                for s in sub {
-                    if seen.insert(s) {
-                        out.push(s);
-                    }
-                }
-            }
-            Some(out)
-        }
-        ConstraintExpr::Any { any } => any.iter().find_map(|n| select_node(n, pred)),
-    }
-}
+use world_id_primitives::rp::RpId;
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Version {
+pub enum RequestVersion {
     /// Version 1
     V1 = 1,
 }
 
-impl serde::Serialize for Version {
+impl serde::Serialize for RequestVersion {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -56,7 +31,7 @@ impl serde::Serialize for Version {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for Version {
+impl<'de> serde::Deserialize<'de> for RequestVersion {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -69,15 +44,14 @@ impl<'de> serde::Deserialize<'de> for Version {
     }
 }
 
-/// Authenticator request
-/// Authenticator request
+/// A proof request from a relying party for an authenticator
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthenticatorRequest {
+pub struct RpRequest {
     /// Unique identifier for this request
     pub id: String,
     /// Version of the request
-    pub version: Version,
+    pub version: RequestVersion,
     /// ISO8601 timestamp when created
     #[serde(
         skip_serializing_if = "Option::is_none",
@@ -88,11 +62,9 @@ pub struct AuthenticatorRequest {
     #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
     /// Registered RP id
-    pub rp_id: U256,
-    /// App id
-    pub app_id: String,
+    pub rp_id: RpId,
     /// Encoded action string (act_...)
-    pub encoded_action: String,
+    pub action: Vec<u8>,
     /// Credential proof requests
     #[serde(rename = "proof_requests")]
     pub requests: Vec<CredentialRequest>,
@@ -349,6 +321,39 @@ pub enum ValidationError {
     /// The constraints expression exceeds the maximum allowed size/complexity
     #[error("Constraints exceed maximum allowed size")]
     ConstraintTooLarge,
+}
+
+// Helper selection functions for constraint evaluation
+fn select_node<'a, F>(node: &'a ConstraintNode<'a>, pred: &F) -> Option<Vec<&'a str>>
+where
+    F: Fn(&str) -> bool,
+{
+    match node {
+        ConstraintNode::Type(t) => pred(t.as_ref()).then(|| vec![t.as_ref()]),
+        ConstraintNode::Expr(e) => select_expr(e, pred),
+    }
+}
+
+fn select_expr<'a, F>(expr: &'a ConstraintExpr<'a>, pred: &F) -> Option<Vec<&'a str>>
+where
+    F: Fn(&str) -> bool,
+{
+    match expr {
+        ConstraintExpr::All { all } => {
+            let mut seen: std::collections::HashSet<&'a str> = std::collections::HashSet::new();
+            let mut out: Vec<&'a str> = Vec::new();
+            for n in all {
+                let sub = select_node(n, pred)?;
+                for s in sub {
+                    if seen.insert(s) {
+                        out.push(s);
+                    }
+                }
+            }
+            Some(out)
+        }
+        ConstraintExpr::Any { any } => any.iter().find_map(|n| select_node(n, pred)),
+    }
 }
 
 #[cfg(test)]
