@@ -80,7 +80,7 @@ impl<const TREE_DEPTH: usize> AccountInclusionProof<TREE_DEPTH> {
     /// Creates a new account inclusion proof.
     ///
     /// # Errors
-    /// Returns an error if the number of authenticator public keys exceeds [`MAX_AUTHENTICATOR_KEYS`].
+    /// Returns an error if the number of authenticator public keys exceeds `MAX_AUTHENTICATOR_KEYS`.
     #[allow(clippy::missing_const_for_fn)]
     pub fn new(
         proof: MerkleInclusionProof<TREE_DEPTH>,

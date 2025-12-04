@@ -74,13 +74,13 @@ Crate releases (`world-id-core`, `world-id-primitives`) are automated using `rel
 
 **How it works:**
 
-1. Commits to `main` are analyzed using [conventional commits](https://www.conventionalcommits.org/)
+1. Commits to `main` follow [conventional commits](https://www.conventionalcommits.org/). To override the type of release, specific labels can be used, e.g. `release-minor`.
 2. release-plz creates/updates a release PR with:
    - Version bumps in `Cargo.toml` files
    - Updated `CHANGELOG.md` for each crate
 3. When the release PR is merged:
-   - Crates are published to [crates.io](https://crates.io) using trusted publishing.
-   - GitHub releases are created automatically
+   - Crates are published to [crates.io](https://crates.io) using trusted publishing
+   - GitHub releases are created for each updated crate (e.g., `world-id-core-v0.1.4`)
 
 ### Services
 
