@@ -250,8 +250,8 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @param signer the new signer of the relying party. set to zero address to maintain current signer.
      * @param toggleActive whether to toggle the active status of the relying party
      * @param unverifiedWellKnownDomain the new unverified well-known domain of the relying party. set to sentinel value to skip update.
-     * @param signature the signature of the manager
      * @param nonce the nonce used for this operation
+     * @param signature the signature of the manager
      */
     function updateRp(
         uint64 rpId,
@@ -259,8 +259,8 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         address signer,
         bool toggleActive,
         string calldata unverifiedWellKnownDomain,
-        bytes calldata signature,
-        uint256 nonce
+        uint256 nonce,
+        bytes calldata signature
     ) external {
         if (!_relyingParties[rpId].initialized) {
             revert RpIdDoesNotExist();
