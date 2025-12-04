@@ -123,10 +123,15 @@ impl MutableIndexerStub {
     }
 
     /// Updates the proof served by this stub.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned (e.g., due to a panic while holding the lock).
     pub fn set_proof(&self, proof: AccountInclusionProof<{ TREE_DEPTH }>) {
-        if let Ok(mut guard) = self.state.write() {
-            guard.proof = proof;
-        }
+        let mut guard = self
+            .state
+            .write()
+            .expect("RwLock poisoned: failed to acquire write lock for proof update");
+        guard.proof = proof;
     }
 
     /// Aborts the server task.
