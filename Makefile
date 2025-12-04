@@ -47,12 +47,12 @@ run-gateway:
 	cargo run -p world-id-gateway
 
 sol-build:
-	cd contracts && forge build && \
+	cd contracts && forge install && forge build && \
 	forge inspect AccountRegistry abi --json > ../crates/core/contracts/out/AccountRegistry.sol/AccountRegistryAbi.json && \
 	forge inspect CredentialSchemaIssuerRegistry abi --json > ../crates/core/contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
 
 sol-test:
-	cd contracts && forge test -vvv
+	cd contracts && forge install && forge test -vvv
 
 sol-fmt:
 	cd contracts && forge fmt
