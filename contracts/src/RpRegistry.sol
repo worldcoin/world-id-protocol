@@ -303,7 +303,15 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
-                abi.encode(UPDATE_RP_TYPEHASH, rpId, manager, signer, toggleActive, unverifiedWellKnownDomain, nonce)
+                abi.encode(
+                    UPDATE_RP_TYPEHASH,
+                    rpId,
+                    manager,
+                    signer,
+                    toggleActive,
+                    keccak256(bytes(unverifiedWellKnownDomain)),
+                    nonce
+                )
             )
         );
 

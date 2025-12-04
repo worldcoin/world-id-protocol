@@ -272,7 +272,13 @@ contract RpRegistryTest is Test {
         // This is technically not compliant with EIP-712 spec for dynamic types
         bytes32 structHash = keccak256(
             abi.encode(
-                registry.UPDATE_RP_TYPEHASH(), rpId, manager, signer, toggleActive, unverifiedWellKnownDomain, nonce
+                registry.UPDATE_RP_TYPEHASH(),
+                rpId,
+                manager,
+                signer,
+                toggleActive,
+                keccak256(bytes(unverifiedWellKnownDomain)),
+                nonce
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
