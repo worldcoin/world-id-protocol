@@ -18,8 +18,6 @@ use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 use world_id_primitives::{merkle::AccountInclusionProof, Config, TREE_DEPTH};
 
 const GW_PORT: u16 = 4105;
-// Fork from mainnet to get Multicall3 at canonical address (required by gateway ops batcher)
-const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
 
 async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -92,7 +90,9 @@ fn make_config(
 // Flow: create account (nonce=0) -> insert (nonce=1) -> update (nonce=2) -> remove (nonce=3)
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_insert_update_remove() {
-    let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
+    let anvil = TestAnvil::spawn_with_multicall3()
+        .await
+        .expect("failed to spawn anvil with multicall3");
     let deployer = anvil.signer(0).unwrap();
     let registry_address = anvil
         .deploy_account_registry(deployer.clone())
