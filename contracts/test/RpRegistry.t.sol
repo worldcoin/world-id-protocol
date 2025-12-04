@@ -93,13 +93,40 @@ contract RpRegistryTest is Test {
         registry.register(rpId, manager1, address(0), wellKnownDomain);
     }
 
-    function testOnlyOwnerCanRegister() public {
-        uint64 rpId = 12345;
-        string memory wellKnownDomain = "example.world.org";
+    function testRegisterMany() public {
+        uint64[] memory rpIds = new uint64[](3);
+        rpIds[0] = 1;
+        rpIds[1] = 2;
+        rpIds[2] = 3;
 
-        vm.prank(manager1);
-        vm.expectRevert();
-        registry.register(rpId, manager1, signer1, wellKnownDomain);
+        address[] memory managers = new address[](3);
+        managers[0] = manager1;
+        managers[1] = manager2;
+        managers[2] = vm.addr(0x5555);
+
+        address[] memory signers = new address[](3);
+        signers[0] = signer1;
+        signers[1] = signer2;
+        signers[2] = vm.addr(0x6666);
+
+        string[] memory domains = new string[](3);
+        domains[0] = "app1.world.org";
+        domains[1] = "app2.world.org";
+        domains[2] = "app3.world.org";
+
+        vm.prank(manager1); // anyone can call it
+
+        registry.registerMany(rpIds, managers, signers, domains);
+    }
+
+    function testRegisterManyWithEmptyArrays() public {
+        uint64[] memory rpIds = new uint64[](0);
+        address[] memory managers = new address[](0);
+        address[] memory signers = new address[](0);
+        string[] memory domains = new string[](0);
+
+        // Should succeed with empty arrays
+        registry.registerMany(rpIds, managers, signers, domains);
     }
 
     function testCannotRegisterManyWithMismatchedArrayLengths() public {

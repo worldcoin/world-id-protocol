@@ -190,7 +190,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         payable
         onlyProxy
         onlyInitialized
-        onlyOwner
     {
         if (msg.value < _registrationFee) revert InsufficientFunds();
         _register(rpId, manager, signer, unverifiedWellKnownDomain);
