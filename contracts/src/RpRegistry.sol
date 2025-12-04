@@ -50,6 +50,12 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     // rpId -> nonce, used to prevent replays on management operations
     mapping(uint64 => uint256) private _rpIdToSignatureNonce;
 
+    // the fee to register a relying party
+    uint256 private _registrationFee;
+
+    // the recipient of registration fees
+    address private _feeRecipient;
+
     ////////////////////////////////////////////////////////////
     //                        Events                          //
     ////////////////////////////////////////////////////////////
@@ -57,6 +63,10 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     event RpRegistered(
         uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, string unverifiedWellKnownDomain
     );
+
+    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+
+    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -119,6 +129,21 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      */
     error InvalidSignature();
 
+    /**
+     * @dev Thrown when the fee payment is not enough to cover registration.
+     */
+    error InsufficientFunds();
+
+    /**
+     * @dev Thrown when the registration fee is not paid.
+     */
+    error PaymentFailure();
+
+    /**
+     * @dev Thrown when trying to set an address to the zero address.
+     */
+    error ZeroAddress();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -131,10 +156,15 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @dev Initializes the contract.
      */
-    function initialize() public initializer {
+    function initialize(address feeRecipient, uint256 registrationFee) public initializer {
+        require(feeRecipient != address(0), "initialize a fee recipient");
+
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
+
+        _feeRecipient = feeRecipient;
+        _registrationFee = registrationFee;
     }
 
     ////////////////////////////////////////////////////////////
@@ -144,7 +174,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @dev Returns the domain separator for the EIP712 structs.
      */
-    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
+    function domainSeparatorV4() public view onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
 
@@ -154,14 +184,15 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @param manager The address of the manager (on-chain operations).
      * @param signer The address of the signer (Proof requests).
      * @param unverifiedWellKnownDomain The (unverified) well-known domain of the relying party.
-     * TODO: At launch, only the owner can register a relying party.
      */
     function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain)
         external
+        payable
         onlyProxy
         onlyInitialized
         onlyOwner
     {
+        if (msg.value < _registrationFee) revert InsufficientFunds();
         _register(rpId, manager, signer, unverifiedWellKnownDomain);
     }
 
@@ -171,20 +202,21 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @param managers the list of managers
      * @param signers the list of signers
      * @param unverifiedWellKnownDomains the list of unverified well-known domains
-     * TODO: At launch, only the owner can register a relying party.
      */
     function registerMany(
         uint64[] calldata rpIds,
         address[] calldata managers,
         address[] calldata signers,
         string[] calldata unverifiedWellKnownDomains
-    ) external onlyProxy onlyInitialized onlyOwner {
+    ) external payable onlyProxy onlyInitialized {
         if (
             rpIds.length != managers.length || rpIds.length != signers.length
                 || rpIds.length != unverifiedWellKnownDomains.length
         ) {
             revert MismatchingArrayLengths();
         }
+
+        if (msg.value < rpIds.length * _registrationFee) revert InsufficientFunds();
 
         for (uint256 i = 0; i < rpIds.length; i++) {
             _register(rpIds[i], managers[i], signers[i], unverifiedWellKnownDomains[i]);
@@ -196,13 +228,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @param rpId the id of the relying party to get
      */
     function getRp(uint64 rpId) external view returns (RelyingParty memory) {
-        if (!_relyingParties[rpId].initialized) {
-            revert RpIdDoesNotExist();
-        }
+        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
-        if (!_relyingParties[rpId].active) {
-            revert RpIdInactive();
-        }
+        if (!_relyingParties[rpId].active) revert RpIdInactive();
 
         return _relyingParties[rpId];
     }
@@ -212,9 +240,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @param rpId the id of the relying party to get
      */
     function getRpUnchecked(uint64 rpId) external view returns (RelyingParty memory) {
-        if (!_relyingParties[rpId].initialized) {
-            revert RpIdDoesNotExist();
-        }
+        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         return _relyingParties[rpId];
     }
@@ -224,13 +250,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @param rpId the id of the relying party to get
      */
     function getOprfKeyIdAndSigner(uint64 rpId) external view returns (uint160, address) {
-        if (!_relyingParties[rpId].initialized) {
-            revert RpIdDoesNotExist();
-        }
+        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
-        if (!_relyingParties[rpId].active) {
-            revert RpIdInactive();
-        }
+        if (!_relyingParties[rpId].active) revert RpIdInactive();
 
         return (_relyingParties[rpId].oprfKeyId, _relyingParties[rpId].signer);
     }
@@ -239,8 +261,22 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @dev Returns the current nonce for a relying party. will return 0 even if the rpId does not exist.
      * @param rpId the id of the relying party to get
      */
-    function nonceOf(uint64 rpId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+    function nonceOf(uint64 rpId) public view onlyProxy onlyInitialized returns (uint256) {
         return _rpIdToSignatureNonce[rpId];
+    }
+
+    /**
+     * @dev Returns the current registration fee for a relying party.
+     */
+    function getRegistrationFee() public view onlyProxy onlyInitialized returns (uint256) {
+        return _registrationFee;
+    }
+
+    /**
+     * @dev Returns the current fee recipient for a relying party.
+     */
+    function getFeeRecipient() public view onlyProxy onlyInitialized returns (address) {
+        return _feeRecipient;
     }
 
     /**
@@ -262,13 +298,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         uint256 nonce,
         bytes calldata signature
     ) external {
-        if (!_relyingParties[rpId].initialized) {
-            revert RpIdDoesNotExist();
-        }
+        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
-        if (nonce != _rpIdToSignatureNonce[rpId]) {
-            revert InvalidNonce();
-        }
+        if (nonce != _rpIdToSignatureNonce[rpId]) revert InvalidNonce();
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -304,16 +336,15 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     ////////////////////////////////////////////////////////////
 
     function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
-        if (_relyingParties[rpId].initialized) {
-            revert RpIdAlreadyInUse(rpId);
-        }
+        if (_relyingParties[rpId].initialized) revert RpIdAlreadyInUse(rpId);
 
-        if (manager == address(0)) {
-            revert ManagerCannotBeZeroAddress();
-        }
+        if (manager == address(0)) revert ManagerCannotBeZeroAddress();
 
-        if (signer == address(0)) {
-            revert SignerCannotBeZeroAddress();
+        if (signer == address(0)) revert SignerCannotBeZeroAddress();
+
+        if (_registrationFee > 0) {
+            (bool ok,) = _feeRecipient.call{value: _registrationFee}("");
+            if (!ok) revert PaymentFailure();
         }
 
         RelyingParty memory rp = RelyingParty({
@@ -331,7 +362,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     ////////////////////////////////////////////////////////////
-    //                    Upgrade Authorization               //
+    //                    Owner Functions               //
     ////////////////////////////////////////////////////////////
 
     /**
@@ -340,6 +371,19 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @notice Only the contract owner can authorize upgrades
      */
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    function setFeeRecipient(address newFeeRecipient) external onlyOwner {
+        if (newFeeRecipient == address(0)) revert ZeroAddress();
+        address oldRecipient = _feeRecipient;
+        _feeRecipient = newFeeRecipient;
+        emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
+    }
+
+    function setRegistrationFee(uint256 newFee) external onlyOwner {
+        uint256 oldFee = _registrationFee;
+        _registrationFee = newFee;
+        emit RegistrationFeeUpdated(oldFee, newFee);
+    }
 
     ////////////////////////////////////////////////////////////
     //                    Storage Gap                         //

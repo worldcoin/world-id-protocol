@@ -12,6 +12,7 @@ contract RpRegistryTest is Test {
 
     RpRegistry private registry;
     address private owner;
+    address private feeRecipient;
     address private manager1;
     uint256 private manager1Pk;
     address private signer1;
@@ -21,6 +22,7 @@ contract RpRegistryTest is Test {
 
     function setUp() public {
         owner = address(this);
+        feeRecipient = vm.addr(0x9999);
         manager1Pk = 0x1111;
         manager1 = vm.addr(manager1Pk);
         signer1 = vm.addr(0x2222);
@@ -31,8 +33,8 @@ contract RpRegistryTest is Test {
         // Deploy implementation
         RpRegistry implementation = new RpRegistry();
 
-        // Deploy proxy
-        bytes memory initData = abi.encodeWithSelector(RpRegistry.initialize.selector);
+        // Deploy proxy with fee recipient and zero fee
+        bytes memory initData = abi.encodeWithSelector(RpRegistry.initialize.selector, feeRecipient, 0);
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         registry = RpRegistry(address(proxy));
@@ -58,6 +60,8 @@ contract RpRegistryTest is Test {
         uint64 rpId2 = 2;
         string memory domain1 = "app1.world.org";
         string memory domain2 = "app2.world.org";
+
+        vm.prank(manager1); // anyone can call it
 
         registry.register(rpId1, manager1, signer1, domain1);
         registry.register(rpId2, manager2, signer2, domain2);
@@ -87,6 +91,15 @@ contract RpRegistryTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.SignerCannotBeZeroAddress.selector));
         registry.register(rpId, manager1, address(0), wellKnownDomain);
+    }
+
+    function testOnlyOwnerCanRegister() public {
+        uint64 rpId = 12345;
+        string memory wellKnownDomain = "example.world.org";
+
+        vm.prank(manager1);
+        vm.expectRevert();
+        registry.register(rpId, manager1, signer1, wellKnownDomain);
     }
 
     function testCannotRegisterManyWithMismatchedArrayLengths() public {
@@ -209,33 +222,6 @@ contract RpRegistryTest is Test {
         domains[1] = "app2.world.org";
 
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.SignerCannotBeZeroAddress.selector));
-        registry.registerMany(rpIds, managers, signers, domains);
-    }
-
-    function testOnlyOwnerCanRegister() public {
-        uint64 rpId = 12345;
-        string memory wellKnownDomain = "example.world.org";
-
-        vm.prank(manager1);
-        vm.expectRevert();
-        registry.register(rpId, manager1, signer1, wellKnownDomain);
-    }
-
-    function testOnlyOwnerCanRegisterMany() public {
-        uint64[] memory rpIds = new uint64[](1);
-        rpIds[0] = 1;
-
-        address[] memory managers = new address[](1);
-        managers[0] = manager1;
-
-        address[] memory signers = new address[](1);
-        signers[0] = signer1;
-
-        string[] memory domains = new string[](1);
-        domains[0] = "app1.world.org";
-
-        vm.prank(manager1);
-        vm.expectRevert();
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -527,5 +513,152 @@ contract RpRegistryTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
         registry.updateRp(rpId, address(0), signer2, false, noUpdate, 2, badSig);
+    }
+
+    // Fee Management Tests
+
+    function testSetFeeRecipient() public {
+        address newRecipient = vm.addr(0xAAAA);
+
+        vm.expectEmit(true, true, false, true);
+        emit RpRegistry.FeeRecipientUpdated(feeRecipient, newRecipient);
+
+        registry.setFeeRecipient(newRecipient);
+
+        assertEq(registry.getFeeRecipient(), newRecipient);
+    }
+
+    function testCannotSetFeeRecipientToZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ZeroAddress.selector));
+        registry.setFeeRecipient(address(0));
+    }
+
+    function testOnlyOwnerCanSetFeeRecipient() public {
+        address newRecipient = vm.addr(0xAAAA);
+
+        vm.prank(manager1);
+        vm.expectRevert();
+        registry.setFeeRecipient(newRecipient);
+        assertEq(registry.getFeeRecipient(), feeRecipient);
+    }
+
+    function testSetRegistrationFee() public {
+        uint256 newFee = 0.01 ether;
+
+        vm.expectEmit(false, false, false, true);
+        emit RpRegistry.RegistrationFeeUpdated(0, newFee);
+
+        registry.setRegistrationFee(newFee);
+
+        assertEq(registry.getRegistrationFee(), newFee);
+    }
+
+    function testOnlyOwnerCanSetRegistrationFee() public {
+        uint256 newFee = 1 ether;
+
+        vm.prank(manager1);
+        vm.expectRevert();
+        registry.setRegistrationFee(newFee);
+    }
+
+    function testRegisterWithFee() public {
+        uint256 fee = 0.1 ether;
+        registry.setRegistrationFee(fee);
+
+        uint64 rpId = 1;
+        string memory domain = "example.world.org";
+
+        uint256 recipientBalanceBefore = feeRecipient.balance;
+
+        registry.register{value: fee}(rpId, manager1, signer1, domain);
+
+        assertEq(feeRecipient.balance, recipientBalanceBefore + fee);
+    }
+
+    function testRegisterWithExcessFee() public {
+        uint256 fee = 0.1 ether;
+        registry.setRegistrationFee(fee);
+
+        uint64 rpId = 1;
+        string memory domain = "example.world.org";
+
+        uint256 recipientBalanceBefore = feeRecipient.balance;
+
+        // Send more than required
+        registry.register{value: fee * 2}(rpId, manager1, signer1, domain);
+
+        // Only the fee amount should be transferred
+        assertEq(feeRecipient.balance, recipientBalanceBefore + fee);
+    }
+
+    function testCannotRegisterWithInsufficientFee() public {
+        uint256 fee = 0.1 ether;
+        registry.setRegistrationFee(fee);
+
+        uint64 rpId = 1;
+        string memory domain = "example.world.org";
+
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
+        registry.register{value: fee - 1}(rpId, manager1, signer1, domain);
+    }
+
+    function testRegisterManyWithFee() public {
+        uint256 fee = 0.1 ether;
+        registry.setRegistrationFee(fee);
+
+        uint64[] memory rpIds = new uint64[](3);
+        rpIds[0] = 1;
+        rpIds[1] = 2;
+        rpIds[2] = 3;
+
+        address[] memory managers = new address[](3);
+        managers[0] = manager1;
+        managers[1] = manager2;
+        managers[2] = vm.addr(0x5555);
+
+        address[] memory signers = new address[](3);
+        signers[0] = signer1;
+        signers[1] = signer2;
+        signers[2] = vm.addr(0x6666);
+
+        string[] memory domains = new string[](3);
+        domains[0] = "app1.world.org";
+        domains[1] = "app2.world.org";
+        domains[2] = "app3.world.org";
+
+        uint256 recipientBalanceBefore = feeRecipient.balance;
+
+        registry.registerMany{value: fee * 3}(rpIds, managers, signers, domains);
+
+        assertEq(feeRecipient.balance, recipientBalanceBefore + fee * 3);
+    }
+
+    function testCannotRegisterManyWithInsufficientFee() public {
+        uint256 fee = 0.1 ether;
+        registry.setRegistrationFee(fee);
+
+        uint64[] memory rpIds = new uint64[](3);
+        rpIds[0] = 1;
+        rpIds[1] = 2;
+        rpIds[2] = 3;
+
+        address[] memory managers = new address[](3);
+        managers[0] = manager1;
+        managers[1] = manager2;
+        managers[2] = vm.addr(0x5555);
+
+        address[] memory signers = new address[](3);
+        signers[0] = signer1;
+        signers[1] = signer2;
+        signers[2] = vm.addr(0x6666);
+
+        string[] memory domains = new string[](3);
+        domains[0] = "app1.world.org";
+        domains[1] = "app2.world.org";
+        domains[2] = "app3.world.org";
+
+        // Send less than required (3 * fee - 1)
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
+        registry.registerMany{value: fee * 3 - 1}(rpIds, managers, signers, domains);
     }
 }
