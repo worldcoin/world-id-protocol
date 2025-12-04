@@ -37,17 +37,17 @@ const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "50386ea28e3c8cd01fe59ab68e7ecd0a6b8b07d3b8ad6460c04a430ef5c2121f";
+    "2e44038bb851348a3f41b6b543fc5b389f2b977418dae642fad03d4b91fd65b4";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "bb1301f25cbe8d624a227c5f0875fa5dec9501c09357d82b49f59ee73505e94d";
+    "fb470229d0c0b08fd4a5b0dacfba7b1967ac1bae49e1047dac891905b6003c8f";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
-    "1016fc75f79a872a33ec0537c074857c6750c21f7e2e4e2a34acbbad5d0997b3";
+    "eaa8e09b3e6703ca0b264faa252662f11e617ddc925e09302d9d1a35554d85b4";
 /// The SHA-256 fingerprint of the `OPRFNullifier` witness graph.
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
-    "87756ce49e17f89e28b963d53e1fd55e17f9a2b413b7630632241a9a03af663a";
+    "33cf2a11a65a7a2ed847c3839ae6b99c69722cf1e19e9dafcf5692589d45efb4";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
@@ -372,6 +372,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         action: *args.action,
         nonce: *args.nonce,
         merkle_root: *args.inclusion_proof.root,
+        cred_type_id: args.credential.issuer_schema_id,
         cred_pk: args.credential.issuer.clone(),
         current_time_stamp: args.current_timestamp,
         signature: args.rp_signature,

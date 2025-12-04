@@ -146,6 +146,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         let public = [
             request.blinded_query.x,
             request.blinded_query.y,
+            request.auth.cred_type_id.into(),
             request.auth.cred_pk.pk.x,
             request.auth.cred_pk.pk.y,
             request.auth.current_time_stamp.into(),
