@@ -1,6 +1,7 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -383,8 +384,6 @@ impl Authenticator {
 
     /// Generates a World ID Uniqueness Proof given a provided context.
     ///
-    /// TODO: `ProofRequest` can include multiple proof requests, right now only one is used from the `Credential`.
-    ///
     /// # Errors
     /// - Will error if the any of the provided parameters are not valid.
     /// - Will error if any of the required network requests fail.
@@ -406,6 +405,10 @@ impl Authenticator {
         let query_material = crate::proof::load_embedded_query_material();
         let nullifier_material = crate::proof::load_embedded_nullifier_material();
 
+        // TODO: `ProofRequest` can include multiple proof requests, right now only one is used from the `Credential`.
+        let available = HashSet::from_iter([credential.issuer_schema_id]);
+        let request = proof_request.credentials_to_prove(available); // FIXME
+
         let args = SingleProofInput::<TREE_DEPTH> {
             credential,
             inclusion_proof,
@@ -414,12 +417,12 @@ impl Authenticator {
             rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
             rp_id: proof_request.rp_id,
             share_epoch: ShareEpoch::default().into_inner(), // TODO
-            action: proof_request.hashed_action(),
+            action: proof_request.action,
             nonce: proof_request.nonce,
             current_timestamp: proof_request.created_at,
             rp_signature: proof_request.signature,
             rp_nullifier_key: proof_request.rp_nullifier_key,
-            signal_hash: message_hash,
+            signal_hash: message_hash, // FIXME
         };
 
         let private_key = self.signer.offchain_signer_private_key().expose_secret();

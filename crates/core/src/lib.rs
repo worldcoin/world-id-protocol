@@ -9,6 +9,8 @@
     missing_docs,
     dead_code
 )]
+#![allow(clippy::option_if_let_else)]
+
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]

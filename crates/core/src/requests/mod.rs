@@ -10,32 +10,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use world_id_primitives::rp::{RpId, RpNullifierKey};
-use world_id_primitives::{FieldElement, WorldIdProof};
-
-/// Custom serde module for base64 encoding/decoding of byte arrays
-mod base64_serde {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        use base64::Engine;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        serializer.serialize_str(&encoded)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        use base64::Engine;
-        let s = String::deserialize(deserializer)?;
-        base64::engine::general_purpose::STANDARD
-            .decode(&s)
-            .map_err(serde::de::Error::custom)
-    }
-}
+use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof};
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -82,12 +57,11 @@ pub struct ProofRequest {
     pub expires_at: u64,
     /// Registered RP id
     pub rp_id: RpId,
-    /// The raw representation of the action. This is normally a string but bytes is used to support
-    /// advanced on-chain use cases.
+    /// The raw representation of the action. This must be already a field element.
     ///
-    /// Encoded as base64 when serialized to JSON.
-    #[serde(with = "base64_serde")]
-    pub action: Vec<u8>,
+    /// When dealing with strings or bytes, such value can be hashed e.g. with a byte-friendly
+    /// hash function like keccak256 or SHA256 and then reduced to a field element.
+    pub action: FieldElement,
     /// The nullifier key of the RP
     pub rp_nullifier_key: RpNullifierKey,
     /// The RP's ECDSA signature over the request
@@ -112,6 +86,27 @@ pub struct RequestItem {
     /// Optional signal (TODO: improve documentation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
+}
+
+impl RequestItem {
+    /// Create a new request item with the given issuer schema ID and optional signal.
+    #[must_use]
+    pub const fn new(issuer_schema_id: FieldElement, signal: Option<String>) -> Self {
+        Self {
+            issuer_schema_id,
+            signal,
+        }
+    }
+
+    /// Get the signal hash for the request item.
+    #[must_use]
+    pub fn signal_hash(&self) -> FieldElement {
+        if let Some(signal) = &self.signal {
+            FieldElement::from_arbitrary_raw_bytes(signal.as_bytes())
+        } else {
+            FieldElement::ZERO
+        }
+    }
 }
 
 /// Overall response from the Authenticator to the RP
@@ -175,25 +170,30 @@ impl ProofRequest {
     /// Panics if constraints are present but invalid according to the type invariants
     /// (this should not occur as constraints are provided by trusted request issuer).
     #[must_use]
-    pub fn credentials_to_prove(&self, available: &HashSet<String>) -> Option<Vec<&RequestItem>> {
+    pub fn credentials_to_prove(
+        &self,
+        available: &HashSet<FieldElement>,
+    ) -> Option<Vec<&RequestItem>> {
         // Build set of requested types
-        let requested: std::collections::HashSet<String> = self
-            .requests
-            .iter()
-            .map(|r| r.issuer_schema_id.to_string())
-            .collect();
+        let requested: std::collections::HashSet<FieldElement> =
+            self.requests.iter().map(|r| r.issuer_schema_id).collect();
+
+        // Convert to string sets for constraint evaluation (constraints use string types)
+        let available_strings: HashSet<String> =
+            available.iter().map(ToString::to_string).collect();
+        let requested_strings: HashSet<String> =
+            requested.iter().map(ToString::to_string).collect();
 
         // Predicate: only select if both available and requested
-        let is_selectable = |t: &str| available.contains(t) && requested.contains(t);
-
-        // Recursive selection helpers are defined at module scope: select_node/select_expr
+        let is_selectable =
+            |t: &str| available_strings.contains(t) && requested_strings.contains(t);
 
         // If no explicit constraints: require all requested be available
         if self.constraints.is_none() {
             return if self
                 .requests
                 .iter()
-                .all(|r| available.contains(&r.issuer_schema_id.to_string()))
+                .all(|r| available.contains(&r.issuer_schema_id))
             {
                 Some(self.requests.iter().collect())
             } else {
@@ -227,10 +227,9 @@ impl ProofRequest {
     /// # Returns
     /// A 32-byte hash that represents this request and should be signed by the RP.
     ///
-    /// # Panics
-    /// Panics if `FieldElement` serialization fails (which should never occur in practice).
-    #[must_use]
-    pub fn digest_hash(&self) -> [u8; 32] {
+    /// # Errors
+    /// Returns a `PrimitiveError` if `FieldElement` serialization fails (which should never occur in practice).
+    pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
         use k256::sha2::{Digest, Sha256};
 
         let mut hasher = Sha256::new();
@@ -248,60 +247,27 @@ impl ProofRequest {
         // Include RP ID
         hasher.update(self.rp_id.into_inner().to_be_bytes());
 
-        // Include action
-        hasher.update(&self.action);
+        // Include action (now a FieldElement)
+        let mut action_bytes = Vec::new();
+        self.action.serialize_as_bytes(&mut action_bytes)?;
+        hasher.update(&action_bytes);
 
-        // Include nonce by serializing it
+        // Include nonce
         let mut nonce_bytes = Vec::new();
-        self.nonce
-            .serialize_as_bytes(&mut nonce_bytes)
-            .expect("FieldElement serialization should not fail");
+        self.nonce.serialize_as_bytes(&mut nonce_bytes)?;
         hasher.update(&nonce_bytes);
 
-        // Include proof requests (issuer schema IDs)
+        // Include proof requests (issuer schema IDs and signals)
         for req in &self.requests {
             let mut req_bytes = Vec::new();
-            req.issuer_schema_id
-                .serialize_as_bytes(&mut req_bytes)
-                .expect("FieldElement serialization should not fail");
+            req.issuer_schema_id.serialize_as_bytes(&mut req_bytes)?;
             hasher.update(&req_bytes);
             if let Some(signal) = &req.signal {
                 hasher.update(signal.as_bytes());
             }
         }
 
-        hasher.finalize().into()
-    }
-
-    /// Hash the action bytes to a field element using Poseidon2
-    ///
-    /// Chunks the action into 31-byte chunks and hashes them using Poseidon2.
-    #[must_use]
-    pub fn hashed_action(&self) -> FieldElement {
-        use poseidon2::Poseidon2;
-
-        if self.action.is_empty() {
-            return FieldElement::default();
-        }
-
-        // For simplicity, use a fixed-size permutation
-        // Pad with zeros if action is short
-        let hasher = Poseidon2::<_, 16, 5>::default();
-        let mut input = [*FieldElement::ZERO; 16];
-
-        // Convert bytes to field elements (max 31 bytes per field element to stay in range)
-        for (idx, chunk) in self.action.chunks(31).enumerate() {
-            if idx >= 15 {
-                // Leave space for output
-                break;
-            }
-            let mut bytes = [0u8; 32];
-            bytes[..chunk.len()].copy_from_slice(chunk);
-            input[idx] = *FieldElement::from_be_bytes_mod_order(&bytes);
-        }
-
-        hasher.permutation_in_place(&mut input);
-        input[1].into()
+        Ok(hasher.finalize().into())
     }
 
     /// Validate that a response satisfies this request: id match and constraints semantics.
@@ -562,27 +528,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hashed_action() {
-        let request = ProofRequest {
-            id: "test".into(),
-            version: RequestVersion::V1,
-            created_at: 1000,
-            expires_at: 1000,
-            rp_id: RpId::from(1u128),
-            action: b"test_action".to_vec(),
-            rp_nullifier_key: test_rp_nullifier_key(),
-            signature: test_signature(),
-            nonce: test_nonce(),
-            requests: vec![],
-            constraints: None,
-        };
-
-        let hashed = request.hashed_action();
-        // Just verify it doesn't panic and returns a value
-        assert!(hashed != FieldElement::default() || request.action.is_empty());
-    }
-
-    #[test]
     fn test_digest_hash() {
         let request = ProofRequest {
             id: "test_request".into(),
@@ -590,7 +535,7 @@ mod tests {
             created_at: 1_700_000_000,
             expires_at: 1_700_100_000,
             rp_id: RpId::from(1u128),
-            action: b"test_action".to_vec(),
+            action: FieldElement::ZERO,
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -601,12 +546,12 @@ mod tests {
             constraints: None,
         };
 
-        let digest1 = request.digest_hash();
+        let digest1 = request.digest_hash().unwrap();
         // Verify it returns a 32-byte hash
         assert_eq!(digest1.len(), 32);
 
         // Verify deterministic: same request produces same hash
-        let digest2 = request.digest_hash();
+        let digest2 = request.digest_hash().unwrap();
         assert_eq!(digest1, digest2);
 
         // Verify different requests produce different hashes
@@ -614,7 +559,7 @@ mod tests {
             id: "different_id".into(),
             ..request
         };
-        let digest3 = request2.digest_hash();
+        let digest3 = request2.digest_hash().unwrap();
         assert_ne!(digest1, digest3);
     }
 
@@ -626,7 +571,7 @@ mod tests {
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01
             rp_id: RpId::from(1u128),
-            action: b"act_...".to_vec(),
+            action: FieldElement::ZERO,
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -697,7 +642,7 @@ mod tests {
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::from(1u128),
-            action: b"act_...".to_vec(),
+            action: test_field_element(1),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -767,7 +712,7 @@ mod tests {
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::from(1u128),
-            action: b"act".to_vec(),
+            action: test_field_element(5),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -878,7 +823,7 @@ mod tests {
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::from(1u128),
-            action: b"act".to_vec(),
+            action: test_field_element(1),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -952,7 +897,7 @@ mod tests {
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::from(1u128),
-            action: b"test_action".to_vec(),
+            action: test_field_element(1),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -989,7 +934,7 @@ mod tests {
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::from(1u128),
-            action: b"test_action".to_vec(),
+            action: test_field_element(1),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1045,7 +990,7 @@ mod tests {
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::from(1u128),
-            action: b"test_action".to_vec(),
+            action: test_field_element(1),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1168,7 +1113,7 @@ mod tests {
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::from(1u128),
-            action: b"test".to_vec(),
+            action: test_field_element(5),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1206,7 +1151,7 @@ mod tests {
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::from(1u128),
-            action: b"act".to_vec(),
+            action: test_field_element(5),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1223,15 +1168,13 @@ mod tests {
             constraints: None,
         };
 
-        let available_ok: HashSet<String> = [orb_id.to_string(), passport_id.to_string()]
-            .into_iter()
-            .collect();
+        let available_ok: HashSet<FieldElement> = [orb_id, passport_id].into_iter().collect();
         let sel_ok = req.credentials_to_prove(&available_ok).unwrap();
         assert_eq!(sel_ok.len(), 2);
         assert_eq!(sel_ok[0].issuer_schema_id, orb_id);
         assert_eq!(sel_ok[1].issuer_schema_id, passport_id);
 
-        let available_missing: HashSet<String> = std::iter::once(orb_id.to_string()).collect();
+        let available_missing: HashSet<FieldElement> = std::iter::once(orb_id).collect();
         assert!(req.credentials_to_prove(&available_missing).is_none());
     }
 
@@ -1248,7 +1191,7 @@ mod tests {
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::from(1u128),
-            action: b"act".to_vec(),
+            action: test_field_element(1),
             rp_nullifier_key: test_rp_nullifier_key(),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1280,25 +1223,21 @@ mod tests {
         };
 
         // Available has orb + passport → should pick [orb, passport]
-        let available1: HashSet<String> = [orb_id.to_string(), passport_id.to_string()]
-            .into_iter()
-            .collect();
+        let available1: HashSet<FieldElement> = [orb_id, passport_id].into_iter().collect();
         let sel1 = req.credentials_to_prove(&available1).unwrap();
         assert_eq!(sel1.len(), 2);
         assert_eq!(sel1[0].issuer_schema_id, orb_id);
         assert_eq!(sel1[1].issuer_schema_id, passport_id);
 
         // Available has orb + national-id → should pick [orb, national-id]
-        let available2: HashSet<String> = [orb_id.to_string(), national_id_id.to_string()]
-            .into_iter()
-            .collect();
+        let available2: HashSet<FieldElement> = [orb_id, national_id_id].into_iter().collect();
         let sel2 = req.credentials_to_prove(&available2).unwrap();
         assert_eq!(sel2.len(), 2);
         assert_eq!(sel2[0].issuer_schema_id, orb_id);
         assert_eq!(sel2[1].issuer_schema_id, national_id_id);
 
         // Missing orb → cannot satisfy "all" → None
-        let available3: HashSet<String> = std::iter::once(passport_id.to_string()).collect();
+        let available3: HashSet<FieldElement> = std::iter::once(passport_id).collect();
         assert!(req.credentials_to_prove(&available3).is_none());
     }
 }

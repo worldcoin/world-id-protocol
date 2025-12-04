@@ -66,6 +66,7 @@ groth16-material = { workspace = true, features = ["circom"], optional = true }
 oprf-core = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 time = { version = "0.3.44", features = ["serde", "formatting", "serde-well-known"] }
+tiny-keccak = "2.0.2"
 
 [features]
 default = ["authenticator", "embed-zkeys"]
