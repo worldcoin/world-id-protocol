@@ -184,6 +184,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
+            identifier: "test_credential".to_string(),
             issuer_schema_id: issuer_schema_id_u64.into(),
             signal: Some("my_signal".to_string()),
         }],
