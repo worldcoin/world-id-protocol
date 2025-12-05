@@ -110,7 +110,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
 
     let query_hash = oprf::client::generate_query(
-        args.inclusion_proof.account_id.into(),
+        args.inclusion_proof.leaf_index.into(),
         args.rp_id.into_inner().into(),
         *args.action,
     );
@@ -138,7 +138,7 @@ pub fn sign_oprf_query<R: Rng + CryptoRng>(
         current_timestamp: args.current_timestamp.into(),
         merkle_root: *args.inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-        mt_index: args.inclusion_proof.account_id.into(),
+        mt_index: args.inclusion_proof.leaf_index.into(),
         siblings,
         beta: blinding_factor.beta(),
         rp_id: rp_id.into_inner().into(),

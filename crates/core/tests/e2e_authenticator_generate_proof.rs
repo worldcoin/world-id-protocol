@@ -95,18 +95,18 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     .await
     .wrap_err("failed to initialize or create authenticator")?;
 
-    assert_eq!(authenticator.account_id(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
     let authenticator = Authenticator::init(&seed, creation_config)
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
-    assert_eq!(authenticator.account_id(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
 
     // Local indexer stub serving inclusion proof.
-    let account_id_u64: u64 = authenticator
-        .account_id()
+    let leaf_index_u64: u64 = authenticator
+        .leaf_index()
         .try_into()
         .expect("account id fits in u64");
     let MerkleFixture {
@@ -114,14 +114,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         inclusion_proof: merkle_inclusion_proof,
         root,
         ..
-    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], account_id_u64)
+    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index_u64)
         .wrap_err("failed to construct merkle fixture")?;
 
     let inclusion_proof =
         AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
             .wrap_err("failed to build inclusion proof")?;
 
-    let (indexer_url, indexer_handle) = spawn_indexer_stub(account_id_u64, inclusion_proof.clone())
+    let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index_u64, inclusion_proof.clone())
         .await
         .wrap_err("failed to start indexer stub")?;
 
@@ -158,14 +158,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let authenticator = Authenticator::init(&seed, proof_config)
         .await
         .wrap_err("failed to reinitialize authenticator with proof config")?;
-    assert_eq!(authenticator.account_id(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
 
     // Create and sign credential.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
-    let mut credential = build_base_credential(issuer_schema_id_u64, account_id_u64, now, now + 60);
+    let mut credential = build_base_credential(issuer_schema_id_u64, leaf_index_u64, now, now + 60);
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()

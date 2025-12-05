@@ -109,13 +109,13 @@ impl RegistryTestContext {
 /// Helper for building a minimal credential used in tests.
 pub fn build_base_credential(
     issuer_schema_id: u64,
-    account_id: u64,
+    sub: u64,
     genesis_issued_at: u64,
     expires_at: u64,
 ) -> Credential {
     Credential::new()
         .issuer_schema_id(issuer_schema_id)
-        .account_id(account_id)
+        .sub(sub)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at)
 }
@@ -130,12 +130,12 @@ pub struct MerkleFixture {
 /// Builds the Merkle witness for the first leaf given a set of public keys.
 pub fn single_leaf_merkle_fixture(
     pubkeys: Vec<EdDSAPublicKey>,
-    account_id: u64,
+    leaf_index: u64,
 ) -> Result<MerkleFixture> {
     let key_set = AuthenticatorPublicKeySet::new(Some(pubkeys))?;
     let leaf = key_set.leaf_hash();
     let (siblings, root) = first_leaf_merkle_path(leaf);
-    let inclusion_proof = MerkleInclusionProof::new(root, account_id, siblings);
+    let inclusion_proof = MerkleInclusionProof::new(root, leaf_index, siblings);
 
     Ok(MerkleFixture {
         key_set,

@@ -37,7 +37,7 @@ static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
 static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
-static MASK_ACCOUNT_INDEX: U256 =
+static MASK_LEAF_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
 
 /// Maximum timeout for polling account creation status (30 seconds)
@@ -50,9 +50,9 @@ type UniquenessProof = (Proof<Bn254>, FieldElement);
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
-    /// The packed account index for the holder's World ID is a `uint256` defined in the `AccountRegistry` contract as:
-    /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `account_index` (192 bits)
-    pub packed_account_index: U256,
+    /// The packed account data for the holder's World ID is a `uint256` defined in the `AccountRegistry` contract as:
+    /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
+    pub packed_account_data: U256,
     signer: Signer,
     registry: Option<Arc<AccountRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
@@ -86,7 +86,7 @@ impl Authenticator {
 
         let http_client = reqwest::Client::new();
 
-        let packed_account_index = Self::get_packed_account_index(
+        let packed_account_data = Self::get_packed_account_data(
             signer.onchain_signer_address(),
             registry.as_ref(),
             &config,
@@ -95,7 +95,7 @@ impl Authenticator {
         .await?;
 
         Ok(Self {
-            packed_account_index,
+            packed_account_data,
             signer,
             config,
             registry: registry.map(Arc::new),
@@ -216,14 +216,14 @@ impl Authenticator {
         }
     }
 
-    /// Returns the packed account index for the holder's World ID.
+    /// Returns the packed account data for the holder's World ID.
     ///
-    /// The packed account index is a 256 bit integer which includes the user's account index, their recovery counter,
+    /// The packed account data is a 256 bit integer which includes the World ID's leaf index, their recovery counter,
     /// and their pubkey id/commitment.
     ///
     /// # Errors
-    /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
-    pub async fn get_packed_account_index(
+    /// Will error if the network call fails or if the account does not exist.
+    pub async fn get_packed_account_data(
         onchain_signer_address: Address,
         registry: Option<&AccountRegistryInstance<DynProvider>>,
         config: &Config,
@@ -263,7 +263,7 @@ impl Authenticator {
             }
 
             let response: IndexerPackedAccountResponse = resp.json().await?;
-            response.packed_account_index
+            response.packed_account_data
         };
 
         if raw_index == U256::ZERO {
@@ -307,10 +307,10 @@ impl Authenticator {
 
     /// Returns the account index for the holder's World ID.
     ///
-    /// This is the index at the tree where the holder's World ID account is registered (1-indexed).
+    /// This is the index at the Merkle tree where the holder's World ID account is registered.
     #[must_use]
-    pub fn account_id(&self) -> U256 {
-        self.packed_account_index & MASK_ACCOUNT_INDEX
+    pub fn leaf_index(&self) -> U256 {
+        self.packed_account_data & MASK_LEAF_INDEX
     }
 
     /// Returns the recovery counter for the holder's World ID.
@@ -318,7 +318,7 @@ impl Authenticator {
     /// The recovery counter is used to efficiently invalidate all the old keys when an account is recovered.
     #[must_use]
     pub fn recovery_counter(&self) -> U256 {
-        let recovery_counter = self.packed_account_index & MASK_RECOVERY_COUNTER;
+        let recovery_counter = self.packed_account_data & MASK_RECOVERY_COUNTER;
         recovery_counter >> 224
     }
 
@@ -327,7 +327,7 @@ impl Authenticator {
     /// This is a commitment to all the off-chain public keys that are authorized to act on behalf of the holder.
     #[must_use]
     pub fn pubkey_id(&self) -> U256 {
-        let pubkey_id = self.packed_account_index & MASK_PUBKEY_ID;
+        let pubkey_id = self.packed_account_data & MASK_PUBKEY_ID;
         pubkey_id >> 192
     }
 
@@ -340,7 +340,7 @@ impl Authenticator {
         &self,
     ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
     {
-        let url = format!("{}/proof/{}", self.config.indexer_url(), self.account_id());
+        let url = format!("{}/proof/{}", self.config.indexer_url(), self.leaf_index());
         let response = reqwest::get(url).await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
@@ -355,14 +355,14 @@ impl Authenticator {
         let registry = self.registry();
         if let Some(registry) = registry {
             let nonce = registry
-                .accountIndexToSignatureNonce(self.account_id())
+                .leafIndexToSignatureNonce(self.leaf_index())
                 .call()
                 .await?;
             Ok(nonce)
         } else {
             let url = format!("{}/signature_nonce", self.config.indexer_url());
             let req = IndexerSignatureNonceRequest {
-                account_index: self.account_id(),
+                leaf_index: self.leaf_index(),
             };
             let resp = self.http_client.post(&url).json(&req).send().await?;
 
@@ -466,14 +466,14 @@ impl Authenticator {
     /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
     ///
     /// # Note
-    /// TODO: After successfully inserting an authenticator, the `packed_account_index` should be
+    /// TODO: After successfully inserting an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn insert_authenticator(
         &mut self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_offchain_signer_commitment = Self::leaf_hash(&key_set);
@@ -489,7 +489,7 @@ impl Authenticator {
         // truncating is intentional, and index will always fit in 32 bits
         let signature = sign_insert_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             new_authenticator_address,
             index as u32,
             encoded_offchain_pubkey,
@@ -505,7 +505,7 @@ impl Authenticator {
         #[allow(clippy::cast_possible_truncation)]
         // truncating is intentional, and index will always fit in 32 bits
         let req = InsertAuthenticatorRequest {
-            account_index: account_id,
+            leaf_index,
             new_authenticator_address,
             pubkey_id: index as u32,
             new_authenticator_pubkey: encoded_offchain_pubkey,
@@ -549,7 +549,7 @@ impl Authenticator {
     /// Returns an error if the gateway rejects the request or a network error occurs.
     ///
     /// # Note
-    /// TODO: After successfully updating an authenticator, the `packed_account_index` should be
+    /// TODO: After successfully updating an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn update_authenticator(
         &mut self,
@@ -558,7 +558,7 @@ impl Authenticator {
         new_authenticator_pubkey: EdDSAPublicKey,
         index: u32,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = Self::leaf_hash(&key_set).into();
@@ -571,7 +571,7 @@ impl Authenticator {
 
         let signature = sign_update_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             old_authenticator_address,
             new_authenticator_address,
             index,
@@ -592,7 +592,7 @@ impl Authenticator {
             .collect();
 
         let req = UpdateAuthenticatorRequest {
-            account_index: account_id,
+            leaf_index,
             old_authenticator_address,
             new_authenticator_address,
             old_offchain_signer_commitment: old_commitment,
@@ -633,14 +633,14 @@ impl Authenticator {
     /// Returns an error if the gateway rejects the request or a network error occurs.
     ///
     /// # Note
-    /// TODO: After successfully removing an authenticator, the `packed_account_index` should be
+    /// TODO: After successfully removing an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn remove_authenticator(
         &mut self,
         authenticator_address: Address,
         index: u32,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = Self::leaf_hash(&key_set).into();
@@ -659,7 +659,7 @@ impl Authenticator {
 
         let signature = sign_remove_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             authenticator_address,
             index,
             encoded_old_offchain_pubkey,
@@ -679,7 +679,7 @@ impl Authenticator {
             .collect();
 
         let req = RemoveAuthenticatorRequest {
-            account_index: account_id,
+            leaf_index,
             authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
@@ -820,7 +820,7 @@ pub enum AuthenticatorError {
     #[error("Account is not registered for this authenticator.")]
     AccountDoesNotExist,
 
-    /// The account already exists for this authenticator. Call `account_id` to get the account index.
+    /// The account already exists for this authenticator. Call `leaf_index` to get the leaf index.
     #[error("Account already exists for this authenticator.")]
     AccountAlreadyExists,
 
@@ -881,10 +881,10 @@ mod tests {
     use super::*;
     use alloy::primitives::{address, U256};
 
-    /// Tests that `get_packed_account_index` correctly fetches the packed account index from the indexer
+    /// Tests that `get_packed_account_data` correctly fetches the packed account data from the indexer
     /// when no RPC is configured.
     #[tokio::test]
-    async fn test_get_packed_account_index_from_indexer() {
+    async fn test_get_packed_account_data_from_indexer() {
         let mut server = mockito::Server::new_async().await;
         let indexer_url = server.url();
 
@@ -904,7 +904,7 @@ mod tests {
             .with_header("content-type", "application/json")
             .with_body(
                 serde_json::json!({
-                    "packed_account_index": format!("{:#x}", expected_packed_index)
+                    "packed_account_data": format!("{:#x}", expected_packed_index)
                 })
                 .to_string(),
             )
@@ -924,7 +924,7 @@ mod tests {
 
         let http_client = reqwest::Client::new();
 
-        let result = Authenticator::get_packed_account_index(
+        let result = Authenticator::get_packed_account_data(
             test_address,
             None, // No registry, force indexer usage
             &config,
@@ -939,7 +939,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_packed_account_index_from_indexer_error() {
+    async fn test_get_packed_account_data_from_indexer_error() {
         let mut server = mockito::Server::new_async().await;
         let indexer_url = server.url();
 
@@ -973,8 +973,7 @@ mod tests {
         let http_client = reqwest::Client::new();
 
         let result =
-            Authenticator::get_packed_account_index(test_address, None, &config, &http_client)
-                .await;
+            Authenticator::get_packed_account_data(test_address, None, &config, &http_client).await;
 
         assert!(matches!(
             result,
@@ -989,7 +988,7 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let indexer_url = server.url();
 
-        let account_index = U256::from(1);
+        let leaf_index = U256::from(1);
         let expected_nonce = U256::from(5);
 
         let mock = server
@@ -997,7 +996,7 @@ mod tests {
             .match_header("content-type", "application/json")
             .match_body(mockito::Matcher::JsonString(
                 serde_json::json!({
-                    "account_index": format!("{:#x}", account_index)
+                    "leaf_index": format!("{:#x}", leaf_index)
                 })
                 .to_string(),
             ))
@@ -1025,7 +1024,7 @@ mod tests {
 
         let authenticator = Authenticator {
             config,
-            packed_account_index: account_index, // This sets account_id() to 1
+            packed_account_data: leaf_index, // This sets leaf_index() to 1
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),
@@ -1049,7 +1048,7 @@ mod tests {
             .with_header("content-type", "application/json")
             .with_body(
                 serde_json::json!({
-                    "code": "invalid_account_index",
+                    "code": "invalid_leaf_index",
                     "message": "Account index cannot be zero"
                 })
                 .to_string(),
@@ -1070,7 +1069,7 @@ mod tests {
 
         let authenticator = Authenticator {
             config,
-            packed_account_index: U256::ZERO,
+            packed_account_data: U256::ZERO,
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             http_client: reqwest::Client::new(),

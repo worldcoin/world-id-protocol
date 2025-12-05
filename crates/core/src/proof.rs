@@ -1,15 +1,15 @@
 //! Internal proof generation for the World ID Protocol.
 //!
 //! Provides functionality for generating ZKPs (zero-knowledge proofs), including
-//! Uniqueness Proofs (internally also called Nullifier Proofs [`π2`]) and Session Proofs. It
-//! also contains internal proof computation such as Query Proofs [`π1`].
+//! Uniqueness Proofs (internally also called Nullifier Proofs `π2`) and Session Proofs. It
+//! also contains internal proof computation such as Query Proofs `π1`.
 //!
 //! The proof generation workflow for Uniqueness Proofs consists of:
 //! 1. Loading circuit proving material (zkeys and witness graphs)
-//! 2. Signing OPRF queries and generating a Query Proof [`π1`]
+//! 2. Signing OPRF queries and generating a Query Proof `π1`
 //! 3. Interacting with OPRF services to obtain challenge responses
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
-//! 5. Generating the final Nullifier Proof [`π2`]
+//! 5. Generating the final Nullifier Proof `π2`
 
 use crate::oprf::{compute_challenges, sign_oprf_query, ProofError};
 use circom_types::ark_bn254::Bn254;
@@ -80,7 +80,7 @@ pub fn load_embedded_query_material() -> CircomGroth16Material {
         .expect("works when loading embedded groth16-material")
 }
 
-// Stub implementations for docs.rs
+/// Loads the [`CircomGroth16Material`] for the nullifier proof from the embedded keys in the binary.
 #[cfg(docsrs)]
 #[must_use]
 pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
@@ -88,6 +88,7 @@ pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
     todo!("load_embedded_nullifier_material is not available on docs.rs - use load_nullifier_material_from_paths or load_nullifier_material_from_reader instead")
 }
 
+/// Loads the [`CircomGroth16Material`] for the query proof from the embedded keys in the binary.
 #[cfg(docsrs)]
 #[must_use]
 pub fn load_embedded_query_material() -> CircomGroth16Material {

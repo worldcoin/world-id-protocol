@@ -37,7 +37,7 @@ async fn openapi() -> impl IntoResponse {
 pub(crate) fn handler(state: AppState) -> Router {
     Router::new()
         .route(
-            "/proof/:account_index",
+            "/proof/:leaf_index",
             axum::routing::get(inclusion_proof::handler),
         )
         .route(
