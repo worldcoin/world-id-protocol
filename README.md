@@ -64,14 +64,24 @@ forge test -vvv
 forge fmt
 ```
 
-## Development
+## Releasing
 
-- Build everything: `make build`
-- Test Rust: `make rust-test`; Test Solidity: `make sol-test`; Both: `make test`
-- Format: `make fmt`
-- Lint: `make lint`
+Versioning and releases are managed separately for crates and services.
 
-## Notes
+### Crates
 
-- This codebase is unaudited. Do not use in production.
-- Ensure RPC and Postgres credentials are correct before running services.
+Crate releases (`world-id-core`, `world-id-primitives`) are automated using `release-plz`.
+
+**How it works:**
+
+1. Commits to `main` follow [conventional commits](https://www.conventionalcommits.org/). To override the type of release, specific labels can be used, e.g. `release-minor`.
+2. release-plz creates/updates a release PR with:
+   - Version bumps in `Cargo.toml` files
+   - Updated `CHANGELOG.md` for each crate
+3. When the release PR is merged:
+   - Crates are published to [crates.io](https://crates.io) using trusted publishing
+   - GitHub releases are created for each updated crate (e.g., `world-id-core-v0.1.4`)
+
+### Services
+
+Information coming soon.

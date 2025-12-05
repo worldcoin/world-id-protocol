@@ -23,16 +23,16 @@ pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerSignatureNonceRequest>,
 ) -> Result<Json<IndexerSignatureNonceResponse>, ErrorResponse> {
-    if req.account_index == U256::ZERO {
+    if req.leaf_index == U256::ZERO {
         return Err(ErrorResponse::bad_request(
-            ErrorCode::InvalidAccountIndex,
+            ErrorCode::InvalidLeafIndex,
             "Account index cannot be zero".to_string(),
         ));
     }
 
     let signature_nonce = state
         .registry
-        .signatureNonces(req.account_index)
+        .leafIndexToSignatureNonce(req.leaf_index)
         .call()
         .await
         .map_err(|e| {

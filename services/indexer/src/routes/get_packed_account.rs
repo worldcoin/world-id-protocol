@@ -24,9 +24,9 @@ pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerPackedAccountRequest>,
 ) -> Result<Json<IndexerPackedAccountResponse>, ErrorResponse> {
-    let packed_account_index = state
+    let packed_account_data = state
         .registry
-        .authenticatorAddressToPackedAccountIndex(req.authenticator_address)
+        .authenticatorAddressToPackedAccountData(req.authenticator_address)
         .call()
         .await
         .map_err(|e| {
@@ -34,7 +34,7 @@ pub(crate) async fn handler(
             ErrorResponse::internal_server_error()
         })?;
 
-    if packed_account_index == U256::ZERO {
+    if packed_account_data == U256::ZERO {
         return Err(ErrorResponse::bad_request(
             ErrorCode::AccountDoesNotExist,
             "There is no account for this authenticator address".to_string(),
@@ -42,6 +42,6 @@ pub(crate) async fn handler(
     }
 
     Ok(Json(IndexerPackedAccountResponse {
-        packed_account_index,
+        packed_account_data,
     }))
 }

@@ -411,7 +411,7 @@ async fn update_authenticator(
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Update {
-            account_index: req.account_index,
+            leaf_index: req.leaf_index,
             old_authenticator_address: req.old_authenticator_address,
             new_authenticator_address: req.new_authenticator_address,
             old_commit: req.old_offchain_signer_commitment,
@@ -463,7 +463,7 @@ async fn insert_authenticator(
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Insert {
-            account_index: req.account_index,
+            leaf_index: req.leaf_index,
             new_authenticator_address: req.new_authenticator_address,
             old_commit: req.old_offchain_signer_commitment,
             new_commit: req.new_offchain_signer_commitment,
@@ -514,7 +514,7 @@ async fn remove_authenticator(
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Remove {
-            account_index: req.account_index,
+            leaf_index: req.leaf_index,
             authenticator_address: req.authenticator_address,
             old_commit: req.old_offchain_signer_commitment,
             new_commit: req.new_offchain_signer_commitment,
@@ -562,7 +562,7 @@ async fn recover_account(
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Recover {
-            account_index: req.account_index,
+            leaf_index: req.leaf_index,
             new_authenticator_address: req.new_authenticator_address,
             old_commit: req.old_offchain_signer_commitment,
             new_commit: req.new_offchain_signer_commitment,

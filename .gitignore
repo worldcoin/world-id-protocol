@@ -6,7 +6,6 @@ target/
 contracts/out/*
 contracts/cache/
 contracts/broadcast/
-contracts/lib/
 
 # Node (if used later)
 node_modules/
@@ -14,3 +13,11 @@ node_modules/
 # Misc
 .env
 .DS_Store
+
+# IDE
+.idea
+.vscode
+.claude
+.cursor
+
+CLAUDE.md

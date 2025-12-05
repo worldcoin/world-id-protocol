@@ -45,19 +45,6 @@
   },
   {
     "type": "function",
-    "name": "MAX_AUTHENTICATORS",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "RECOVER_ACCOUNT_TYPEHASH",
     "inputs": [],
     "outputs": [
@@ -130,26 +117,7 @@
   },
   {
     "type": "function",
-    "name": "accountRecoveryCounter",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "authenticatorAddressToPackedAccountIndex",
+    "name": "authenticatorAddressToPackedAccountData",
     "inputs": [
       {
         "name": "",
@@ -296,7 +264,7 @@
     "name": "getRecoveryAddress",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -328,7 +296,7 @@
     "name": "insertAuthenticator",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -410,7 +378,58 @@
   },
   {
     "type": "function",
-    "name": "nextAccountIndex",
+    "name": "leafIndexToRecoveryCounter",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "leafIndexToSignatureNonce",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxAuthenticators",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nextLeafIndex",
     "inputs": [],
     "outputs": [
       {
@@ -465,7 +484,7 @@
     "name": "recoverAccount",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -513,7 +532,7 @@
     "name": "removeAuthenticator",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -602,6 +621,19 @@
   },
   {
     "type": "function",
+    "name": "setMaxAuthenticators",
+    "inputs": [
+      {
+        "name": "newMaxAuthenticators",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setRootValidityWindow",
     "inputs": [
       {
@@ -612,25 +644,6 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "signatureNonces",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -691,7 +704,7 @@
     "name": "updateAuthenticator",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -749,7 +762,7 @@
     "name": "updateRecoveryAddress",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -795,7 +808,7 @@
     "name": "AccountCreated",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -832,7 +845,7 @@
     "name": "AccountRecovered",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -869,7 +882,7 @@
     "name": "AccountUpdated",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -918,7 +931,7 @@
     "name": "AuthenticatorInserted",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -961,7 +974,7 @@
     "name": "AuthenticatorRemoved",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -1020,6 +1033,25 @@
   },
   {
     "type": "event",
+    "name": "MaxAuthenticatorsUpdated",
+    "inputs": [
+      {
+        "name": "oldMax",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newMax",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnershipTransferStarted",
     "inputs": [
       {
@@ -1061,7 +1093,7 @@
     "name": "RecoveryAddressUpdated",
     "inputs": [
       {
-        "name": "accountIndex",
+        "name": "leafIndex",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -1134,6 +1166,17 @@
   },
   {
     "type": "error",
+    "name": "AccountDoesNotExist",
+    "inputs": [
+      {
+        "name": "leafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "AddressEmptyCode",
     "inputs": [
       {
@@ -1146,6 +1189,44 @@
   {
     "type": "error",
     "name": "AuthenticatorAddressAlreadyInUse",
+    "inputs": [
+      {
+        "name": "authenticatorAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AuthenticatorAlreadyExists",
+    "inputs": [
+      {
+        "name": "authenticatorAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AuthenticatorDoesNotBelongToAccount",
+    "inputs": [
+      {
+        "name": "expectedLeafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualLeafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AuthenticatorDoesNotExist",
     "inputs": [
       {
         "name": "authenticatorAddress",
@@ -1204,6 +1285,11 @@
   },
   {
     "type": "error",
+    "name": "EmptyAddressArray",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "FailedCall",
     "inputs": []
   },
@@ -1215,6 +1301,106 @@
   {
     "type": "error",
     "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MismatchedAuthenticatorSigner",
+    "inputs": [
+      {
+        "name": "expectedAuthenticatorAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actualAuthenticatorAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedLeafIndex",
+    "inputs": [
+      {
+        "name": "expectedLeafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualLeafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedPubkeyId",
+    "inputs": [
+      {
+        "name": "expectedPubkeyId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualPubkeyId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedRecoveryCounter",
+    "inputs": [
+      {
+        "name": "leafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expectedRecoveryCounter",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualRecoveryCounter",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchedSignatureNonce",
+    "inputs": [
+      {
+        "name": "leafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expectedNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MismatchingArrayLengths",
     "inputs": []
   },
   {
@@ -1246,12 +1432,54 @@
   },
   {
     "type": "error",
+    "name": "OwnerMaxAuthenticatorsOutOfBounds",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PubkeyIdDoesNotExist",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "PubkeyIdInUse",
     "inputs": []
   },
   {
     "type": "error",
+    "name": "PubkeyIdOutOfBounds",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PubkeyIdOverflow",
+    "inputs": [
+      {
+        "name": "pubkeyId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "RecoveryAddressNotSet",
+    "inputs": [
+      {
+        "name": "leafIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "RecoveryNotEnabled",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ReusedAuthenticatorAddress",
     "inputs": []
   },
   {
@@ -1269,5 +1497,15 @@
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroRecoveredSignatureAddress",
+    "inputs": []
   }
 ]

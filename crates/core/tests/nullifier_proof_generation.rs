@@ -18,7 +18,9 @@ use test_utils::{
 };
 use uuid::Uuid;
 
-use world_id_core::{oprf, proof, Authenticator, HashableCredential, OnchainKeyRepresentable};
+use world_id_core::{
+    oprf, proof, Authenticator, FieldElement, HashableCredential, OnchainKeyRepresentable,
+};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
     merkle::MerkleInclusionProof, proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
@@ -141,8 +143,8 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .find_map(|log| AccountRegistry::AccountCreated::decode_log(log.inner.as_ref()).ok())
         .ok_or_else(|| eyre!("AccountCreated event not emitted"))?;
 
-    let account_index: u64 = account_created
-        .accountIndex
+    let leaf_index: u64 = account_created
+        .leafIndex
         .try_into()
         .map_err(|_| eyre!("account index exceeded u64 range"))?;
     // Convert issuerSchemaId to field‑friendly u64 for circuits
@@ -159,7 +161,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
 
     let credential = build_base_credential(
         issuer_schema_id_u64,
-        account_index,
+        leaf_index,
         genesis_issued_at,
         expires_at,
     )
@@ -170,9 +172,11 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     let rp_fixture = generate_rp_fixture();
     let inclusion_proof = MerkleInclusionProof {
         root: expected_root_fq,
-        account_id: account_index,
+        leaf_index,
         siblings: merkle_siblings,
     };
+
+    let signal_hash = FieldElement::from_arbitrary_raw_bytes(b"hello world!");
 
     // Build OPRF query context (RP id, action, nonce, timestamp)
     let rp_nullifier_key = RpNullifierKey::new(rp_fixture.rp_nullifier_point);
@@ -190,7 +194,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         current_timestamp: rp_fixture.current_timestamp,
         rp_signature: rp_fixture.signature,
         rp_nullifier_key,
-        signal_hash: rp_fixture.signal_hash,
+        signal_hash,
     };
 
     // Produce πR (signed OPRF query) — blinded request + query inputs
@@ -214,7 +218,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         &dlog_proof,
         rp_nullifier_key.into_inner(),
         blinded_response,
-        *rp_fixture.signal_hash,
+        *signal_hash,
         *rp_fixture.rp_session_id_r_seed,
         signed_query.blinding_factor().clone(),
     );

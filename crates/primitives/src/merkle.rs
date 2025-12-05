@@ -36,8 +36,10 @@ mod array_serde {
 pub struct MerkleInclusionProof<const TREE_DEPTH: usize> {
     /// The root hash of the Merkle tree.
     pub root: FieldElement,
-    /// The user's account ID which is represented by the leaf position in the Merkle tree of the `AccountRegistry` contract.
-    pub account_id: u64,
+    /// The World ID's leaf position in the Merkle tree of the `AccountRegistry` contract.
+    ///
+    /// This is the main internal identifier for a World ID.
+    pub leaf_index: u64,
     /// The sibling path up to the Merkle root.
     #[serde(with = "array_serde")]
     pub siblings: [FieldElement; TREE_DEPTH],
@@ -48,12 +50,12 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
     #[must_use]
     pub const fn new(
         root: FieldElement,
-        account_id: u64,
+        leaf_index: u64,
         siblings: [FieldElement; TREE_DEPTH],
     ) -> Self {
         Self {
             root,
-            account_id,
+            leaf_index,
             siblings,
         }
     }
@@ -78,7 +80,7 @@ impl<const TREE_DEPTH: usize> AccountInclusionProof<TREE_DEPTH> {
     /// Creates a new account inclusion proof.
     ///
     /// # Errors
-    /// Returns an error if the number of authenticator public keys exceeds [`MAX_AUTHENTICATOR_KEYS`].
+    /// Returns an error if the number of authenticator public keys exceeds `MAX_AUTHENTICATOR_KEYS`.
     #[allow(clippy::missing_const_for_fn)]
     pub fn new(
         proof: MerkleInclusionProof<TREE_DEPTH>,

@@ -18,7 +18,7 @@ use crate::{
 /// Internally, the World ID Proofs are Groth16 ZKPs. In the World ID Protocol,
 /// the Merkle Root that proves inclusion into the set of World ID accounts (`AccountRegistry`)
 /// is also encoded as part of the proof.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct WorldIdProof {
     /// The Groth16 ZKP
     pub zkp: ark_groth16::Proof<Bn254>,

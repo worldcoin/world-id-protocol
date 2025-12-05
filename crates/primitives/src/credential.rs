@@ -49,10 +49,12 @@ pub enum CredentialVersion {
 pub struct Credential {
     /// Version representation of this structure
     pub version: CredentialVersion,
-    /// Unique credential type id that is used to lookup of verifying information
+    /// Unique issuer schema id that is used to lookup of verifying information
     pub issuer_schema_id: u64,
-    /// World ID to which the credential is issued. This ID comes from the `AccountRegistry`.
-    pub account_id: u64,
+    /// The subject (World ID) to which the credential is issued.
+    ///
+    /// This ID comes from the `AccountRegistry` and it's the `leaf_index` of the World ID on the Merkle tree.
+    pub sub: u64,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
     /// this timestamp should stay constant.
@@ -87,7 +89,7 @@ impl Credential {
         Self {
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
-            account_id: 0,
+            sub: 0,
             genesis_issued_at: 0,
             expires_at: 0,
             claims: vec![FieldElement::ZERO; Self::MAX_CLAIMS],
@@ -113,10 +115,10 @@ impl Credential {
         self
     }
 
-    /// Set the `accountId` of the credential.
+    /// Set the `sub` of the credential.
     #[must_use]
-    pub const fn account_id(mut self, account_id: u64) -> Self {
-        self.account_id = account_id;
+    pub const fn sub(mut self, sub: u64) -> Self {
+        self.sub = sub;
         self
     }
 
