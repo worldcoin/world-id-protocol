@@ -8,12 +8,12 @@ use serde::Serialize;
 use serde::Deserialize;
 
 #[cfg(feature = "authenticator")]
+use alloy::primitives::Address;
+#[cfg(feature = "authenticator")]
 use strum::EnumString;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 pub use world_id_primitives::merkle::AccountInclusionProof;
-#[cfg(feature = "authenticator")]
-use alloy::primitives::Address;
 
 /// The request to create a new World ID account.
 #[cfg(feature = "authenticator")]

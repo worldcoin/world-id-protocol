@@ -41,9 +41,8 @@ async fn main() -> Result<()> {
     let proof_request_path = std::env::args()
         .nth(2)
         .expect("proof request file path is required as second argument");
-    let proof_request: ProofRequest = ProofRequest::from_json(
-        &std::fs::read_to_string(proof_request_path)?
-    )?;
+    let proof_request: ProofRequest =
+        ProofRequest::from_json(&std::fs::read_to_string(proof_request_path)?)?;
 
     let mut rng = rand::thread_rng();
     let message_hash: FieldElement = ark_babyjubjub::Fq::rand(&mut rng).into();
