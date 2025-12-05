@@ -163,8 +163,8 @@ impl ProofResponse {
 
 impl ProofRequest {
     /// Determine which requested credentials to prove given available credentials.
-    /// Returns None if constraints (or lack thereof) cannot be satisfied with the available set.
-
+    ///
+    /// Returns `None` if constraints (or lack thereof) cannot be satisfied with the available set.
     ///
     /// # Panics
     /// Panics if constraints are present but invalid according to the type invariants
