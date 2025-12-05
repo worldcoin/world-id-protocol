@@ -1,7 +1,7 @@
 //! Module containing all the functionality to handle requests from Relying Parties (RPs) to Authenticators.
 //!
 //! Enables an RP to create a Proof request or a Session Proof request, and provides base functionality
-//! for Authneticators to handle such requests.
+//! for Authenticators to handle such requests.
 
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
@@ -134,7 +134,7 @@ pub struct ResponseItem {
     pub proof: Option<WorldIdProof>,
     /// Computed nullifier
     ///
-    /// /// TODO: Correct type
+    /// TODO: Correct type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nullifier: Option<String>,
     /// Session identifier
@@ -164,7 +164,7 @@ impl ProofResponse {
 impl ProofRequest {
     /// Determine which requested credentials to prove given available credentials.
     /// Returns None if constraints (or lack thereof) cannot be satisfied with the available set.
-    /// Determine which requested credentials to prove given available credentials.
+
     ///
     /// # Panics
     /// Panics if constraints are present but invalid according to the type invariants
