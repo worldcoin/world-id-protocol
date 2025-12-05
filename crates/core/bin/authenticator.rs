@@ -45,10 +45,9 @@ async fn main() -> Result<()> {
         ProofRequest::from_json(&std::fs::read_to_string(proof_request_path)?)?;
 
     let mut rng = rand::thread_rng();
-    let message_hash: FieldElement = ark_babyjubjub::Fq::rand(&mut rng).into();
 
     let (proof, nullifier) = authenticator
-        .generate_proof(message_hash, proof_request, credential)
+        .generate_proof(proof_request, credential)
         .await?;
 
     println!("proof: {proof:?}");

@@ -235,9 +235,6 @@ impl ProofRequest {
 
     /// Compute the digest hash of this request that should be signed by the RP.
     ///
-    /// This hash includes all critical fields of the request to ensure integrity.
-    /// The signature field in the request should be the RP's ECDSA signature over this digest.
-    ///
     /// # Returns
     /// A 32-byte hash that represents this request and should be signed by the RP.
     ///
@@ -246,41 +243,11 @@ impl ProofRequest {
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
         use k256::sha2::{Digest, Sha256};
 
+        let mut writer = Vec::new();
         let mut hasher = Sha256::new();
-
-        // Include request ID
-        hasher.update(self.id.as_bytes());
-
-        // Include version
-        hasher.update([self.version as u8]);
-
-        // Include timestamps
+        self.nonce.serialize_as_bytes(&mut writer)?;
+        hasher.update(&writer);
         hasher.update(self.created_at.to_be_bytes());
-        hasher.update(self.expires_at.to_be_bytes());
-
-        // Include RP ID
-        hasher.update(self.rp_id.into_inner().to_be_bytes());
-
-        // Include action (now a FieldElement)
-        let mut action_bytes = Vec::new();
-        self.action.serialize_as_bytes(&mut action_bytes)?;
-        hasher.update(&action_bytes);
-
-        // Include nonce
-        let mut nonce_bytes = Vec::new();
-        self.nonce.serialize_as_bytes(&mut nonce_bytes)?;
-        hasher.update(&nonce_bytes);
-
-        // Include proof requests (issuer schema IDs and signals)
-        for req in &self.requests {
-            let mut req_bytes = Vec::new();
-            req.issuer_schema_id.serialize_as_bytes(&mut req_bytes)?;
-            hasher.update(&req_bytes);
-            if let Some(signal) = &req.signal {
-                hasher.update(signal.as_bytes());
-            }
-        }
-
         Ok(hasher.finalize().into())
     }
 
@@ -568,9 +535,9 @@ mod tests {
         let digest2 = request.digest_hash().unwrap();
         assert_eq!(digest1, digest2);
 
-        // Verify different requests produce different hashes
+        // Verify different request nonces produce different hashes
         let request2 = ProofRequest {
-            id: "different_id".into(),
+            nonce: test_field_element(3),
             ..request
         };
         let digest3 = request2.digest_hash().unwrap();
