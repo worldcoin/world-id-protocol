@@ -233,7 +233,8 @@ impl ProofRequest {
         now > self.expires_at
     }
 
-    /// Compute the digest hash of this request that should be signed by the RP.
+    /// Compute the digest hash of this request that should be signed by the RP, which right now
+    /// includes the `nonce` and the timestamp of the request.
     ///
     /// # Returns
     /// A 32-byte hash that represents this request and should be signed by the RP.
@@ -251,7 +252,6 @@ impl ProofRequest {
         Ok(hasher.finalize().into())
     }
 
-    /// Validate that a response satisfies this request: id match and constraints semantics.
     /// Validate that a response satisfies this request: id match and constraints semantics.
     ///
     /// # Errors

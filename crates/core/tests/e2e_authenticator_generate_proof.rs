@@ -176,10 +176,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
-        created_at: now,
-        expires_at: now + 300, // 5 minutes from now
+        created_at: rp_fixture.current_timestamp,
+        expires_at: rp_fixture.current_timestamp + 300, // 5 minutes from now
         rp_id: RpId::from(rp_fixture.oprf_rp_id.into_inner()),
-        action: FieldElement::ZERO,
+        action: rp_fixture.action.into(),
         rp_nullifier_key: RpNullifierKey::new(rp_fixture.rp_nullifier_point),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
