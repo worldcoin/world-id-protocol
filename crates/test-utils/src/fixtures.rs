@@ -8,7 +8,8 @@ use alloy::{
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, PrimeField, UniformRand};
+use ark_ff::{PrimeField, UniformRand};
+use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{eyre, Context as _, Result};
 use k256::ecdsa::{signature::Signer, Signature, SigningKey};
@@ -174,8 +175,8 @@ pub fn generate_rp_fixture() -> RpFixture {
         .as_secs();
 
     let mut msg = Vec::new();
-    msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_timestamp.to_le_bytes());
+    nonce.serialize_compressed(&mut msg).unwrap();
+    msg.extend(current_timestamp.to_be_bytes());
     let signing_key = SigningKey::random(&mut rng);
     let signature = signing_key.sign(&msg);
 

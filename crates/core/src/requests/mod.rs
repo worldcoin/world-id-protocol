@@ -266,7 +266,7 @@ impl ProofRequest {
         self.nonce.serialize_as_bytes(&mut writer)?;
         hasher.update(&writer);
         // Keep byte order aligned with RP signature generation (little-endian).
-        hasher.update(self.created_at.to_le_bytes());
+        hasher.update(self.created_at.to_be_bytes());
         Ok(hasher.finalize().into())
     }
 
