@@ -83,7 +83,11 @@ pub struct RequestItem {
     /// The specific credential being requested as registered in the `CredentialIssuerSchemaRegistry`.
     /// Serialized as hex string in JSON.
     pub issuer_schema_id: FieldElement,
-    /// Optional signal (TODO: improve documentation)
+    /// Optional RP-defined signal that will be bound into the proof.
+    ///
+    /// When present, the authenticator hashes this via `signal_hash`
+    /// and commits it into the proof circuit so the RP can tie the proof to a
+    /// particular action.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
 }
@@ -121,9 +125,11 @@ pub struct ProofResponse {
     pub responses: Vec<ResponseItem>,
 }
 
-/// Per-credential response item
+/// Per-credential response item returned by the authenticator.
 ///
-/// TODO: Improve documentation
+/// Each entry corresponds to one requested credential. It carries the proof
+/// material when the authenticator could satisfy the request, or an `error`
+/// explaining why the credential could not be provided.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
@@ -132,13 +138,18 @@ pub struct ResponseItem {
     /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<WorldIdProof>,
-    /// Computed nullifier
+    /// RP-scoped nullifier derived from the credential, action, and RP id.
     ///
+    /// Encoded as a hex string representation of the field element output by
+    /// the nullifier circuit. Present only when a proof was produced.
     /// TODO: Correct type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nullifier: Option<String>,
-    /// Session identifier
+    /// Optional RP session identifier that links multiple proofs for the same
+    /// user/RP pair across requests.
     ///
+    /// When session proofs are enabled, this is the hex-encoded field element
+    /// emitted by the session circuit; otherwise it is omitted.
     /// TODO: Correct type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
