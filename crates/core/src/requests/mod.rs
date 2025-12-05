@@ -9,6 +9,7 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::str::FromStr;
 use world_id_primitives::rp::{RpId, RpNullifierKey};
 use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof};
 
@@ -142,7 +143,6 @@ pub struct ResponseItem {
     ///
     /// Encoded as a hex string representation of the field element output by
     /// the nullifier circuit. Present only when a proof was produced.
-    /// TODO: Correct type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nullifier: Option<String>,
     /// Optional RP session identifier that links multiple proofs for the same
@@ -150,7 +150,6 @@ pub struct ResponseItem {
     ///
     /// When session proofs are enabled, this is the hex-encoded field element
     /// emitted by the session circuit; otherwise it is omitted.
-    /// TODO: Correct type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     /// Present if credential not provided
@@ -162,13 +161,18 @@ impl ProofResponse {
     /// Determine if constraints are satisfied given a constraint expression.
     #[must_use]
     pub fn constraints_satisfied(&self, constraints: &ConstraintExpr<'_>) -> bool {
-        let provided: HashSet<String> = self
+        let provided: HashSet<FieldElement> = self
             .responses
             .iter()
             .filter(|item| item.error.is_none())
-            .map(|item| item.issuer_schema_id.to_string())
+            .map(|item| item.issuer_schema_id)
             .collect();
-        constraints.evaluate(&|t| provided.contains(t))
+
+        constraints.evaluate(&|t| {
+            FieldElement::from_str(t)
+                .ok()
+                .map_or(false, |fe| provided.contains(&fe))
+        })
     }
 }
 
@@ -186,20 +190,15 @@ impl ProofRequest {
         available: &HashSet<FieldElement>,
     ) -> Option<Vec<&RequestItem>> {
         // Build set of requested types
-        let requested: std::collections::HashSet<FieldElement> =
+        let requested: HashSet<FieldElement> =
             self.requests.iter().map(|r| r.issuer_schema_id).collect();
 
-        // FIXME @decentralgabe: proper comparison of issuer_schema_id
-
-        // Convert to string sets for constraint evaluation (constraints use string types)
-        let available_strings: HashSet<String> =
-            available.iter().map(ToString::to_string).collect();
-        let requested_strings: HashSet<String> =
-            requested.iter().map(ToString::to_string).collect();
-
         // Predicate: only select if both available and requested
-        let is_selectable =
-            |t: &str| available_strings.contains(t) && requested_strings.contains(t);
+        let is_selectable = |t: &str| {
+            FieldElement::from_str(t).ok().map_or(false, |fe| {
+                available.contains(&fe) && requested.contains(&fe)
+            })
+        };
 
         // If no explicit constraints: require all requested be available
         if self.constraints.is_none() {
@@ -216,13 +215,17 @@ impl ProofRequest {
 
         // Compute selected types using the constraint expression
         let selected_types = select_expr(self.constraints.as_ref().unwrap(), &is_selectable)?;
-        let selected_set: std::collections::HashSet<&str> = selected_types.into_iter().collect();
+        let mut selected_set: HashSet<FieldElement> = HashSet::new();
+        for t in selected_types {
+            let fe = FieldElement::from_str(t).ok()?;
+            selected_set.insert(fe);
+        }
 
         // Return proof_requests in original order filtered by selected types
         let result: Vec<&RequestItem> = self
             .requests
             .iter()
-            .filter(|r| selected_set.contains(r.issuer_schema_id.to_string().as_str()))
+            .filter(|r| selected_set.contains(&r.issuer_schema_id))
             .collect();
         Some(result)
     }
@@ -252,6 +255,9 @@ impl ProofRequest {
     ///
     /// # Errors
     /// Returns a `PrimitiveError` if `FieldElement` serialization fails (which should never occur in practice).
+    ///
+    /// Note: the timestamp is encoded as little-endian to mirror the RP-side signing
+    /// performed in test fixtures and the OPRF stub.
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
         use k256::sha2::{Digest, Sha256};
 
@@ -259,7 +265,8 @@ impl ProofRequest {
         let mut hasher = Sha256::new();
         self.nonce.serialize_as_bytes(&mut writer)?;
         hasher.update(&writer);
-        hasher.update(self.created_at.to_be_bytes());
+        // Keep byte order aligned with RP signature generation (little-endian).
+        hasher.update(self.created_at.to_le_bytes());
         Ok(hasher.finalize().into())
     }
 
@@ -278,18 +285,18 @@ impl ProofRequest {
         }
 
         // Build set of successful credentials
-        let provided: HashSet<String> = response
+        let provided: HashSet<FieldElement> = response
             .responses
             .iter()
             .filter(|r| r.error.is_none())
-            .map(|r| r.issuer_schema_id.to_string())
+            .map(|r| r.issuer_schema_id)
             .collect();
 
         match &self.constraints {
             // None => all requested credential (via issuer_schema_id) are required
             None => {
                 for req in &self.requests {
-                    if !provided.contains(&req.issuer_schema_id.to_string()) {
+                    if !provided.contains(&req.issuer_schema_id) {
                         return Err(ValidationError::MissingCredential(
                             req.issuer_schema_id.to_string(),
                         ));
@@ -304,7 +311,11 @@ impl ProofRequest {
                 if !expr.validate_max_nodes(MAX_CONSTRAINT_NODES) {
                     return Err(ValidationError::ConstraintTooLarge);
                 }
-                if expr.evaluate(&|t| provided.contains(t)) {
+                if expr.evaluate(&|t| {
+                    FieldElement::from_str(t)
+                        .ok()
+                        .map_or(false, |fe| provided.contains(&fe))
+                }) {
                     Ok(())
                 } else {
                     Err(ValidationError::ConstraintNotSatisfied)
