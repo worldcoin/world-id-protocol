@@ -12,8 +12,8 @@ The indexer will backfill `AccountCreated` events into Postgres tables defined u
     cp .env.example .env
 ```
 
-2. Run Postgres (e.g. through Docker)
+2. Run Postgres (e.g. through Docker).
 
 ```
-    docker compose -f services/indexer/docker-compose.tests.yml up
+    docker compose -f services/docker-compose.yml up
 ```

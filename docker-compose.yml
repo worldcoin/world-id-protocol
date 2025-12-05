@@ -1,0 +1,18 @@
+# This docker compose file contains all the services required for running locally or end-to-end tests for all services.
+
+name: world-id-protocol-services
+services:
+  # world-id-indexer
+  postgres:
+    image: postgres:latest
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=indexer_tests
+  # world-id-gateway
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
