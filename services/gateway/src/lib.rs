@@ -159,18 +159,12 @@ impl Serialize for GatewayError {
 
 impl GatewayError {
     pub(crate) fn from_contract_error(error: &str) -> Self {
-        // Check for specific contract error first
-        if error.contains("AuthenticatorAddressAlreadyInUse") {
+        // AuthenticatorAddressAlreadyInUse(address) selector: 0x218170d3
+        if error.contains("0x218170d3") {
             return GatewayError::AuthenticatorAlreadyExists;
         }
 
-        // Fall back to generic error message matching for backward compatibility
-        let msg_lower = error.to_lowercase();
-        if msg_lower.contains("authenticator already exists") {
-            GatewayError::AuthenticatorAlreadyExists
-        } else {
-            GatewayError::Unknown(error.to_string())
-        }
+        GatewayError::Unknown(error.to_string())
     }
 }
 

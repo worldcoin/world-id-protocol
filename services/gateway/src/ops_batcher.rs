@@ -113,7 +113,7 @@ impl OpsBatcherRunner {
     ) -> Result<(), String> {
         match kind {
             OpKind::Update {
-                account_index,
+                leaf_index,
                 old_authenticator_address,
                 new_authenticator_address,
                 old_commit,
@@ -125,7 +125,7 @@ impl OpsBatcherRunner {
                 new_pubkey,
             } => contract
                 .updateAuthenticator(
-                    *account_index,
+                    *leaf_index,
                     *old_authenticator_address,
                     *new_authenticator_address,
                     *pubkey_id,
@@ -141,7 +141,7 @@ impl OpsBatcherRunner {
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
             OpKind::Insert {
-                account_index,
+                leaf_index,
                 new_authenticator_address,
                 old_commit,
                 new_commit,
@@ -152,7 +152,7 @@ impl OpsBatcherRunner {
                 new_pubkey,
             } => contract
                 .insertAuthenticator(
-                    *account_index,
+                    *leaf_index,
                     *new_authenticator_address,
                     *pubkey_id,
                     *new_pubkey,
@@ -167,7 +167,7 @@ impl OpsBatcherRunner {
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
             OpKind::Remove {
-                account_index,
+                leaf_index,
                 authenticator_address,
                 old_commit,
                 new_commit,
@@ -178,7 +178,7 @@ impl OpsBatcherRunner {
                 authenticator_pubkey,
             } => contract
                 .removeAuthenticator(
-                    *account_index,
+                    *leaf_index,
                     *authenticator_address,
                     *pubkey_id,
                     *authenticator_pubkey,
@@ -193,7 +193,7 @@ impl OpsBatcherRunner {
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
             OpKind::Recover {
-                account_index,
+                leaf_index,
                 new_authenticator_address,
                 old_commit,
                 new_commit,
@@ -203,7 +203,7 @@ impl OpsBatcherRunner {
                 new_pubkey,
             } => contract
                 .recoverAccount(
-                    *account_index,
+                    *leaf_index,
                     *new_authenticator_address,
                     *new_pubkey,
                     *old_commit,
