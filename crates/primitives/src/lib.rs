@@ -10,7 +10,9 @@
     missing_docs,
     dead_code
 )]
+#![allow(clippy::option_if_let_else)]
 
+use alloy_primitives::Keccak256;
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -101,6 +103,31 @@ impl FieldElement {
     pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
+    }
+
+    /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
+    /// and reduces it to a field element.
+    ///
+    #[must_use]
+    pub fn from_arbitrary_raw_bytes(bytes: &[u8]) -> Self {
+        let mut hasher = Keccak256::new();
+        hasher.update(bytes);
+        let output: [u8; 32] = hasher.finalize().into();
+
+        let n = U256::from_be_bytes(output);
+        // Shift right one byte to make it fit in the field
+        let n: U256 = n >> 8;
+
+        let field_element = Fq::from_bigint(n.into());
+
+        match field_element {
+            Some(element) => Self(element),
+            None => unreachable!(
+                "due to the byte reduction, the value is guaranteed to be within the field"
+            ),
+        }
+
+        // FIXME: add unit tests
     }
 }
 

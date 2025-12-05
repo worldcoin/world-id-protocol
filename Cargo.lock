@@ -6179,6 +6179,7 @@ dependencies = [
  "alloy-node-bindings",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
  "axum 0.8.7",
  "eyre",
  "hex",

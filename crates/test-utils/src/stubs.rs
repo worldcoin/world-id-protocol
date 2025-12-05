@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use ark_babyjubjub::{EdwardsAffine, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, PrimeField};
+use ark_serialize::CanonicalSerialize;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -153,8 +153,8 @@ async fn oprf_init(
     }
 
     let mut msg = Vec::new();
-    msg.extend(req.auth.nonce.into_bigint().to_bytes_le());
-    msg.extend(req.auth.current_time_stamp.to_le_bytes());
+    req.auth.nonce.serialize_compressed(&mut msg).unwrap();
+    msg.extend(req.auth.current_time_stamp.to_be_bytes());
     state
         .verifier
         .verify(&msg, &req.auth.signature)
