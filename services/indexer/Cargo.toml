@@ -3,6 +3,7 @@ name = "world-id-indexer"
 version = "0.1.0"
 license.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
@@ -25,9 +26,15 @@ ark-bn254 = { workspace = true }
 axum = { version = "0.7", features = ["macros", "json"] }
 http = "1"
 take_mut = "0.2.2"
-world-id-core = { workspace = true }
+utoipa = { workspace = true }
+world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys", "openapi"] }
 world-id-primitives = { workspace = true }
 
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
+rand = { workspace = true }
 reqwest = { workspace = true }
+serial_test = "3"
+
+[features]
+integration-tests = [] # running integration tests requires running external services (i.e. Postgres)

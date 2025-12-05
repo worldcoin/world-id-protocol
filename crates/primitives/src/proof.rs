@@ -227,7 +227,6 @@ mod tests {
 
         // Test roundtrip serialization
         let json_str = serde_json::to_string(&proof).unwrap();
-        dbg!(&json_str);
         assert_eq!(json_str[306..], *"1ac917bce23d211\""); // assert hex encoding of merkle root
         let deserialized_proof: WorldIdProof = serde_json::from_str(&json_str).unwrap();
 

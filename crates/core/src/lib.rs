@@ -17,7 +17,7 @@ pub mod account_registry;
 #[cfg(feature = "authenticator")]
 mod authenticator;
 #[cfg(feature = "authenticator")]
-pub use authenticator::{Authenticator, AuthenticatorError};
+pub use crate::authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
 
 pub use world_id_primitives::{Credential, CredentialVersion};
 
@@ -35,6 +35,14 @@ pub use issuer::Issuer;
 mod signer;
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 pub(crate) use signer::Signer;
+
+#[cfg(feature = "authenticator")]
+pub mod oprf;
+#[cfg(feature = "authenticator")]
+pub use oprf::ProofError;
+
+#[cfg(feature = "authenticator")]
+pub mod proof;
 
 /// Generic re-usable types
 pub mod types;

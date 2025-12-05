@@ -1,7 +1,23 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use alloy::primitives::Address;
+use alloy::providers::DynProvider;
+use sqlx::PgPool;
+use world_id_core::account_registry::AccountRegistry::AccountRegistryInstance;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: PgPool,
+    pub registry: Arc<AccountRegistryInstance<DynProvider>>,
+}
+
+impl AppState {
+    pub fn new(pool: PgPool, registry: Arc<AccountRegistryInstance<DynProvider>>) -> Self {
+        Self { pool, registry }
+    }
+}
 
 #[derive(Debug)]
 pub enum RunMode {
@@ -56,12 +72,18 @@ pub struct GlobalConfig {
     pub environment: Environment,
     pub run_mode: RunMode,
     pub db_url: String,
+    pub rpc_url: String,
+    pub registry_address: Address,
 }
 
 #[derive(Debug)]
 pub struct HttpConfig {
     pub http_addr: SocketAddr,
     pub db_poll_interval_secs: u64,
+    /// Optional sanity check interval in seconds. If not set, the sanity check will not be run.
+    ///
+    /// The sanity check calls the `isValidRoot` function on the `AccountRegistry` contract to ensure the local Merkle root is valid.
+    pub sanity_check_interval_secs: Option<u64>,
 }
 
 impl HttpConfig {
@@ -75,6 +97,16 @@ impl HttpConfig {
                 .unwrap_or_else(|_| "1".to_string())
                 .parse()
                 .unwrap(),
+            sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS").ok().and_then(
+                |s| {
+                    let val = s.parse::<u64>().ok().unwrap_or(0);
+                    if val == 0 {
+                        None
+                    } else {
+                        Some(val)
+                    }
+                },
+            ),
         };
 
         if config.http_addr.port() != 8080 {
@@ -91,9 +123,7 @@ impl HttpConfig {
 
 #[derive(Debug)]
 pub struct IndexerConfig {
-    pub rpc_url: String,
     pub ws_url: String,
-    pub registry_address: Address,
     pub start_block: u64,
     pub batch_size: u64,
 }
@@ -101,12 +131,7 @@ pub struct IndexerConfig {
 impl IndexerConfig {
     pub fn from_env() -> Self {
         let config = Self {
-            rpc_url: std::env::var("RPC_URL").expect("RPC_URL must be set."),
             ws_url: std::env::var("WS_URL").expect("WS_URL must be set."),
-            registry_address: std::env::var("REGISTRY_ADDRESS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .expect("REGISTRY_ADDRESS must be set."),
             start_block: std::env::var("START_BLOCK")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -132,10 +157,19 @@ impl GlobalConfig {
 
         let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set.");
 
+        let rpc_url = std::env::var("RPC_URL").expect("RPC_URL must be set.");
+
+        let registry_address = std::env::var("REGISTRY_ADDRESS")
+            .expect("REGISTRY_ADDRESS must be set.")
+            .parse::<Address>()
+            .expect("REGISTRY_ADDRESS must be a valid address");
+
         Self {
             environment,
             run_mode,
             db_url,
+            rpc_url,
+            registry_address,
         }
     }
 }

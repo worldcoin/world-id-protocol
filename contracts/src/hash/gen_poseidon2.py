@@ -78,6 +78,7 @@ def generate():
     l += ["    uint256 constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;"]
     l += ["    function single_box(uint256 x) private pure returns (uint256) {uint256 t = mulmod(x, x, PRIME); return mulmod(mulmod(t, t, PRIME), x, PRIME);}"]
     l += ["    function compress(uint256[2] memory inputs) public pure returns (uint256) {"]
+    l += ["        require(inputs[0] < PRIME && inputs[1] < PRIME, \"Poseidon2T2: inputs must be in the field.\");"]
     l += ["        uint256 l = inputs[0]; uint256 r = inputs[1];"]
 
     # initial linear layer

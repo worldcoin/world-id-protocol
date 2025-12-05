@@ -11,40 +11,40 @@ sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     AccountRegistry,
-    "../../contracts/out/AccountRegistry.sol/AccountRegistryAbi.json"
+    "contracts/out/AccountRegistry.sol/AccountRegistryAbi.json"
 );
 
 sol! {
     struct UpdateAuthenticator {
-        uint256 accountIndex;
+        uint256 leafIndex;
         address oldAuthenticatorAddress;
         address newAuthenticatorAddress;
-        uint256 pubkeyId;
+        uint32 pubkeyId;
         uint256 newAuthenticatorPubkey;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
 
     struct InsertAuthenticator {
-        uint256 accountIndex;
+        uint256 leafIndex;
         address newAuthenticatorAddress;
-        uint256 pubkeyId;
+        uint32 pubkeyId;
         uint256 newAuthenticatorPubkey;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
 
     struct RemoveAuthenticator {
-        uint256 accountIndex;
+        uint256 leafIndex;
         address authenticatorAddress;
-        uint256 pubkeyId;
+        uint32 pubkeyId;
         uint256 authenticatorPubkey;
         uint256 newOffchainSignerCommitment;
         uint256 nonce;
     }
 
     struct RecoverAccount {
-        uint256 accountIndex;
+        uint256 leafIndex;
         address newAuthenticatorAddress;
         uint256 newAuthenticatorPubkey;
         uint256 newOffchainSignerCommitment;
@@ -71,17 +71,17 @@ pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain 
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_update_authenticator<S: Signer + Sync>(
     signer: &S,
-    account_index: U256,
+    leaf_index: U256,
     old_authenticator_address: Address,
     new_authenticator_address: Address,
-    pubkey_id: U256,
+    pubkey_id: u32,
     new_authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
     let payload = UpdateAuthenticator {
-        accountIndex: account_index,
+        leafIndex: leaf_index,
         oldAuthenticatorAddress: old_authenticator_address,
         newAuthenticatorAddress: new_authenticator_address,
         pubkeyId: pubkey_id,
@@ -100,16 +100,16 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_insert_authenticator<S: Signer + Sync>(
     signer: &S,
-    account_index: U256,
+    leaf_index: U256,
     new_authenticator_address: Address,
-    pubkey_id: U256,
+    pubkey_id: u32,
     new_authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
     let payload = InsertAuthenticator {
-        accountIndex: account_index,
+        leafIndex: leaf_index,
         newAuthenticatorAddress: new_authenticator_address,
         pubkeyId: pubkey_id,
         newAuthenticatorPubkey: new_authenticator_pubkey,
@@ -127,16 +127,16 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_remove_authenticator<S: Signer + Sync>(
     signer: &S,
-    account_index: U256,
+    leaf_index: U256,
     authenticator_address: Address,
-    pubkey_id: U256,
+    pubkey_id: u32,
     authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
     let payload = RemoveAuthenticator {
-        accountIndex: account_index,
+        leafIndex: leaf_index,
         authenticatorAddress: authenticator_address,
         pubkeyId: pubkey_id,
         authenticatorPubkey: authenticator_pubkey,
@@ -153,7 +153,7 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
 /// Will error if the signer unexpectedly fails to sign the hash.
 pub async fn sign_recover_account<S: Signer + Sync>(
     signer: &S,
-    account_index: U256,
+    leaf_index: U256,
     new_authenticator_address: Address,
     new_authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
@@ -161,7 +161,7 @@ pub async fn sign_recover_account<S: Signer + Sync>(
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
     let payload = RecoverAccount {
-        accountIndex: account_index,
+        leafIndex: leaf_index,
         newAuthenticatorAddress: new_authenticator_address,
         newAuthenticatorPubkey: new_authenticator_pubkey,
         newOffchainSignerCommitment: new_offchain_signer_commitment,

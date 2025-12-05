@@ -1,8 +1,24 @@
 [package]
 name = "world-id-core"
+description = "Reference SDK for interacting with the World ID Protocol. For authenticator providers, issuers and RPs."
+publish = true
+edition.workspace = true
 version.workspace = true
 license.workspace = true
-edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+include = [
+    "src/**/*",
+    "bin/**/*",
+    "tests/**/*",
+    "contracts/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+]
+
 
 [[bin]]
 name = "authenticator"
@@ -10,14 +26,9 @@ path = "bin/authenticator.rs"
 required-features = ["authenticator", "cli"]
 
 [[bin]]
-name = "rp"
-path = "bin/rp.rs"
-required-features = ["cli"]
-
-[[bin]]
 name = "issuer"
 path = "bin/issuer.rs"
-required-features = ["issuer"]
+required-features = ["issuer", "cli"]
 
 [dependencies]
 alloy = { workspace = true, features = ["sol-types", "rpc"] }
@@ -37,50 +48,62 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
-oprf-client = { workspace = true, optional = true }
 oprf-types = { workspace = true, optional = true }
-oprf-test = { workspace = true, optional = true }
-oprf-world-types = { workspace = true }
-oprf-zk = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 circom-types = { workspace = true, optional = true }
 rand = { workspace = true }
 ark-ec = { workspace = true }
 uuid = { workspace = true }
 eyre = { workspace = true }
-groth16 = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10", optional = true }
+strum = { workspace = true }
 world-id-primitives = { workspace = true }
-utoipa = { version = "5", optional = true }
+utoipa = { workspace = true, optional = true }
+groth16-material = { workspace = true, features = ["circom"], optional = true }
+oprf-core = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
 
 [features]
-default = ["authenticator"]
+default = ["authenticator", "embed-zkeys"]
 
 authenticator = [
     "alloy/contract",
     "alloy/signer-local",
     "alloy/reqwest-rustls-tls",
     "dep:circom-types",
-    "dep:groth16",
-    "dep:oprf-client",
     "dep:oprf-types",
     "dep:reqwest",
     "dep:secrecy",
+    "dep:groth16-material",
+    "dep:oprf-core",
+    "dep:futures"
 ]
+
+embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
 issuer = ["alloy/signer-local", "dep:secrecy"]
 
 rp = ["dep:oprf-types"]
 
-cli = ["dep:oprf-test"]
+cli = []
 
 # OpenAPI/Swagger docs
 openapi = ["dep:utoipa"]
+
+[build-dependencies]
+reqwest = { workspace = true, features = ["blocking"], optional = true }
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
 alloy-node-bindings = "1.0.38"
 alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
+axum = { version = "0.8", features = ["macros", "json"] }
+k256 = { workspace = true, features = ["ecdsa"] }
+oprf-core = { workspace = true }
+mockito = "1.6"

@@ -178,10 +178,7 @@ async fn e2e_gateway_full_flow() {
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
-        panic!(
-            "create-account failed: status={}, body={}",
-            status_code, body
-        );
+        panic!("create-account failed: status={status_code}, body={body}",);
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let create_request_id = accepted.request_id.clone();
@@ -195,7 +192,7 @@ async fn e2e_gateway_full_flow() {
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let packed_after = contract
-            .authenticatorAddressToPackedAccountIndex(wallet_addr)
+            .authenticatorAddressToPackedAccountData(wallet_addr)
             .call()
             .await
             .unwrap();
@@ -215,7 +212,7 @@ async fn e2e_gateway_full_flow() {
     let contract = AccountRegistry::new(gw.registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
-        .authenticatorAddressToPackedAccountIndex(wallet_addr)
+        .authenticatorAddressToPackedAccountData(wallet_addr)
         .call()
         .await
         .unwrap();
@@ -238,7 +235,7 @@ async fn e2e_gateway_full_flow() {
         &signer,
         U256::from(1),
         new_auth2,
-        U256::from(1),
+        1,
         U256::from(200),
         U256::from(2),
         nonce,
@@ -247,7 +244,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_ins = InsertAuthenticatorRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         new_authenticator_address: new_auth2,
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
@@ -257,7 +254,7 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_ins.as_bytes().to_vec(),
         nonce,
-        pubkey_id: U256::from(1),
+        pubkey_id: 1,
         new_authenticator_pubkey: U256::from(200),
     };
     // Issue request to gateway
@@ -287,7 +284,7 @@ async fn e2e_gateway_full_flow() {
     let deadline2 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountIndex(new_auth2)
+            .authenticatorAddressToPackedAccountData(new_auth2)
             .call()
             .await
             .unwrap();
@@ -307,7 +304,7 @@ async fn e2e_gateway_full_flow() {
         &signer,
         U256::from(1),
         new_auth2,
-        U256::from(1),
+        1,
         U256::from(200),
         U256::from(3),
         nonce,
@@ -316,7 +313,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_rem = RemoveAuthenticatorRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         authenticator_address: new_auth2,
         old_offchain_signer_commitment: U256::from(2),
         new_offchain_signer_commitment: U256::from(3),
@@ -326,7 +323,7 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_rem.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(U256::from(1)),
+        pubkey_id: Some(1),
         authenticator_pubkey: Some(U256::from(200)),
     };
     let resp = gw
@@ -339,10 +336,7 @@ async fn e2e_gateway_full_flow() {
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
-        panic!(
-            "remove-authenticator failed: status={}, body={}",
-            status_code, body
-        );
+        panic!("remove-authenticator failed: status={status_code}, body={body}",);
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let remove_request_id = accepted.request_id.clone();
@@ -355,7 +349,7 @@ async fn e2e_gateway_full_flow() {
     let deadline3 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountIndex(new_auth2)
+            .authenticatorAddressToPackedAccountData(new_auth2)
             .call()
             .await
             .unwrap();
@@ -385,7 +379,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_rec = RecoverAccountRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         new_authenticator_address: wallet_addr_new,
         old_offchain_signer_commitment: U256::from(3),
         new_offchain_signer_commitment: U256::from(4),
@@ -404,6 +398,7 @@ async fn e2e_gateway_full_flow() {
         .send()
         .await
         .unwrap();
+
     let status_code = resp.status();
     if status_code != StatusCode::ACCEPTED {
         let body = resp.text().await.unwrap_or_default();
@@ -423,7 +418,7 @@ async fn e2e_gateway_full_flow() {
     let deadline4 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountIndex(wallet_addr_new)
+            .authenticatorAddressToPackedAccountData(wallet_addr_new)
             .call()
             .await
             .unwrap();
@@ -444,7 +439,7 @@ async fn e2e_gateway_full_flow() {
         U256::from(1),
         wallet_addr_new,
         new_auth4,
-        U256::from(0),
+        0,
         U256::from(400),
         U256::from(5),
         nonce,
@@ -453,7 +448,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_upd = UpdateAuthenticatorRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         old_authenticator_address: wallet_addr_new,
         new_authenticator_address: new_auth4,
         old_offchain_signer_commitment: U256::from(4),
@@ -464,7 +459,7 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_upd.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(U256::from(0)),
+        pubkey_id: Some(0),
         new_authenticator_pubkey: Some(U256::from(400)),
     };
     let resp = gw
@@ -493,12 +488,12 @@ async fn e2e_gateway_full_flow() {
     let deadline5 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let old_v = contract
-            .authenticatorAddressToPackedAccountIndex(wallet_addr_new)
+            .authenticatorAddressToPackedAccountData(wallet_addr_new)
             .call()
             .await
             .unwrap();
         let new_v = contract
-            .authenticatorAddressToPackedAccountIndex(new_auth4)
+            .authenticatorAddressToPackedAccountData(new_auth4)
             .call()
             .await
             .unwrap();
@@ -546,7 +541,7 @@ async fn test_authenticator_already_exists_error_code() {
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let packed_after = contract
-            .authenticatorAddressToPackedAccountIndex(wallet_addr)
+            .authenticatorAddressToPackedAccountData(wallet_addr)
             .call()
             .await
             .unwrap();
@@ -568,7 +563,7 @@ async fn test_authenticator_already_exists_error_code() {
         &signer,
         U256::from(1),
         wallet_addr, // Same address that's already an authenticator for account 1
-        U256::from(0),
+        0,
         U256::from(100),
         U256::from(2),
         nonce,
@@ -577,7 +572,7 @@ async fn test_authenticator_already_exists_error_code() {
     .await
     .unwrap();
     let body_ins = InsertAuthenticatorRequest {
-        account_index: U256::from(1),
+        leaf_index: U256::from(1),
         new_authenticator_address: wallet_addr,
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
@@ -587,7 +582,7 @@ async fn test_authenticator_already_exists_error_code() {
             .collect(),
         signature: sig_ins.as_bytes().to_vec(),
         nonce,
-        pubkey_id: U256::from(0),
+        pubkey_id: 0,
         new_authenticator_pubkey: U256::from(100),
     };
 

@@ -28,10 +28,10 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    PackedAccountIndex,
+    PackedAccountData,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/PackedAccountIndex.sol/PackedAccountIndex.json"
+        "/../../contracts/out/PackedAccountData.sol/PackedAccountData.json"
     )
 );
 
@@ -64,9 +64,9 @@ sol!(
 );
 
 pub struct TestAnvil {
-    instance: AnvilInstance,
-    rpc_url: String,
-    ws_url: String,
+    pub instance: AnvilInstance,
+    pub rpc_url: String,
+    pub ws_url: String,
 }
 
 impl TestAnvil {
@@ -181,15 +181,20 @@ impl TestAnvil {
                 .await
                 .context("failed to deploy BinaryIMT library")?;
 
-        // Step 3: Link BinaryIMT to AccountRegistry
+        // Step 3: Deploy PackedAccountData library (no dependencies)
+        let packed_account_data = PackedAccountData::deploy(provider.clone())
+            .await
+            .context("failed to deploy PackedAccountData library")?;
+
+        // Step 4: Link both BinaryIMT and PackedAccountData to AccountRegistry
         let account_registry_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
         ));
 
-        // Link BinaryIMT library to AccountRegistry
+        // Link both libraries to AccountRegistry (keep as hex string until both are linked)
         let json_value: serde_json::Value = serde_json::from_str(account_registry_json)?;
-        let bytecode_str = json_value["bytecode"]["object"]
+        let mut bytecode_str = json_value["bytecode"]["object"]
             .as_str()
             .context("bytecode not found in JSON")?
             .strip_prefix("0x")
@@ -200,11 +205,18 @@ impl TestAnvil {
             })
             .to_string();
 
-        let bytecode_str = Self::link_bytecode_hex(
+        bytecode_str = Self::link_bytecode_hex(
             account_registry_json,
             &bytecode_str,
             "src/tree/BinaryIMT.sol:BinaryIMT",
             binary_imt_address,
+        )?;
+
+        bytecode_str = Self::link_bytecode_hex(
+            account_registry_json,
+            &bytecode_str,
+            "src/lib/PackedAccountData.sol:PackedAccountData",
+            *packed_account_data.address(),
         )?;
 
         // Decode the fully-linked bytecode
@@ -217,7 +229,7 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             AccountRegistry::initializeCall {
-                treeDepth: U256::from(tree_depth),
+                initialTreeDepth: U256::from(tree_depth),
             }
             .abi_encode(),
         );

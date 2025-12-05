@@ -2,15 +2,14 @@ use crate::{issuer::CredentialSchemaIssuerRegistry::Pubkey, Signer};
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol, sol_types::SolEvent};
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
-use eyre::Result;
 use ruint::aliases::U256;
-use world_id_primitives::Config;
+use world_id_primitives::{Config, PrimitiveError};
 
 sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     CredentialSchemaIssuerRegistry,
-    "../../contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
+    "contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
 );
 
 impl From<EdDSAPublicKey> for Pubkey {
@@ -35,7 +34,7 @@ impl Issuer {
     ///
     /// # Errors
     /// Will error if the provided seed is not valid.
-    pub fn new(seed: &[u8], config: Config) -> Result<Self> {
+    pub fn new(seed: &[u8], config: Config) -> Result<Self, IssuerError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         Ok(Self { signer, config })
@@ -45,12 +44,17 @@ impl Issuer {
     ///
     /// # Errors
     /// Will error if the transaction fails or if the event is not found in the receipt.
-    pub async fn register_schema(&mut self) -> Result<U256> {
+    pub async fn register_schema(&mut self) -> Result<U256, IssuerError> {
+        let rpc_url = self
+            .config
+            .rpc_url()
+            .ok_or(IssuerError::ConfigError("RPC URL must be set.".to_string()))?;
+
         // Create a wallet from the signer and set up provider with wallet
         let wallet = EthereumWallet::from(self.signer.onchain_signer().clone());
         let provider = ProviderBuilder::new()
             .wallet(wallet)
-            .connect_http(self.config.rpc_url().parse()?);
+            .connect_http(rpc_url.clone());
 
         let contract =
             CredentialSchemaIssuerRegistry::new(*self.config.registry_address(), provider);
@@ -61,7 +65,8 @@ impl Issuer {
                 self.signer.onchain_signer_address(),
             )
             .send()
-            .await?
+            .await
+            .map_err(|e| IssuerError::Generic(format!("unexpected contract error: {e}")))?
             .get_receipt()
             .await?;
 
@@ -75,10 +80,31 @@ impl Issuer {
                 .ok()
             })
             .ok_or_else(|| {
-                eyre::eyre!("IssuerSchemaRegistered event not found in transaction receipt")
+                IssuerError::Generic(
+                    "IssuerSchemaRegistered event not found in transaction receipt".to_string(),
+                )
             })?
             .issuerSchemaId;
 
         Ok(issuer_schema_id)
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IssuerError {
+    /// Primitive error
+    #[error(transparent)]
+    PrimitiveError(#[from] PrimitiveError),
+
+    /// Config is not correctly defined
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+
+    /// Alloy pending transaction error
+    #[error(transparent)]
+    PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
+
+    /// Generic unexpected error
+    #[error("Unexpected error: {0}")]
+    Generic(String),
 }

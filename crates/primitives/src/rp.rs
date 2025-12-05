@@ -2,6 +2,7 @@
 
 use std::{fmt, str::FromStr};
 
+use ark_serde_compat::babyjubjub;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::FieldElement;
@@ -92,10 +93,23 @@ impl<'de> Deserialize<'de> for RpId {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(transparent)]
 pub struct RpNullifierKey(
-    #[serde(serialize_with = "ark_serde_compat::serialize_babyjubjub_affine")]
-    #[serde(deserialize_with = "ark_serde_compat::deserialize_babyjubjub_affine")]
+    #[serde(serialize_with = "babyjubjub::serialize_affine")]
+    #[serde(deserialize_with = "babyjubjub::deserialize_affine")]
     ark_babyjubjub::EdwardsAffine,
 );
+
+impl RpNullifierKey {
+    /// Creates a new `RpNullifierKey` by wrapping an `EdwardsAffine` point
+    #[must_use]
+    pub const fn new(value: ark_babyjubjub::EdwardsAffine) -> Self {
+        Self(value)
+    }
+
+    /// Returns the inner `EdwardsAffine` point
+    pub const fn into_inner(self) -> ark_babyjubjub::EdwardsAffine {
+        self.0
+    }
+}
 
 #[cfg(test)]
 mod tests {

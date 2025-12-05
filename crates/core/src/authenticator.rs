@@ -1,7 +1,6 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
-use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,26 +8,26 @@ use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
 use crate::account_registry::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
-use crate::credential::credential_to_credentials_signature;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-    InsertAuthenticatorRequest, RemoveAuthenticatorRequest, RpRequest, UpdateAuthenticatorRequest,
+    IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+    IndexerSignatureNonceRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
+    RemoveAuthenticatorRequest, RpRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
-use ark_ff::AdditiveGroup;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_bn254::Bn254;
+use ark_serialize::CanonicalSerialize;
+use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use oprf_client::{NullifierArgs, OprfQuery};
-use oprf_types::{RpId, ShareEpoch};
-use oprf_world_types::{MerkleMembership, MerkleRoot, UserKeyMaterial, UserPublicKeyBatch};
-use oprf_zk::{groth16_serde::Groth16Proof, Groth16Material};
-use poseidon2::Poseidon2;
+use oprf_types::ShareEpoch;
 use secrecy::ExposeSecret;
-use std::str::FromStr;
+use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
+use world_id_primitives::merkle::MerkleInclusionProof;
+use world_id_primitives::proof::SingleProofInput;
 use world_id_primitives::PrimitiveError;
 pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
 
@@ -36,30 +35,25 @@ static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
 static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
-static MASK_ACCOUNT_INDEX: U256 =
+static MASK_LEAF_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
-
-static QUERY_ZKEY_PATH: &str = "circom/query.zkey";
-static QUERY_GRAPH_PATH: &str = "circom/query_graph.bin";
-static NULLIFIER_ZKEY_PATH: &str = "circom/nullifier.zkey";
-static NULLIFIER_GRAPH_PATH: &str = "circom/nullifier_graph.bin";
 
 /// Maximum timeout for polling account creation status (30 seconds)
 const MAX_POLL_TIMEOUT_SECS: u64 = 30;
 
-type UniquenessProof = (Groth16Proof, FieldElement);
+type UniquenessProof = (Proof<Bn254>, FieldElement);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 #[derive(Debug)]
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
-    /// The packed account index for the holder's World ID is a `uint256` defined in the `AccountRegistry` contract as:
-    /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `account_index` (192 bits)
-    pub packed_account_index: U256,
+    /// The packed account data for the holder's World ID is a `uint256` defined in the `AccountRegistry` contract as:
+    /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
+    pub packed_account_data: U256,
     signer: Signer,
-    registry: Arc<AccountRegistryInstance<DynProvider>>,
-    provider: DynProvider,
+    registry: Option<Arc<AccountRegistryInstance<DynProvider>>>,
+    http_client: reqwest::Client,
 }
 
 impl Authenticator {
@@ -74,24 +68,36 @@ impl Authenticator {
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
     pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
-        let provider =
-            ProviderBuilder::new().connect_http(config.rpc_url().parse().map_err(|e| {
-                PrimitiveError::InvalidInput {
-                    attribute: "RPC URL".to_string(),
-                    reason: format!("invalid URL: {e}"),
-                }
-            })?);
 
-        let registry = AccountRegistry::new(*config.registry_address(), provider.clone().erased());
-        let packed_account_index =
-            Self::get_packed_account_index(signer.onchain_signer_address(), &registry).await?;
+        let registry = config.rpc_url().map_or_else(
+            || None,
+            |rpc_url| {
+                let provider = ProviderBuilder::new()
+                    .with_chain_id(config.chain_id())
+                    .connect_http(rpc_url.clone());
+                Some(AccountRegistry::new(
+                    *config.registry_address(),
+                    provider.erased(),
+                ))
+            },
+        );
+
+        let http_client = reqwest::Client::new();
+
+        let packed_account_data = Self::get_packed_account_data(
+            signer.onchain_signer_address(),
+            registry.as_ref(),
+            &config,
+            &http_client,
+        )
+        .await?;
 
         Ok(Self {
-            packed_account_index,
+            packed_account_data,
             signer,
             config,
-            registry: Arc::new(registry),
-            provider: provider.erased(),
+            registry: registry.map(Arc::new),
+            http_client,
         })
     }
 
@@ -112,7 +118,8 @@ impl Authenticator {
         match Self::init(seed, config.clone()).await {
             Ok(authenticator) => Ok(Some(authenticator)),
             Err(AuthenticatorError::AccountDoesNotExist) => {
-                Self::create_account(seed, &config, recovery_address).await?;
+                let http_client = reqwest::Client::new();
+                Self::create_account(seed, &config, recovery_address, &http_client).await?;
                 Ok(None)
             }
             Err(e) => Err(e),
@@ -139,8 +146,12 @@ impl Authenticator {
             Err(e) => return Err(e),
         }
 
+        // Create HTTP client for account creation and polling
+        let http_client = reqwest::Client::new();
+
         // Create the account and get the request ID
-        let request_id = Self::create_account(seed, &config, recovery_address).await?;
+        let request_id =
+            Self::create_account(seed, &config, recovery_address, &http_client).await?;
 
         // Poll for confirmation with exponential backoff
         let start = std::time::Instant::now();
@@ -156,7 +167,7 @@ impl Authenticator {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
 
             // Poll the gateway status
-            match Self::poll_gateway_status(&config, &request_id).await {
+            match Self::poll_gateway_status(&config, &request_id, &http_client).await {
                 Ok(GatewayRequestState::Finalized { .. }) => {
                     return Self::init(seed, config).await;
                 }
@@ -182,8 +193,9 @@ impl Authenticator {
     async fn poll_gateway_status(
         config: &Config,
         request_id: &str,
+        http_client: &reqwest::Client,
     ) -> Result<GatewayRequestState, AuthenticatorError> {
-        let resp = reqwest::Client::new()
+        let resp = http_client
             .get(format!("{}/status/{}", config.gateway_url(), request_id))
             .send()
             .await?;
@@ -202,21 +214,55 @@ impl Authenticator {
         }
     }
 
-    /// Returns the packed account index for the holder's World ID.
+    /// Returns the packed account data for the holder's World ID.
     ///
-    /// The packed account index is a 256 bit integer which includes the user's account index, their recovery counter,
+    /// The packed account data is a 256 bit integer which includes the World ID's leaf index, their recovery counter,
     /// and their pubkey id/commitment.
     ///
     /// # Errors
-    /// Will error if the provided RPC URL is not valid or if there are RPC call failures.
-    pub async fn get_packed_account_index(
+    /// Will error if the network call fails or if the account does not exist.
+    pub async fn get_packed_account_data(
         onchain_signer_address: Address,
-        registry: &AccountRegistryInstance<DynProvider>,
+        registry: Option<&AccountRegistryInstance<DynProvider>>,
+        config: &Config,
+        http_client: &reqwest::Client,
     ) -> Result<U256, AuthenticatorError> {
-        let raw_index = registry
-            .authenticatorAddressToPackedAccountIndex(onchain_signer_address)
-            .call()
-            .await?;
+        // If the registry is available through direct RPC calls, use it. Otherwise fallback to the indexer.
+        let raw_index = if let Some(registry) = registry {
+            registry
+                .authenticatorAddressToPackedAccountData(onchain_signer_address)
+                .call()
+                .await?
+        } else {
+            let url = format!("{}/packed_account", config.indexer_url());
+            let req = IndexerPackedAccountRequest {
+                authenticator_address: onchain_signer_address,
+            };
+            let resp = http_client.post(&url).json(&req).send().await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                // Try to parse the error response
+                if let Ok(error_resp) = resp.json::<ServiceApiError<IndexerErrorCode>>().await {
+                    return match error_resp.code {
+                        IndexerErrorCode::AccountDoesNotExist => {
+                            Err(AuthenticatorError::AccountDoesNotExist)
+                        }
+                        _ => Err(AuthenticatorError::IndexerError {
+                            status: status.as_u16(),
+                            body: error_resp.message,
+                        }),
+                    };
+                }
+                return Err(AuthenticatorError::IndexerError {
+                    status: status.as_u16(),
+                    body: "Failed to parse indexer error response".to_string(),
+                });
+            }
+
+            let response: IndexerPackedAccountResponse = resp.json().await?;
+            response.packed_account_data
+        };
 
         if raw_index == U256::ZERO {
             return Err(AuthenticatorError::AccountDoesNotExist);
@@ -253,28 +299,16 @@ impl Authenticator {
 
     /// Returns a reference to the `AccountRegistry` contract instance.
     #[must_use]
-    pub fn registry(&self) -> Arc<AccountRegistryInstance<DynProvider>> {
-        Arc::clone(&self.registry)
-    }
-
-    /// Returns a reference to the Ethereum provider.
-    #[must_use]
-    pub fn provider(&self) -> DynProvider {
-        self.provider.clone()
+    pub fn registry(&self) -> Option<Arc<AccountRegistryInstance<DynProvider>>> {
+        self.registry.clone()
     }
 
     /// Returns the account index for the holder's World ID.
     ///
-    /// This is the index at the tree where the holder's World ID account is registered (1-indexed).
+    /// This is the index at the Merkle tree where the holder's World ID account is registered.
     #[must_use]
-    pub fn account_id(&self) -> U256 {
-        self.packed_account_index & MASK_ACCOUNT_INDEX
-    }
-
-    /// Returns the raw index at the tree where the holder's World ID account is registered.
-    #[must_use]
-    pub fn raw_tree_index(&self) -> U256 {
-        self.account_id() - U256::from(1)
+    pub fn leaf_index(&self) -> U256 {
+        self.packed_account_data & MASK_LEAF_INDEX
     }
 
     /// Returns the recovery counter for the holder's World ID.
@@ -282,7 +316,7 @@ impl Authenticator {
     /// The recovery counter is used to efficiently invalidate all the old keys when an account is recovered.
     #[must_use]
     pub fn recovery_counter(&self) -> U256 {
-        let recovery_counter = self.packed_account_index & MASK_RECOVERY_COUNTER;
+        let recovery_counter = self.packed_account_data & MASK_RECOVERY_COUNTER;
         recovery_counter >> 224
     }
 
@@ -291,7 +325,7 @@ impl Authenticator {
     /// This is a commitment to all the off-chain public keys that are authorized to act on behalf of the holder.
     #[must_use]
     pub fn pubkey_id(&self) -> U256 {
-        let pubkey_id = self.packed_account_index & MASK_PUBKEY_ID;
+        let pubkey_id = self.packed_account_data & MASK_PUBKEY_ID;
         pubkey_id >> 192
     }
 
@@ -302,33 +336,13 @@ impl Authenticator {
     /// - Will error if the user is not registered on the registry.
     pub async fn fetch_inclusion_proof(
         &self,
-    ) -> Result<(MerkleMembership, UserPublicKeyBatch), AuthenticatorError> {
-        let url = format!("{}/proof/{}", self.config.indexer_url(), self.account_id());
+    ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
+    {
+        let url = format!("{}/proof/{}", self.config.indexer_url(), self.leaf_index());
         let response = reqwest::get(url).await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        let inclusion_proof = response.proof;
-        let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
-
-        let mut pubkey_batch = UserPublicKeyBatch {
-            values: [EdwardsAffine::default(); 7],
-        };
-
-        for i in 0..response.authenticator_pubkeys.len() {
-            pubkey_batch.values[i] = EdwardsAffine::deserialize_compressed(Cursor::new(
-                response.authenticator_pubkeys[i].as_le_slice(),
-            ))
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        }
-
-        Ok((
-            MerkleMembership {
-                root: MerkleRoot::from(*inclusion_proof.root),
-                siblings,
-                mt_index: inclusion_proof.leaf_index,
-            },
-            pubkey_batch,
-        ))
+        Ok((response.proof, response.authenticator_pubkeys))
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -337,8 +351,33 @@ impl Authenticator {
     /// Will return an error if the registry contract call fails.
     pub async fn signing_nonce(&self) -> Result<U256, AuthenticatorError> {
         let registry = self.registry();
-        let nonce = registry.signatureNonces(self.account_id()).call().await?;
-        Ok(nonce)
+        if let Some(registry) = registry {
+            let nonce = registry
+                .leafIndexToSignatureNonce(self.leaf_index())
+                .call()
+                .await?;
+            Ok(nonce)
+        } else {
+            let url = format!("{}/signature_nonce", self.config.indexer_url());
+            let req = IndexerSignatureNonceRequest {
+                leaf_index: self.leaf_index(),
+            };
+            let resp = self.http_client.post(&url).json(&req).send().await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                return Err(AuthenticatorError::IndexerError {
+                    status: status.as_u16(),
+                    body: resp
+                        .json()
+                        .await
+                        .unwrap_or_else(|_| "Unable to parse response".to_string()),
+                });
+            }
+
+            let response: IndexerSignatureNonceResponse = resp.json().await?;
+            Ok(response.signature_nonce)
+        }
     }
 
     /// Generates a World ID Uniqueness Proof given a provided context.
@@ -354,67 +393,68 @@ impl Authenticator {
         rp_request: RpRequest,
         credential: Credential,
     ) -> Result<UniquenessProof, AuthenticatorError> {
-        let (merkle_membership, pk_batch) = self.fetch_inclusion_proof().await?;
-        let pk_index = pk_batch
-            .values
+        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
+        let key_index = key_set
             .iter()
-            .position(|pk| pk == &self.offchain_pubkey().pk)
+            .position(|pk| pk.pk == self.offchain_pubkey().pk)
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
-        let query = OprfQuery {
-            rp_id: RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
+        // TODO: load once and from bytes
+        let query_material = crate::proof::load_embedded_query_material();
+        let nullifier_material = crate::proof::load_embedded_nullifier_material();
+
+        // TODO: convert rp_request to primitives types
+        let primitives_rp_id =
+            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
                 PrimitiveError::InvalidInput {
                     attribute: "RP ID".to_string(),
                     reason: format!("invalid RP ID: {e}"),
                 }
-            })?),
-            share_epoch: ShareEpoch::default(), // TODO
-            action: *rp_request.action_id,
-            nonce: *rp_request.nonce,
-            current_time_stamp: rp_request.current_time_stamp, // TODO
-            nonce_signature: rp_request.signature,
+            })?);
+        let primitives_rp_nullifier_key =
+            world_id_primitives::rp::RpNullifierKey::new(rp_request.rp_nullifier_key.inner());
+
+        let args = SingleProofInput::<TREE_DEPTH> {
+            credential,
+            inclusion_proof,
+            key_set,
+            key_index,
+            rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
+            rp_id: primitives_rp_id,
+            share_epoch: ShareEpoch::default().into_inner(), // TODO
+            action: rp_request.action_id,
+            nonce: rp_request.nonce,
+            current_timestamp: rp_request.current_time_stamp, // TODO
+            rp_signature: rp_request.signature,
+            rp_nullifier_key: primitives_rp_nullifier_key,
+            signal_hash: message_hash,
         };
 
-        // TODO: load once and from bytes
-        let query_material = Groth16Material::new(QUERY_ZKEY_PATH, None, QUERY_GRAPH_PATH)
-            .map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load query material: {e}"))
-            })?;
-        let nullifier_material =
-            Groth16Material::new(NULLIFIER_ZKEY_PATH, None, NULLIFIER_GRAPH_PATH).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
-            })?;
+        let private_key = self.signer.offchain_signer_private_key().expose_secret();
 
-        let key_material = UserKeyMaterial {
-            pk_batch,
-            pk_index,
-            sk: self
-                .signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .clone(),
-        };
-
-        // TODO: check rp nullifier key
-        let args = NullifierArgs {
-            credential_signature: credential_to_credentials_signature(credential).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to convert credential: {e}"))
-            })?,
-            merkle_membership,
-            query,
-            key_material,
-            signal_hash: *message_hash,
-            rp_nullifier_key: rp_request.rp_nullifier_key,
-            id_commitment_r: ark_babyjubjub::Fq::ZERO, // FIXME: expose properly
-        };
+        let services = self.config.nullifier_oracle_urls();
+        if services.is_empty() {
+            return Err(AuthenticatorError::Generic(
+                "No nullifier oracle URLs configured".to_string(),
+            ));
+        }
+        let requested_threshold = self.config.nullifier_oracle_threshold();
+        if requested_threshold == 0 {
+            return Err(AuthenticatorError::InvalidConfig {
+                attribute: "nullifier_oracle_threshold",
+                reason: "must be at least 1".to_string(),
+            });
+        }
+        let threshold = requested_threshold.min(services.len());
 
         let mut rng = rand::thread_rng();
-        let (proof, _public, nullifier, _id_commitment) = oprf_client::nullifier(
-            self.config.nullifier_oracle_urls(),
-            2,
+        let (proof, _public, nullifier, _id_commitment) = crate::proof::nullifier(
+            services,
+            threshold,
             &query_material,
             &nullifier_material,
             args,
+            private_key,
             &mut rng,
         )
         .await
@@ -429,43 +469,33 @@ impl Authenticator {
     /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
     ///
     /// # Note
-    /// TODO: After successfully inserting an authenticator, the `packed_account_index` should be
+    /// TODO: After successfully inserting an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn insert_authenticator(
         &mut self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
-        index: u32,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
-        pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
-        let new_offchain_signer_commitment = Self::leaf_hash(&pk_batch);
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_offchain_signer_commitment = Self::leaf_hash(&key_set);
+        key_set.try_push(new_authenticator_pubkey.clone())?;
+        let index = key_set.len() - 1;
+        let new_offchain_signer_commitment = Self::leaf_hash(&key_set);
 
-        // TODO: remove this once compression is merged
-        let mut compressed_bytes = Vec::new();
-        new_authenticator_pubkey
-            .pk
-            .serialize_compressed(&mut compressed_bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
-        let eip712_domain = domain(
-            self.provider()
-                .get_chain_id()
-                .await
-                .map_err(|e| AuthenticatorError::Generic(format!("Failed to get chain ID: {e}")))?,
-            *self.config.registry_address(),
-        );
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
+        #[allow(clippy::cast_possible_truncation)]
+        // truncating is intentional, and index will always fit in 32 bits
         let signature = sign_insert_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             new_authenticator_address,
-            U256::from(index),
-            compressed_pubkey,
+            index as u32,
+            encoded_offchain_pubkey,
             new_offchain_signer_commitment.into(),
             nonce,
             &eip712_domain,
@@ -475,23 +505,26 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
         })?;
 
+        #[allow(clippy::cast_possible_truncation)]
+        // truncating is intentional, and index will always fit in 32 bits
         let req = InsertAuthenticatorRequest {
-            account_index: account_id,
+            leaf_index,
             new_authenticator_address,
-            pubkey_id: U256::from(index),
-            new_authenticator_pubkey: compressed_pubkey,
+            pubkey_id: index as u32,
+            new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            sibling_nodes: merkle_membership
+            sibling_nodes: inclusion_proof
                 .siblings
                 .iter()
-                .map(std::convert::Into::into)
+                .map(|s| (*s).into())
                 .collect(),
             signature: signature.as_bytes().to_vec(),
             nonce,
         };
 
-        let resp = reqwest::Client::new()
+        let resp = self
+            .http_client
             .post(format!(
                 "{}/insert-authenticator",
                 self.config.gateway_url()
@@ -519,7 +552,7 @@ impl Authenticator {
     /// Returns an error if the gateway rejects the request or a network error occurs.
     ///
     /// # Note
-    /// TODO: After successfully updating an authenticator, the `packed_account_index` should be
+    /// TODO: After successfully updating an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn update_authenticator(
         &mut self,
@@ -528,36 +561,24 @@ impl Authenticator {
         new_authenticator_pubkey: EdDSAPublicKey,
         index: u32,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
-        pk_batch.values[index as usize] = new_authenticator_pubkey.pk;
-        let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_commitment: U256 = Self::leaf_hash(&key_set).into();
+        key_set.try_set_at_index(index as usize, new_authenticator_pubkey.clone())?;
+        let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
-        // TODO: remove this once compression is merged
-        let mut compressed_bytes = Vec::new();
-        new_authenticator_pubkey
-            .pk
-            .serialize_compressed(&mut compressed_bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        let compressed_pubkey = U256::from_le_slice(&compressed_bytes);
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
-        let eip712_domain = domain(
-            self.provider()
-                .get_chain_id()
-                .await
-                .map_err(|e| AuthenticatorError::Generic(format!("Failed to get chain ID: {e}")))?,
-            *self.config.registry_address(),
-        );
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
         let signature = sign_update_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             old_authenticator_address,
             new_authenticator_address,
-            U256::from(index),
-            compressed_pubkey,
+            index,
+            encoded_offchain_pubkey,
             new_commitment,
             nonce,
             &eip712_domain,
@@ -567,14 +588,14 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign update authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = merkle_membership
+        let sibling_nodes: Vec<U256> = inclusion_proof
             .siblings
             .iter()
             .map(|s| (*s).into())
             .collect();
 
         let req = UpdateAuthenticatorRequest {
-            account_index: account_id,
+            leaf_index,
             old_authenticator_address,
             new_authenticator_address,
             old_offchain_signer_commitment: old_commitment,
@@ -582,11 +603,12 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(U256::from(index)),
-            new_authenticator_pubkey: Some(compressed_pubkey),
+            pubkey_id: Some(index),
+            new_authenticator_pubkey: Some(encoded_offchain_pubkey),
         };
 
-        let resp = reqwest::Client::new()
+        let resp = self
+            .http_client
             .post(format!(
                 "{}/update-authenticator",
                 self.config.gateway_url()
@@ -614,42 +636,36 @@ impl Authenticator {
     /// Returns an error if the gateway rejects the request or a network error occurs.
     ///
     /// # Note
-    /// TODO: After successfully removing an authenticator, the `packed_account_index` should be
+    /// TODO: After successfully removing an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn remove_authenticator(
         &mut self,
         authenticator_address: Address,
         index: u32,
     ) -> Result<String, AuthenticatorError> {
-        let account_id = self.account_id();
+        let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (merkle_membership, mut pk_batch) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = Self::leaf_hash(&pk_batch).into();
-        let existing_pubkey = pk_batch.values[index as usize];
+        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let old_commitment: U256 = Self::leaf_hash(&key_set).into();
+        let existing_pubkey = key_set
+            .get(index as usize)
+            .ok_or(AuthenticatorError::PublicKeyNotFound)?;
 
-        let mut compressed_old = Vec::new();
-        existing_pubkey
-            .serialize_compressed(&mut compressed_old)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        let compressed_old_pubkey = U256::from_le_slice(&compressed_old);
+        let encoded_old_offchain_pubkey = existing_pubkey.to_ethereum_representation()?;
 
-        pk_batch.values[index as usize] = EdwardsAffine::default();
-        let new_commitment: U256 = Self::leaf_hash(&pk_batch).into();
+        key_set[index as usize] = EdDSAPublicKey {
+            pk: EdwardsAffine::default(),
+        };
+        let new_commitment: U256 = Self::leaf_hash(&key_set).into();
 
-        let eip712_domain = domain(
-            self.provider()
-                .get_chain_id()
-                .await
-                .map_err(|e| AuthenticatorError::Generic(format!("Failed to get chain ID: {e}")))?,
-            *self.config.registry_address(),
-        );
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
         let signature = sign_remove_authenticator(
             &self.signer.onchain_signer(),
-            account_id,
+            leaf_index,
             authenticator_address,
-            U256::from(index),
-            compressed_old_pubkey,
+            index,
+            encoded_old_offchain_pubkey,
             new_commitment,
             nonce,
             &eip712_domain,
@@ -659,25 +675,26 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign remove authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = merkle_membership
+        let sibling_nodes: Vec<U256> = inclusion_proof
             .siblings
             .iter()
             .map(|s| (*s).into())
             .collect();
 
         let req = RemoveAuthenticatorRequest {
-            account_index: account_id,
+            leaf_index,
             authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(U256::from(index)),
-            authenticator_pubkey: Some(compressed_old_pubkey),
+            pubkey_id: Some(index),
+            authenticator_pubkey: Some(encoded_old_offchain_pubkey),
         };
 
-        let resp = reqwest::Client::new()
+        let resp = self
+            .http_client
             .post(format!(
                 "{}/remove-authenticator",
                 self.config.gateway_url()
@@ -699,24 +716,16 @@ impl Authenticator {
         }
     }
 
-    /// Computes the Merkle leaf for a given public key batch.
+    /// Computes the Merkle leaf (i.e. the commitment to the public key set) for a given public key set.
+    ///
+    /// TODO: move to primitives
     ///
     /// # Errors
-    /// Will error if the provided public key batch is not valid.
+    /// Will error if the provided public key set is not valid.
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    fn leaf_hash(pk: &UserPublicKeyBatch) -> ark_babyjubjub::Fq {
-        let poseidon2_16: Poseidon2<ark_babyjubjub::Fq, 16, 5> = Poseidon2::default();
-        let mut input = [ark_babyjubjub::Fq::ZERO; 16];
-        #[allow(clippy::unwrap_used)]
-        {
-            input[0] = ark_babyjubjub::Fq::from_str("105702839725298824521994315").unwrap();
-        }
-        for i in 0..7 {
-            input[i * 2 + 1] = pk.values[i].x;
-            input[i * 2 + 2] = pk.values[i].y;
-        }
-        poseidon2_16.permutation(&input)[1]
+    pub fn leaf_hash(key_set: &AuthenticatorPublicKeySet) -> ark_babyjubjub::Fq {
+        key_set.leaf_hash()
     }
 
     /// Creates a new World ID account by adding it to the registry using the gateway.
@@ -728,15 +737,13 @@ impl Authenticator {
         seed: &[u8],
         config: &Config,
         recovery_address: Option<Address>,
+        http_client: &reqwest::Client,
     ) -> Result<String, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
-        let mut pubkey_batch = UserPublicKeyBatch {
-            values: [EdwardsAffine::default(); 7],
-        };
-
-        pubkey_batch.values[0] = signer.offchain_signer_pubkey().pk;
-        let leaf_hash = Self::leaf_hash(&pubkey_batch);
+        let mut key_set = AuthenticatorPublicKeySet::new(None)?;
+        key_set.try_push(signer.offchain_signer_pubkey())?;
+        let leaf_hash = Self::leaf_hash(&key_set);
 
         let offchain_pubkey_compressed = {
             let pk = signer.offchain_signer_pubkey().pk;
@@ -753,7 +760,7 @@ impl Authenticator {
             offchain_signer_commitment: leaf_hash.into(),
         };
 
-        let resp = reqwest::Client::new()
+        let resp = http_client
             .post(format!("{}/create-account", config.gateway_url()))
             .json(&req)
             .send()
@@ -782,6 +789,28 @@ impl ProtocolSigner for Authenticator {
     }
 }
 
+/// A trait for types that can be represented as a `U256` on-chain.
+pub trait OnchainKeyRepresentable {
+    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `AccountRegistry` contract.
+    ///
+    /// The `U256` representation is a 32-byte little-endian encoding of the **compressed** (single point) public key.
+    ///
+    /// # Errors
+    /// Will error if the public key unexpectedly fails to serialize.
+    fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError>;
+}
+
+impl OnchainKeyRepresentable for EdDSAPublicKey {
+    // REVIEW: updating to BE
+    fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError> {
+        let mut compressed_bytes = Vec::new();
+        self.pk
+            .serialize_compressed(&mut compressed_bytes)
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+        Ok(U256::from_le_slice(&compressed_bytes))
+    }
+}
+
 /// Errors that can occur when interacting with the Authenticator.
 #[derive(Debug, thiserror::Error)]
 pub enum AuthenticatorError {
@@ -794,14 +823,9 @@ pub enum AuthenticatorError {
     #[error("Account is not registered for this authenticator.")]
     AccountDoesNotExist,
 
-    /// The account already exists for this authenticator. Call `account_id` to get the account index.
+    /// The account already exists for this authenticator. Call `leaf_index` to get the leaf index.
     #[error("Account already exists for this authenticator.")]
     AccountAlreadyExists,
-
-    /// Account creation was initiated but is pending on-chain confirmation.
-    /// Poll the gateway with the provided request ID and retry initialization once confirmed.
-    #[error("Account creation pending (request ID: {0}). Poll gateway status and retry init.")]
-    AccountCreationPending(String),
 
     /// An error occurred while interacting with the EVM contract.
     #[error("Error interacting with EVM contract: {0}")]
@@ -811,8 +835,8 @@ pub enum AuthenticatorError {
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
-    /// Public key not found in batch.
-    #[error("Public key not found in batch")]
+    /// Public key not found in the Authenticator public key set. Usually indicates the local state is out of sync with the registry.
+    #[error("Public key not found.")]
     PublicKeyNotFound,
 
     /// Gateway returned an error response.
@@ -824,11 +848,239 @@ pub enum AuthenticatorError {
         body: String,
     },
 
+    /// Indexer returned an error response.
+    #[error("Indexer error (status {status}): {body}")]
+    IndexerError {
+        /// HTTP status code
+        status: u16,
+        /// Response body
+        body: String,
+    },
+
     /// Account creation timed out while polling for confirmation.
     #[error("Account creation timed out after {0} seconds")]
     Timeout(u64),
 
+    /// Configuration is invalid or missing required values.
+    #[error("Invalid configuration for {attribute}: {reason}")]
+    InvalidConfig {
+        /// The config attribute that is invalid.
+        attribute: &'static str,
+        /// Description of why it is invalid.
+        reason: String,
+    },
+
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::{address, U256};
+
+    /// Tests that `get_packed_account_data` correctly fetches the packed account data from the indexer
+    /// when no RPC is configured.
+    #[tokio::test]
+    async fn test_get_packed_account_data_from_indexer() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        let test_address = address!("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0");
+        let expected_packed_index = U256::from(42);
+
+        let mock = server
+            .mock("POST", "/packed_account")
+            .match_header("content-type", "application/json")
+            .match_body(mockito::Matcher::JsonString(
+                serde_json::json!({
+                    "authenticator_address": test_address
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "packed_account_data": format!("{:#x}", expected_packed_index)
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let http_client = reqwest::Client::new();
+
+        let result = Authenticator::get_packed_account_data(
+            test_address,
+            None, // No registry, force indexer usage
+            &config,
+            &http_client,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result, expected_packed_index);
+        mock.assert_async().await;
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_get_packed_account_data_from_indexer_error() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        let test_address = address!("0x0000000000000000000000000000000000000099");
+
+        let mock = server
+            .mock("POST", "/packed_account")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "code": "account_does_not_exist",
+                    "message": "There is no account for this authenticator address"
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let http_client = reqwest::Client::new();
+
+        let result =
+            Authenticator::get_packed_account_data(test_address, None, &config, &http_client).await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::AccountDoesNotExist)
+        ));
+        mock.assert_async().await;
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_signing_nonce_from_indexer() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        let leaf_index = U256::from(1);
+        let expected_nonce = U256::from(5);
+
+        let mock = server
+            .mock("POST", "/signature_nonce")
+            .match_header("content-type", "application/json")
+            .match_body(mockito::Matcher::JsonString(
+                serde_json::json!({
+                    "leaf_index": format!("{:#x}", leaf_index)
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "signature_nonce": format!("{:#x}", expected_nonce)
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let authenticator = Authenticator {
+            config,
+            packed_account_data: leaf_index, // This sets leaf_index() to 1
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None, // No registry - forces indexer usage
+            http_client: reqwest::Client::new(),
+        };
+
+        let nonce = authenticator.signing_nonce().await.unwrap();
+
+        assert_eq!(nonce, expected_nonce);
+        mock.assert_async().await;
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_signing_nonce_from_indexer_error() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+
+        let mock = server
+            .mock("POST", "/signature_nonce")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "code": "invalid_leaf_index",
+                    "message": "Account index cannot be zero"
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let authenticator = Authenticator {
+            config,
+            packed_account_data: U256::ZERO,
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+        };
+
+        let result = authenticator.signing_nonce().await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::IndexerError { .. })
+        ));
+        mock.assert_async().await;
+        drop(server);
+    }
 }

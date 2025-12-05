@@ -1,16 +1,25 @@
 use serde::{Deserialize, Serialize};
 
 use alloy_primitives::Address;
+use url::Url;
 
 use crate::PrimitiveError;
+
+const fn default_nullifier_oracle_threshold() -> usize {
+    2
+}
 
 /// Global configuration to interact with the different components of the Protocol.
 ///
 /// Used by Authenticators and RPs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
-    /// A fully qualified RPC domain to perform on-chain call functions
-    rpc_url: String, // TODO: Make optional
+    /// A fully qualified RPC domain to perform on-chain call functions.
+    ///
+    /// When not available, other services will be used (e.g. the indexer to fetch packed account index).
+    rpc_url: Option<Url>,
+    /// The chain ID of the network where the `AccountRegistry` contract is deployed.
+    chain_id: u64,
     /// The address of the `AccountRegistry` contract
     registry_address: Address,
     /// Base URL of a deployed `world-id-indexer`. Used to fetch inclusion proofs from the `AccountRegistry`.
@@ -19,25 +28,44 @@ pub struct Config {
     gateway_url: String,
     /// The Base URLs of all Nullifier Oracles to use
     nullifier_oracle_urls: Vec<String>,
+    /// Minimum number of Nullifier Oracle responses required to build a nullifier.
+    #[serde(default = "default_nullifier_oracle_threshold")]
+    nullifier_oracle_threshold: usize,
 }
 
 impl Config {
     /// Instantiates a new configuration.
-    #[must_use]
-    pub const fn new(
-        rpc_url: String,
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `rpc_url` is invalid.
+    pub fn new(
+        rpc_url: Option<String>,
+        chain_id: u64,
         registry_address: Address,
         indexer_url: String,
         gateway_url: String,
         nullifier_oracle_urls: Vec<String>,
-    ) -> Self {
-        Self {
+        nullifier_oracle_threshold: usize,
+    ) -> Result<Self, PrimitiveError> {
+        let rpc_url = rpc_url
+            .map(|url| {
+                Url::parse(&url).map_err(|e| PrimitiveError::InvalidInput {
+                    reason: e.to_string(),
+                    attribute: "rpc_url".to_string(),
+                })
+            })
+            .transpose()?;
+
+        Ok(Self {
             rpc_url,
+            chain_id,
             registry_address,
             indexer_url,
             gateway_url,
             nullifier_oracle_urls,
-        }
+            nullifier_oracle_threshold,
+        })
     }
 
     /// Loads a configuration from JSON.
@@ -51,8 +79,14 @@ impl Config {
 
     /// The RPC endpoint to perform RPC calls.
     #[must_use]
-    pub const fn rpc_url(&self) -> &String {
-        &self.rpc_url
+    pub const fn rpc_url(&self) -> Option<&Url> {
+        self.rpc_url.as_ref()
+    }
+
+    /// The chain ID of the network where the `AccountRegistry` contract is deployed.
+    #[must_use]
+    pub const fn chain_id(&self) -> u64 {
+        self.chain_id
     }
 
     /// The address of the `AccountRegistry` contract.
@@ -78,5 +112,11 @@ impl Config {
     #[must_use]
     pub const fn nullifier_oracle_urls(&self) -> &Vec<String> {
         &self.nullifier_oracle_urls
+    }
+
+    /// The minimum number of Nullifier Oracle responses required to build a nullifier.
+    #[must_use]
+    pub const fn nullifier_oracle_threshold(&self) -> usize {
+        self.nullifier_oracle_threshold
     }
 }

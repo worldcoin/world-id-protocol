@@ -62,7 +62,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.86 # MSRV
+          - 1.87 # MSRV (see rust-version.workspace in Cargo.toml)
 
     steps:
       - name: Checkout code
@@ -79,10 +79,19 @@ jobs:
         run: |
           make sol-build
 
+      - name: Run services
+        run: |
+          docker compose -f services/indexer/docker-compose.tests.yml up -d
+          sleep 5
+
       - name: Run tests
         run: |
           cargo test --all --all-features
           cargo test -p world-id-core --no-default-features
+
+      - name: Clean up services
+        run: |
+          docker compose -f services/indexer/docker-compose.tests.yml down
 
       - name: Build non-default features
         run: |
@@ -166,17 +175,17 @@ jobs:
           docker stop ${{ matrix.service }}-container
           docker rm ${{ matrix.service }}-container
 
-# TODO: add docs check when relevant
-#   docs:
-#     name: Check docs
-#     runs-on: ubuntu-latest
-#     permissions:
-#       contents: read
-#     env:
-#       RUSTDOCFLAGS: -Dwarnings
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: dtolnay/rust-toolchain@nightly
-#       - uses: dtolnay/install@cargo-docs-rs
-#       - run: |
-#           cargo +nightly docs-rs -p world-id
+  docs:
+    name: Check docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RUSTDOCFLAGS: -Dwarnings
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/install@cargo-docs-rs
+      - run: |
+          cargo +nightly docs-rs -p world-id-primitives
+          cargo +nightly docs-rs -p world-id-core

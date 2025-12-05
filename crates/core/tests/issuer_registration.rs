@@ -21,12 +21,14 @@ async fn test_register_issuer_schema() -> Result<()> {
     let mut issuer = Issuer::new(
         issuer_seed_bytes.as_slice(),
         Config::new(
-            anvil.endpoint().to_string(),
+            Some(anvil.endpoint().to_string()),
+            anvil.instance.chain_id(),
             registry_address,
             "http://127.0.0.1:0".to_string(),
             "http://127.0.0.1:0".to_string(),
             Vec::new(),
-        ),
+            2,
+        )?,
     )?;
 
     let issuer_schema_id = issuer.register_schema().await?;

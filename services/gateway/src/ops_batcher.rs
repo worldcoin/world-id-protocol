@@ -27,7 +27,7 @@ pub struct OpsBatcherHandle {
 #[derive(Debug)]
 pub enum OpKind {
     Update {
-        account_index: U256,
+        leaf_index: U256,
         old_authenticator_address: Address,
         new_authenticator_address: Address,
         old_commit: U256,
@@ -35,33 +35,33 @@ pub enum OpKind {
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
-        pubkey_id: U256,
+        pubkey_id: u32,
         new_pubkey: U256,
     },
     Insert {
-        account_index: U256,
+        leaf_index: U256,
         new_authenticator_address: Address,
         old_commit: U256,
         new_commit: U256,
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
-        pubkey_id: U256,
+        pubkey_id: u32,
         new_pubkey: U256,
     },
     Remove {
-        account_index: U256,
+        leaf_index: U256,
         authenticator_address: Address,
         old_commit: U256,
         new_commit: U256,
         signature: Bytes,
         sibling_nodes: Vec<U256>,
         nonce: U256,
-        pubkey_id: U256,
+        pubkey_id: u32,
         authenticator_pubkey: U256,
     },
     Recover {
-        account_index: U256,
+        leaf_index: U256,
         new_authenticator_address: Address,
         old_commit: U256,
         new_commit: U256,
@@ -289,7 +289,7 @@ impl OpsBatcherRunner {
             for env in &batch {
                 let data: alloy::primitives::Bytes = match &env.kind {
                     OpKind::Update {
-                        account_index,
+                        leaf_index,
                         old_authenticator_address,
                         new_authenticator_address,
                         old_commit,
@@ -301,7 +301,7 @@ impl OpsBatcherRunner {
                         new_pubkey,
                     } => contract
                         .updateAuthenticator(
-                            *account_index,
+                            *leaf_index,
                             *old_authenticator_address,
                             *new_authenticator_address,
                             *pubkey_id,
@@ -315,7 +315,7 @@ impl OpsBatcherRunner {
                         .calldata()
                         .clone(),
                     OpKind::Insert {
-                        account_index,
+                        leaf_index,
                         new_authenticator_address,
                         old_commit,
                         new_commit,
@@ -326,7 +326,7 @@ impl OpsBatcherRunner {
                         new_pubkey,
                     } => contract
                         .insertAuthenticator(
-                            *account_index,
+                            *leaf_index,
                             *new_authenticator_address,
                             *pubkey_id,
                             *new_pubkey,
@@ -339,7 +339,7 @@ impl OpsBatcherRunner {
                         .calldata()
                         .clone(),
                     OpKind::Remove {
-                        account_index,
+                        leaf_index,
                         authenticator_address,
                         old_commit,
                         new_commit,
@@ -350,7 +350,7 @@ impl OpsBatcherRunner {
                         authenticator_pubkey,
                     } => contract
                         .removeAuthenticator(
-                            *account_index,
+                            *leaf_index,
                             *authenticator_address,
                             *pubkey_id,
                             *authenticator_pubkey,
@@ -363,7 +363,7 @@ impl OpsBatcherRunner {
                         .calldata()
                         .clone(),
                     OpKind::Recover {
-                        account_index,
+                        leaf_index,
                         new_authenticator_address,
                         old_commit,
                         new_commit,
@@ -373,7 +373,7 @@ impl OpsBatcherRunner {
                         new_pubkey,
                     } => contract
                         .recoverAccount(
-                            *account_index,
+                            *leaf_index,
                             *new_authenticator_address,
                             *new_pubkey,
                             *old_commit,

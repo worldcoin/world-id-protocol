@@ -35,12 +35,15 @@ async fn test_authenticator_registration() {
         .expect("failed to spawn gateway");
 
     let config = Config::new(
-        anvil.endpoint().to_string(),
+        Some(anvil.endpoint().to_string()),
+        anvil.instance.chain_id(),
         registry_address,
         "http://127.0.0.1:0".to_string(), // not needed for this test
         format!("http://127.0.0.1:{GW_PORT}"),
         Vec::new(),
-    );
+        2,
+    )
+    .unwrap();
 
     let seed = [1u8; 32];
     let recovery_address = anvil.signer(1).unwrap().address();
@@ -60,11 +63,10 @@ async fn test_authenticator_registration() {
             .unwrap();
     let elapsed = start.elapsed();
     println!("Account creation successful in {elapsed:?}");
-    assert_eq!(authenticator.account_id(), U256::from(1));
-    assert_eq!(authenticator.raw_tree_index(), U256::from(0));
+    assert_eq!(authenticator.leaf_index(), U256::from(1));
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 
     // If we initialize again, it will work
     let authenticator = Authenticator::init(&seed, config).await.unwrap();
-    assert_eq!(authenticator.account_id(), U256::from(1));
+    assert_eq!(authenticator.leaf_index(), U256::from(1));
 }

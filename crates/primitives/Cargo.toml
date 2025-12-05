@@ -1,26 +1,39 @@
 [package]
 name = "world-id-primitives"
 description = "Contains the raw base primitives (without implementations) for the World ID Protocol."
+publish = true
+edition.workspace = true
 version.workspace = true
 license.workspace = true
-edition.workspace = true
-
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 
 [dependencies]
-alloy-primitives = { version = "1", default-features = false, features = ["serde", "std"] }
+alloy-primitives = { version = "1", default-features = false, features = [
+    "serde",
+    "std",
+] }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serde-compat = { workspace = true }
 ark-serialize = { workspace = true }
+arrayvec = { version = "0.7", features = ["serde"] }
+circom-types = { workspace = true, features = ["groth16"] }
+groth16-material = { workspace = true, features = ["circom"] }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
+oprf-core = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-k256 = { workspace = true, features = ["ecdsa"] }
+url = { workspace = true, features = ["serde"] }
+k256 = { workspace = true, features = ["ecdsa", "serde"] }
+poseidon2 = { workspace = true }
 
 [dev-dependencies]
 ciborium = "0.2.2"

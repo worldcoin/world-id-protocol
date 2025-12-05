@@ -53,7 +53,7 @@ contract AccountRegistryUpgradeTest is Test {
         accountRegistry.createAccount(address(0xABCD), authenticatorAddresses, authenticatorPubkeys, commitment);
 
         // Verify state before upgrade
-        assertEq(accountRegistry.nextAccountIndex(), 2);
+        assertEq(accountRegistry.nextLeafIndex(), 2);
         uint256 rootBefore = accountRegistry.currentRoot();
 
         // Deploy V2 implementation
@@ -66,7 +66,7 @@ contract AccountRegistryUpgradeTest is Test {
         AccountRegistryV2Mock accountRegistryV2 = AccountRegistryV2Mock(address(proxy));
 
         // Verify storage was preserved
-        assertEq(accountRegistryV2.nextAccountIndex(), 2);
+        assertEq(accountRegistryV2.nextLeafIndex(), 2);
         assertEq(accountRegistryV2.currentRoot(), rootBefore);
 
         // Verify new functionality works
@@ -80,7 +80,7 @@ contract AccountRegistryUpgradeTest is Test {
         uint256[] memory newAuthPubkeys = new uint256[](1);
         newAuthPubkeys[0] = 0;
         accountRegistryV2.createAccount(address(0xDEF), newAuthAddresses, newAuthPubkeys, 0x9876543210);
-        assertEq(accountRegistryV2.nextAccountIndex(), 3);
+        assertEq(accountRegistryV2.nextLeafIndex(), 3);
     }
 
     function test_UpgradeFailsForNonOwner() public {
