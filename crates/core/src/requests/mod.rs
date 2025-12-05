@@ -171,7 +171,7 @@ impl ProofResponse {
         constraints.evaluate(&|t| {
             FieldElement::from_str(t)
                 .ok()
-                .map_or(false, |fe| provided.contains(&fe))
+                .is_some_and(|fe| provided.contains(&fe))
         })
     }
 }
@@ -195,9 +195,9 @@ impl ProofRequest {
 
         // Predicate: only select if both available and requested
         let is_selectable = |t: &str| {
-            FieldElement::from_str(t).ok().map_or(false, |fe| {
-                available.contains(&fe) && requested.contains(&fe)
-            })
+            FieldElement::from_str(t)
+                .ok()
+                .is_some_and(|fe| available.contains(&fe) && requested.contains(&fe))
         };
 
         // If no explicit constraints: require all requested be available
@@ -314,7 +314,7 @@ impl ProofRequest {
                 if expr.evaluate(&|t| {
                     FieldElement::from_str(t)
                         .ok()
-                        .map_or(false, |fe| provided.contains(&fe))
+                        .is_some_and(|fe| provided.contains(&fe))
                 }) {
                     Ok(())
                 } else {
