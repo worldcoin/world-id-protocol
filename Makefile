@@ -46,13 +46,14 @@ run-indexer:
 run-gateway:
 	cargo run -p world-id-gateway
 
+# forge install requires git; skip in Docker where .git is excluded but lib/ contents are copied
 sol-build:
-	cd contracts && forge install && forge build && \
+	cd contracts && (git rev-parse --git-dir > /dev/null 2>&1 && forge install || true) && forge build && \
 	forge inspect AccountRegistry abi --json > ../crates/core/contracts/out/AccountRegistry.sol/AccountRegistryAbi.json && \
 	forge inspect CredentialSchemaIssuerRegistry abi --json > ../crates/core/contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
 
 sol-test:
-	cd contracts && forge install && forge test -vvv
+	cd contracts && (git rev-parse --git-dir > /dev/null 2>&1 && forge install || true) && forge test -vvv
 
 sol-fmt:
 	cd contracts && forge fmt
