@@ -153,7 +153,6 @@ pub struct RpFixture {
     pub nonce: Fq,
     pub current_timestamp: u64,
     pub signature: Signature,
-    pub signal_hash: FieldElement,
     pub rp_session_id_r_seed: FieldElement,
     pub signing_key: SigningKey,
     pub rp_secret: Fr,
@@ -180,7 +179,6 @@ pub fn generate_rp_fixture() -> RpFixture {
     let signing_key = SigningKey::random(&mut rng);
     let signature = signing_key.sign(&msg);
 
-    let signal_hash = FieldElement::from(Fq::rand(&mut rng));
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
 
     let rp_secret = Fr::rand(&mut rng);
@@ -194,7 +192,6 @@ pub fn generate_rp_fixture() -> RpFixture {
         nonce,
         current_timestamp,
         signature,
-        signal_hash,
         rp_session_id_r_seed,
         signing_key,
         rp_secret,

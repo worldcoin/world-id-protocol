@@ -185,17 +185,19 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             issuer_schema_id: issuer_schema_id_u64.into(),
-            signal: None,
+            signal: Some("my_signal".to_string()),
         }],
         constraints: None,
     };
 
     // Call generate_proof and ensure a nullifier is produced.
     let (_proof, nullifier) = authenticator
-        .generate_proof(rp_fixture.signal_hash, proof_request, credential)
+        .generate_proof(proof_request, credential)
         .await
         .wrap_err("failed to generate proof")?;
     assert_ne!(nullifier, FieldElement::ZERO);
+
+    // FIXME: verify Groth16 proof locally
 
     indexer_handle.abort();
     oprf_server.join_handle.abort();

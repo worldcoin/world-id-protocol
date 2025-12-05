@@ -1,7 +1,7 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
-use std::collections::HashSet;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -382,7 +382,10 @@ impl Authenticator {
         }
     }
 
-    /// Generates a World ID Uniqueness Proof given a provided context.
+    /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`.
+    ///
+    /// This assumes the Authenticator has already parsed the `[ProofRequest]` and determined
+    /// which `[Credential]` is appropriate for the request.
     ///
     /// # Errors
     /// - Will error if the any of the provided parameters are not valid.
@@ -391,7 +394,6 @@ impl Authenticator {
     #[allow(clippy::future_not_send)]
     pub async fn generate_proof(
         &self,
-        message_hash: FieldElement,
         proof_request: ProofRequest,
         credential: Credential,
     ) -> Result<UniquenessProof, AuthenticatorError> {
@@ -405,9 +407,9 @@ impl Authenticator {
         let query_material = crate::proof::load_embedded_query_material();
         let nullifier_material = crate::proof::load_embedded_nullifier_material();
 
-        // TODO: `ProofRequest` can include multiple proof requests, right now only one is used from the `Credential`.
-        let available = HashSet::from_iter([credential.issuer_schema_id]);
-        let request = proof_request.credentials_to_prove(available); // FIXME
+        let request_item = proof_request
+            .find_request_by_issuer_schema_id(credential.issuer_schema_id.into())
+            .ok_or(AuthenticatorError::InvalidCredentialForProofRequest)?;
 
         let args = SingleProofInput::<TREE_DEPTH> {
             credential,
@@ -416,13 +418,13 @@ impl Authenticator {
             key_index,
             rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
             rp_id: proof_request.rp_id,
-            share_epoch: ShareEpoch::default().into_inner(), // TODO
+            share_epoch: ShareEpoch::default().into_inner(),
             action: proof_request.action,
             nonce: proof_request.nonce,
             current_timestamp: proof_request.created_at,
             rp_signature: proof_request.signature,
             rp_nullifier_key: proof_request.rp_nullifier_key,
-            signal_hash: message_hash, // FIXME
+            signal_hash: request_item.signal_hash(),
         };
 
         let private_key = self.signer.offchain_signer_private_key().expose_secret();
@@ -864,6 +866,10 @@ pub enum AuthenticatorError {
         /// Description of why it is invalid.
         reason: String,
     },
+
+    /// The provided credential is not valid for the provided proof request.
+    #[error("The provided credential is not valid for the provided proof request")]
+    InvalidCredentialForProofRequest,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

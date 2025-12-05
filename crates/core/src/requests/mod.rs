@@ -178,6 +178,8 @@ impl ProofRequest {
         let requested: std::collections::HashSet<FieldElement> =
             self.requests.iter().map(|r| r.issuer_schema_id).collect();
 
+        // FIXME @decentralgabe: proper comparison of issuer_schema_id
+
         // Convert to string sets for constraint evaluation (constraints use string types)
         let available_strings: HashSet<String> =
             available.iter().map(ToString::to_string).collect();
@@ -213,6 +215,18 @@ impl ProofRequest {
             .collect();
         Some(result)
     }
+
+    /// Find a request item by issuer schema ID if available
+    #[must_use]
+    pub fn find_request_by_issuer_schema_id(
+        &self,
+        issuer_schema_id: FieldElement,
+    ) -> Option<&RequestItem> {
+        self.requests
+            .iter()
+            .find(|r| r.issuer_schema_id == issuer_schema_id)
+    }
+
     /// Returns true if the request is expired relative to now (unix timestamp in seconds)
     #[must_use]
     pub const fn is_expired(&self, now: u64) -> bool {
