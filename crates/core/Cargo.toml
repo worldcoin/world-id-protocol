@@ -65,8 +65,7 @@ utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 oprf-core = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-time = { version = "0.3.44", features = ["serde", "formatting", "serde-well-known"] }
-tiny-keccak = "2.0.2"
+k256 = { workspace = true, features = ["ecdsa","serde"] }
 
 [features]
 default = ["authenticator", "embed-zkeys"]
@@ -109,8 +108,3 @@ world-id-gateway = { path = "../../services/gateway" }
 axum = { version = "0.8", features = ["macros", "json"] }
 oprf-core = { workspace = true }
 mockito = "1.6"
-time = { version = "0.3.44", features = ["macros"] }
-
-[dependencies.k256]
-workspace = true
-features = ["ecdsa", "serde"]

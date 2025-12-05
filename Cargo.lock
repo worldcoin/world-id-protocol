@@ -7340,8 +7340,6 @@ dependencies = [
  "taceo-poseidon2 0.1.0",
  "test-utils",
  "thiserror 1.0.69",
- "time",
- "tiny-keccak",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",
