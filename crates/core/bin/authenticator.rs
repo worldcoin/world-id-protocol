@@ -1,10 +1,7 @@
 use std::fs::File;
 
-use ark_ff::UniformRand;
 use eyre::Result;
-use world_id_core::{
-    primitives::Config, requests::ProofRequest, Authenticator, Credential, FieldElement,
-};
+use world_id_core::{primitives::Config, requests::ProofRequest, Authenticator, Credential};
 
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
@@ -43,8 +40,6 @@ async fn main() -> Result<()> {
         .expect("proof request file path is required as second argument");
     let proof_request: ProofRequest =
         ProofRequest::from_json(&std::fs::read_to_string(proof_request_path)?)?;
-
-    let mut rng = rand::thread_rng();
 
     let (proof, nullifier) = authenticator
         .generate_proof(proof_request, credential)

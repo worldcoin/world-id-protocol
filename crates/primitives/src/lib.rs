@@ -126,6 +126,8 @@ impl FieldElement {
                 "due to the byte reduction, the value is guaranteed to be within the field"
             ),
         }
+
+        // FIXME: add unit tests
     }
 }
 

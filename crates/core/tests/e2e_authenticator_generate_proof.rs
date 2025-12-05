@@ -197,7 +197,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to generate proof")?;
     assert_ne!(nullifier, FieldElement::ZERO);
 
-    // FIXME: verify Groth16 proof locally
+    // FIXME: verify proof with verifier contract
 
     indexer_handle.abort();
     oprf_server.join_handle.abort();

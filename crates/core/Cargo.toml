@@ -38,7 +38,6 @@ poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
 anyhow = { workspace = true }
-base64 = "0.22"
 chrono = "0.4"
 ciborium = "0.2"
 hex = { workspace = true }

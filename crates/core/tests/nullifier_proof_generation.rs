@@ -18,7 +18,9 @@ use test_utils::{
 };
 use uuid::Uuid;
 
-use world_id_core::{oprf, proof, Authenticator, HashableCredential, OnchainKeyRepresentable};
+use world_id_core::{
+    oprf, proof, Authenticator, FieldElement, HashableCredential, OnchainKeyRepresentable,
+};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
     merkle::MerkleInclusionProof, proof::SingleProofInput, rp::RpNullifierKey, TREE_DEPTH,
@@ -174,6 +176,8 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         siblings: merkle_siblings,
     };
 
+    let signal_hash = FieldElement::from_arbitrary_raw_bytes(b"hello world!");
+
     // Build OPRF query context (RP id, action, nonce, timestamp)
     let rp_nullifier_key = RpNullifierKey::new(rp_fixture.rp_nullifier_point);
 
@@ -190,7 +194,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         current_timestamp: rp_fixture.current_timestamp,
         rp_signature: rp_fixture.signature,
         rp_nullifier_key,
-        signal_hash: rp_fixture.signal_hash,
+        signal_hash,
     };
 
     // Produce πR (signed OPRF query) — blinded request + query inputs
@@ -214,7 +218,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         &dlog_proof,
         rp_nullifier_key.into_inner(),
         blinded_response,
-        *rp_fixture.signal_hash,
+        *signal_hash,
         *rp_fixture.rp_session_id_r_seed,
         signed_query.blinding_factor().clone(),
     );
