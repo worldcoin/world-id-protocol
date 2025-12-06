@@ -10,49 +10,18 @@ use world_id_core::account_registry::{
     sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
 };
 use world_id_core::types::{
-    GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 
+use crate::common::{wait_for_finalized, wait_http_ready};
+
+mod common;
+
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-
-async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let resp = client
-            .get(format!("{}/status/{}", base, request_id))
-            .send()
-            .await
-            .unwrap();
-        let status_code = resp.status();
-        if status_code == StatusCode::NOT_FOUND {
-            panic!("request {request_id} not found");
-        }
-        if !status_code.is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
-            panic!(
-                "status check for {request_id} failed: {} body={}",
-                status_code, body_text
-            );
-        }
-        let body: GatewayStatusResponse = resp.json().await.unwrap();
-        match body.status {
-            GatewayRequestState::Finalized { tx_hash } => return tx_hash,
-            GatewayRequestState::Failed { error } => {
-                panic!("request {request_id} failed: {error}");
-            }
-            _ => {
-                if std::time::Instant::now() > deadline {
-                    panic!("timeout waiting for request {request_id} to finalize");
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        }
-    }
-}
 
 fn default_sibling_nodes() -> Vec<String> {
     vec![
@@ -92,22 +61,6 @@ fn default_sibling_nodes() -> Vec<String> {
     .collect()
 }
 
-async fn wait_http_ready(client: &Client) {
-    let base = format!("http://127.0.0.1:{}", GW_PORT);
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Ok(resp) = client.get(format!("{}/health", base)).send().await {
-            if resp.status().is_success() {
-                break;
-            }
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("gateway not ready");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_gateway_full_flow() {
     let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
@@ -130,12 +83,13 @@ async fn e2e_gateway_full_flow() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        redis_url: None, // Use in-memory storage for tests
     };
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
     // HTTP client
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client).await;
+    wait_http_ready(&client, GW_PORT).await;
     let base = format!("http://127.0.0.1:{GW_PORT}");
 
     // Build Alloy provider for on-chain assertions and chain id
@@ -164,7 +118,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let create_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &create_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &create_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "create-account should return a finalized tx hash"
@@ -256,7 +210,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let insert_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &insert_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &insert_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "insert-authenticator should return a finalized tx hash"
@@ -320,7 +274,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let remove_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &remove_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &remove_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "remove-authenticator should return a finalized tx hash"
@@ -388,7 +342,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let recover_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &recover_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &recover_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "recover-account should return a finalized tx hash"
@@ -457,7 +411,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let update_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &update_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &update_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "update-authenticator should return a finalized tx hash"
@@ -483,6 +437,125 @@ async fn e2e_gateway_full_flow() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+
+    // Cleanup
+    let _ = gw.shutdown().await;
+}
+
+#[tokio::test]
+#[cfg(feature = "integration-tests")]
+async fn redis_integration() {
+    // This test requires Redis to be running
+    // Start with: docker-compose up -d
+
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
+    // Try to connect to Redis
+    let client = redis::Client::open(redis_url.as_str()).expect("Failed to create Redis client");
+    let mut conn = client
+        .get_connection_manager()
+        .await
+        .expect("Failed to connect to Redis - is Redis running? Start with: docker-compose up -d");
+
+    // Clear any existing test data
+    let _: () = redis::cmd("FLUSHDB")
+        .query_async(&mut conn)
+        .await
+        .expect("Failed to flush Redis DB");
+
+    // Start Anvil
+    let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
+    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+    let registry_addr = anvil
+        .deploy_account_registry(deployer)
+        .await
+        .expect("failed to deploy AccountRegistry");
+    let rpc_url = anvil.endpoint();
+
+    let signer = PrivateKeySigner::random();
+    let wallet_addr: Address = signer.address();
+
+    let cfg = GatewayConfig {
+        registry_addr,
+        rpc_url: rpc_url.to_string(),
+        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
+        aws_kms_key_id: None,
+        batch_ms: 200,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4102).into(),
+        max_create_batch_size: 10,
+        max_ops_batch_size: 10,
+        redis_url: Some(redis_url.clone()),
+    };
+
+    let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let client = Client::builder().build().unwrap();
+    wait_http_ready(&client, 4102).await;
+    let base = "http://127.0.0.1:4102";
+
+    // Create a test request
+    let body = world_id_core::types::CreateAccountRequest {
+        recovery_address: Some(wallet_addr),
+        authenticator_addresses: vec![address!("0x1111111111111111111111111111111111111111")],
+        authenticator_pubkeys: vec![U256::from(100)],
+        offchain_signer_commitment: U256::from(1),
+    };
+
+    let resp = client
+        .post(format!("{base}/create-account"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    let request_id = accepted.request_id.clone();
+
+    // Verify the request was stored in Redis
+    let redis_key = format!("gateway:request:{}", request_id);
+    let stored: Option<String> = redis::cmd("GET")
+        .arg(&redis_key)
+        .query_async(&mut conn)
+        .await
+        .expect("Failed to get from Redis");
+
+    assert!(stored.is_some(), "Request should be stored in Redis");
+    let stored_data: serde_json::Value =
+        serde_json::from_str(&stored.unwrap()).expect("Failed to parse JSON");
+
+    assert_eq!(stored_data["kind"], "create_account");
+    assert_eq!(stored_data["status"]["state"], "queued");
+
+    // Check that TTL is set (should be ~86400 seconds)
+    let ttl: i64 = redis::cmd("TTL")
+        .arg(&redis_key)
+        .query_async(&mut conn)
+        .await
+        .expect("Failed to get TTL");
+
+    assert!(ttl > 86000 && ttl <= 86400, "TTL should be set to 24 hours");
+
+    // Wait for the request to be processed
+    let tx_hash = wait_for_finalized(&client, 4102, &request_id).await;
+    assert!(!tx_hash.is_empty());
+
+    // Verify status was updated in Redis
+    let updated: Option<String> = redis::cmd("GET")
+        .arg(&redis_key)
+        .query_async(&mut conn)
+        .await
+        .expect("Failed to get updated value from Redis");
+
+    assert!(
+        updated.is_some(),
+        "Updated request should still be in Redis"
+    );
+    let updated_data: serde_json::Value =
+        serde_json::from_str(&updated.unwrap()).expect("Failed to parse updated JSON");
+
+    assert_eq!(updated_data["status"]["state"], "finalized");
+    assert!(updated_data["status"]["tx_hash"].is_string());
 
     // Cleanup
     let _ = gw.shutdown().await;

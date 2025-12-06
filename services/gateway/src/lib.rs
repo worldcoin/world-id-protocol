@@ -1,11 +1,4 @@
-use std::{
-    net::SocketAddr,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{net::SocketAddr, time::Duration};
 
 use alloy::network::{EthereumWallet, TxSigner};
 use alloy::{
@@ -18,12 +11,12 @@ use aws_config::BehaviorVersion;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
@@ -34,13 +27,18 @@ use world_id_core::types::{
 };
 
 pub use crate::config::{GatewayConfig, SignerConfig};
+pub use crate::error::ErrorResponse;
 
 mod config;
 mod create_batcher;
+mod error;
 mod ops_batcher;
+mod request_tracker;
 
 use create_batcher::{CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope};
+use error::{ErrorBody, ErrorCode, ErrorResponse as ApiError};
 use ops_batcher::{OpEnvelope, OpKind, OpsBatcherHandle, OpsBatcherRunner};
+use request_tracker::{RequestKind, RequestState, RequestTracker};
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -68,76 +66,6 @@ struct AppState {
     provider: DynProvider,
     batcher: CreateBatcherHandle,
     ops_batcher: OpsBatcherHandle,
-    tracker: RequestTracker,
-}
-
-#[derive(Clone)]
-pub(crate) struct RequestTracker {
-    inner: Arc<RwLock<std::collections::HashMap<String, RequestRecord>>>,
-    seq: Arc<AtomicU64>,
-}
-
-impl RequestTracker {
-    pub(crate) fn new() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            seq: Arc::new(AtomicU64::new(1)),
-        }
-    }
-
-    pub(crate) async fn new_request(&self, kind: RequestKind) -> String {
-        let id = self.seq.fetch_add(1, Ordering::Relaxed);
-        let id = format!("{id:016x}");
-        let record = RequestRecord {
-            kind,
-            status: RequestState::Queued,
-        };
-        self.inner.write().await.insert(id.clone(), record);
-        id
-    }
-
-    pub(crate) async fn set_status_batch(&self, ids: &[String], status: RequestState) {
-        let mut map = self.inner.write().await;
-        for id in ids {
-            if let Some(rec) = map.get_mut(id) {
-                rec.status = status.clone();
-            }
-        }
-    }
-
-    pub(crate) async fn set_status(&self, id: &str, status: RequestState) {
-        self.set_status_batch(&[id.to_string()], status).await;
-    }
-
-    pub(crate) async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
-        self.inner.read().await.get(id).cloned()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-enum RequestKind {
-    CreateAccount,
-    UpdateAuthenticator,
-    InsertAuthenticator,
-    RemoveAuthenticator,
-    RecoverAccount,
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub(crate) enum RequestState {
-    Queued,
-    Batching,
-    Submitted { tx_hash: String },
-    Finalized { tx_hash: String },
-    Failed { error: String },
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-struct RequestRecord {
-    kind: RequestKind,
-    status: RequestState,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -195,42 +123,11 @@ fn build_provider(rpc_url: &str, ethereum_wallet: EthereumWallet) -> anyhow::Res
     Ok(provider.erased())
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ApiError {
-    #[error("{0}")]
-    BadRequest(String),
-    #[error("{0}")]
-    Internal(String),
-    #[error("{0}")]
-    NotFound(String),
-}
-
-impl ApiError {
-    fn bad_req(field: &str, msg: impl ToString) -> Self {
-        Self::BadRequest(format!("invalid {field}: {}", msg.to_string()))
-    }
-}
-
-#[derive(Serialize, ToSchema)]
-struct ErrorBody {
-    error: String,
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let (status, msg) = match self {
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-        };
-        (status, Json(ErrorBody { error: msg })).into_response()
-    }
-}
-
 type ApiResult<T> = Result<T, ApiError>;
 
-fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
-    s.parse().map_err(|e| ApiError::bad_req(field, e))
+fn req_u256(_field: &str, s: &str) -> ApiResult<U256> {
+    s.parse()
+        .map_err(|e| ApiError::bad_request(format!("invalid value: {}", e)))
 }
 
 async fn build_app(
@@ -240,11 +137,13 @@ async fn build_app(
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
+    redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
     let ethereum_wallet = build_wallet(signer_config, &rpc_url).await?;
     let provider = build_provider(&rpc_url, ethereum_wallet)?;
     tracing::info!("RPC Provider built");
-    let tracker = RequestTracker::new();
+
+    let tracker = RequestTracker::new(redis_url).await;
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
@@ -277,7 +176,6 @@ async fn build_app(
         provider,
         batcher,
         ops_batcher,
-        tracker,
     };
 
     Ok(Router::new()
@@ -293,6 +191,7 @@ async fn build_app(
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
         .with_state(state)
+        .layer(axum::Extension(tracker))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
@@ -310,6 +209,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
+        cfg.redis_url,
     )
     .await?;
 
@@ -340,6 +240,7 @@ pub async fn run() -> anyhow::Result<()> {
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
+        cfg.redis_url,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
@@ -362,9 +263,10 @@ async fn health() -> impl IntoResponse {
 
 async fn create_account(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let id = state.tracker.new_request(RequestKind::CreateAccount).await;
+    let (id, record) = tracker.new_request(RequestKind::CreateAccount).await?;
 
     let env = CreateReqEnvelope {
         id: id.clone(),
@@ -372,8 +274,7 @@ async fn create_account(
     };
 
     if state.batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
                 RequestState::Failed {
@@ -381,14 +282,8 @@ async fn create_account(
                 },
             )
             .await;
-        return Err(ApiError::Internal("batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -401,12 +296,12 @@ async fn create_account(
 
 async fn update_authenticator(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let id = state
-        .tracker
+    let (id, record) = tracker
         .new_request(RequestKind::UpdateAuthenticator)
-        .await;
+        .await?;
 
     let env = OpEnvelope {
         id: id.clone(),
@@ -425,8 +320,7 @@ async fn update_authenticator(
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
                 RequestState::Failed {
@@ -434,14 +328,8 @@ async fn update_authenticator(
                 },
             )
             .await;
-        return Err(ApiError::Internal("ops batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -454,12 +342,12 @@ async fn update_authenticator(
 
 async fn insert_authenticator(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let id = state
-        .tracker
+    let (id, record) = tracker
         .new_request(RequestKind::InsertAuthenticator)
-        .await;
+        .await?;
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Insert {
@@ -476,8 +364,7 @@ async fn insert_authenticator(
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
                 RequestState::Failed {
@@ -485,14 +372,8 @@ async fn insert_authenticator(
                 },
             )
             .await;
-        return Err(ApiError::Internal("ops batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -505,12 +386,12 @@ async fn insert_authenticator(
 
 async fn remove_authenticator(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RemoveAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let id = state
-        .tracker
+    let (id, record) = tracker
         .new_request(RequestKind::RemoveAuthenticator)
-        .await;
+        .await?;
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Remove {
@@ -527,8 +408,7 @@ async fn remove_authenticator(
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
                 RequestState::Failed {
@@ -536,14 +416,8 @@ async fn remove_authenticator(
                 },
             )
             .await;
-        return Err(ApiError::Internal("ops batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -556,9 +430,10 @@ async fn remove_authenticator(
 
 async fn recover_account(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let id = state.tracker.new_request(RequestKind::RecoverAccount).await;
+    let (id, record) = tracker.new_request(RequestKind::RecoverAccount).await?;
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Recover {
@@ -574,8 +449,7 @@ async fn recover_account(
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
                 RequestState::Failed {
@@ -583,14 +457,8 @@ async fn recover_account(
                 },
             )
             .await;
-        return Err(ApiError::Internal("ops batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -602,14 +470,13 @@ async fn recover_account(
 }
 
 async fn request_status(
-    State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Path(id): Path<String>,
 ) -> ApiResult<impl IntoResponse> {
-    let record = state
-        .tracker
+    let record = tracker
         .snapshot(&id)
         .await
-        .ok_or_else(|| ApiError::NotFound("request not found".into()))?;
+        .ok_or_else(ApiError::not_found)?;
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -641,7 +508,7 @@ async fn is_valid_root(
         .isValidRoot(root)
         .call()
         .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
 }
 
@@ -745,6 +612,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
     ),
     components(schemas(
         ErrorBody,
+        ErrorCode,
         RequestKind,
         RequestState,
         RequestStatusResponse,

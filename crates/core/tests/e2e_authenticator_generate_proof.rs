@@ -56,6 +56,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        redis_url: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
