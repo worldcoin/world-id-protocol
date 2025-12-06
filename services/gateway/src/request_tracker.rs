@@ -64,6 +64,8 @@ impl RequestTracker {
                 .await
                 .expect("Unable to create Redis connection manager");
 
+            tracing::info!("✅ Connection to Redis established");
+
             Some(manager)
         } else {
             tracing::info!("No Redis URL provided, using in-memory request storage");
@@ -205,13 +207,7 @@ impl RequestTracker {
                 decoded.status = cjson.decode(ARGV[1])
                 local updated = cjson.encode(decoded)
 
-                local ttl = redis.call('TTL', KEYS[1])
-                if ttl > 0 then
-                    redis.call('SET', KEYS[1], updated, 'EX', ttl)
-                else
-                    redis.call('SET', KEYS[1], updated)
-                end
-
+                redis.call('SET', KEYS[1], updated, 'KEEPTTL')
                 return redis.status_reply('OK')
             "#;
 
