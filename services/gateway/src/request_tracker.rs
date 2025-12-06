@@ -64,6 +64,8 @@ impl RequestTracker {
                 .await
                 .expect("Unable to create Redis connection manager");
 
+            tracing::info!("✅ Connection to Redis established");
+
             Some(manager)
         } else {
             tracing::info!("No Redis URL provided, using in-memory request storage");
@@ -192,18 +194,30 @@ impl RequestTracker {
     async fn set_status_on_redis(&self, id: &str, status: &RequestState) -> anyhow::Result<()> {
         if let Some(mut manager) = self.redis_manager.clone() {
             let key = Self::request_key(id);
-            let record = manager
-                .get(&key)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("attempted to update inexistent request"))?;
+            let status_json = serde_json::to_string(status)?;
 
-            let mut record = serde_json::from_str::<RequestRecord>(&record)?;
-            record.status = status.clone();
-            let json_str = serde_json::to_string(&record)?;
+            // Use Lua script for atomic read-modify-write to prevent race conditions
+            let script = r#"
+                local record = redis.call('GET', KEYS[1])
+                if not record then
+                    return redis.error_reply('attempted to update inexistent request')
+                end
 
-            let opts = SetOptions::default().with_expiration(SetExpiry::KEEPTTL);
+                local decoded = cjson.decode(record)
+                decoded.status = cjson.decode(ARGV[1])
+                local updated = cjson.encode(decoded)
 
-            manager.set_options(&key, json_str, opts).await?;
+                redis.call('SET', KEYS[1], updated, 'KEEPTTL')
+                return redis.status_reply('OK')
+            "#;
+
+            let result: Result<(), redis::RedisError> = redis::Script::new(script)
+                .key(&key)
+                .arg(&status_json)
+                .invoke_async(&mut manager)
+                .await;
+
+            result?;
             return Ok(());
         }
 

@@ -1,6 +1,7 @@
 # 🚧 WIP: world-id-protocol
 
-> This project is work in progress and unaudited. DO NOT USE IN PRODUCTION.
+> [!CAUTION]
+> This project is work in progress and unaudited. DO NOT USE IN PRODUCTION. Releases may contain breaking changes at any time.
 
 Monorepo containing:
 
@@ -27,31 +28,12 @@ Monorepo containing:
 
 | Contract / Service               | Address                                               |
 | -------------------------------- | ----------------------------------------------------- |
-| `AccountRegistry`                | `0xc9A0165FA64fD336035C7D9183C211034E8021B3`          |
+| `AccountRegistry`                | `0xb64a1F443C9a18Cd3865C3c9Be871946617C0d75`          |
 | `CredentialSchemaIssuerRegistry` | `0xCd987d2C973B099FD291Bf5AF332031Dc980a96B`          |
 | `world-id-indexer`               | `https://world-id-indexer.stage-crypto.worldcoin.org` |
 | `world-id-gateway`               | `https://world-id-gateway.stage-crypto.worldcoin.org` |
 
-## Make targets
-
-Use the provided Makefile:
-
-- `make help`: Show all available targets with descriptions
-- `make build`: Build Rust workspace and Solidity contracts
-- `make fmt`: Format Rust and Solidity
-- `make lint`: Run Rust clippy (fails on warnings)
-- `make test`: Run both Rust and Solidity tests
-- `make rust-build`: `cargo build --workspace`
-- `make rust-test`: `cargo test --workspace`
-- `make rust-fmt`: `cargo fmt --all`
-- `make rust-clippy`: `cargo clippy --workspace --all-targets -D warnings`
-- `make run-indexer`: Run `world-id-indexer`
-- `make run-gateway`: Run `world-id-gateway` (defaults to 127.0.0.1:4000)
-- `make sol-build`: `forge build` in `contracts/`
-- `make sol-test`: `forge test -vvv` in `contracts/`
-- `make sol-fmt`: `forge fmt` in `contracts/`
-
-## Releasing
+## 🚀 Releasing
 
 Versioning and releases are managed separately for crates and services.
 
