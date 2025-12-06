@@ -51,19 +51,6 @@ Use the provided Makefile:
 - `make sol-test`: `forge test -vvv` in `contracts/`
 - `make sol-fmt`: `forge fmt` in `contracts/`
 
-## Solidity contracts
-
-Foundry project under `contracts/`.
-
-Common commands:
-
-```
-cd contracts
-forge build
-forge test -vvv
-forge fmt
-```
-
 ## Releasing
 
 Versioning and releases are managed separately for crates and services.
@@ -74,13 +61,13 @@ Crate releases (`world-id-core`, `world-id-primitives`) are automated using `rel
 
 **How it works:**
 
-1. Commits to `main` follow [conventional commits](https://www.conventionalcommits.org/). To override the type of release, specific labels can be used, e.g. `release-minor`.
+1. Commits to `main` follow [conventional commits](https://www.conventionalcommits.org/). To override the version, simply update the PR.
 2. release-plz creates/updates a release PR with:
    - Version bumps in `Cargo.toml` files
    - Updated `CHANGELOG.md` for each crate
 3. When the release PR is merged:
    - Crates are published to [crates.io](https://crates.io) using trusted publishing
-   - GitHub releases are created for each updated crate (e.g., `world-id-core-v0.1.4`)
+   - GitHub releases are created for each updated crate (e.g., `world-id-core-v0.2.0`)
 
 ### Services
 
