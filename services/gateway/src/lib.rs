@@ -124,14 +124,75 @@ enum RequestKind {
     RecoverAccount,
 }
 
+#[derive(Debug, Clone, thiserror::Error, ToSchema)]
+pub(crate) enum GatewayError {
+    #[error("Authenticator already exists")]
+    AuthenticatorAlreadyExists,
+    #[error("Transaction reverted on-chain (tx: {0})")]
+    TransactionReverted(String),
+    #[error("Transaction confirmation error: {0}")]
+    ConfirmationError(String),
+    #[error("Batcher unavailable")]
+    BatcherUnavailable,
+    #[error("Pre-flight check failed: {0}")]
+    PreFlightFailed(String),
+    #[error("{0}")]
+    Unknown(String),
+}
+
+impl Serialize for GatewayError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let code = match self {
+            GatewayError::AuthenticatorAlreadyExists => "AUTHENTICATOR_ALREADY_EXISTS",
+            GatewayError::TransactionReverted(_) => "TRANSACTION_REVERTED",
+            GatewayError::ConfirmationError(_) => "CONFIRMATION_ERROR",
+            GatewayError::BatcherUnavailable => "BATCHER_UNAVAILABLE",
+            GatewayError::PreFlightFailed(_) => "PRE_FLIGHT_FAILED",
+            GatewayError::Unknown(_) => "UNKNOWN",
+        };
+        serializer.serialize_str(code)
+    }
+}
+
+impl GatewayError {
+    pub(crate) fn from_contract_error(error: &str) -> Self {
+        // AuthenticatorAddressAlreadyInUse(address) selector: 0x218170d3
+        if error.contains("0x218170d3") {
+            return GatewayError::AuthenticatorAlreadyExists;
+        }
+
+        GatewayError::Unknown(error.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub(crate) enum RequestState {
     Queued,
     Batching,
-    Submitted { tx_hash: String },
-    Finalized { tx_hash: String },
-    Failed { error: String },
+    Submitted {
+        tx_hash: String,
+    },
+    Finalized {
+        tx_hash: String,
+    },
+    Failed {
+        error: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_code: Option<GatewayError>,
+    },
+}
+
+impl RequestState {
+    pub(crate) fn failed_from_error(err: GatewayError) -> Self {
+        RequestState::Failed {
+            error: err.to_string(),
+            error_code: Some(err),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -364,6 +425,24 @@ async fn create_account(
     State(state): State<AppState>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the account creation BEFORE queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let sim_result = contract
+        .createManyAccounts(
+            vec![req.recovery_address.unwrap_or(Address::ZERO)],
+            vec![req.authenticator_addresses.clone()],
+            vec![req.authenticator_pubkeys.clone()],
+            vec![req.offchain_signer_commitment],
+        )
+        .call()
+        .await;
+
+    if let Err(e) = sim_result {
+        let error_str = e.to_string();
+        let gateway_error = GatewayError::from_contract_error(&error_str);
+        return Err(ApiError::BadRequest(gateway_error.to_string()));
+    }
+
     let id = state.tracker.new_request(RequestKind::CreateAccount).await;
 
     let env = CreateReqEnvelope {
@@ -376,9 +455,7 @@ async fn create_account(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "batcher unavailable".into(),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("batcher unavailable".into()));
@@ -429,9 +506,7 @@ async fn update_authenticator(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("ops batcher unavailable".into()));
@@ -480,9 +555,7 @@ async fn insert_authenticator(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("ops batcher unavailable".into()));
@@ -531,9 +604,7 @@ async fn remove_authenticator(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("ops batcher unavailable".into()));
@@ -578,9 +649,7 @@ async fn recover_account(
             .tracker
             .set_status(
                 &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                },
+                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
             )
             .await;
         return Err(ApiError::Internal("ops batcher unavailable".into()));
