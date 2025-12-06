@@ -171,7 +171,18 @@ impl Authenticator {
             // Poll the gateway status
             match Self::poll_gateway_status(&config, &request_id, &http_client).await {
                 Ok(GatewayRequestState::Finalized { .. }) => {
-                    return Self::init(seed, config).await;
+                    let result = Self::init(seed, config.clone()).await;
+                    match result {
+                        Ok(authenticator) => return Ok(authenticator),
+                        Err(e) => {
+                            if matches!(e, AuthenticatorError::AccountDoesNotExist) {
+                                // continue polling, as the indexer may take a while
+                                delay_ms = (delay_ms * 2).min(5000); // Cap at 5 seconds
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
                 Ok(GatewayRequestState::Failed { error }) => {
                     return Err(AuthenticatorError::Generic(format!(

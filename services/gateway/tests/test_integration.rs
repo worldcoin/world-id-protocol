@@ -10,49 +10,18 @@ use world_id_core::account_registry::{
     sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
 };
 use world_id_core::types::{
-    GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 
+use crate::common::{wait_for_finalized, wait_http_ready};
+
+mod common;
+
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-
-async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let resp = client
-            .get(format!("{}/status/{}", base, request_id))
-            .send()
-            .await
-            .unwrap();
-        let status_code = resp.status();
-        if status_code == StatusCode::NOT_FOUND {
-            panic!("request {request_id} not found");
-        }
-        if !status_code.is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
-            panic!(
-                "status check for {request_id} failed: {} body={}",
-                status_code, body_text
-            );
-        }
-        let body: GatewayStatusResponse = resp.json().await.unwrap();
-        match body.status {
-            GatewayRequestState::Finalized { tx_hash } => return tx_hash,
-            GatewayRequestState::Failed { error } => {
-                panic!("request {request_id} failed: {error}");
-            }
-            _ => {
-                if std::time::Instant::now() > deadline {
-                    panic!("timeout waiting for request {request_id} to finalize");
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        }
-    }
-}
 
 fn default_sibling_nodes() -> Vec<String> {
     vec![
@@ -92,22 +61,6 @@ fn default_sibling_nodes() -> Vec<String> {
     .collect()
 }
 
-async fn wait_http_ready(client: &Client) {
-    let base = format!("http://127.0.0.1:{}", GW_PORT);
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Ok(resp) = client.get(format!("{}/health", base)).send().await {
-            if resp.status().is_success() {
-                break;
-            }
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("gateway not ready");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_gateway_full_flow() {
     let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
@@ -130,12 +83,13 @@ async fn e2e_gateway_full_flow() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        redis_url: None, // Use in-memory storage for tests
     };
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
     // HTTP client
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client).await;
+    wait_http_ready(&client, GW_PORT).await;
     let base = format!("http://127.0.0.1:{GW_PORT}");
 
     // Build Alloy provider for on-chain assertions and chain id
@@ -164,7 +118,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let create_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &create_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &create_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "create-account should return a finalized tx hash"
@@ -256,7 +210,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let insert_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &insert_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &insert_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "insert-authenticator should return a finalized tx hash"
@@ -320,7 +274,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let remove_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &remove_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &remove_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "remove-authenticator should return a finalized tx hash"
@@ -388,7 +342,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let recover_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &recover_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &recover_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "recover-account should return a finalized tx hash"
@@ -457,7 +411,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let update_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, &base, &update_request_id).await;
+    let tx_hash = wait_for_finalized(&client, GW_PORT, &update_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "update-authenticator should return a finalized tx hash"

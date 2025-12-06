@@ -281,6 +281,23 @@ pub enum IndexerErrorCode {
     AccountDoesNotExist,
 }
 
+/// Gateway error codes.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayErrorCode {
+    /// Internal server error occurred in the gateway.
+    InternalServerError,
+    /// Requested resource was not found.
+    NotFound,
+    /// Bad request - invalid input.
+    BadRequest,
+    /// Batcher service unavailable.
+    BatcherUnavailable,
+}
+
 /// Error object returned by the services APIs (indexer, gateway).
 #[cfg(feature = "authenticator")]
 #[derive(Debug, Clone, Deserialize, Serialize)]
