@@ -203,7 +203,7 @@ impl RequestTracker {
 
             let opts = SetOptions::default().with_expiration(SetExpiry::KEEPTTL);
 
-            manager.set_options(&key, json_str, opts).await.ok();
+            manager.set_options(&key, json_str, opts).await?;
             return Ok(());
         }
 
