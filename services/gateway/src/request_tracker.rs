@@ -86,10 +86,10 @@ impl RequestTracker {
                     map.retain(|_, record| {
                         now.duration_since(record.created_at) < Duration::from_secs(REQUESTS_TTL)
                     });
-                    let removed = map.len();
-                    if removed > 0 {
-                        tracing::info!("Cleaned up {} expired in-memory request records", removed);
-                    }
+                    tracing::info!(
+                        "Cleaned up expired in-memory request records. Current count: {}",
+                        map.len()
+                    );
                 }
             });
         }
