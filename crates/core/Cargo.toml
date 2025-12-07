@@ -91,7 +91,7 @@ rp = ["dep:oprf-types"]
 cli = []
 
 # OpenAPI/Swagger docs
-openapi = ["dep:utoipa", "world-id-primitives/openapi"]
+openapi = ["dep:utoipa"]
 
 [build-dependencies]
 reqwest = { workspace = true, features = ["blocking"], optional = true }
