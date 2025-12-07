@@ -60,7 +60,7 @@ reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10", optional = true }
 strum = { workspace = true }
 world-id-primitives = { workspace = true }
-utoipa = { workspace = true, default-features = false, optional = true }
+utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 oprf-core = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
