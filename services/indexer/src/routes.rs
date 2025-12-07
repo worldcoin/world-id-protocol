@@ -18,6 +18,7 @@ mod inclusion_proof;
     paths(
         get_packed_account::handler,
         get_signature_nonce::handler,
+        inclusion_proof::handler,
     ),
     components(schemas(
         IndexerPackedAccountRequest,
