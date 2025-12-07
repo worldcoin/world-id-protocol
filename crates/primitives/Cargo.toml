@@ -32,15 +32,8 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
-utoipa = { workspace = true, default-features = false, optional = true }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 poseidon2 = { workspace = true }
 
 [dev-dependencies]
 ciborium = "0.2.2"
-
-
-
-[features]
-
-openapi = ["dep:utoipa"]
