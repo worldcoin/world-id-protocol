@@ -14,9 +14,7 @@ use strum::EnumString;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, PrimitiveError,
-};
+pub use world_id_primitives::merkle::AccountInclusionProof;
 
 /// The request to create a new World ID account.
 #[cfg(feature = "authenticator")]

@@ -1,9 +1,6 @@
 use crate::{authenticator::AuthenticatorPublicKeySet, FieldElement, PrimitiveError};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
-
 /// Helper module for serializing/deserializing fixed-size arrays.
 mod array_serde {
     use super::*;
@@ -36,10 +33,8 @@ mod array_serde {
 ///
 /// To prove validity, the user shows membership in the tree with a sibling path up to the root.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct MerkleInclusionProof<const TREE_DEPTH: usize> {
     /// The root hash of the Merkle tree.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
     pub root: FieldElement,
     /// The World ID's leaf position in the Merkle tree of the `AccountRegistry` contract.
     ///
@@ -47,7 +42,6 @@ pub struct MerkleInclusionProof<const TREE_DEPTH: usize> {
     pub leaf_index: u64,
     /// The sibling path up to the Merkle root.
     #[serde(with = "array_serde")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub siblings: [FieldElement; TREE_DEPTH],
 }
 
@@ -72,15 +66,13 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
 ///
 /// This is typically returned by the indexer when requesting proof of account membership.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct AccountInclusionProof<const TREE_DEPTH: usize> {
     /// The Merkle inclusion proof.
     #[serde(flatten)]
-    pub proof: MerkleInclusionProof<TREE_DEPTH>,
+    pub inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     /// The compressed authenticator public keys for the account (as `U256` values).
     ///
     /// Each public key is serialized in compressed form for efficient storage and transmission.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_pubkeys: AuthenticatorPublicKeySet,
 }
 
@@ -91,11 +83,11 @@ impl<const TREE_DEPTH: usize> AccountInclusionProof<TREE_DEPTH> {
     /// Returns an error if the number of authenticator public keys exceeds `MAX_AUTHENTICATOR_KEYS`.
     #[allow(clippy::missing_const_for_fn)]
     pub fn new(
-        proof: MerkleInclusionProof<TREE_DEPTH>,
+        inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         authenticator_pubkeys: AuthenticatorPublicKeySet,
     ) -> Result<Self, PrimitiveError> {
         Ok(Self {
-            proof,
+            inclusion_proof,
             authenticator_pubkeys,
         })
     }

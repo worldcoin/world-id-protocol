@@ -358,7 +358,7 @@ impl Authenticator {
         let response = self.http_client.post(&url).json(&req).send().await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        Ok((response.proof, response.authenticator_pubkeys))
+        Ok((response.inclusion_proof, response.authenticator_pubkeys))
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -906,7 +906,7 @@ mod tests {
         let expected_packed_index = U256::from(42);
 
         let mock = server
-            .mock("POST", "/packed_account")
+            .mock("POST", "/packed-account")
             .match_header("content-type", "application/json")
             .match_body(mockito::Matcher::JsonString(
                 serde_json::json!({
@@ -960,7 +960,7 @@ mod tests {
         let test_address = address!("0x0000000000000000000000000000000000000099");
 
         let mock = server
-            .mock("POST", "/packed_account")
+            .mock("POST", "/packed-account")
             .with_status(400)
             .with_header("content-type", "application/json")
             .with_body(
@@ -1006,7 +1006,7 @@ mod tests {
         let expected_nonce = U256::from(5);
 
         let mock = server
-            .mock("POST", "/signature_nonce")
+            .mock("POST", "/signature-nonce")
             .match_header("content-type", "application/json")
             .match_body(mockito::Matcher::JsonString(
                 serde_json::json!({
@@ -1057,7 +1057,7 @@ mod tests {
         let indexer_url = server.url();
 
         let mock = server
-            .mock("POST", "/signature_nonce")
+            .mock("POST", "/signature-nonce")
             .with_status(400)
             .with_header("content-type", "application/json")
             .with_body(

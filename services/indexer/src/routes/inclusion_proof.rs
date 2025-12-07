@@ -17,6 +17,24 @@ use crate::{
     proof_to_vec, tree_capacity, GLOBAL_TREE,
 };
 
+/// OpenAPI schema representation of the `AccountInclusionProof` response.
+#[allow(dead_code)]
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct AccountInclusionProofSchema {
+    /// The root hash of the Merkle tree (hex string)
+    #[schema(value_type = String, example = "0x1a2b3c4d5e6f7890")]
+    root: String,
+    /// The World ID's leaf position in the Merkle tree
+    #[schema(example = 42)]
+    leaf_index: u64,
+    /// The sibling path up to the Merkle root (array of hex strings)
+    #[schema(value_type = Vec<String>)]
+    siblings: Vec<String>,
+    /// The compressed authenticator public keys for the account (array of hex strings)
+    #[schema(value_type = Vec<String>)]
+    authenticator_pubkeys: Vec<String>,
+}
+
 /// Get Inclusion Proof
 ///
 /// Returns a Merkle inclusion proof for the given leaf index to the current `AccountRegistry` tree. In
@@ -26,7 +44,7 @@ use crate::{
     path = "/inclusion-proof",
     request_body = IndexerQueryRequest,
     responses(
-        (status = 200, body = AccountInclusionProof<TREE_DEPTH>),
+        (status = 200, body = AccountInclusionProofSchema, description = "Merkle inclusion proof with authenticator public keys"),
     ),
     tag = "indexer"
 )]

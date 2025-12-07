@@ -5,7 +5,9 @@ use world_id_core::types::{
     IndexerSignatureNonceResponse,
 };
 
-use crate::{config::AppState, error::ErrorBody};
+use crate::{
+    config::AppState, error::ErrorBody, routes::inclusion_proof::AccountInclusionProofSchema,
+};
 mod get_packed_account;
 mod get_signature_nonce;
 mod health;
@@ -22,10 +24,11 @@ mod inclusion_proof;
         IndexerPackedAccountResponse,
         IndexerQueryRequest,
         IndexerSignatureNonceResponse,
+        AccountInclusionProofSchema,
         ErrorBody,
     )),
     tags(
-        (name = "indexer", description = "World ID Indexer. Provides Merkle inclusion proofs and packed account indices from the on-chain registry.")
+        (name = "indexer", description = "World ID Indexer. Provides Merkle inclusion proofs and account information from the on-chain registry.")
     )
 )]
 struct ApiDoc;
