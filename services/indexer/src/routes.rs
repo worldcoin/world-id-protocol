@@ -1,7 +1,7 @@
 use axum::{response::IntoResponse, Json, Router};
 use utoipa::OpenApi;
 use world_id_core::types::{
-    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerSignatureNonceRequest,
+    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerQueryRequest,
     IndexerSignatureNonceResponse,
 };
 
@@ -20,7 +20,7 @@ mod inclusion_proof;
     components(schemas(
         IndexerPackedAccountRequest,
         IndexerPackedAccountResponse,
-        IndexerSignatureNonceRequest,
+        IndexerQueryRequest,
         IndexerSignatureNonceResponse,
         ErrorBody,
     )),
@@ -37,15 +37,15 @@ async fn openapi() -> impl IntoResponse {
 pub(crate) fn handler(state: AppState) -> Router {
     Router::new()
         .route(
-            "/proof/:leaf_index",
-            axum::routing::get(inclusion_proof::handler),
+            "/inclusion-proof",
+            axum::routing::post(inclusion_proof::handler),
         )
         .route(
-            "/packed_account",
+            "/packed-account",
             axum::routing::post(get_packed_account::handler),
         )
         .route(
-            "/signature_nonce",
+            "/signature-nonce",
             axum::routing::post(get_signature_nonce::handler),
         )
         .route("/health", axum::routing::get(health::handler))

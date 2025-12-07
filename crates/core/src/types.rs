@@ -13,7 +13,10 @@ use alloy::primitives::Address;
 use strum::EnumString;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
-pub use world_id_primitives::merkle::AccountInclusionProof;
+
+use world_id_primitives::{
+    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, PrimitiveError,
+};
 
 /// The request to create a new World ID account.
 #[cfg(feature = "authenticator")]
@@ -242,12 +245,14 @@ pub struct IndexerPackedAccountResponse {
     pub packed_account_data: U256,
 }
 
-/// Request to fetch a signature nonce from the indexer.
+/// Query for the indexer based on a leaf index.
+///
+/// Used for getting inclusion proofs and signature nonces.
 #[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct IndexerSignatureNonceRequest {
-    /// The account index to look up
+pub struct IndexerQueryRequest {
+    /// The leaf index to query (from the `AccountRegistry`)
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
     pub leaf_index: U256,
 }

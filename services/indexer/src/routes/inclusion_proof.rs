@@ -1,11 +1,11 @@
 use alloy::primitives::U256;
-use axum::{
-    extract::{Path, State},
-    Json,
-};
+use axum::{extract::State, Json};
 use http::StatusCode;
 use sqlx::Row;
-use world_id_core::{types::AccountInclusionProof, EdDSAPublicKey};
+use world_id_core::{
+    types::{AccountInclusionProof, IndexerQueryRequest},
+    EdDSAPublicKey,
+};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, FieldElement,
     TREE_DEPTH,
@@ -17,16 +17,29 @@ use crate::{
     proof_to_vec, tree_capacity, GLOBAL_TREE,
 };
 
+/// Get Inclusion Proof
+///
+/// Returns a Merkle inclusion proof for the given leaf index to the current `AccountRegistry` tree. In
+/// addition, it also includes the entire list of Authenticator public keys registered for the World ID.
+#[utoipa::path(
+    post,
+    path = "/inclusion-proof",
+    request_body = IndexerQueryRequest,
+    responses(
+        (status = 200, body = AccountInclusionProof<TREE_DEPTH>),
+    ),
+    tag = "indexer"
+)]
 pub(crate) async fn handler(
-    Path(idx_str): Path<String>,
     State(state): State<AppState>,
+    Json(req): Json<IndexerQueryRequest>,
 ) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, ErrorResponse> {
-    let leaf_index: U256 = idx_str.parse().unwrap();
+    let leaf_index = req.leaf_index;
 
     if leaf_index == 0 {
         return Err(ErrorResponse::bad_request(
             ErrorCode::InvalidLeafIndex,
-            "Account index cannot be 0.".to_string(),
+            "Leaf index cannot be 0.".to_string(),
         ));
     }
 

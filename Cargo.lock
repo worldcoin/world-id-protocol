@@ -7495,6 +7495,7 @@ dependencies = [
  "taceo-poseidon2 0.1.0",
  "thiserror 1.0.69",
  "url",
+ "utoipa",
 ]
 
 [[package]]

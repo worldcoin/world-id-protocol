@@ -13,7 +13,7 @@ use crate::requests::ProofRequest;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-    IndexerSignatureNonceRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
+    IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
 use crate::{Credential, FieldElement, Signer};
@@ -247,7 +247,7 @@ impl Authenticator {
                 .call()
                 .await?
         } else {
-            let url = format!("{}/packed_account", config.indexer_url());
+            let url = format!("{}/packed-account", config.indexer_url());
             let req = IndexerPackedAccountRequest {
                 authenticator_address: onchain_signer_address,
             };
@@ -351,8 +351,11 @@ impl Authenticator {
         &self,
     ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
     {
-        let url = format!("{}/proof/{}", self.config.indexer_url(), self.leaf_index());
-        let response = reqwest::get(url).await?;
+        let url = format!("{}/inclusion-proof", self.config.indexer_url());
+        let req = IndexerQueryRequest {
+            leaf_index: self.leaf_index(),
+        };
+        let response = self.http_client.post(&url).json(&req).send().await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
         Ok((response.proof, response.authenticator_pubkeys))
@@ -371,8 +374,8 @@ impl Authenticator {
                 .await?;
             Ok(nonce)
         } else {
-            let url = format!("{}/signature_nonce", self.config.indexer_url());
-            let req = IndexerSignatureNonceRequest {
+            let url = format!("{}/signature-nonce", self.config.indexer_url());
+            let req = IndexerQueryRequest {
                 leaf_index: self.leaf_index(),
             };
             let resp = self.http_client.post(&url).json(&req).send().await?;
