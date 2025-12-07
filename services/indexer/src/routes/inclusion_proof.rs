@@ -18,7 +18,6 @@ use crate::{
 };
 
 /// OpenAPI schema representation of the `AccountInclusionProof` response.
-#[allow(dead_code)]
 #[derive(serde::Serialize, utoipa::ToSchema)]
 pub(crate) struct AccountInclusionProofSchema {
     /// The root hash of the Merkle tree (hex string)
