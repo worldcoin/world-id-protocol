@@ -1,14 +1,10 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
+use alloy::primitives::U256;
 use ark_babyjubjub::{EdwardsAffine, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::CanonicalSerialize;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    routing::post,
-    Json, Router,
-};
+use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use eyre::{Context as _, Result};
 use k256::ecdsa::{signature::Verifier, VerifyingKey};
 use oprf_core::{
@@ -23,7 +19,6 @@ use oprf_types::{
 use rand::thread_rng;
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
-use alloy::primitives::U256;
 use world_id_primitives::{
     merkle::AccountInclusionProof, oprf::OprfRequestAuthV1, FieldElement, TREE_DEPTH,
 };
@@ -103,8 +98,10 @@ impl MutableIndexerStub {
                 .route(
                     "/inclusion-proof",
                     post(
-                        |State(state): State<Arc<RwLock<IndexerState>>>, Json(body): Json<serde_json::Value>| async move {
-                            let requested_leaf_index = body.get("leaf_index")
+                        |State(state): State<Arc<RwLock<IndexerState>>>,
+                         Json(body): Json<serde_json::Value>| async move {
+                            let requested_leaf_index = body
+                                .get("leaf_index")
                                 .and_then(|v| v.as_str())
                                 .and_then(|s| s.parse::<U256>().ok())
                                 .ok_or(StatusCode::BAD_REQUEST)?;
