@@ -8,38 +8,13 @@ use serde::Serialize;
 use serde::Deserialize;
 
 #[cfg(feature = "authenticator")]
+use alloy::primitives::Address;
+#[cfg(feature = "authenticator")]
 use strum::EnumString;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
+
 pub use world_id_primitives::merkle::AccountInclusionProof;
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use world_id_primitives::FieldElement;
-
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use alloy::signers::k256::ecdsa::Signature;
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use oprf_types::crypto::RpNullifierKey;
-
-#[cfg(feature = "authenticator")]
-use alloy::primitives::Address;
-
-/// The request to register an action for an RP.
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-#[derive(Serialize, Deserialize)]
-pub struct RpRequest {
-    /// The ID of the RP.
-    pub rp_id: String,
-    /// The nullifier key of the RP.
-    pub rp_nullifier_key: RpNullifierKey,
-    /// The signature of the RP.
-    pub signature: Signature,
-    /// The current timestamp.
-    pub current_time_stamp: u64,
-    /// The action ID.
-    pub action_id: FieldElement,
-    /// The nonce.
-    pub nonce: FieldElement,
-}
 
 /// The request to create a new World ID account.
 #[cfg(feature = "authenticator")]
@@ -268,12 +243,14 @@ pub struct IndexerPackedAccountResponse {
     pub packed_account_data: U256,
 }
 
-/// Request to fetch a signature nonce from the indexer.
+/// Query for the indexer based on a leaf index.
+///
+/// Used for getting inclusion proofs and signature nonces.
 #[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct IndexerSignatureNonceRequest {
-    /// The account index to look up
+pub struct IndexerQueryRequest {
+    /// The leaf index to query (from the `AccountRegistry`)
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
     pub leaf_index: U256,
 }
@@ -305,6 +282,23 @@ pub enum IndexerErrorCode {
     Locked,
     /// The account does not exist.
     AccountDoesNotExist,
+}
+
+/// Gateway error codes.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayErrorCode {
+    /// Internal server error occurred in the gateway.
+    InternalServerError,
+    /// Requested resource was not found.
+    NotFound,
+    /// Bad request - invalid input.
+    BadRequest,
+    /// Batcher service unavailable.
+    BatcherUnavailable,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).

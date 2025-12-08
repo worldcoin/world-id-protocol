@@ -1,14 +1,10 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
+use alloy::primitives::U256;
 use ark_babyjubjub::{EdwardsAffine, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, PrimeField};
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    routing::{get, post},
-    Json, Router,
-};
+use ark_serialize::CanonicalSerialize;
+use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use eyre::{Context as _, Result};
 use k256::ecdsa::{signature::Verifier, VerifyingKey};
 use oprf_core::{
@@ -26,6 +22,8 @@ use uuid::Uuid;
 use world_id_primitives::{
     merkle::AccountInclusionProof, oprf::OprfRequestAuthV1, FieldElement, TREE_DEPTH,
 };
+
+use std::sync::RwLock;
 
 #[derive(Clone)]
 struct IndexerState {
@@ -48,10 +46,15 @@ pub async fn spawn_indexer_stub(
     let handle = tokio::spawn(async move {
         let app = Router::new()
             .route(
-                "/proof/{leaf_index}",
-                get(
-                    |Path(requested): Path<u64>, State(state): State<IndexerState>| async move {
-                        if requested != state.leaf_index {
+                "/inclusion-proof",
+                post(
+                    |State(state): State<IndexerState>, Json(body): Json<serde_json::Value>| async move {
+                        let requested_leaf_index = body.get("leaf_index")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse::<U256>().ok())
+                            .ok_or(StatusCode::BAD_REQUEST)?;
+
+                        if requested_leaf_index.as_limbs()[0] != state.leaf_index {
                             return Err(StatusCode::NOT_FOUND);
                         }
                         Ok::<_, StatusCode>(Json(state.proof.clone()))
@@ -65,6 +68,83 @@ pub async fn spawn_indexer_stub(
     });
 
     Ok((format!("http://{addr}"), handle))
+}
+
+/// Handle to a mutable indexer stub that allows updating the proof at runtime.
+pub struct MutableIndexerStub {
+    pub url: String,
+    state: Arc<RwLock<IndexerState>>,
+    handle: JoinHandle<()>,
+}
+
+impl MutableIndexerStub {
+    /// Spawns a new mutable indexer stub server.
+    pub async fn spawn(
+        leaf_index: u64,
+        proof: AccountInclusionProof<{ TREE_DEPTH }>,
+    ) -> Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .wrap_err("failed to bind indexer stub listener")?;
+        let addr = listener
+            .local_addr()
+            .wrap_err("failed to read listener address")?;
+
+        let state = Arc::new(RwLock::new(IndexerState { leaf_index, proof }));
+        let router_state = Arc::clone(&state);
+
+        let handle = tokio::spawn(async move {
+            let app = Router::new()
+                .route(
+                    "/inclusion-proof",
+                    post(
+                        |State(state): State<Arc<RwLock<IndexerState>>>,
+                         Json(body): Json<serde_json::Value>| async move {
+                            let requested_leaf_index = body
+                                .get("leaf_index")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse::<U256>().ok())
+                                .ok_or(StatusCode::BAD_REQUEST)?;
+
+                            let guard = state
+                                .read()
+                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                            if requested_leaf_index.as_limbs()[0] != guard.leaf_index {
+                                return Err(StatusCode::NOT_FOUND);
+                            }
+                            Ok::<_, StatusCode>(Json(guard.proof.clone()))
+                        },
+                    ),
+                )
+                .with_state(router_state);
+            axum::serve(listener, app)
+                .await
+                .expect("indexer stub server crashed");
+        });
+
+        Ok(Self {
+            url: format!("http://{addr}"),
+            state,
+            handle,
+        })
+    }
+
+    /// Updates the proof served by this stub.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned (e.g., due to a panic while holding the lock).
+    pub fn set_proof(&self, proof: AccountInclusionProof<{ TREE_DEPTH }>) {
+        let mut guard = self
+            .state
+            .write()
+            .expect("RwLock poisoned: failed to acquire write lock for proof update");
+        guard.proof = proof;
+    }
+
+    /// Aborts the server task.
+    pub fn abort(self) {
+        self.handle.abort();
+    }
 }
 
 pub struct OprfServerHandle {
@@ -153,8 +233,8 @@ async fn oprf_init(
     }
 
     let mut msg = Vec::new();
-    msg.extend(req.auth.nonce.into_bigint().to_bytes_le());
-    msg.extend(req.auth.current_time_stamp.to_le_bytes());
+    req.auth.nonce.serialize_compressed(&mut msg).unwrap();
+    msg.extend(req.auth.current_time_stamp.to_be_bytes());
     state
         .verifier
         .verify(&msg, &req.auth.signature)

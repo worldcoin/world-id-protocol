@@ -1,26 +1,26 @@
 {
-  "contracts/lib/forge-std": {
-    "rev": "8bbcf6e3f8f62f419e5429a0bd89331c85c37824"
-  },
-  "contracts/lib/openzeppelin-contracts": {
-    "rev": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0"
-  },
-  "contracts/lib/openzeppelin-contracts-upgradeable": {
-    "rev": "e725abddf1e01cf05ace496e950fc8e243cc7cab"
-  },
-  "contracts/lib/poseidon-solidity": {
-    "rev": "8205c97ec4a35a9adb854b70b2c9ba92668d1304"
-  },
   "lib/forge-std": {
-    "rev": "8bbcf6e3f8f62f419e5429a0bd89331c85c37824"
+    "tag": {
+      "name": "v1.12.0",
+      "rev": "7117c90c8cf6c68e5acce4f09a6b24715cea4de6"
+    }
   },
   "lib/openzeppelin-contracts": {
-    "rev": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0"
+    "tag": {
+      "name": "v5.5.0",
+      "rev": "fcbae5394ae8ad52d8e580a3477db99814b9d565"
+    }
   },
   "lib/openzeppelin-contracts-upgradeable": {
-    "rev": "e725abddf1e01cf05ace496e950fc8e243cc7cab"
+    "tag": {
+      "name": "v5.5.0",
+      "rev": "aa677e9d28ed78fc427ec47ba2baef2030c58e7c"
+    }
   },
   "lib/poseidon-solidity": {
-    "rev": "8205c97ec4a35a9adb854b70b2c9ba92668d1304"
+    "tag": {
+      "name": "v0.0.5",
+      "rev": "8205c97ec4a35a9adb854b70b2c9ba92668d1304"
+    }
   }
 }

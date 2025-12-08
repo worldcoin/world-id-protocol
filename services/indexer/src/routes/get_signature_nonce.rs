@@ -1,27 +1,30 @@
 use alloy::primitives::U256;
 use axum::{extract::State, Json};
-use world_id_core::types::{IndexerSignatureNonceRequest, IndexerSignatureNonceResponse};
+use world_id_core::types::{IndexerQueryRequest, IndexerSignatureNonceResponse};
 
 use crate::{
     config::AppState,
     error::{ErrorCode, ErrorResponse},
 };
 
-/// Get the signature nonce for a specific accountfrom the `AccountRegistry` contract.
+/// Get Signature Nonce
 ///
-/// Returns the signature nonce for a given account index.
+/// Returns the current signature nonce for a given World ID based on its leaf index. The nonce is
+/// used to perform on-chain operations for the World ID.
+///
+/// If the provided leaf index is invalid, the nonce will still be returned as zero.
 #[utoipa::path(
     post,
-    path = "/signature_nonce",
-    request_body = IndexerSignatureNonceRequest,
+    path = "/signature-nonce",
+    request_body = IndexerQueryRequest,
     responses(
-        (status = 200, description = "Successfully retrieved signature nonce", body = IndexerSignatureNonceResponse),
+        (status = 200, body = IndexerSignatureNonceResponse),
     ),
     tag = "indexer"
 )]
 pub(crate) async fn handler(
     State(state): State<AppState>,
-    Json(req): Json<IndexerSignatureNonceRequest>,
+    Json(req): Json<IndexerQueryRequest>,
 ) -> Result<Json<IndexerSignatureNonceResponse>, ErrorResponse> {
     if req.leaf_index == U256::ZERO {
         return Err(ErrorResponse::bad_request(

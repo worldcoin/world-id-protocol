@@ -9,6 +9,8 @@
     missing_docs,
     dead_code
 )]
+#![allow(clippy::option_if_let_else)]
+
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]
@@ -43,6 +45,9 @@ pub use oprf::ProofError;
 
 #[cfg(feature = "authenticator")]
 pub mod proof;
+
+#[cfg(any(feature = "authenticator", feature = "rp"))]
+pub mod requests;
 
 /// Generic re-usable types
 pub mod types;

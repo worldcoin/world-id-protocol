@@ -49,7 +49,7 @@ pub enum CredentialVersion {
 pub struct Credential {
     /// Version representation of this structure
     pub version: CredentialVersion,
-    /// Unique credential type id that is used to lookup of verifying information
+    /// Unique issuer schema id that is used to lookup of verifying information
     pub issuer_schema_id: u64,
     /// The subject (World ID) to which the credential is issued.
     ///

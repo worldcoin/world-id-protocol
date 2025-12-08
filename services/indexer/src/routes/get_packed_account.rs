@@ -7,15 +7,16 @@ use crate::{
     error::{ErrorBody, ErrorCode, ErrorResponse},
 };
 
-/// Get the packed account index by authenticator address from the `AccountRegistry` contract.
+/// Get Packed Account Data
 ///
-/// Returns the packed account index for a given authenticator address.
+/// Returns the packed account data for a given authenticator address from the `AccountRegistry` contract.
 #[utoipa::path(
     post,
-    path = "/packed_account",
+    summary = "Get Packed Account Data",
+    path = "/packed-account",
     request_body = IndexerPackedAccountRequest,
     responses(
-        (status = 200, description = "Successfully retrieved packed account index", body = IndexerPackedAccountResponse),
+        (status = 200, body = IndexerPackedAccountResponse),
         (status = 400, description = "Account does not exist for the given authenticator address", body = ErrorBody),
     ),
     tag = "indexer"

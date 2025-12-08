@@ -1432,6 +1432,11 @@
   },
   {
     "type": "error",
+    "name": "OwnerMaxAuthenticatorsOutOfBounds",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "PubkeyIdDoesNotExist",
     "inputs": []
   },
