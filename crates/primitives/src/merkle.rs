@@ -27,7 +27,7 @@ mod array_serde {
 
 /// Artifact required to compute the Merkle inclusion proof.
 ///
-/// This is generally used to prove inclusion into the set of World ID Accounts (`AccountRegistry`);
+/// This is generally used to prove inclusion into the set of World ID Accounts (`WorldIDRegistry`);
 /// each authenticator public key is tied to a leaf in a Merkle tree, where each leaf represents
 /// a unique World ID Account.
 ///
@@ -36,7 +36,7 @@ mod array_serde {
 pub struct MerkleInclusionProof<const TREE_DEPTH: usize> {
     /// The root hash of the Merkle tree.
     pub root: FieldElement,
-    /// The World ID's leaf position in the Merkle tree of the `AccountRegistry` contract.
+    /// The World ID's leaf position in the Merkle tree of the `WorldIDRegistry` contract.
     ///
     /// This is the main internal identifier for a World ID.
     pub leaf_index: u64,

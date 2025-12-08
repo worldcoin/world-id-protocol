@@ -5,7 +5,7 @@
 
 Monorepo containing:
 
-- `services/gateway`: HTTP API service to interact with onchain `AccountRegistry`
+- `services/gateway`: HTTP API service to interact with onchain `WorldIDRegistry`
 - `services/indexer`: Indexer for `AccountCreated` events serving inclusion proofs
 - `crates/world-id-core`: The core library of the World ID Protocol
 - `contracts/`: Onchain contracts
@@ -28,7 +28,7 @@ Monorepo containing:
 
 | Contract / Service               | Address                                               |
 | -------------------------------- | ----------------------------------------------------- |
-| `AccountRegistry`                | `0xb64a1F443C9a18Cd3865C3c9Be871946617C0d75`          |
+| `WorldIDRegistry`                | `0xb64a1F443C9a18Cd3865C3c9Be871946617C0d75`          |
 | `CredentialSchemaIssuerRegistry` | `0xCd987d2C973B099FD291Bf5AF332031Dc980a96B`          |
 | `world-id-indexer`               | `https://world-id-indexer.stage-crypto.worldcoin.org` |
 | `world-id-gateway`               | `https://world-id-gateway.stage-crypto.worldcoin.org` |

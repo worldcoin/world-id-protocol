@@ -16,13 +16,13 @@ use crate::{
 /// Both the Query Proof (π1) and the Nullifier Proof (π2) are World ID Proofs.
 ///
 /// Internally, the World ID Proofs are Groth16 ZKPs. In the World ID Protocol,
-/// the Merkle Root that proves inclusion into the set of World ID accounts (`AccountRegistry`)
+/// the Merkle Root that proves inclusion into the set of World ID accounts (`WorldIDRegistry`)
 /// is also encoded as part of the proof.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct WorldIdProof {
     /// The Groth16 ZKP
     pub zkp: ark_groth16::Proof<Bn254>,
-    /// The hash of the root of the Merkle tree that proves inclusion into the set of World ID accounts (`AccountRegistry`).
+    /// The hash of the root of the Merkle tree that proves inclusion into the set of World ID accounts (`WorldIDRegistry`).
     pub merkle_root: FieldElement,
 }
 
@@ -128,7 +128,7 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     // SECTION: User Inputs
     /// The credential of the user which will be proven in the World ID Proof.
     pub credential: Credential,
-    /// The Merkle inclusion proof which proves ownership of the user's account in the `AccountRegistry` contract.
+    /// The Merkle inclusion proof which proves ownership of the user's account in the `WorldIDRegistry` contract.
     pub inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     /// The complete set of authenticator public keys for the World ID Account.
     pub key_set: AuthenticatorPublicKeySet,

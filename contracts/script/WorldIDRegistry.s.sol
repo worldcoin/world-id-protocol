@@ -6,7 +6,7 @@ import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract DeployScript is Script {
-    WorldIDRegistry public accountRegistry;
+    WorldIDRegistry public worldIDRegistry;
     ERC1967Proxy public proxy;
 
     function setUp() public {}
@@ -25,7 +25,7 @@ contract DeployScript is Script {
         // Deploy proxy
         proxy = new ERC1967Proxy{salt: bytes32(uint256(0))}(address(implementation), initData);
 
-        accountRegistry = WorldIDRegistry(address(proxy));
+        worldIDRegistry = WorldIDRegistry(address(proxy));
 
         vm.stopBroadcast();
 

@@ -12,7 +12,7 @@ pub enum SignerConfig {
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct GatewayConfig {
-    /// The address of the `AccountRegistry` contract
+    /// The address of the `WorldIDRegistry` contract
     #[arg(long, env = "REGISTRY_ADDRESS")]
     pub registry_addr: Address,
 

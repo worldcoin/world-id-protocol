@@ -105,7 +105,7 @@ contract NullifierVerifier is Test {
 
     function setUp() public {
         address rpRegistry = address(new RpRegistryMock());
-        address accountRegistryMock = address(new WorldIDRegistryMock());
+        address worldIDRegistryMock = address(new WorldIDRegistryMock());
         address credentialSchemaIssuerRegistryMock = address(new CredentialSchemaIssuerRegistryMock());
         verifierGroth16 = address(new Groth16Verifier());
         proofTimestampDelta = 5 hours;
@@ -115,7 +115,7 @@ contract NullifierVerifier is Test {
         bytes memory initData = abi.encodeWithSelector(
             Verifier.initialize.selector,
             credentialSchemaIssuerRegistryMock,
-            accountRegistryMock,
+            worldIDRegistryMock,
             verifierGroth16,
             proofTimestampDelta
         );

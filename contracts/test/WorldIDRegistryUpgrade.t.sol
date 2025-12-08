@@ -23,7 +23,7 @@ contract WorldIDRegistryV2Mock is WorldIDRegistry {
 }
 
 contract WorldIDRegistryUpgradeTest is Test {
-    WorldIDRegistry public accountRegistry;
+    WorldIDRegistry public worldIDRegistry;
     ERC1967Proxy public proxy;
     address public owner;
     address public nonOwner;
@@ -39,7 +39,7 @@ contract WorldIDRegistryUpgradeTest is Test {
         bytes memory initData = abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30);
         proxy = new ERC1967Proxy(address(implementationV1), initData);
 
-        accountRegistry = WorldIDRegistry(address(proxy));
+        worldIDRegistry = WorldIDRegistry(address(proxy));
     }
 
     function test_UpgradeSuccess() public {
@@ -50,11 +50,11 @@ contract WorldIDRegistryUpgradeTest is Test {
         authenticatorPubkeys[0] = 0;
         uint256 commitment = 0x1234567890;
 
-        accountRegistry.createAccount(address(0xABCD), authenticatorAddresses, authenticatorPubkeys, commitment);
+        worldIDRegistry.createAccount(address(0xABCD), authenticatorAddresses, authenticatorPubkeys, commitment);
 
         // Verify state before upgrade
-        assertEq(accountRegistry.nextLeafIndex(), 2);
-        uint256 rootBefore = accountRegistry.currentRoot();
+        assertEq(worldIDRegistry.nextLeafIndex(), 2);
+        uint256 rootBefore = worldIDRegistry.currentRoot();
 
         // Deploy V2 implementation
         WorldIDRegistryV2Mock implementationV2 = new WorldIDRegistryV2Mock();
@@ -63,24 +63,24 @@ contract WorldIDRegistryUpgradeTest is Test {
         WorldIDRegistry(address(proxy)).upgradeToAndCall(address(implementationV2), "");
 
         // Wrap proxy with V2 interface
-        WorldIDRegistryV2Mock accountRegistryV2 = WorldIDRegistryV2Mock(address(proxy));
+        WorldIDRegistryV2Mock worldIDRegistryV2 = WorldIDRegistryV2Mock(address(proxy));
 
         // Verify storage was preserved
-        assertEq(accountRegistryV2.nextLeafIndex(), 2);
-        assertEq(accountRegistryV2.currentRoot(), rootBefore);
+        assertEq(worldIDRegistryV2.nextLeafIndex(), 2);
+        assertEq(worldIDRegistryV2.currentRoot(), rootBefore);
 
         // Verify new functionality works
-        assertEq(accountRegistryV2.version(), "V2");
-        accountRegistryV2.setNewFeature(42);
-        assertEq(accountRegistryV2.newFeature(), 42);
+        assertEq(worldIDRegistryV2.version(), "V2");
+        worldIDRegistryV2.setNewFeature(42);
+        assertEq(worldIDRegistryV2.newFeature(), 42);
 
         // Verify old functionality still works
         address[] memory newAuthAddresses = new address[](1);
         newAuthAddresses[0] = address(0x456);
         uint256[] memory newAuthPubkeys = new uint256[](1);
         newAuthPubkeys[0] = 0;
-        accountRegistryV2.createAccount(address(0xDEF), newAuthAddresses, newAuthPubkeys, 0x9876543210);
-        assertEq(accountRegistryV2.nextLeafIndex(), 3);
+        worldIDRegistryV2.createAccount(address(0xDEF), newAuthAddresses, newAuthPubkeys, 0x9876543210);
+        assertEq(worldIDRegistryV2.nextLeafIndex(), 3);
     }
 
     function test_UpgradeFailsForNonOwner() public {
@@ -97,17 +97,17 @@ contract WorldIDRegistryUpgradeTest is Test {
         address newOwner = address(0xABCDEF);
 
         // Transfer ownership (2-step process)
-        accountRegistry.transferOwnership(newOwner);
+        worldIDRegistry.transferOwnership(newOwner);
 
         // Verify pending owner is set
-        assertEq(accountRegistry.pendingOwner(), newOwner);
+        assertEq(worldIDRegistry.pendingOwner(), newOwner);
 
         // Accept ownership as new owner
         vm.prank(newOwner);
-        accountRegistry.acceptOwnership();
+        worldIDRegistry.acceptOwnership();
 
         // Verify ownership transferred
-        assertEq(accountRegistry.owner(), newOwner);
+        assertEq(worldIDRegistry.owner(), newOwner);
 
         // Deploy V2 implementation
         WorldIDRegistryV2Mock implementationV2 = new WorldIDRegistryV2Mock();
@@ -121,14 +121,14 @@ contract WorldIDRegistryUpgradeTest is Test {
         WorldIDRegistry(address(proxy)).upgradeToAndCall(address(implementationV2), "");
 
         // Verify upgrade succeeded
-        WorldIDRegistryV2Mock accountRegistryV2 = WorldIDRegistryV2Mock(address(proxy));
-        assertEq(accountRegistryV2.version(), "V2");
+        WorldIDRegistryV2Mock worldIDRegistryV2 = WorldIDRegistryV2Mock(address(proxy));
+        assertEq(worldIDRegistryV2.version(), "V2");
     }
 
     function test_CannotInitializeTwice() public {
         // Try to initialize again (should fail)
         vm.expectRevert();
-        accountRegistry.initialize(30);
+        worldIDRegistry.initialize(30);
     }
 
     function test_ImplementationCannotBeInitialized() public {

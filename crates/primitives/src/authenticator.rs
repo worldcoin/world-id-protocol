@@ -22,7 +22,7 @@ pub const MAX_AUTHENTICATOR_KEYS: usize = 7;
 /// A set of **off-chain** authenticator public keys for a World ID Account.
 ///
 /// Each World ID Account has a number of public keys for each authorized authenticator;
-/// a commitment to the entire set of public keys is stored in the `AccountRegistry` contract.
+/// a commitment to the entire set of public keys is stored in the `WorldIDRegistry` contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthenticatorPublicKeySet(ArrayVec<EdDSAPublicKey, MAX_AUTHENTICATOR_KEYS>);
 
@@ -105,7 +105,7 @@ impl AuthenticatorPublicKeySet {
             .map_err(|_| PrimitiveError::OutOfBounds)
     }
 
-    /// Computes the Poseidon2 leaf hash commitment for this key set as stored in the `AccountRegistry`.
+    /// Computes the Poseidon2 leaf hash commitment for this key set as stored in the `WorldIDRegistry`.
     ///
     /// # Panics
     /// Panics if the domain separator constant cannot be converted into an `Fq`.

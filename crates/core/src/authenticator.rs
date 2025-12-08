@@ -50,7 +50,7 @@ type UniquenessProof = (Proof<Bn254>, FieldElement);
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
-    /// The packed account data for the holder's World ID is a `uint256` defined in the `AccountRegistry` contract as:
+    /// The packed account data for the holder's World ID is a `uint256` defined in the `WorldIDRegistry` contract as:
     /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
     pub packed_account_data: U256,
     signer: Signer,
@@ -285,7 +285,7 @@ impl Authenticator {
     }
 
     /// Returns the k256 public key of the Authenticator signer which is used to verify on-chain operations,
-    /// chiefly with the `AccountRegistry` contract.
+    /// chiefly with the `WorldIDRegistry` contract.
     #[must_use]
     pub const fn onchain_address(&self) -> Address {
         self.signer.onchain_signer_address()
@@ -802,7 +802,7 @@ impl ProtocolSigner for Authenticator {
 
 /// A trait for types that can be represented as a `U256` on-chain.
 pub trait OnchainKeyRepresentable {
-    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `AccountRegistry` contract.
+    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `WorldIDRegistry` contract.
     ///
     /// The `U256` representation is a 32-byte little-endian encoding of the **compressed** (single point) public key.
     ///
