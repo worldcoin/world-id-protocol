@@ -594,58 +594,20 @@ async fn test_authenticator_already_exists_error_code() {
         .await
         .unwrap();
 
-    // insert-authenticator is async, so it returns ACCEPTED initially
-    assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
-    let request_id = accepted.request_id;
+    // Simulation should fail synchronously and return 400 immediately
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-    // Poll the status endpoint until we get a Failed state with the correct error
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let status_resp = gw
-            .client
-            .get(format!("{}/status/{}", gw.base_url, request_id))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(status_resp.status(), StatusCode::OK);
-
-        let status_body: serde_json::Value = status_resp.json().await.unwrap();
-        let state = status_body
-            .get("status")
-            .and_then(|s| s.get("state"))
-            .and_then(|s| s.as_str());
-
-        if state == Some("failed") {
-            // Check that the error code is AUTHENTICATOR_ALREADY_EXISTS
-            let error_code = status_body
-                .get("status")
-                .and_then(|s| s.get("error_code"))
-                .and_then(|e| e.as_str());
-            assert_eq!(
-                error_code,
-                Some("AUTHENTICATOR_ALREADY_EXISTS"),
-                "Expected AUTHENTICATOR_ALREADY_EXISTS error code"
-            );
-
-            // Also verify the error message
-            let error_msg = status_body
-                .get("status")
-                .and_then(|s| s.get("error"))
-                .and_then(|e| e.as_str())
-                .unwrap_or("");
-            assert!(
-                error_msg.to_lowercase().contains("authenticator"),
-                "Error message should mention authenticator"
-            );
-            break;
-        }
-
-        if std::time::Instant::now() > deadline {
-            panic!("timeout waiting for insert-authenticator to fail with error code");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    let error_body: serde_json::Value = resp.json().await.unwrap();
+    let error_msg = error_body
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or("");
+    assert!(
+        error_msg
+            .to_lowercase()
+            .contains("authenticator already exists"),
+        "Error message should mention 'authenticator already exists', got: {error_msg}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

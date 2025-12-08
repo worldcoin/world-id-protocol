@@ -509,6 +509,32 @@ async fn update_authenticator(
     State(state): State<AppState>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the operation BEFORE queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let pubkey_id = req.pubkey_id.unwrap_or(0);
+    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
+    let sim_result = contract
+        .updateAuthenticator(
+            req.leaf_index,
+            req.old_authenticator_address,
+            req.new_authenticator_address,
+            pubkey_id,
+            new_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await;
+
+    if let Err(e) = sim_result {
+        let error_str = e.to_string();
+        let gateway_error = GatewayError::from_contract_error(&error_str);
+        return Err(ApiError::BadRequest(gateway_error.to_string()));
+    }
+
     let id = state
         .tracker
         .new_request(RequestKind::UpdateAuthenticator)
@@ -525,8 +551,8 @@ async fn update_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id: req.pubkey_id.unwrap_or(0),
-            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            pubkey_id,
+            new_pubkey,
         },
     };
 
@@ -560,6 +586,29 @@ async fn insert_authenticator(
     State(state): State<AppState>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the operation BEFORE queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let sim_result = contract
+        .insertAuthenticator(
+            req.leaf_index,
+            req.new_authenticator_address,
+            req.pubkey_id,
+            req.new_authenticator_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await;
+
+    if let Err(e) = sim_result {
+        let error_str = e.to_string();
+        let gateway_error = GatewayError::from_contract_error(&error_str);
+        return Err(ApiError::BadRequest(gateway_error.to_string()));
+    }
+
     let id = state
         .tracker
         .new_request(RequestKind::InsertAuthenticator)
@@ -609,6 +658,31 @@ async fn remove_authenticator(
     State(state): State<AppState>,
     Json(req): Json<RemoveAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the operation BEFORE queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let pubkey_id = req.pubkey_id.unwrap_or(0);
+    let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::from(0u64));
+    let sim_result = contract
+        .removeAuthenticator(
+            req.leaf_index,
+            req.authenticator_address,
+            pubkey_id,
+            authenticator_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await;
+
+    if let Err(e) = sim_result {
+        let error_str = e.to_string();
+        let gateway_error = GatewayError::from_contract_error(&error_str);
+        return Err(ApiError::BadRequest(gateway_error.to_string()));
+    }
+
     let id = state
         .tracker
         .new_request(RequestKind::RemoveAuthenticator)
@@ -623,8 +697,8 @@ async fn remove_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id: req.pubkey_id.unwrap_or(0),
-            authenticator_pubkey: req.authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            pubkey_id,
+            authenticator_pubkey,
         },
     };
 
@@ -658,6 +732,29 @@ async fn recover_account(
     State(state): State<AppState>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the operation BEFORE queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
+    let sim_result = contract
+        .recoverAccount(
+            req.leaf_index,
+            req.new_authenticator_address,
+            new_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await;
+
+    if let Err(e) = sim_result {
+        let error_str = e.to_string();
+        let gateway_error = GatewayError::from_contract_error(&error_str);
+        return Err(ApiError::BadRequest(gateway_error.to_string()));
+    }
+
     let id = state.tracker.new_request(RequestKind::RecoverAccount).await;
     let env = OpEnvelope {
         id: id.clone(),
@@ -669,7 +766,7 @@ async fn recover_account(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            new_pubkey,
         },
     };
 
