@@ -102,7 +102,7 @@ async fn e2e_gateway_full_flow() {
     let body_create = serde_json::json!({
         "recovery_address": wallet_addr.to_string(),
         "authenticator_addresses": [wallet_addr.to_string()],
-        "authenticator_pubkeys": ["0x64"],  // 100 in hex
+        "authenticator_pubkeys": ["0x64"],
         "offchain_signer_commitment": "0x1",
     });
     let resp = client
