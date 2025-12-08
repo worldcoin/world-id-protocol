@@ -331,7 +331,6 @@ mod tests {
             .parse()
             .expect("Failed to parse expected hash value");
 
-
         let result1 = Credential::hash_bytes_to_field_element(&data).unwrap();
         let result2 = Credential::hash_bytes_to_field_element(&data).unwrap();
 
