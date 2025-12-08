@@ -13,7 +13,7 @@ use crate::requests::ProofRequest;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-    IndexerSignatureNonceRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
+    IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
 use crate::{Credential, FieldElement, Signer};
@@ -247,7 +247,7 @@ impl Authenticator {
                 .call()
                 .await?
         } else {
-            let url = format!("{}/packed_account", config.indexer_url());
+            let url = format!("{}/packed-account", config.indexer_url());
             let req = IndexerPackedAccountRequest {
                 authenticator_address: onchain_signer_address,
             };
@@ -351,11 +351,14 @@ impl Authenticator {
         &self,
     ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
     {
-        let url = format!("{}/proof/{}", self.config.indexer_url(), self.leaf_index());
-        let response = reqwest::get(url).await?;
+        let url = format!("{}/inclusion-proof", self.config.indexer_url());
+        let req = IndexerQueryRequest {
+            leaf_index: self.leaf_index(),
+        };
+        let response = self.http_client.post(&url).json(&req).send().await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        Ok((response.proof, response.authenticator_pubkeys))
+        Ok((response.inclusion_proof, response.authenticator_pubkeys))
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -371,8 +374,8 @@ impl Authenticator {
                 .await?;
             Ok(nonce)
         } else {
-            let url = format!("{}/signature_nonce", self.config.indexer_url());
-            let req = IndexerSignatureNonceRequest {
+            let url = format!("{}/signature-nonce", self.config.indexer_url());
+            let req = IndexerQueryRequest {
                 leaf_index: self.leaf_index(),
             };
             let resp = self.http_client.post(&url).json(&req).send().await?;
@@ -903,7 +906,7 @@ mod tests {
         let expected_packed_index = U256::from(42);
 
         let mock = server
-            .mock("POST", "/packed_account")
+            .mock("POST", "/packed-account")
             .match_header("content-type", "application/json")
             .match_body(mockito::Matcher::JsonString(
                 serde_json::json!({
@@ -957,7 +960,7 @@ mod tests {
         let test_address = address!("0x0000000000000000000000000000000000000099");
 
         let mock = server
-            .mock("POST", "/packed_account")
+            .mock("POST", "/packed-account")
             .with_status(400)
             .with_header("content-type", "application/json")
             .with_body(
@@ -1003,7 +1006,7 @@ mod tests {
         let expected_nonce = U256::from(5);
 
         let mock = server
-            .mock("POST", "/signature_nonce")
+            .mock("POST", "/signature-nonce")
             .match_header("content-type", "application/json")
             .match_body(mockito::Matcher::JsonString(
                 serde_json::json!({
@@ -1054,7 +1057,7 @@ mod tests {
         let indexer_url = server.url();
 
         let mock = server
-            .mock("POST", "/signature_nonce")
+            .mock("POST", "/signature-nonce")
             .with_status(400)
             .with_header("content-type", "application/json")
             .with_body(

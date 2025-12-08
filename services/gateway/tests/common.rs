@@ -2,6 +2,7 @@ use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use world_id_core::types::{GatewayRequestState, GatewayStatusResponse};
 
+#[allow(dead_code)]
 pub(crate) async fn wait_http_ready(client: &Client, port: u16) {
     let base = format!("http://127.0.0.1:{}", port);
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -18,6 +19,7 @@ pub(crate) async fn wait_http_ready(client: &Client, port: u16) {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) async fn wait_for_finalized(client: &Client, port: u16, request_id: &str) -> String {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     loop {

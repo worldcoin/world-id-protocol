@@ -1,14 +1,10 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
+use alloy::primitives::U256;
 use ark_babyjubjub::{EdwardsAffine, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::CanonicalSerialize;
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    routing::{get, post},
-    Json, Router,
-};
+use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use eyre::{Context as _, Result};
 use k256::ecdsa::{signature::Verifier, VerifyingKey};
 use oprf_core::{
@@ -50,10 +46,15 @@ pub async fn spawn_indexer_stub(
     let handle = tokio::spawn(async move {
         let app = Router::new()
             .route(
-                "/proof/{leaf_index}",
-                get(
-                    |Path(requested): Path<u64>, State(state): State<IndexerState>| async move {
-                        if requested != state.leaf_index {
+                "/inclusion-proof",
+                post(
+                    |State(state): State<IndexerState>, Json(body): Json<serde_json::Value>| async move {
+                        let requested_leaf_index = body.get("leaf_index")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse::<U256>().ok())
+                            .ok_or(StatusCode::BAD_REQUEST)?;
+
+                        if requested_leaf_index.as_limbs()[0] != state.leaf_index {
                             return Err(StatusCode::NOT_FOUND);
                         }
                         Ok::<_, StatusCode>(Json(state.proof.clone()))
@@ -95,14 +96,20 @@ impl MutableIndexerStub {
         let handle = tokio::spawn(async move {
             let app = Router::new()
                 .route(
-                    "/proof/{leaf_index}",
-                    get(
-                        |Path(requested): Path<u64>,
-                         State(state): State<Arc<RwLock<IndexerState>>>| async move {
+                    "/inclusion-proof",
+                    post(
+                        |State(state): State<Arc<RwLock<IndexerState>>>,
+                         Json(body): Json<serde_json::Value>| async move {
+                            let requested_leaf_index = body
+                                .get("leaf_index")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse::<U256>().ok())
+                                .ok_or(StatusCode::BAD_REQUEST)?;
+
                             let guard = state
                                 .read()
                                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                            if requested != guard.leaf_index {
+                            if requested_leaf_index.as_limbs()[0] != guard.leaf_index {
                                 return Err(StatusCode::NOT_FOUND);
                             }
                             Ok::<_, StatusCode>(Json(guard.proof.clone()))

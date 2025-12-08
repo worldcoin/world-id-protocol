@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 use utoipa::{IntoParams, OpenApi, ToSchema};
-use utoipa_swagger_ui::SwaggerUi;
 use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::{
     CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
@@ -190,9 +189,9 @@ async fn build_app(
         .route("/recover-account", post(recover_account))
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
+        .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(axum::Extension(tracker))
-        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
@@ -628,3 +627,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
     tags((name = "Gateway", description = "TODO"))
 )]
 struct ApiDoc;
+
+async fn openapi() -> impl IntoResponse {
+    Json(ApiDoc::openapi())
+}
