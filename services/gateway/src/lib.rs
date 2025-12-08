@@ -287,7 +287,10 @@ async fn create_account(
 
     if state.batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
+            .set_status(
+                &id,
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
+            )
             .await;
         return Err(ApiError::batcher_unavailable());
     }
@@ -350,7 +353,10 @@ async fn update_authenticator(
 
     if state.ops_batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
+            .set_status(
+                &id,
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
+            )
             .await;
         return Err(ApiError::batcher_unavailable());
     }
@@ -407,7 +413,10 @@ async fn insert_authenticator(
 
     if state.ops_batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
+            .set_status(
+                &id,
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
+            )
             .await;
         return Err(ApiError::batcher_unavailable());
     }
@@ -467,7 +476,10 @@ async fn remove_authenticator(
 
     if state.ops_batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
+            .set_status(
+                &id,
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
+            )
             .await;
         return Err(ApiError::batcher_unavailable());
     }
@@ -522,7 +534,10 @@ async fn recover_account(
 
     if state.ops_batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
+            .set_status(
+                &id,
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
+            )
             .await;
         return Err(ApiError::batcher_unavailable());
     }
