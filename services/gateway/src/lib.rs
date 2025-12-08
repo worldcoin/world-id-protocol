@@ -513,7 +513,7 @@ async fn update_authenticator(
     State(state): State<AppState>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Simulate the operation BEFORE queueing to catch errors early
+    // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let pubkey_id = req.pubkey_id.unwrap_or(0);
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
@@ -585,7 +585,7 @@ async fn insert_authenticator(
     State(state): State<AppState>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Simulate the operation BEFORE queueing to catch errors early
+    // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .insertAuthenticator(
@@ -652,7 +652,7 @@ async fn remove_authenticator(
     State(state): State<AppState>,
     Json(req): Json<RemoveAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Simulate the operation BEFORE queueing to catch errors early
+    // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let pubkey_id = req.pubkey_id.unwrap_or(0);
     let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::from(0u64));
@@ -721,7 +721,7 @@ async fn recover_account(
     State(state): State<AppState>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Simulate the operation BEFORE queueing to catch errors early
+    // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
     contract
