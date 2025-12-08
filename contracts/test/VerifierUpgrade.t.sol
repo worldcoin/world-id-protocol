@@ -32,7 +32,7 @@ contract VerifierUpgradeTest is Test {
     address public owner;
     address public nonOwner;
     address public credentialIssuerRegistry;
-    address public accountRegistry;
+    address public worldIDRegistry;
     address public rpRegistry;
     address public groth16Verifier;
     uint256 public proofTimestampDelta;
@@ -41,7 +41,7 @@ contract VerifierUpgradeTest is Test {
         owner = address(this);
         nonOwner = address(0xBEEF);
         credentialIssuerRegistry = address(0x1111);
-        accountRegistry = address(new WorldIDRegistryMock());
+        worldIDRegistry = address(new WorldIDRegistryMock());
         rpRegistry = address(0x3333);
         groth16Verifier = address(0x4444);
         proofTimestampDelta = 5 hours;
@@ -53,7 +53,7 @@ contract VerifierUpgradeTest is Test {
         bytes memory initData = abi.encodeWithSelector(
             Verifier.initialize.selector,
             credentialIssuerRegistry,
-            accountRegistry,
+            worldIDRegistry,
             groth16Verifier,
             proofTimestampDelta
         );
@@ -68,7 +68,7 @@ contract VerifierUpgradeTest is Test {
 
         // Verify state before upgrade
         assertEq(address(verifier.credentialSchemaIssuerRegistry()), credentialIssuerRegistry);
-        assertEq(address(verifier.accountRegistry()), accountRegistry);
+        assertEq(address(verifier.worldIDRegistry()), worldIDRegistry);
         assertEq(address(verifier.rpRegistry()), rpRegistry);
 
         // Deploy V2 implementation
@@ -82,7 +82,7 @@ contract VerifierUpgradeTest is Test {
 
         // Verify storage was preserved
         assertEq(address(verifierV2.credentialSchemaIssuerRegistry()), credentialIssuerRegistry);
-        assertEq(address(verifierV2.accountRegistry()), accountRegistry);
+        assertEq(address(verifierV2.worldIDRegistry()), worldIDRegistry);
         assertEq(address(verifierV2.rpRegistry()), rpRegistry);
 
         // Verify new functionality works
@@ -141,7 +141,7 @@ contract VerifierUpgradeTest is Test {
     function test_CannotInitializeTwice() public {
         // Try to initialize again (should fail)
         vm.expectRevert();
-        verifier.initialize(credentialIssuerRegistry, accountRegistry, groth16Verifier, proofTimestampDelta);
+        verifier.initialize(credentialIssuerRegistry, worldIDRegistry, groth16Verifier, proofTimestampDelta);
     }
 
     function test_ImplementationCannotBeInitialized() public {
@@ -150,7 +150,7 @@ contract VerifierUpgradeTest is Test {
 
         // Try to initialize the implementation directly (should fail)
         vm.expectRevert();
-        implementation.initialize(credentialIssuerRegistry, accountRegistry, groth16Verifier, proofTimestampDelta);
+        implementation.initialize(credentialIssuerRegistry, worldIDRegistry, groth16Verifier, proofTimestampDelta);
     }
 
     function test_UpdateCredentialSchemaIssuerRegistry() public {
@@ -163,14 +163,14 @@ contract VerifierUpgradeTest is Test {
         assertEq(address(verifier.credentialSchemaIssuerRegistry()), newRegistry);
     }
 
-    function test_UpdateAccountRegistry() public {
+    function test_UpdateWorldIDRegistry() public {
         address newRegistry = address(0x6666);
 
         vm.expectEmit(true, true, true, true);
-        emit Verifier.AccountRegistryUpdated(accountRegistry, newRegistry);
+        emit Verifier.WorldIDRegistryUpdated(worldIDRegistry, newRegistry);
 
-        verifier.updateAccountRegistry(newRegistry);
-        assertEq(address(verifier.accountRegistry()), newRegistry);
+        verifier.updateWorldIDRegistry(newRegistry);
+        assertEq(address(verifier.worldIDRegistry()), newRegistry);
     }
 
     function test_UpdateRpRegistry() public {
@@ -192,7 +192,7 @@ contract VerifierUpgradeTest is Test {
         verifier.updateCredentialSchemaIssuerRegistry(newRegistry);
 
         vm.expectRevert();
-        verifier.updateAccountRegistry(newRegistry);
+        verifier.updateWorldIDRegistry(newRegistry);
 
         vm.expectRevert();
         verifier.updateRpRegistry(newRegistry);
