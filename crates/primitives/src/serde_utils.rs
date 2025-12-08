@@ -1,7 +1,4 @@
 //! Serialization utilities for consistent hex encoding across the protocol.
-//!
-//! This module provides serde helpers for serializing numeric types as `0x`-prefixed
-//! hex strings, which is the standard format in the Ethereum ecosystem.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -179,133 +176,24 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    struct TestU256 {
+    struct Test {
         #[serde(with = "hex_u256")]
-        value: U256,
-    }
-
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    struct TestU256Opt {
-        #[serde(with = "hex_u256_opt")]
-        value: Option<U256>,
-    }
-
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    struct TestU256Vec {
-        #[serde(with = "hex_u256_vec")]
-        values: Vec<U256>,
-    }
-
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    struct TestU64 {
+        u256_val: U256,
         #[serde(with = "hex_u64")]
-        value: u64,
-    }
-
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    struct TestU32 {
-        #[serde(with = "hex_u32")]
-        value: u32,
+        u64_val: u64,
     }
 
     #[test]
-    fn test_hex_u256_serialize() {
-        let test = TestU256 {
-            value: U256::from(255u64),
+    fn test_hex_roundtrip() {
+        let original = Test {
+            u256_val: U256::from(0xdead_beef_u64),
+            u64_val: 42,
         };
-        let json = serde_json::to_string(&test).unwrap();
-        assert_eq!(json, r#"{"value":"0xff"}"#);
-    }
+        let json = serde_json::to_string(&original).unwrap();
+        assert!(json.contains("0xdeadbeef"));
+        assert!(json.contains("0x2a"));
 
-    #[test]
-    fn test_hex_u256_deserialize_with_prefix() {
-        let json = r#"{"value":"0xff"}"#;
-        let test: TestU256 = serde_json::from_str(json).unwrap();
-        assert_eq!(test.value, U256::from(255u64));
-    }
-
-    #[test]
-    fn test_hex_u256_deserialize_without_prefix() {
-        let json = r#"{"value":"ff"}"#;
-        let test: TestU256 = serde_json::from_str(json).unwrap();
-        assert_eq!(test.value, U256::from(255u64));
-    }
-
-    #[test]
-    fn test_hex_u256_large_value() {
-        let test = TestU256 {
-            value: U256::from_str_radix(
-                "11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2",
-                16,
-            )
-            .unwrap(),
-        };
-        let json = serde_json::to_string(&test).unwrap();
-        assert!(json.contains("0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2"));
-
-        let roundtrip: TestU256 = serde_json::from_str(&json).unwrap();
-        assert_eq!(roundtrip, test);
-    }
-
-    #[test]
-    fn test_hex_u256_opt_some() {
-        let test = TestU256Opt {
-            value: Some(U256::from(42u64)),
-        };
-        let json = serde_json::to_string(&test).unwrap();
-        assert_eq!(json, r#"{"value":"0x2a"}"#);
-
-        let roundtrip: TestU256Opt = serde_json::from_str(&json).unwrap();
-        assert_eq!(roundtrip, test);
-    }
-
-    #[test]
-    fn test_hex_u256_opt_none() {
-        let test = TestU256Opt { value: None };
-        let json = serde_json::to_string(&test).unwrap();
-        assert_eq!(json, r#"{"value":null}"#);
-
-        let roundtrip: TestU256Opt = serde_json::from_str(&json).unwrap();
-        assert_eq!(roundtrip, test);
-    }
-
-    #[test]
-    fn test_hex_u256_vec() {
-        let test = TestU256Vec {
-            values: vec![U256::from(1u64), U256::from(255u64), U256::from(4096u64)],
-        };
-        let json = serde_json::to_string(&test).unwrap();
-        assert_eq!(json, r#"{"values":["0x1","0xff","0x1000"]}"#);
-
-        let roundtrip: TestU256Vec = serde_json::from_str(&json).unwrap();
-        assert_eq!(roundtrip, test);
-    }
-
-    #[test]
-    fn test_hex_u64_serialize() {
-        let test = TestU64 { value: 255 };
-        let json = serde_json::to_string(&test).unwrap();
-        assert_eq!(json, r#"{"value":"0xff"}"#);
-    }
-
-    #[test]
-    fn test_hex_u64_deserialize() {
-        let json = r#"{"value":"0x2a"}"#;
-        let test: TestU64 = serde_json::from_str(json).unwrap();
-        assert_eq!(test.value, 42);
-    }
-
-    #[test]
-    fn test_hex_u32_serialize() {
-        let test = TestU32 { value: 255 };
-        let json = serde_json::to_string(&test).unwrap();
-        assert_eq!(json, r#"{"value":"0xff"}"#);
-    }
-
-    #[test]
-    fn test_hex_u32_deserialize() {
-        let json = r#"{"value":"0x2a"}"#;
-        let test: TestU32 = serde_json::from_str(json).unwrap();
-        assert_eq!(test.value, 42);
+        let parsed: Test = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
     }
 }

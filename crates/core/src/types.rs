@@ -15,7 +15,9 @@ use strum::EnumString;
 use utoipa::ToSchema;
 
 #[cfg(feature = "authenticator")]
-use world_id_primitives::serde_utils::{hex_u256, hex_u256_opt, hex_u256_vec, hex_u32, hex_u32_opt};
+use world_id_primitives::serde_utils::{
+    hex_u256, hex_u256_opt, hex_u256_vec, hex_u32, hex_u32_opt,
+};
 
 pub use world_id_primitives::merkle::AccountInclusionProof;
 
