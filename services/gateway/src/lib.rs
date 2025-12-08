@@ -571,7 +571,7 @@ async fn request_status(
 
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 struct IsValidRootQuery {
-    #[schema(value_type = String, format = "decimal")]
+    #[schema(value_type = String, format = "hex")]
     root: String,
 }
 
