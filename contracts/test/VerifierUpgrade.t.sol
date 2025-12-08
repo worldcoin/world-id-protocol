@@ -22,7 +22,7 @@ contract VerifierV2Mock is Verifier {
     }
 }
 
-contract AccountRegistryMock {
+contract WorldIDRegistryMock {
     uint256 public treeDepth = 30;
 }
 
@@ -41,7 +41,7 @@ contract VerifierUpgradeTest is Test {
         owner = address(this);
         nonOwner = address(0xBEEF);
         credentialIssuerRegistry = address(0x1111);
-        accountRegistry = address(new AccountRegistryMock());
+        accountRegistry = address(new WorldIDRegistryMock());
         rpRegistry = address(0x3333);
         groth16Verifier = address(0x4444);
         proofTimestampDelta = 5 hours;
