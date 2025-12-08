@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {AccountRegistry} from "../src/AccountRegistry.sol";
+import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
 import {PackedAccountData} from "../src/lib/PackedAccountData.sol";
 
@@ -11,10 +11,10 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 
-contract AccountRegistryTest is Test {
+contract WorldIDRegistryTest is Test {
     using BinaryIMT for BinaryIMTData;
 
-    AccountRegistry public accountRegistry;
+    WorldIDRegistry public accountRegistry;
 
     uint256 public constant RECOVERY_PRIVATE_KEY = 0xA11CE;
     uint256 public constant RECOVERY_PRIVATE_KEY_ALT = 0xB11CE;
@@ -32,13 +32,13 @@ contract AccountRegistryTest is Test {
         recoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY);
 
         // Deploy implementation
-        AccountRegistry implementation = new AccountRegistry();
+        WorldIDRegistry implementation = new WorldIDRegistry();
 
         // Deploy proxy
-        bytes memory initData = abi.encodeWithSelector(AccountRegistry.initialize.selector, 30);
+        bytes memory initData = abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30);
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
-        accountRegistry = AccountRegistry(address(proxy));
+        accountRegistry = WorldIDRegistry(address(proxy));
 
         // Ensure the initial root is recorded as valid
         uint256 root = accountRegistry.currentRoot();
@@ -201,7 +201,7 @@ contract AccountRegistryTest is Test {
         (bytes memory signature, uint256[] memory proof) =
             updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
 
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.AccountDoesNotExist.selector, leafIndex));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.AccountDoesNotExist.selector, leafIndex));
 
         accountRegistry.updateAuthenticator(
             leafIndex,
@@ -237,7 +237,7 @@ contract AccountRegistryTest is Test {
         (bytes memory signature, uint256[] memory proof) =
             updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
 
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
 
         accountRegistry.updateAuthenticator(
             leafIndex,
@@ -306,7 +306,7 @@ contract AccountRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.PubkeyIdInUse.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdInUse.selector));
         accountRegistry.insertAuthenticator(
             leafIndex,
             authenticatorAddress3,
@@ -337,7 +337,7 @@ contract AccountRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.PubkeyIdInUse.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdInUse.selector));
         accountRegistry.insertAuthenticator(
             leafIndex,
             newAuthenticatorAddress,
@@ -427,7 +427,7 @@ contract AccountRegistryTest is Test {
         bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
 
         vm.prank(authenticatorAddress1);
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
         accountRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
     }
 
@@ -526,7 +526,7 @@ contract AccountRegistryTest is Test {
         );
 
         vm.expectRevert(
-            abi.encodeWithSelector(AccountRegistry.AuthenticatorAddressAlreadyInUse.selector, authenticatorAddress1)
+            abi.encodeWithSelector(WorldIDRegistry.AuthenticatorAddressAlreadyInUse.selector, authenticatorAddress1)
         );
         authenticatorPubkeys[0] = 2;
         accountRegistry.createAccount(
@@ -670,7 +670,7 @@ contract AccountRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.RecoveryNotEnabled.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.RecoveryNotEnabled.selector));
         accountRegistry.recoverAccount(
             1,
             authenticatorAddress1,
@@ -706,7 +706,7 @@ contract AccountRegistryTest is Test {
         twoAuthenticatorPubkeys[0] = 0;
         twoAuthenticatorPubkeys[1] = 0;
 
-        vm.expectRevert(abi.encodeWithSelector(AccountRegistry.PubkeyIdOutOfBounds.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdOutOfBounds.selector));
         accountRegistry.createAccount(
             alternateRecoveryAddress, twoAuthenticators, twoAuthenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
