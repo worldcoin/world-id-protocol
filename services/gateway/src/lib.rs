@@ -8,6 +8,7 @@ use std::{
 };
 
 use alloy::network::{EthereumWallet, TxSigner};
+use alloy::sol_types::SolError;
 use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
@@ -31,6 +32,11 @@ use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::{
     CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+};
+
+use world_id_core::account_registry::AccountRegistry::{
+    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
+    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
 
 pub use crate::config::{GatewayConfig, SignerConfig};
@@ -129,6 +135,16 @@ enum RequestKind {
 pub(crate) enum GatewayError {
     #[error("Authenticator already exists")]
     AuthenticatorAlreadyExists,
+    #[error("Authenticator does not exist")]
+    AuthenticatorDoesNotExist,
+    #[error("Mismatched signature nonce")]
+    MismatchedSignatureNonce,
+    #[error("Pubkey ID is already in use")]
+    PubkeyIdInUse,
+    #[error("Pubkey ID is out of bounds")]
+    PubkeyIdOutOfBounds,
+    #[error("Authenticator does not belong to account")]
+    AuthenticatorDoesNotBelongToAccount,
     #[error("Transaction reverted on-chain (tx: {0})")]
     TransactionReverted(String),
     #[error("Transaction confirmation error: {0}")]
@@ -150,11 +166,31 @@ impl Serialize for GatewayError {
     }
 }
 
+/// Helper to format a selector as a hex string for matching in error messages
+fn selector_hex(selector: [u8; 4]) -> String {
+    format!("0x{}", hex::encode(selector))
+}
+
 impl GatewayError {
     pub(crate) fn from_contract_error(error: &str) -> Self {
-        // AuthenticatorAddressAlreadyInUse(address) selector: 0x218170d3
-        if error.contains("0x218170d3") {
+        // Use the generated selectors from the AccountRegistry contract
+        if error.contains(&selector_hex(AuthenticatorAddressAlreadyInUse::SELECTOR)) {
             return GatewayError::AuthenticatorAlreadyExists;
+        }
+        if error.contains(&selector_hex(AuthenticatorDoesNotExist::SELECTOR)) {
+            return GatewayError::AuthenticatorDoesNotExist;
+        }
+        if error.contains(&selector_hex(MismatchedSignatureNonce::SELECTOR)) {
+            return GatewayError::MismatchedSignatureNonce;
+        }
+        if error.contains(&selector_hex(PubkeyIdInUse::SELECTOR)) {
+            return GatewayError::PubkeyIdInUse;
+        }
+        if error.contains(&selector_hex(PubkeyIdOutOfBounds::SELECTOR)) {
+            return GatewayError::PubkeyIdOutOfBounds;
+        }
+        if error.contains(&selector_hex(AuthenticatorDoesNotBelongToAccount::SELECTOR)) {
+            return GatewayError::AuthenticatorDoesNotBelongToAccount;
         }
 
         GatewayError::Unknown(error.to_string())
