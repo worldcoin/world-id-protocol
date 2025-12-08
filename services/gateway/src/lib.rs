@@ -299,6 +299,14 @@ impl ApiError {
     fn bad_req(field: &str, msg: impl ToString) -> Self {
         Self::BadRequest(format!("invalid {field}: {}", msg.to_string()))
     }
+
+    /// Convert a contract simulation error to an API error.
+    /// Parses the error to extract a specific error code if possible.
+    fn from_simulation_error(e: impl std::fmt::Display) -> Self {
+        let error_str = e.to_string();
+        let gateway_error = GatewayError::from_contract_error(&error_str);
+        Self::BadRequest(gateway_error.to_string())
+    }
 }
 
 #[derive(Serialize, ToSchema)]
@@ -466,11 +474,7 @@ async fn create_account(
         .call()
         .await;
 
-    if let Err(e) = sim_result {
-        let error_str = e.to_string();
-        let gateway_error = GatewayError::from_contract_error(&error_str);
-        return Err(ApiError::BadRequest(gateway_error.to_string()));
-    }
+    sim_result.map_err(ApiError::from_simulation_error)?;
 
     let id = state.tracker.new_request(RequestKind::CreateAccount).await;
 
@@ -513,7 +517,7 @@ async fn update_authenticator(
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let pubkey_id = req.pubkey_id.unwrap_or(0);
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
-    let sim_result = contract
+    contract
         .updateAuthenticator(
             req.leaf_index,
             req.old_authenticator_address,
@@ -527,13 +531,8 @@ async fn update_authenticator(
             req.nonce,
         )
         .call()
-        .await;
-
-    if let Err(e) = sim_result {
-        let error_str = e.to_string();
-        let gateway_error = GatewayError::from_contract_error(&error_str);
-        return Err(ApiError::BadRequest(gateway_error.to_string()));
-    }
+        .await
+        .map_err(ApiError::from_simulation_error)?;
 
     let id = state
         .tracker
@@ -588,7 +587,7 @@ async fn insert_authenticator(
 ) -> ApiResult<impl IntoResponse> {
     // Simulate the operation BEFORE queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
-    let sim_result = contract
+    contract
         .insertAuthenticator(
             req.leaf_index,
             req.new_authenticator_address,
@@ -601,13 +600,8 @@ async fn insert_authenticator(
             req.nonce,
         )
         .call()
-        .await;
-
-    if let Err(e) = sim_result {
-        let error_str = e.to_string();
-        let gateway_error = GatewayError::from_contract_error(&error_str);
-        return Err(ApiError::BadRequest(gateway_error.to_string()));
-    }
+        .await
+        .map_err(ApiError::from_simulation_error)?;
 
     let id = state
         .tracker
@@ -662,7 +656,7 @@ async fn remove_authenticator(
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let pubkey_id = req.pubkey_id.unwrap_or(0);
     let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::from(0u64));
-    let sim_result = contract
+    contract
         .removeAuthenticator(
             req.leaf_index,
             req.authenticator_address,
@@ -675,13 +669,8 @@ async fn remove_authenticator(
             req.nonce,
         )
         .call()
-        .await;
-
-    if let Err(e) = sim_result {
-        let error_str = e.to_string();
-        let gateway_error = GatewayError::from_contract_error(&error_str);
-        return Err(ApiError::BadRequest(gateway_error.to_string()));
-    }
+        .await
+        .map_err(ApiError::from_simulation_error)?;
 
     let id = state
         .tracker
@@ -735,7 +724,7 @@ async fn recover_account(
     // Simulate the operation BEFORE queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
-    let sim_result = contract
+    contract
         .recoverAccount(
             req.leaf_index,
             req.new_authenticator_address,
@@ -747,13 +736,8 @@ async fn recover_account(
             req.nonce,
         )
         .call()
-        .await;
-
-    if let Err(e) = sim_result {
-        let error_str = e.to_string();
-        let gateway_error = GatewayError::from_contract_error(&error_str);
-        return Err(ApiError::BadRequest(gateway_error.to_string()));
-    }
+        .await
+        .map_err(ApiError::from_simulation_error)?;
 
     let id = state.tracker.new_request(RequestKind::RecoverAccount).await;
     let env = OpEnvelope {
