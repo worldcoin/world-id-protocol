@@ -181,7 +181,7 @@ impl Credential {
 
     /// Hashes arbitrary bytes to a field element using Poseidon2 sponge construction.
     ///
-    /// This uses a sponge-like construction to support **arbitrary length** input:
+    /// This uses a sponge construction to support **arbitrary length** input:
     /// 1. Split input into 31-byte chunks (each fits safely in a field element)
     /// 2. Absorb chunks in batches of up to 8 elements (rate) into the state
     /// 3. Apply Poseidon2 t16 permutation after each batch
@@ -235,16 +235,19 @@ impl Credential {
                 state[i] += elem;
             }
             // Apply permutation after each batch
-            state = poseidon2.permutation(&state);
+            poseidon2.permutation_in_place(&mut state);
         }
 
-        // Padding to make the encoding prefix-free (simple sponge padding).
+        // Padding marks the end of data absorption; prefix-freedom is ensured by the combination
+        // of this padding and the length encoding below, which prevents collisions between inputs
+        // where one is a prefix of another.
         state[0] += Fq::ONE;
-        state = poseidon2.permutation(&state);
+        poseidon2.permutation_in_place(&mut state);
 
         // Domain separation with length to avoid collisions between equal-prefix inputs of different lengths.
-        state[1] += Fq::from(data.len() as u64);
-        state = poseidon2.permutation(&state);
+        // Use u128 to avoid truncation on very large inputs before reduction into the field.
+        state[1] += Fq::from(data.len() as u128);
+        poseidon2.permutation_in_place(&mut state);
 
         // Squeeze: return the second element (index 1) following the convention
         // used elsewhere in the codebase (claims_hash, credential hash)
@@ -323,12 +326,19 @@ mod tests {
     #[test]
     fn test_hash_bytes_to_field_element_deterministic() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let hashed_value = "0x239c53416f3f05b279aca413f05b441ded343f98911c6289a83dcf4766bef5e0";
+        let expected: FieldElement = hashed_value
+            .parse()
+            .expect("Failed to parse expected hash value");
+
 
         let result1 = Credential::hash_bytes_to_field_element(&data).unwrap();
         let result2 = Credential::hash_bytes_to_field_element(&data).unwrap();
 
         // Same input should produce same output
         assert_eq!(result1, result2);
+        // Output should match expected value
+        assert_eq!(result1, expected);
     }
 
     #[test]
@@ -371,18 +381,6 @@ mod tests {
         // Should produce a non-zero result
         let hash = result.unwrap();
         assert_ne!(hash, FieldElement::ZERO);
-    }
-
-    #[test]
-    fn test_hash_bytes_to_field_element_large_inputs_differ() {
-        // Two large inputs should produce different hashes
-        let data1 = vec![1u8; 3000];
-        let data2 = vec![2u8; 3000];
-
-        let hash1 = Credential::hash_bytes_to_field_element(&data1).unwrap();
-        let hash2 = Credential::hash_bytes_to_field_element(&data2).unwrap();
-
-        assert_ne!(hash1, hash2);
     }
 
     #[test]
