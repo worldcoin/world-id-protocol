@@ -220,6 +220,9 @@ pub enum GatewayRequestState {
     Failed {
         /// Error message returned by the gateway.
         error: String,
+        /// Specific error code, if available.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_code: Option<GatewayErrorCode>,
     },
 }
 
@@ -299,6 +302,24 @@ pub enum GatewayErrorCode {
     BadRequest,
     /// Batcher service unavailable.
     BatcherUnavailable,
+    /// Authenticator address is already in use by another account.
+    AuthenticatorAlreadyExists,
+    /// Authenticator does not exist on the account.
+    AuthenticatorDoesNotExist,
+    /// The signature nonce does not match the expected value.
+    MismatchedSignatureNonce,
+    /// The pubkey ID slot is already in use.
+    PubkeyIdInUse,
+    /// The pubkey ID is out of bounds (max 4 authenticators).
+    PubkeyIdOutOfBounds,
+    /// The authenticator does not belong to the specified account.
+    AuthenticatorDoesNotBelongToAccount,
+    /// Transaction was submitted but reverted on-chain.
+    TransactionReverted,
+    /// Error while waiting for transaction confirmation.
+    ConfirmationError,
+    /// Pre-flight simulation failed.
+    PreFlightFailed,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).

@@ -1,9 +1,43 @@
+use alloy::sol_types::SolError;
 use axum::{http::StatusCode, response::IntoResponse};
 
 pub use world_id_core::types::GatewayErrorCode as ErrorCode;
+use world_id_core::account_registry::AccountRegistry::{
+    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
+    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
+};
 use world_id_core::types::ServiceApiError;
 
 pub type ErrorBody = ServiceApiError<ErrorCode>;
+
+/// Helper to format a selector as a hex string for matching in error messages.
+fn selector_hex(selector: [u8; 4]) -> String {
+    format!("0x{}", hex::encode(selector))
+}
+
+/// Parses a contract error string and returns a specific error code if recognized.
+pub fn parse_contract_error(error: &str) -> ErrorCode {
+    if error.contains(&selector_hex(AuthenticatorAddressAlreadyInUse::SELECTOR)) {
+        return ErrorCode::AuthenticatorAlreadyExists;
+    }
+    if error.contains(&selector_hex(AuthenticatorDoesNotExist::SELECTOR)) {
+        return ErrorCode::AuthenticatorDoesNotExist;
+    }
+    if error.contains(&selector_hex(MismatchedSignatureNonce::SELECTOR)) {
+        return ErrorCode::MismatchedSignatureNonce;
+    }
+    if error.contains(&selector_hex(PubkeyIdInUse::SELECTOR)) {
+        return ErrorCode::PubkeyIdInUse;
+    }
+    if error.contains(&selector_hex(PubkeyIdOutOfBounds::SELECTOR)) {
+        return ErrorCode::PubkeyIdOutOfBounds;
+    }
+    if error.contains(&selector_hex(AuthenticatorDoesNotBelongToAccount::SELECTOR)) {
+        return ErrorCode::AuthenticatorDoesNotBelongToAccount;
+    }
+
+    ErrorCode::BadRequest
+}
 
 #[derive(Debug, Clone)]
 pub struct ErrorResponse {
@@ -49,6 +83,15 @@ impl ErrorResponse {
             "Batcher service is unavailable. Please try again.".to_string(),
             StatusCode::SERVICE_UNAVAILABLE,
         )
+    }
+
+    /// Creates an error response from a contract simulation error.
+    /// Parses the error to extract a specific error code if possible.
+    #[must_use]
+    pub fn from_simulation_error(e: impl std::fmt::Display) -> Self {
+        let error_str = e.to_string();
+        let code = parse_contract_error(&error_str);
+        Self::new(code.clone(), code.to_string(), StatusCode::BAD_REQUEST)
     }
 }
 

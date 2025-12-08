@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::CreateAccountRequest;
 
+use crate::error::{parse_contract_error, ErrorCode};
 use crate::{RequestState, RequestTracker};
 
 #[derive(Clone)]
@@ -122,11 +123,12 @@ impl CreateBatcherRunner {
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::Failed {
-                                                error: format!(
+                                            RequestState::failed(
+                                                format!(
                                                     "transaction reverted on-chain (tx: {hash})"
                                                 ),
-                                            },
+                                                Some(ErrorCode::TransactionReverted),
+                                            ),
                                         )
                                         .await;
                                 }
@@ -135,9 +137,10 @@ impl CreateBatcherRunner {
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::Failed {
-                                            error: format!("transaction confirmation error: {err}"),
-                                        },
+                                        RequestState::failed(
+                                            format!("transaction confirmation error: {err}"),
+                                            Some(ErrorCode::ConfirmationError),
+                                        ),
                                     )
                                     .await;
                             }
@@ -146,13 +149,10 @@ impl CreateBatcherRunner {
                 }
                 Err(err) => {
                     tracing::error!(error = %err, "create batch send failed");
+                    let error_str = err.to_string();
+                    let code = parse_contract_error(&error_str);
                     self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Failed {
-                                error: err.to_string(),
-                            },
-                        )
+                        .set_status_batch(&ids, RequestState::failed(error_str, Some(code)))
                         .await;
                 }
             }

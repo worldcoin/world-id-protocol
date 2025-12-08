@@ -5,6 +5,7 @@ use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
 use world_id_core::account_registry::AccountRegistry;
 
+use crate::error::{parse_contract_error, ErrorCode};
 use crate::{RequestState, RequestTracker};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
@@ -106,6 +107,119 @@ impl OpsBatcherRunner {
         }
     }
 
+    /// Simulate an operation to check if it would revert without spending gas.
+    async fn simulate_operation(
+        contract: &AccountRegistry::AccountRegistryInstance<DynProvider>,
+        kind: &OpKind,
+    ) -> Result<(), String> {
+        match kind {
+            OpKind::Update {
+                leaf_index,
+                old_authenticator_address,
+                new_authenticator_address,
+                old_commit,
+                new_commit,
+                signature,
+                sibling_nodes,
+                nonce,
+                pubkey_id,
+                new_pubkey,
+            } => contract
+                .updateAuthenticator(
+                    *leaf_index,
+                    *old_authenticator_address,
+                    *new_authenticator_address,
+                    *pubkey_id,
+                    *new_pubkey,
+                    *old_commit,
+                    *new_commit,
+                    signature.clone(),
+                    sibling_nodes.clone(),
+                    *nonce,
+                )
+                .call()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            OpKind::Insert {
+                leaf_index,
+                new_authenticator_address,
+                old_commit,
+                new_commit,
+                signature,
+                sibling_nodes,
+                nonce,
+                pubkey_id,
+                new_pubkey,
+            } => contract
+                .insertAuthenticator(
+                    *leaf_index,
+                    *new_authenticator_address,
+                    *pubkey_id,
+                    *new_pubkey,
+                    *old_commit,
+                    *new_commit,
+                    signature.clone(),
+                    sibling_nodes.clone(),
+                    *nonce,
+                )
+                .call()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            OpKind::Remove {
+                leaf_index,
+                authenticator_address,
+                old_commit,
+                new_commit,
+                signature,
+                sibling_nodes,
+                nonce,
+                pubkey_id,
+                authenticator_pubkey,
+            } => contract
+                .removeAuthenticator(
+                    *leaf_index,
+                    *authenticator_address,
+                    *pubkey_id,
+                    *authenticator_pubkey,
+                    *old_commit,
+                    *new_commit,
+                    signature.clone(),
+                    sibling_nodes.clone(),
+                    *nonce,
+                )
+                .call()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            OpKind::Recover {
+                leaf_index,
+                new_authenticator_address,
+                old_commit,
+                new_commit,
+                signature,
+                sibling_nodes,
+                nonce,
+                new_pubkey,
+            } => contract
+                .recoverAccount(
+                    *leaf_index,
+                    *new_authenticator_address,
+                    *new_pubkey,
+                    *old_commit,
+                    *new_commit,
+                    signature.clone(),
+                    sibling_nodes.clone(),
+                    *nonce,
+                )
+                .call()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+        }
+    }
+
     pub async fn run(mut self) {
         let provider = self.provider.clone();
         let contract = AccountRegistry::new(self.registry, provider.clone());
@@ -116,6 +230,21 @@ impl OpsBatcherRunner {
                 tracing::info!("ops batcher channel closed");
                 return;
             };
+
+            // Simulate the first operation before starting a batch
+            if let Err(sim_error) = Self::simulate_operation(&contract, &first.kind).await {
+                tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
+                let code = parse_contract_error(&sim_error);
+                let code = match code {
+                    ErrorCode::BadRequest => ErrorCode::PreFlightFailed,
+                    specific => specific,
+                };
+                self.tracker
+                    .set_status(&first.id, RequestState::failed_from_code(code))
+                    .await;
+                continue; // Skip this operation and wait for the next one
+            }
+
             let mut batch = vec![first];
             let deadline = tokio::time::Instant::now() + self.window;
 
@@ -124,7 +253,24 @@ impl OpsBatcherRunner {
                     break;
                 }
                 match tokio::time::timeout_at(deadline, self.rx.recv()).await {
-                    Ok(Some(req)) => batch.push(req),
+                    Ok(Some(req)) => {
+                        // Simulate each additional operation before adding to batch
+                        if let Err(sim_error) = Self::simulate_operation(&contract, &req.kind).await
+                        {
+                            tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
+                            let code = parse_contract_error(&sim_error);
+                            let code = match code {
+                                ErrorCode::BadRequest => ErrorCode::PreFlightFailed,
+                                specific => specific,
+                            };
+                            self.tracker
+                                .set_status(&req.id, RequestState::failed_from_code(code))
+                                .await;
+                            // Skip this operation but continue batching
+                        } else {
+                            batch.push(req);
+                        }
+                    }
                     Ok(None) => {
                         tracing::info!("ops batcher channel closed while batching");
                         break;
@@ -276,11 +422,12 @@ impl OpsBatcherRunner {
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::Failed {
-                                                error: format!(
+                                            RequestState::failed(
+                                                format!(
                                                     "transaction reverted on-chain (tx: {hash})"
                                                 ),
-                                            },
+                                                Some(ErrorCode::TransactionReverted),
+                                            ),
                                         )
                                         .await;
                                 }
@@ -289,9 +436,10 @@ impl OpsBatcherRunner {
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::Failed {
-                                            error: format!("transaction confirmation error: {err}"),
-                                        },
+                                        RequestState::failed(
+                                            format!("transaction confirmation error: {err}"),
+                                            Some(ErrorCode::ConfirmationError),
+                                        ),
                                     )
                                     .await;
                             }
@@ -300,13 +448,10 @@ impl OpsBatcherRunner {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "multicall3 send failed");
+                    let error_str = e.to_string();
+                    let code = parse_contract_error(&error_str);
                     self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Failed {
-                                error: e.to_string(),
-                            },
-                        )
+                        .set_status_batch(&ids, RequestState::failed(error_str, Some(code)))
                         .await;
                 }
             }

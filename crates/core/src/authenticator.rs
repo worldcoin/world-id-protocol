@@ -184,7 +184,7 @@ impl Authenticator {
                         }
                     }
                 }
-                Ok(GatewayRequestState::Failed { error }) => {
+                Ok(GatewayRequestState::Failed { error, .. }) => {
                     return Err(AuthenticatorError::Generic(format!(
                         "Account creation failed: {error}"
                     )));

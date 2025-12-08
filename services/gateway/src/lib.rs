@@ -265,6 +265,19 @@ async fn create_account(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the account creation BEFORE queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    contract
+        .createManyAccounts(
+            vec![req.recovery_address.unwrap_or(Address::ZERO)],
+            vec![req.authenticator_addresses.clone()],
+            vec![req.authenticator_pubkeys.clone()],
+            vec![req.offchain_signer_commitment],
+        )
+        .call()
+        .await
+        .map_err(ApiError::from_simulation_error)?;
+
     let (id, record) = tracker.new_request(RequestKind::CreateAccount).await?;
 
     let env = CreateReqEnvelope {
@@ -274,12 +287,7 @@ async fn create_account(
 
     if state.batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(
-                &id,
-                RequestState::Failed {
-                    error: "batcher unavailable".into(),
-                },
-            )
+            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
             .await;
         return Err(ApiError::batcher_unavailable());
     }
@@ -298,6 +306,28 @@ async fn update_authenticator(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    let pubkey_id = req.pubkey_id.unwrap_or(0);
+    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
+
+    // Simulate the operation before queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    contract
+        .updateAuthenticator(
+            req.leaf_index,
+            req.old_authenticator_address,
+            req.new_authenticator_address,
+            pubkey_id,
+            new_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await
+        .map_err(ApiError::from_simulation_error)?;
+
     let (id, record) = tracker
         .new_request(RequestKind::UpdateAuthenticator)
         .await?;
@@ -313,19 +343,14 @@ async fn update_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id: req.pubkey_id.unwrap_or(0),
-            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            pubkey_id,
+            new_pubkey,
         },
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(
-                &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                },
-            )
+            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
             .await;
         return Err(ApiError::batcher_unavailable());
     }
@@ -344,6 +369,24 @@ async fn insert_authenticator(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Simulate the operation before queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    contract
+        .insertAuthenticator(
+            req.leaf_index,
+            req.new_authenticator_address,
+            req.pubkey_id,
+            req.new_authenticator_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await
+        .map_err(ApiError::from_simulation_error)?;
+
     let (id, record) = tracker
         .new_request(RequestKind::InsertAuthenticator)
         .await?;
@@ -364,12 +407,7 @@ async fn insert_authenticator(
 
     if state.ops_batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(
-                &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                },
-            )
+            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
             .await;
         return Err(ApiError::batcher_unavailable());
     }
@@ -388,6 +426,27 @@ async fn remove_authenticator(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RemoveAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    let pubkey_id = req.pubkey_id.unwrap_or(0);
+    let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::from(0u64));
+
+    // Simulate the operation before queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    contract
+        .removeAuthenticator(
+            req.leaf_index,
+            req.authenticator_address,
+            pubkey_id,
+            authenticator_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await
+        .map_err(ApiError::from_simulation_error)?;
+
     let (id, record) = tracker
         .new_request(RequestKind::RemoveAuthenticator)
         .await?;
@@ -401,19 +460,14 @@ async fn remove_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id: req.pubkey_id.unwrap_or(0),
-            authenticator_pubkey: req.authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            pubkey_id,
+            authenticator_pubkey,
         },
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(
-                &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                },
-            )
+            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
             .await;
         return Err(ApiError::batcher_unavailable());
     }
@@ -432,6 +486,25 @@ async fn recover_account(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
+
+    // Simulate the operation before queueing to catch errors early
+    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    contract
+        .recoverAccount(
+            req.leaf_index,
+            req.new_authenticator_address,
+            new_pubkey,
+            req.old_offchain_signer_commitment,
+            req.new_offchain_signer_commitment,
+            Bytes::from(req.signature.clone()),
+            req.sibling_nodes.clone(),
+            req.nonce,
+        )
+        .call()
+        .await
+        .map_err(ApiError::from_simulation_error)?;
+
     let (id, record) = tracker.new_request(RequestKind::RecoverAccount).await?;
     let env = OpEnvelope {
         id: id.clone(),
@@ -443,18 +516,13 @@ async fn recover_account(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            new_pubkey: req.new_authenticator_pubkey.unwrap_or(U256::from(0u64)),
+            new_pubkey,
         },
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
         tracker
-            .set_status(
-                &id,
-                RequestState::Failed {
-                    error: "ops batcher unavailable".into(),
-                },
-            )
+            .set_status(&id, RequestState::failed_from_code(ErrorCode::BatcherUnavailable))
             .await;
         return Err(ApiError::batcher_unavailable());
     }
