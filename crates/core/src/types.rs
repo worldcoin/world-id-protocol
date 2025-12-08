@@ -2,10 +2,7 @@
 #[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
-#[cfg(feature = "authenticator")]
-use serde::Serialize;
-
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
@@ -288,7 +285,6 @@ pub enum IndexerErrorCode {
 }
 
 /// Gateway error codes.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
