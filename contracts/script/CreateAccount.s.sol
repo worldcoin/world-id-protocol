@@ -1,13 +1,13 @@
 pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
-import {AccountRegistry} from "../src/AccountRegistry.sol";
+import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
 
 contract InsertAuthenticatorScript is Script {
-    AccountRegistry public accountRegistry;
+    WorldIDRegistry public accountRegistry;
 
     function setUp() public {
-        accountRegistry = AccountRegistry(vm.envAddress("ACCOUNT_REGISTRY"));
+        accountRegistry = WorldIDRegistry(vm.envAddress("ACCOUNT_REGISTRY"));
     }
 
     function run() public {
