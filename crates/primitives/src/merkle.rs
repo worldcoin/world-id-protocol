@@ -1,4 +1,6 @@
-use crate::{authenticator::AuthenticatorPublicKeySet, FieldElement, PrimitiveError};
+use crate::{
+    authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u64, FieldElement, PrimitiveError,
+};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 /// Helper module for serializing/deserializing fixed-size arrays.
@@ -39,6 +41,7 @@ pub struct MerkleInclusionProof<const TREE_DEPTH: usize> {
     /// The World ID's leaf position in the Merkle tree of the `AccountRegistry` contract.
     ///
     /// This is the main internal identifier for a World ID.
+    #[serde(with = "hex_u64")]
     pub leaf_index: u64,
     /// The sibling path up to the Merkle root.
     #[serde(with = "array_serde")]
