@@ -124,7 +124,8 @@ enum RequestKind {
     RecoverAccount,
 }
 
-#[derive(Debug, Clone, thiserror::Error, ToSchema)]
+#[derive(Debug, Clone, thiserror::Error, ToSchema, strum::AsRefStr)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum GatewayError {
     #[error("Authenticator already exists")]
     AuthenticatorAlreadyExists,
@@ -145,15 +146,7 @@ impl Serialize for GatewayError {
     where
         S: serde::Serializer,
     {
-        let code = match self {
-            GatewayError::AuthenticatorAlreadyExists => "AUTHENTICATOR_ALREADY_EXISTS",
-            GatewayError::TransactionReverted(_) => "TRANSACTION_REVERTED",
-            GatewayError::ConfirmationError(_) => "CONFIRMATION_ERROR",
-            GatewayError::BatcherUnavailable => "BATCHER_UNAVAILABLE",
-            GatewayError::PreFlightFailed(_) => "PRE_FLIGHT_FAILED",
-            GatewayError::Unknown(_) => "UNKNOWN",
-        };
-        serializer.serialize_str(code)
+        serializer.serialize_str(self.as_ref())
     }
 }
 
