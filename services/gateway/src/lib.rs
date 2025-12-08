@@ -265,7 +265,7 @@ async fn create_account(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Simulate the account creation BEFORE queueing to catch errors early
+    // Simulate the account creation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .createManyAccounts(
