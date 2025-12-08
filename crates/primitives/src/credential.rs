@@ -1,5 +1,7 @@
-use ark_babyjubjub::EdwardsAffine;
+use ark_babyjubjub::{EdwardsAffine, Fq};
+use ark_ff::{AdditiveGroup, Field};
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -148,7 +150,7 @@ impl Credential {
         Ok(self)
     }
 
-    /// Set the associated data hash of the credential.
+    /// Set the associated data hash of the credential from a pre-computed hash.
     ///
     /// # Errors
     /// Will error if the provided hash cannot be lowered into the field.
@@ -160,6 +162,93 @@ impl Credential {
             .try_into()
             .map_err(|_| PrimitiveError::NotInField)?;
         Ok(self)
+    }
+
+    /// Set the associated data hash by hashing arbitrary bytes using Poseidon2.
+    ///
+    /// This method accepts arbitrary bytes, converts them to field elements,
+    /// applies a Poseidon2 hash, and stores the result as the associated data hash.
+    ///
+    /// # Arguments
+    /// * `data` - Arbitrary bytes to hash (any length).
+    ///
+    /// # Errors
+    /// Will error if the data is empty.
+    pub fn associated_data(mut self, data: &[u8]) -> Result<Self, PrimitiveError> {
+        self.associated_data_hash = Self::hash_bytes_to_field_element(data)?;
+        Ok(self)
+    }
+
+    /// Hashes arbitrary bytes to a field element using Poseidon2 sponge construction.
+    ///
+    /// This uses a sponge-like construction to support **arbitrary length** input:
+    /// 1. Split input into 31-byte chunks (each fits safely in a field element)
+    /// 2. Absorb chunks in batches of up to 8 elements (rate) into the state
+    /// 3. Apply Poseidon2 t16 permutation after each batch
+    /// 4. Apply padding + domain separation (constant tag and length) and squeeze
+    ///
+    /// The state is divided into:
+    /// - Rate portion (indices 0-7): where data is absorbed via addition
+    /// - Capacity portion (indices 8-15): provides security, not directly modified by input
+    ///
+    /// # Arguments
+    /// * `data` - Arbitrary bytes to hash (any length).
+    ///
+    /// # Errors
+    /// Will error if the data is empty.
+    pub fn hash_bytes_to_field_element(data: &[u8]) -> Result<FieldElement, PrimitiveError> {
+        /// Number of bytes per chunk. 31 bytes = 248 bits, which fits safely in
+        /// the BN254 scalar field (< 254 bits).
+        const CHUNK_SIZE: usize = 31;
+        /// Rate: number of field elements absorbed per permutation.
+        /// Using 8 leaves 8 elements as capacity for security.
+        const RATE: usize = 8;
+
+        // Domain separation tag to avoid collisions with other Poseidon2 usages.
+        const DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
+
+        if data.is_empty() {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "associated_data".to_string(),
+                reason: "data cannot be empty".to_string(),
+            });
+        }
+
+        let poseidon2: Poseidon2<Fq, 16, 5> = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
+
+        // Initialize state with zeros
+        let mut state: [Fq; 16] = [Fq::ZERO; 16];
+
+        // Apply domain separation in the capacity portion.
+        state[RATE] += *FieldElement::from_be_bytes_mod_order(DS_TAG);
+
+        // Convert bytes to field elements
+        let field_elements: Vec<Fq> = data
+            .chunks(CHUNK_SIZE)
+            .map(|chunk| *FieldElement::from_be_bytes_mod_order(chunk))
+            .collect();
+
+        // Absorb field elements in batches of RATE
+        for batch in field_elements.chunks(RATE) {
+            // Add batch elements to the rate portion of the state
+            for (i, &elem) in batch.iter().enumerate() {
+                state[i] += elem;
+            }
+            // Apply permutation after each batch
+            state = poseidon2.permutation(&state);
+        }
+
+        // Padding to make the encoding prefix-free (simple sponge padding).
+        state[0] += Fq::ONE;
+        state = poseidon2.permutation(&state);
+
+        // Domain separation with length to avoid collisions between equal-prefix inputs of different lengths.
+        state[1] += Fq::from(data.len() as u64);
+        state = poseidon2.permutation(&state);
+
+        // Squeeze: return the second element (index 1) following the convention
+        // used elsewhere in the codebase (claims_hash, credential hash)
+        Ok(FieldElement::from(state[1]))
     }
 
     /// Get the credential domain separator for the given version.
@@ -214,4 +303,121 @@ where
     arr.copy_from_slice(&bytes);
     let signature = EdDSASignature::from_compressed_bytes(arr).map_err(de::Error::custom)?;
     Ok(Some(signature))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_bytes_to_field_element_basic() {
+        let data = vec![1u8, 2, 3, 4, 5];
+        let result = Credential::hash_bytes_to_field_element(&data);
+        assert!(result.is_ok());
+
+        // Should produce a non-zero result
+        let hash = result.unwrap();
+        assert_ne!(hash, FieldElement::ZERO);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_deterministic() {
+        let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        let result1 = Credential::hash_bytes_to_field_element(&data).unwrap();
+        let result2 = Credential::hash_bytes_to_field_element(&data).unwrap();
+
+        // Same input should produce same output
+        assert_eq!(result1, result2);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_different_inputs() {
+        let data1 = vec![1u8, 2, 3, 4, 5];
+        let data2 = vec![5u8, 4, 3, 2, 1];
+        let data3 = vec![1u8, 2, 3, 4, 5, 6];
+
+        let hash1 = Credential::hash_bytes_to_field_element(&data1).unwrap();
+        let hash2 = Credential::hash_bytes_to_field_element(&data2).unwrap();
+        let hash3 = Credential::hash_bytes_to_field_element(&data3).unwrap();
+
+        // Different inputs should produce different outputs
+        assert_ne!(hash1, hash2);
+        assert_ne!(hash1, hash3);
+        assert_ne!(hash2, hash3);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_empty_error() {
+        let data: Vec<u8> = vec![];
+        let result = Credential::hash_bytes_to_field_element(&data);
+
+        assert!(result.is_err());
+        if let Err(PrimitiveError::InvalidInput { attribute, reason }) = result {
+            assert_eq!(attribute, "associated_data");
+            assert!(reason.contains("empty"));
+        } else {
+            panic!("Expected InvalidInput error");
+        }
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_large_input() {
+        // Test with a large input (10KB) to ensure arbitrary-length support
+        let data = vec![42u8; 10 * 1024];
+        let result = Credential::hash_bytes_to_field_element(&data);
+        assert!(result.is_ok());
+
+        // Should produce a non-zero result
+        let hash = result.unwrap();
+        assert_ne!(hash, FieldElement::ZERO);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_large_inputs_differ() {
+        // Two large inputs should produce different hashes
+        let data1 = vec![1u8; 3000];
+        let data2 = vec![2u8; 3000];
+
+        let hash1 = Credential::hash_bytes_to_field_element(&data1).unwrap();
+        let hash2 = Credential::hash_bytes_to_field_element(&data2).unwrap();
+
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_length_domain_separation() {
+        // Two inputs with same data but different lengths should hash differently
+        let data1 = vec![0u8; 10];
+        let data2 = vec![0u8; 11];
+
+        let hash1 = Credential::hash_bytes_to_field_element(&data1).unwrap();
+        let hash2 = Credential::hash_bytes_to_field_element(&data2).unwrap();
+
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_associated_data_method() {
+        let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+
+        let credential = Credential::new().associated_data(&data).unwrap();
+
+        // Should have a non-zero associated data hash
+        assert_ne!(credential.associated_data_hash, FieldElement::ZERO);
+    }
+
+    #[test]
+    fn test_associated_data_vs_manual_hash() {
+        let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        // Using the associated_data method
+        let credential = Credential::new().associated_data(&data).unwrap();
+
+        // Using the hash function directly
+        let direct_hash = Credential::hash_bytes_to_field_element(&data).unwrap();
+
+        // Both should produce the same hash
+        assert_eq!(credential.associated_data_hash, direct_hash);
+    }
 }
