@@ -5,7 +5,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {CredentialSchemaIssuerRegistry} from "./CredentialSchemaIssuerRegistry.sol";
-import {AccountRegistry} from "./AccountRegistry.sol";
+import {WorldIDRegistry} from "./WorldIDRegistry.sol";
 import {Groth16Verifier as Groth16VerifierNullifier} from "./Groth16VerifierNullifier.sol";
 import {IRpRegistry, Types} from "./interfaces/RpRegistry.sol";
 
@@ -27,7 +27,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     CredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
 
     /// @notice Registry for account and authenticator management
-    AccountRegistry public accountRegistry;
+    WorldIDRegistry public accountRegistry;
 
     /// @notice Registry for relying party key management
     IRpRegistry public rpRegistry;
@@ -62,7 +62,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
-        accountRegistry = AccountRegistry(_accountRegistry);
+        accountRegistry = WorldIDRegistry(_accountRegistry);
         groth16VerifierNullifier = Groth16VerifierNullifier(_groth16VerifierNullifier);
         proofTimestampDelta = _proofTimestampDelta;
         treeDepth = accountRegistry.treeDepth();
@@ -204,7 +204,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      */
     function updateAccountRegistry(address _accountRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldAccountRegistry = address(accountRegistry);
-        accountRegistry = AccountRegistry(_accountRegistry);
+        accountRegistry = WorldIDRegistry(_accountRegistry);
         emit AccountRegistryUpdated(oldAccountRegistry, _accountRegistry);
     }
 
