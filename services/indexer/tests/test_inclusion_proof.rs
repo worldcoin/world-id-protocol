@@ -100,7 +100,7 @@ async fn test_backfill_and_live_sync() {
 
     let client = reqwest::Client::new();
     let resp = client
-        .post("http://127.0.0.1:8082/inclusion-proof")
+        .post("http://127.0.0.1:8080/inclusion-proof")
         .header("Content-Type", "application/json")
         .body(
             serde_json::json!({
