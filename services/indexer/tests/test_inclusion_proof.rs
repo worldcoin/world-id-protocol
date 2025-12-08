@@ -221,7 +221,8 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     let proof: serde_json::Value = resp.json().await.unwrap();
     assert!(proof["root"].is_string());
-    assert_eq!(proof["leaf_index"].as_u64().unwrap(), 1);
+    // leaf_index is now serialized as hex string
+    assert_eq!(proof["leaf_index"].as_str().unwrap(), "0x1");
 
     http_task.abort();
 }
