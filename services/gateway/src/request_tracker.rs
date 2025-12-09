@@ -31,7 +31,7 @@ pub enum RequestState {
     },
     Failed {
         error: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", default)]
         error_code: Option<ErrorCode>,
     },
 }
