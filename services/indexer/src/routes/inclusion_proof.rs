@@ -21,16 +21,16 @@ use crate::{
 #[derive(serde::Serialize, utoipa::ToSchema)]
 pub(crate) struct AccountInclusionProofSchema {
     /// The root hash of the Merkle tree (hex string)
-    #[schema(value_type = String, example = "0x1a2b3c4d5e6f7890")]
+    #[schema(value_type = String, format = "hex", example = "0x1a2b3c4d5e6f7890")]
     root: String,
     /// The World ID's leaf position in the Merkle tree
-    #[schema(example = 42)]
-    leaf_index: u64,
+    #[schema(value_type = String, format = "hex", example = "0x2a")]
+    leaf_index: String,
     /// The sibling path up to the Merkle root (array of hex strings)
-    #[schema(value_type = Vec<String>)]
+    #[schema(value_type = Vec<String>, format = "hex")]
     siblings: Vec<String>,
     /// The compressed authenticator public keys for the account (array of hex strings)
-    #[schema(value_type = Vec<String>)]
+    #[schema(value_type = Vec<String>, format = "hex")]
     authenticator_pubkeys: Vec<String>,
 }
 

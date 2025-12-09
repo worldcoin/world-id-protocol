@@ -13,6 +13,8 @@
 #![allow(clippy::option_if_let_else)]
 
 use alloy_primitives::Keccak256;
+
+pub mod serde_utils;
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
