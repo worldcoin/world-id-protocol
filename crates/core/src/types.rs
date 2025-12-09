@@ -252,7 +252,7 @@ pub enum GatewayRequestState {
         /// Error message returned by the gateway.
         error: String,
         /// Specific error code, if available.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", default)]
         error_code: Option<GatewayErrorCode>,
     },
 }
