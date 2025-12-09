@@ -5,9 +5,9 @@ use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
-use world_id_core::account_registry::{
+use world_id_core::world_id_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
+    sign_remove_authenticator, sign_update_authenticator, WorldIDRegistry,
 };
 use world_id_core::types::{
     GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
@@ -68,7 +68,7 @@ async fn e2e_gateway_full_flow() {
     let registry_addr = anvil
         .deploy_account_registry(deployer)
         .await
-        .expect("failed to deploy AccountRegistry");
+        .expect("failed to deploy WorldIDRegistry");
     let rpc_url = anvil.endpoint().to_string();
 
     let signer = PrivateKeySigner::random();
@@ -96,7 +96,7 @@ async fn e2e_gateway_full_flow() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = AccountRegistry::new(registry_addr, provider.clone());
+    let contract = WorldIDRegistry::new(registry_addr, provider.clone());
 
     // First, create the initial account through the API so tree depth stays 0 for following ops
     let body_create = serde_json::json!({
@@ -145,7 +145,7 @@ async fn e2e_gateway_full_flow() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = AccountRegistry::new(registry_addr, provider.clone());
+    let contract = WorldIDRegistry::new(registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
         .authenticatorAddressToPackedAccountData(wallet_addr)

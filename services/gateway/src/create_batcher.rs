@@ -3,7 +3,7 @@ use std::time::Duration;
 use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
-use world_id_core::account_registry::AccountRegistry;
+use world_id_core::world_id_registry::WorldIDRegistry;
 use world_id_core::types::CreateAccountRequest;
 
 use crate::{RequestState, RequestTracker};
@@ -49,7 +49,7 @@ impl CreateBatcherRunner {
 
     pub async fn run(mut self) {
         let provider = self.provider.clone();
-        let contract = AccountRegistry::new(self.registry, provider);
+        let contract = WorldIDRegistry::new(self.registry, provider);
 
         loop {
             let Some(first) = self.rx.recv().await else {

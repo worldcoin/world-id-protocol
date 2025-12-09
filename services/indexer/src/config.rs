@@ -5,16 +5,16 @@ use std::sync::Arc;
 use alloy::primitives::Address;
 use alloy::providers::DynProvider;
 use sqlx::PgPool;
-use world_id_core::account_registry::AccountRegistry::AccountRegistryInstance;
+use world_id_core::world_id_registry::WorldIDRegistry::WorldIDRegistryInstance;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub registry: Arc<AccountRegistryInstance<DynProvider>>,
+    pub registry: Arc<WorldIDRegistryInstance<DynProvider>>,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, registry: Arc<AccountRegistryInstance<DynProvider>>) -> Self {
+    pub fn new(pool: PgPool, registry: Arc<WorldIDRegistryInstance<DynProvider>>) -> Self {
         Self { pool, registry }
     }
 }

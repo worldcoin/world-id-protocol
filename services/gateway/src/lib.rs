@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 use utoipa::{IntoParams, OpenApi, ToSchema};
-use world_id_core::account_registry::AccountRegistry;
+use world_id_core::world_id_registry::WorldIDRegistry;
 use world_id_core::types::{
     CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
@@ -502,7 +502,7 @@ async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIDRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
         .call()

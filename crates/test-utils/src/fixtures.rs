@@ -36,7 +36,7 @@ pub struct RegistryTestContext {
 }
 
 impl RegistryTestContext {
-    /// Spawns Anvil, deploys the AccountRegistry and CredentialSchemaIssuerRegistry,
+    /// Spawns Anvil, deploys the WorldIDRegistry and CredentialSchemaIssuerRegistry,
     /// and registers a random issuer.
     pub async fn new() -> Result<Self> {
         let anvil = TestAnvil::spawn().wrap_err("failed to spawn anvil")?;

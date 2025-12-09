@@ -217,13 +217,13 @@ impl TestAnvil {
             .await
             .context("failed to deploy PackedAccountData library")?;
 
-        // Step 4: Link both BinaryIMT and PackedAccountData to AccountRegistry
+        // Step 4: Link both BinaryIMT and PackedAccountData to WorldIDRegistry
         let world_id_registry_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
         ));
 
-        // Link both libraries to AccountRegistry (keep as hex string until both are linked)
+        // Link both libraries to WorldIDRegistry (keep as hex string until both are linked)
         let json_value: serde_json::Value = serde_json::from_str(world_id_registry_json)?;
         let mut bytecode_str = json_value["bytecode"]["object"]
             .as_str()
@@ -267,7 +267,7 @@ impl TestAnvil {
 
         let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await
-            .context("failed to deploy AccountRegistry proxy")?;
+            .context("failed to deploy WorldIDRegistry proxy")?;
 
         Ok(*proxy.address())
     }

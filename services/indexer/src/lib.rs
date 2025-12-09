@@ -15,7 +15,7 @@ use semaphore_rs_trees::Branch;
 use sqlx::migrate::Migrator;
 use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
-use world_id_core::account_registry::AccountRegistry;
+use world_id_core::world_id_registry::WorldIDRegistry;
 use world_id_primitives::TREE_DEPTH;
 
 pub mod config;
@@ -216,7 +216,7 @@ async fn start_http_server(
     pool: PgPool,
 ) -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-    let registry = AccountRegistry::new(registry_address, provider.erased());
+    let registry = WorldIDRegistry::new(registry_address, provider.erased());
     let router = routes::handler(AppState::new(pool, Arc::new(registry)));
     tracing::info!(%addr, "HTTP server listening");
     axum::serve(tokio::net::TcpListener::bind(addr).await?, router).await?;
@@ -437,11 +437,11 @@ async fn backfill_batch<P: Provider>(
 
     // Listen for all events that change commitment
     let event_signatures = vec![
-        AccountRegistry::AccountCreated::SIGNATURE_HASH,
-        AccountRegistry::AccountUpdated::SIGNATURE_HASH,
-        AccountRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-        AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-        AccountRegistry::AccountRecovered::SIGNATURE_HASH,
+        WorldIDRegistry::AccountCreated::SIGNATURE_HASH,
+        WorldIDRegistry::AccountUpdated::SIGNATURE_HASH,
+        WorldIDRegistry::AuthenticatorInserted::SIGNATURE_HASH,
+        WorldIDRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
+        WorldIDRegistry::AccountRecovered::SIGNATURE_HASH,
     ];
 
     let filter = Filter::new()
@@ -548,7 +548,7 @@ pub async fn backfill<P: Provider>(
 pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountCreatedEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = AccountRegistry::AccountCreated::decode_log(&prim)?;
+    let typed = WorldIDRegistry::AccountCreated::decode_log(&prim)?;
 
     // TODO: Validate pubkey is valid affine compressed
     Ok(AccountCreatedEvent {
@@ -563,7 +563,7 @@ pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<Acc
 pub fn decode_account_updated(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountUpdatedEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = AccountRegistry::AccountUpdated::decode_log(&prim)?;
+    let typed = WorldIDRegistry::AccountUpdated::decode_log(&prim)?;
 
     Ok(AccountUpdatedEvent {
         leaf_index: typed.data.leafIndex,
@@ -581,7 +581,7 @@ pub fn decode_authenticator_inserted(
 ) -> anyhow::Result<AuthenticatorInsertedEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = AccountRegistry::AuthenticatorInserted::decode_log(&prim)?;
+    let typed = WorldIDRegistry::AuthenticatorInserted::decode_log(&prim)?;
 
     Ok(AuthenticatorInsertedEvent {
         leaf_index: typed.data.leafIndex,
@@ -598,7 +598,7 @@ pub fn decode_authenticator_removed(
 ) -> anyhow::Result<AuthenticatorRemovedEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = AccountRegistry::AuthenticatorRemoved::decode_log(&prim)?;
+    let typed = WorldIDRegistry::AuthenticatorRemoved::decode_log(&prim)?;
 
     Ok(AuthenticatorRemovedEvent {
         leaf_index: typed.data.leafIndex,
@@ -615,7 +615,7 @@ pub fn decode_account_recovered(
 ) -> anyhow::Result<AccountRecoveredEvent> {
     let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
         .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = AccountRegistry::AccountRecovered::decode_log(&prim)?;
+    let typed = WorldIDRegistry::AccountRecovered::decode_log(&prim)?;
 
     Ok(AccountRecoveredEvent {
         leaf_index: typed.data.leafIndex,
@@ -633,19 +633,19 @@ pub fn decode_registry_event(lg: &alloy::rpc::types::Log) -> anyhow::Result<Regi
 
     let event_sig = lg.topics()[0];
 
-    if event_sig == AccountRegistry::AccountCreated::SIGNATURE_HASH {
+    if event_sig == WorldIDRegistry::AccountCreated::SIGNATURE_HASH {
         Ok(RegistryEvent::AccountCreated(decode_account_created(lg)?))
-    } else if event_sig == AccountRegistry::AccountUpdated::SIGNATURE_HASH {
+    } else if event_sig == WorldIDRegistry::AccountUpdated::SIGNATURE_HASH {
         Ok(RegistryEvent::AccountUpdated(decode_account_updated(lg)?))
-    } else if event_sig == AccountRegistry::AuthenticatorInserted::SIGNATURE_HASH {
+    } else if event_sig == WorldIDRegistry::AuthenticatorInserted::SIGNATURE_HASH {
         Ok(RegistryEvent::AuthenticatorInserted(
             decode_authenticator_inserted(lg)?,
         ))
-    } else if event_sig == AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH {
+    } else if event_sig == WorldIDRegistry::AuthenticatorRemoved::SIGNATURE_HASH {
         Ok(RegistryEvent::AuthenticatorRemoved(
             decode_authenticator_removed(lg)?,
         ))
-    } else if event_sig == AccountRegistry::AccountRecovered::SIGNATURE_HASH {
+    } else if event_sig == WorldIDRegistry::AccountRecovered::SIGNATURE_HASH {
         Ok(RegistryEvent::AccountRecovered(decode_account_recovered(
             lg,
         )?))
@@ -1015,11 +1015,11 @@ pub async fn stream_logs(
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
 
     let event_signatures = vec![
-        AccountRegistry::AccountCreated::SIGNATURE_HASH,
-        AccountRegistry::AccountUpdated::SIGNATURE_HASH,
-        AccountRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-        AccountRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-        AccountRegistry::AccountRecovered::SIGNATURE_HASH,
+        WorldIDRegistry::AccountCreated::SIGNATURE_HASH,
+        WorldIDRegistry::AccountUpdated::SIGNATURE_HASH,
+        WorldIDRegistry::AuthenticatorInserted::SIGNATURE_HASH,
+        WorldIDRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
+        WorldIDRegistry::AccountRecovered::SIGNATURE_HASH,
     ];
 
     let filter = Filter::new()
