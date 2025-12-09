@@ -318,6 +318,22 @@ async fn update_authenticator(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    if req.leaf_index.is_zero() {
+        return Err(ApiError::bad_request(
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if req.pubkey_id >= MAX_AUTHENTICATORS {
+        return Err(ApiError::bad_request(format!(
+            "pubkey_id must be less than {MAX_AUTHENTICATORS}"
+        )));
+    }
+    if req.new_authenticator_address.is_zero() {
+        return Err(ApiError::bad_request(
+            "new_authenticator_address cannot be zero".to_string(),
+        ));
+    }
+
     // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     contract
