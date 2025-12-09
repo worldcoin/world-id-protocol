@@ -554,6 +554,17 @@ async fn recover_account(
 ) -> ApiResult<impl IntoResponse> {
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
 
+    if req.leaf_index.is_zero() {
+        return Err(ApiError::bad_request(
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if req.new_authenticator_address.is_zero() {
+        return Err(ApiError::bad_request(
+            "new_authenticator_address cannot be zero".to_string(),
+        ));
+    }
+
     // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     contract
