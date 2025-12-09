@@ -268,11 +268,11 @@ async fn create_account(
     // Simulate the account creation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     contract
-        .createManyAccounts(
-            vec![req.recovery_address.unwrap_or(Address::ZERO)],
-            vec![req.authenticator_addresses.clone()],
-            vec![req.authenticator_pubkeys.clone()],
-            vec![req.offchain_signer_commitment],
+        .createAccount(
+            req.recovery_address.unwrap_or(Address::ZERO),
+            req.authenticator_addresses.clone(),
+            req.authenticator_pubkeys.clone(),
+            req.offchain_signer_commitment,
         )
         .call()
         .await
