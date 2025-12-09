@@ -12,7 +12,7 @@ use oprf_core::dlog_equality::DLogEqualityProof;
 use rand::thread_rng;
 use ruint::aliases::U256;
 use test_utils::{
-    anvil::{AccountRegistry, CredentialSchemaIssuerRegistry},
+    anvil::{CredentialSchemaIssuerRegistry, WorldIDRegistry},
     fixtures::{build_base_credential, generate_rp_fixture, RegistryTestContext},
     merkle::first_leaf_merkle_path,
 };
@@ -83,7 +83,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .signer(2)
         .wrap_err("failed to fetch authenticator anvil signer")?;
 
-    // Use authenticator signer to interact with the AccountRegistry
+    // Use authenticator signer to interact with the `WorldIDRegistry`
     let account_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(authenticator_signer.clone()))
         .connect_http(
@@ -92,7 +92,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
                 .parse()
                 .wrap_err("invalid anvil endpoint URL")?,
         );
-    let account_contract = AccountRegistry::new(account_registry, account_provider);
+    let account_contract = WorldIDRegistry::new(account_registry, account_provider);
 
     // Create user's off‑chain BabyJubJub key batch and compute leaf commitment
     let user_sk = EdDSAPrivateKey::random(&mut rng);
@@ -136,23 +136,23 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         "on-chain root mismatch with locally computed root"
     );
 
-    // Read emitted account index and derive the raw Merkle index (0‑based)
+    // Read emitted leaf index and derive the raw Merkle index (0‑based)
     let account_created = account_receipt
         .logs()
         .iter()
-        .find_map(|log| AccountRegistry::AccountCreated::decode_log(log.inner.as_ref()).ok())
+        .find_map(|log| WorldIDRegistry::AccountCreated::decode_log(log.inner.as_ref()).ok())
         .ok_or_else(|| eyre!("AccountCreated event not emitted"))?;
 
     let leaf_index: u64 = account_created
         .leafIndex
         .try_into()
-        .map_err(|_| eyre!("account index exceeded u64 range"))?;
+        .map_err(|_| eyre!("leaf index exceeded u64 range"))?;
     // Convert issuerSchemaId to field‑friendly u64 for circuits
     let issuer_schema_id_u64: u64 = issuer_schema_id
         .try_into()
         .map_err(|_| eyre!("issuer schema id exceeded u64 range"))?;
 
-    // Construct a minimal credential (bound to issuerSchemaId and account)
+    // Construct a minimal credential (bound to issuerSchemaId and leaf index)
     let genesis_issued_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
