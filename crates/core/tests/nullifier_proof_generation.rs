@@ -35,7 +35,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
 
     let RegistryTestContext {
         anvil,
-        account_registry,
+        world_id_registry,
         credential_registry: issuer_registry,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
@@ -92,7 +92,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
                 .parse()
                 .wrap_err("invalid anvil endpoint URL")?,
         );
-    let account_contract = WorldIDRegistry::new(account_registry, account_provider);
+    let account_contract = WorldIDRegistry::new(world_id_registry, account_provider);
 
     // Create user's off‑chain BabyJubJub key batch and compute leaf commitment
     let user_sk = EdDSAPrivateKey::random(&mut rng);
@@ -129,7 +129,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .currentRoot()
         .call()
         .await
-        .wrap_err("failed to fetch account registry root from chain")?;
+        .wrap_err("failed to fetch world id registry root from chain")?;
 
     assert_eq!(
         onchain_root, expected_root_u256,

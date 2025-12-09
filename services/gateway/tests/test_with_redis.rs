@@ -35,7 +35,7 @@ async fn redis_integration() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_account_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer = PrivateKeySigner::random();

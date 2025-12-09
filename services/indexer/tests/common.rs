@@ -38,7 +38,7 @@ impl TestSetup {
         let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
         let deployer = anvil.signer(0).expect("failed to obtain deployer signer");
         let registry_address = anvil
-            .deploy_account_registry(deployer)
+            .deploy_world_id_registry(deployer)
             .await
             .expect("failed to deploy WorldIDRegistry");
 

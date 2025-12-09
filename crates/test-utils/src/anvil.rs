@@ -186,7 +186,7 @@ impl TestAnvil {
 
     /// Deploys the `WorldIDRegistry` contract using the supplied signer.
     #[allow(dead_code)]
-    pub async fn deploy_account_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
+    pub async fn deploy_world_id_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
         let tree_depth = 30u64;
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
@@ -251,10 +251,10 @@ impl TestAnvil {
         )?;
 
         // Decode the fully-linked bytecode
-        let account_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
+        let world_id_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
 
         let implementation_address =
-            Self::deploy_contract(provider.clone(), account_registry_bytecode, Bytes::new())
+            Self::deploy_contract(provider.clone(), world_id_registry_bytecode, Bytes::new())
                 .await
                 .context("failed to deploy WorldIDRegistry implementation")?;
 

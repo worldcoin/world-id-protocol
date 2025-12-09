@@ -95,7 +95,7 @@ async fn e2e_authenticator_insert_update_remove() {
         .expect("failed to spawn anvil with multicall3");
     let deployer = anvil.signer(0).unwrap();
     let registry_address = anvil
-        .deploy_account_registry(deployer.clone())
+        .deploy_world_id_registry(deployer.clone())
         .await
         .unwrap();
 

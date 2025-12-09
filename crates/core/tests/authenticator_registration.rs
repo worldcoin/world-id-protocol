@@ -15,9 +15,9 @@ async fn test_authenticator_registration() {
     let deployer = anvil.signer(0).unwrap();
 
     let registry_address = anvil
-        .deploy_account_registry(deployer.clone())
+        .deploy_world_id_registry(deployer.clone())
         .await
-        .expect("failed to deploy account registry");
+        .unwrap();
 
     // Spawn gateway pointing to the same anvil instance
     let gateway_config = GatewayConfig {

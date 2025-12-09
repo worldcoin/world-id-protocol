@@ -7,7 +7,7 @@ contract InsertAuthenticatorScript is Script {
     WorldIDRegistry public worldIDRegistry;
 
     function setUp() public {
-        worldIDRegistry = WorldIDRegistry(vm.envAddress("ACCOUNT_REGISTRY"));
+        worldIDRegistry = WorldIDRegistry(vm.envAddress("WORLD_ID_REGISTRY"));
     }
 
     function run() public {

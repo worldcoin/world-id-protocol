@@ -28,7 +28,7 @@ use crate::{
 /// Holds the default on-chain environment used by the E2E tests
 pub struct RegistryTestContext {
     pub anvil: TestAnvil,
-    pub account_registry: Address,
+    pub world_id_registry: Address,
     pub credential_registry: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
@@ -43,14 +43,14 @@ impl RegistryTestContext {
         let deployer = anvil
             .signer(0)
             .wrap_err("failed to acquire default anvil signer")?;
-        let account_registry = anvil
-            .deploy_account_registry(deployer.clone())
+        let world_id_registry = anvil
+            .deploy_world_id_registry(deployer.clone())
             .await
-            .wrap_err("failed to deploy account registry")?;
+            .wrap_err("failed to deploy WorldIDRegistry")?;
         let credential_registry = anvil
             .deploy_credential_schema_issuer_registry(deployer.clone())
             .await
-            .wrap_err("failed to deploy credential registry")?;
+            .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer.clone()))
@@ -92,7 +92,7 @@ impl RegistryTestContext {
 
         Ok(Self {
             anvil,
-            account_registry,
+            world_id_registry,
             credential_registry,
             issuer_private_key,
             issuer_public_key,

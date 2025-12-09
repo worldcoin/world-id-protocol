@@ -5,13 +5,13 @@ use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
-use world_id_core::world_id_registry::{
-    domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator, WorldIDRegistry,
-};
 use world_id_core::types::{
     GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+};
+use world_id_core::world_id_registry::{
+    domain as ag_domain, sign_insert_authenticator, sign_recover_account,
+    sign_remove_authenticator, sign_update_authenticator, WorldIDRegistry,
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 
@@ -66,7 +66,7 @@ async fn e2e_gateway_full_flow() {
     let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
-        .deploy_account_registry(deployer)
+        .deploy_world_id_registry(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry");
     let rpc_url = anvil.endpoint().to_string();
