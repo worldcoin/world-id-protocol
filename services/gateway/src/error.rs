@@ -91,7 +91,15 @@ impl ErrorResponse {
     pub fn from_simulation_error(e: impl std::fmt::Display) -> Self {
         let error_str = e.to_string();
         let code = parse_contract_error(&error_str);
-        Self::new(code.clone(), code.to_string(), StatusCode::BAD_REQUEST)
+        // For recognized errors, use the code's display name as the message.
+        // For unrecognized errors (BadRequest), preserve the original error string
+        // so users can diagnose what actually failed.
+        let message = if matches!(code, ErrorCode::BadRequest) {
+            error_str
+        } else {
+            code.to_string()
+        };
+        Self::new(code, message, StatusCode::BAD_REQUEST)
     }
 }
 
