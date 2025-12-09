@@ -19,11 +19,11 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 use utoipa::{IntoParams, OpenApi, ToSchema};
-use world_id_core::world_id_registry::WorldIDRegistry;
 use world_id_core::types::{
     CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
+use world_id_core::world_id_registry::WorldIDRegistry;
 
 pub use crate::config::{GatewayConfig, SignerConfig};
 pub use crate::error::ErrorResponse;

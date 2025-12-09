@@ -5,16 +5,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::world_id_registry::WorldIDRegistry::{self, WorldIDRegistryInstance};
-use crate::world_id_registry::{
-    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
-};
 use crate::requests::ProofRequest;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
     IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+};
+use crate::world_id_registry::WorldIDRegistry::{self, WorldIDRegistryInstance};
+use crate::world_id_registry::{
+    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};

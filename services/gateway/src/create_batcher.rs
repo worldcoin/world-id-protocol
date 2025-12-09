@@ -3,8 +3,8 @@ use std::time::Duration;
 use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
-use world_id_core::world_id_registry::WorldIDRegistry;
 use world_id_core::types::CreateAccountRequest;
+use world_id_core::world_id_registry::WorldIDRegistry;
 
 use crate::{RequestState, RequestTracker};
 
