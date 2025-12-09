@@ -7425,6 +7425,7 @@ dependencies = [
  "ruint",
  "serde",
  "serde_json",
+ "sha3",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
  "taceo-circom-types",

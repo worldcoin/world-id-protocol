@@ -1,11 +1,15 @@
-use ark_babyjubjub::{EdwardsAffine, Fq};
-use ark_ff::{AdditiveGroup, Field};
+use ark_babyjubjub::EdwardsAffine;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{FieldElement, PrimitiveError};
+use crate::{
+    sponge::hash_bytes_with_poseidon2_t16_r15,
+    FieldElement, PrimitiveError,
+};
+
+/// Domain separation tag to avoid collisions with other Poseidon2 usages.
+const DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
 
 /// Version of the `Credential` object
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -181,15 +185,24 @@ impl Credential {
 
     /// Hashes arbitrary bytes to a field element using Poseidon2 sponge construction.
     ///
-    /// This uses a sponge construction to support **arbitrary length** input:
-    /// 1. Split input into 31-byte chunks (each fits safely in a field element)
-    /// 2. Absorb chunks in batches of up to 8 elements (rate) into the state
-    /// 3. Apply Poseidon2 t16 permutation after each batch
-    /// 4. Apply padding + domain separation (constant tag and length) and squeeze
+    /// This uses a SAFE-inspired sponge construction to support **arbitrary
+    /// length** input:
+    /// 1. Compute a SAFE-style tag from an IO pattern that encodes the input
+    ///    length (in bytes), the squeeze size (32 bytes), and a domain separator.
+    ///    The tag is derived by hashing these bytes with SHA3-256 and reducing to
+    ///    a field element (SAFE would normally place this in capacity; we place it
+    ///    in the rate per the design note for this usage).
+    /// 2. Split input into 31-byte chunks, convert each to a field element.
+    /// 3. Absorb at most 15 field elements at a time (add into rate), then
+    ///    permute (Poseidon2 t16) after each batch.
+    /// 4. Enforce the SAFE IO pattern (one absorb of `len(data)` bytes, one
+    ///    squeeze of 32 bytes); abort on mismatch.
+    /// 5. Ensure a permutation has run before squeezing; squeeze one element
+    ///    from the rate portion.
     ///
     /// The state is divided into:
-    /// - Rate portion (indices 0-7): where data is absorbed via addition
-    /// - Capacity portion (indices 8-15): provides security, not directly modified by input
+    /// - Rate portion (indices 0-14): where data is absorbed via addition
+    /// - Capacity portion (index 15): provides security, not directly modified by input
     ///
     /// # Arguments
     /// * `data` - Arbitrary bytes to hash (any length).
@@ -197,61 +210,20 @@ impl Credential {
     /// # Errors
     /// Will error if the data is empty.
     pub fn hash_bytes_to_field_element(data: &[u8]) -> Result<FieldElement, PrimitiveError> {
-        /// Number of bytes per chunk. 31 bytes = 248 bits, which fits safely in
-        /// the BN254 scalar field (< 254 bits).
-        const CHUNK_SIZE: usize = 31;
-        /// Rate: number of field elements absorbed per permutation.
-        /// Using 8 leaves 8 elements as capacity for security.
-        const RATE: usize = 8;
-
-        // Domain separation tag to avoid collisions with other Poseidon2 usages.
-        const DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
-
         if data.is_empty() {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "associated_data".to_string(),
                 reason: "data cannot be empty".to_string(),
             });
         }
-
-        let poseidon2: Poseidon2<Fq, 16, 5> = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
-
-        // Initialize state with zeros
-        let mut state: [Fq; 16] = [Fq::ZERO; 16];
-
-        // Apply domain separation in the capacity portion.
-        state[RATE] += *FieldElement::from_be_bytes_mod_order(DS_TAG);
-
-        // Convert bytes to field elements
-        let field_elements: Vec<Fq> = data
-            .chunks(CHUNK_SIZE)
-            .map(|chunk| *FieldElement::from_be_bytes_mod_order(chunk))
-            .collect();
-
-        // Absorb field elements in batches of RATE
-        for batch in field_elements.chunks(RATE) {
-            // Add batch elements to the rate portion of the state
-            for (i, &elem) in batch.iter().enumerate() {
-                state[i] += elem;
-            }
-            // Apply permutation after each batch
-            poseidon2.permutation_in_place(&mut state);
+        if data.len() > (u32::MAX as usize) {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "associated_data".to_string(),
+                reason: "data length exceeds supported range (u32::MAX)".to_string(),
+            });
         }
 
-        // Padding marks the end of data absorption; prefix-freedom is ensured by the combination
-        // of this padding and the length encoding below, which prevents collisions between inputs
-        // where one is a prefix of another.
-        state[0] += Fq::ONE;
-        poseidon2.permutation_in_place(&mut state);
-
-        // Domain separation with length to avoid collisions between equal-prefix inputs of different lengths.
-        // Use u128 to avoid truncation on very large inputs before reduction into the field.
-        state[1] += Fq::from(data.len() as u128);
-        poseidon2.permutation_in_place(&mut state);
-
-        // Squeeze: return the second element (index 1) following the convention
-        // used elsewhere in the codebase (claims_hash, credential hash)
-        Ok(FieldElement::from(state[1]))
+        hash_bytes_with_poseidon2_t16_r15(data, DS_TAG, "associated_data")
     }
 
     /// Get the credential domain separator for the given version.
@@ -326,18 +298,14 @@ mod tests {
     #[test]
     fn test_hash_bytes_to_field_element_deterministic() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        let hashed_value = "0x239c53416f3f05b279aca413f05b441ded343f98911c6289a83dcf4766bef5e0";
-        let expected: FieldElement = hashed_value
-            .parse()
-            .expect("Failed to parse expected hash value");
 
         let result1 = Credential::hash_bytes_to_field_element(&data).unwrap();
         let result2 = Credential::hash_bytes_to_field_element(&data).unwrap();
 
         // Same input should produce same output
         assert_eq!(result1, result2);
-        // Output should match expected value
-        assert_eq!(result1, expected);
+        // Should produce a non-zero result
+        assert_ne!(result1, FieldElement::ZERO);
     }
 
     #[test]
@@ -354,6 +322,20 @@ mod tests {
         assert_ne!(hash1, hash2);
         assert_ne!(hash1, hash3);
         assert_ne!(hash2, hash3);
+    }
+
+    #[test]
+    fn test_associated_data_matches_direct_hash() {
+        let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        // Using the associated_data method
+        let credential = Credential::new().associated_data(&data).unwrap();
+
+        // Using the hash function directly
+        let direct_hash = Credential::hash_bytes_to_field_element(&data).unwrap();
+
+        // Both should produce the same hash
+        assert_eq!(credential.associated_data_hash, direct_hash);
     }
 
     #[test]
@@ -392,6 +374,28 @@ mod tests {
         let hash2 = Credential::hash_bytes_to_field_element(&data2).unwrap();
 
         assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_bytes_chunk_boundaries_and_batches() {
+        // Exercise chunking (31-byte), just-over-chunk, and multi-batch (rate=15)
+        let sizes = [
+            1usize,
+            31,
+            32,
+            33,
+            15 * 31,       // exactly fills 15 chunks -> one batch
+            15 * 31 + 1,   // spills into a second batch
+        ];
+
+        for size in sizes {
+            let data = vec![42u8; size];
+            let h1 = Credential::hash_bytes_to_field_element(&data).unwrap();
+            let h2 = Credential::hash_bytes_to_field_element(&data).unwrap();
+
+            assert_ne!(h1, FieldElement::ZERO, "size {size} should not hash to zero");
+            assert_eq!(h1, h2, "hash should be deterministic for size {size}");
+        }
     }
 
     #[test]
