@@ -265,6 +265,12 @@ async fn create_account(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    if req.authenticator_addresses.iter().any(|a| a.is_zero()) {
+        return Err(ApiError::bad_request(
+            "authenticator address cannot be zero".to_string(),
+        ));
+    }
+
     // Simulate the account creation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     contract
