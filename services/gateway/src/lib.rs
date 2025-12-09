@@ -28,6 +28,9 @@ use world_id_core::types::{
 pub use crate::config::{GatewayConfig, SignerConfig};
 pub use crate::error::ErrorResponse;
 
+/// Maximum number of authenticators per account (matches contract default).
+const MAX_AUTHENTICATORS: u32 = 7;
+
 mod config;
 mod create_batcher;
 mod error;
@@ -378,6 +381,22 @@ async fn insert_authenticator(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    if req.leaf_index.is_zero() {
+        return Err(ApiError::bad_request(
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if req.pubkey_id >= MAX_AUTHENTICATORS {
+        return Err(ApiError::bad_request(format!(
+            "pubkey_id must be less than {MAX_AUTHENTICATORS}"
+        )));
+    }
+    if req.new_authenticator_address.is_zero() {
+        return Err(ApiError::bad_request(
+            "new_authenticator_address cannot be zero".to_string(),
+        ));
+    }
+
     // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     contract
@@ -440,6 +459,22 @@ async fn remove_authenticator(
 ) -> ApiResult<impl IntoResponse> {
     let pubkey_id = req.pubkey_id.unwrap_or(0);
     let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::from(0u64));
+
+    if req.leaf_index.is_zero() {
+        return Err(ApiError::bad_request(
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if pubkey_id >= MAX_AUTHENTICATORS {
+        return Err(ApiError::bad_request(format!(
+            "pubkey_id must be less than {MAX_AUTHENTICATORS}"
+        )));
+    }
+    if req.authenticator_address.is_zero() {
+        return Err(ApiError::bad_request(
+            "authenticator_address cannot be zero".to_string(),
+        ));
+    }
 
     // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
