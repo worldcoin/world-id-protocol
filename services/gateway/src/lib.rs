@@ -315,9 +315,6 @@ async fn update_authenticator(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let pubkey_id = req.pubkey_id.unwrap_or(0);
-    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
-
     // Simulate the operation before queueing to catch errors early
     let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     contract
@@ -325,8 +322,8 @@ async fn update_authenticator(
             req.leaf_index,
             req.old_authenticator_address,
             req.new_authenticator_address,
-            pubkey_id,
-            new_pubkey,
+            req.pubkey_id,
+            req.new_authenticator_pubkey,
             req.old_offchain_signer_commitment,
             req.new_offchain_signer_commitment,
             Bytes::from(req.signature.clone()),
@@ -352,8 +349,8 @@ async fn update_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id,
-            new_pubkey,
+            pubkey_id: req.pubkey_id,
+            new_pubkey: req.new_authenticator_pubkey,
         },
     };
 

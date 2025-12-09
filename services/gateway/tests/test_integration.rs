@@ -392,8 +392,8 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_upd.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(0),
-        new_authenticator_pubkey: Some(U256::from(400)),
+        pubkey_id: 0,
+        new_authenticator_pubkey: U256::from(400),
     };
     let resp = client
         .post(format!("{}/update-authenticator", base))

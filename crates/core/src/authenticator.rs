@@ -614,8 +614,8 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(index),
-            new_authenticator_pubkey: Some(encoded_offchain_pubkey),
+            pubkey_id: index,
+            new_authenticator_pubkey: encoded_offchain_pubkey,
         };
 
         let resp = self

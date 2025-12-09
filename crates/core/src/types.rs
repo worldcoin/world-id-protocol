@@ -74,13 +74,13 @@ pub struct UpdateAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub nonce: U256,
     /// The pubkey id.
-    #[serde(default, with = "hex_u32_opt")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
-    pub pubkey_id: Option<u32>,
+    #[serde(with = "hex_u32")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub pubkey_id: u32,
     /// The new authenticator pubkey.
-    #[serde(default, with = "hex_u256_opt")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
-    pub new_authenticator_pubkey: Option<U256>,
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub new_authenticator_pubkey: U256,
 }
 
 /// The request to insert an authenticator.
