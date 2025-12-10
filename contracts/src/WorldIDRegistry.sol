@@ -11,6 +11,11 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 
 import {PackedAccountData} from "./lib/PackedAccountData.sol";
 
+/**
+ * @title WorldIDRegistry
+ * @author World Contributors
+ * @dev The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
+ */
 contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
 

@@ -8,9 +8,10 @@ use alloy::{
 };
 
 sol!(
-    #[allow(missing_docs, clippy::too_many_arguments)]
+    /// The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
+    #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    WorldIDRegistry,
+    WorldIdRegistry,
     "contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
 );
 
@@ -52,7 +53,7 @@ sol! {
     }
 }
 
-/// Returns the EIP-712 domain used by the `WorldIDRegistry` contract
+/// Returns the EIP-712 domain used by the `[WorldIdRegistry]` contract
 /// for a given `chain_id` and `verifying_contract` address.
 #[must_use]
 pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {

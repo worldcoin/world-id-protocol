@@ -3,7 +3,7 @@ use std::time::Duration;
 use alloy::primitives::{address, Address, Bytes, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
-use world_id_core::world_id_registry::WorldIDRegistry;
+use world_id_core::world_id_registry::WorldIdRegistry;
 
 use crate::error::{parse_contract_error, ErrorCode};
 use crate::{RequestState, RequestTracker};
@@ -109,7 +109,7 @@ impl OpsBatcherRunner {
 
     pub async fn run(mut self) {
         let provider = self.provider.clone();
-        let contract = WorldIDRegistry::new(self.registry, provider.clone());
+        let contract = WorldIdRegistry::new(self.registry, provider.clone());
         let mc = Multicall3::new(MULTICALL3_ADDR, provider);
 
         loop {

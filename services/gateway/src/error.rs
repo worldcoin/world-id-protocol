@@ -1,12 +1,12 @@
 use alloy::sol_types::SolError;
 use axum::{http::StatusCode, response::IntoResponse};
 
-use world_id_core::account_registry::AccountRegistry::{
+pub use world_id_core::types::GatewayErrorCode as ErrorCode;
+use world_id_core::types::ServiceApiError;
+use world_id_core::world_id_registry::WorldIdRegistry::{
     AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
     AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
-pub use world_id_core::types::GatewayErrorCode as ErrorCode;
-use world_id_core::types::ServiceApiError;
 
 pub type ErrorBody = ServiceApiError<ErrorCode>;
 

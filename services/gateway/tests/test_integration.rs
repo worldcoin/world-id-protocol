@@ -11,7 +11,7 @@ use world_id_core::types::{
 };
 use world_id_core::world_id_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator, WorldIDRegistry,
+    sign_remove_authenticator, sign_update_authenticator, WorldIdRegistry,
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 
@@ -96,7 +96,7 @@ async fn e2e_gateway_full_flow() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = WorldIDRegistry::new(registry_addr, provider.clone());
+    let contract = WorldIdRegistry::new(registry_addr, provider.clone());
 
     // First, create the initial account through the API so tree depth stays 0 for following ops
     let body_create = serde_json::json!({
@@ -145,7 +145,7 @@ async fn e2e_gateway_full_flow() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = WorldIDRegistry::new(registry_addr, provider.clone());
+    let contract = WorldIdRegistry::new(registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
         .authenticatorAddressToPackedAccountData(wallet_addr)
@@ -446,10 +446,7 @@ async fn e2e_gateway_full_flow() {
 async fn test_authenticator_already_exists_error_code() {
     let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
-    let registry_addr = anvil
-        .deploy_account_registry(deployer)
-        .await
-        .expect("failed to deploy AccountRegistry");
+    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
     let rpc_url = anvil.endpoint().to_string();
 
     let signer = PrivateKeySigner::random();
@@ -475,7 +472,7 @@ async fn test_authenticator_already_exists_error_code() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = AccountRegistry::new(registry_addr, provider.clone());
+    let contract = WorldIdRegistry::new(registry_addr, provider.clone());
 
     // Create account with wallet_addr as authenticator
     let body_create = serde_json::json!({
@@ -578,10 +575,7 @@ async fn test_authenticator_already_exists_error_code() {
 async fn test_same_authenticator_different_accounts() {
     let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
-    let registry_addr = anvil
-        .deploy_account_registry(deployer)
-        .await
-        .expect("failed to deploy AccountRegistry");
+    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
     let rpc_url = anvil.endpoint().to_string();
 
     let signer = PrivateKeySigner::random();

@@ -12,7 +12,7 @@ use crate::types::{
     IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
-use crate::world_id_registry::WorldIDRegistry::{self, WorldIDRegistryInstance};
+use crate::world_id_registry::WorldIdRegistry::{self, WorldIdRegistryInstance};
 use crate::world_id_registry::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
@@ -54,7 +54,7 @@ pub struct Authenticator {
     /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
     pub packed_account_data: U256,
     signer: Signer,
-    registry: Option<Arc<WorldIDRegistryInstance<DynProvider>>>,
+    registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
 }
 
@@ -77,7 +77,7 @@ impl Authenticator {
                 let provider = ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(WorldIDRegistry::new(
+                Some(WorldIdRegistry::new(
                     *config.registry_address(),
                     provider.erased(),
                 ))
@@ -236,7 +236,7 @@ impl Authenticator {
     /// Will error if the network call fails or if the account does not exist.
     pub async fn get_packed_account_data(
         onchain_signer_address: Address,
-        registry: Option<&WorldIDRegistryInstance<DynProvider>>,
+        registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,
         http_client: &reqwest::Client,
     ) -> Result<U256, AuthenticatorError> {
@@ -285,7 +285,7 @@ impl Authenticator {
     }
 
     /// Returns the k256 public key of the Authenticator signer which is used to verify on-chain operations,
-    /// chiefly with the `WorldIDRegistry` contract.
+    /// chiefly with the `WorldIdRegistry` contract.
     #[must_use]
     pub const fn onchain_address(&self) -> Address {
         self.signer.onchain_signer_address()
@@ -310,9 +310,9 @@ impl Authenticator {
         Ok(U256::from_le_slice(&compressed_bytes))
     }
 
-    /// Returns a reference to the `WorldIDRegistry` contract instance.
+    /// Returns a reference to the `WorldIdRegistry` contract instance.
     #[must_use]
-    pub fn registry(&self) -> Option<Arc<WorldIDRegistryInstance<DynProvider>>> {
+    pub fn registry(&self) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
         self.registry.clone()
     }
 

@@ -7,7 +7,7 @@ use alloy::primitives::{address, Address, U256};
 use alloy::providers::ProviderBuilder;
 use sqlx::{postgres::PgPoolOptions, Executor, PgPool};
 use test_utils::anvil::TestAnvil;
-use world_id_core::world_id_registry::WorldIDRegistry;
+use world_id_core::world_id_registry::WorldIdRegistry;
 
 pub const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 const TEST_DB_NAME: &str = "indexer_tests";
@@ -60,7 +60,7 @@ impl TestSetup {
 
     pub async fn create_account(&self, auth_addr: Address, pubkey: U256, commitment: u64) {
         let deployer = self._anvil.signer(0).unwrap();
-        let registry = WorldIDRegistry::new(
+        let registry = WorldIdRegistry::new(
             self.registry_address,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(deployer))
@@ -83,7 +83,7 @@ impl TestSetup {
 
     pub async fn get_root(&self) -> U256 {
         let deployer = self._anvil.signer(0).unwrap();
-        let registry = WorldIDRegistry::new(
+        let registry = WorldIdRegistry::new(
             self.registry_address,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(deployer))
