@@ -39,6 +39,9 @@ pub use config::Config;
 /// These types are used to prepare the inputs for the Groth16 circuits.
 pub mod circuit_inputs;
 
+/// SAFE-style sponge utilities and helpers.
+pub mod sponge;
+
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
 pub use credential::{Credential, CredentialVersion};
