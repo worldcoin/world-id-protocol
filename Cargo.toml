@@ -10,7 +10,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "0.1.3"
+version = "0.2.0"
 license = "MIT"
 authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
 homepage = "https://docs.world.org/world-id"
@@ -22,31 +22,31 @@ alloy = { version = "1", default-features = false }
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false, features = ["babyjubjub"] } 
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false, features = ["babyjubjub"] }
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 circom-witness-rs = "0.2.1"
-circom-types = { package="taceo-circom-types", version = "0.1", default-features = false } 
+circom-types = { package="taceo-circom-types", version = "0.1", default-features = false }
 criterion = "0.7"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5" }
 eyre = "0.6"
 futures = "0.3"
-groth16-material = { package="taceo-groth16-material", version="0.1", default-features = false } 
+groth16-material = { package="taceo-groth16-material", version="0.1", default-features = false }
 hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
 oprf-core = { package = "taceo-oprf-core", version="0.1", default-features = false }
-oprf-types = { package = "taceo-oprf-types", version="0.1" } 
+oprf-types = { package = "taceo-oprf-types", version="0.1" }
 ruint = { version = "1.16", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
 rand = "0.8"
 rand_chacha = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-strum = "0.27"
+strum = { version = "0.27", features = ["derive"] }
 thiserror = "1"
 tokio = { version = "1", default-features = false }
 tracing = "0.1"
@@ -55,6 +55,6 @@ url = { version = "2" }
 utoipa = "5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1" }
-world-id-core = { version = "0.1.3", default-features = false, path = "crates/core"}
-world-id-primitives = { version = "0.1.3", path = "crates/primitives"}
+world-id-core = { version = "0.2.0", default-features = false, path = "crates/core"}
+world-id-primitives = { version = "0.2.0", path = "crates/primitives"}
 zeroize = "1"

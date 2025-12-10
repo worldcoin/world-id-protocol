@@ -34,6 +34,7 @@ thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 poseidon2 = { workspace = true }
+sha3 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 ciborium = "0.2.2"

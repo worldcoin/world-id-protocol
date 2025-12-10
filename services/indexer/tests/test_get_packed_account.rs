@@ -67,7 +67,7 @@ async fn test_packed_account_endpoint() {
 
     // Test successful lookup
     let resp = client
-        .post("http://127.0.0.1:8083/packed_account")
+        .post("http://127.0.0.1:8083/packed-account")
         .json(&serde_json::json!({
             "authenticator_address": auth_addr
         }))
@@ -77,14 +77,14 @@ async fn test_packed_account_endpoint() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let json: serde_json::Value = resp.json().await.unwrap();
-    let packed_account_index = json["packed_account_index"].as_str().unwrap();
+    let packed_account_data = json["packed_account_data"].as_str().unwrap();
 
     // Account index 1 should map to packed account index of 1
-    assert_eq!(packed_account_index, "0x1");
+    assert_eq!(packed_account_data, "0x1");
 
     // Test non-existent authenticator address
     let resp = client
-        .post("http://127.0.0.1:8083/packed_account")
+        .post("http://127.0.0.1:8083/packed-account")
         .json(&serde_json::json!({
             "authenticator_address": "0x0000000000000000000000000000000000000099"
         }))

@@ -1,6 +1,7 @@
 # 🚧 WIP: world-id-protocol
 
-> This project is work in progress and unaudited. DO NOT USE IN PRODUCTION.
+> [!CAUTION]
+> This project is work in progress and unaudited. DO NOT USE IN PRODUCTION. Releases may contain breaking changes at any time.
 
 Monorepo containing:
 
@@ -27,51 +28,29 @@ Monorepo containing:
 
 | Contract / Service               | Address                                               |
 | -------------------------------- | ----------------------------------------------------- |
-| `AccountRegistry`                | `0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2`          |
+| `AccountRegistry`                | `0xb64a1F443C9a18Cd3865C3c9Be871946617C0d75`          |
 | `CredentialSchemaIssuerRegistry` | `0xCd987d2C973B099FD291Bf5AF332031Dc980a96B`          |
 | `world-id-indexer`               | `https://world-id-indexer.stage-crypto.worldcoin.org` |
 | `world-id-gateway`               | `https://world-id-gateway.stage-crypto.worldcoin.org` |
 
-## Make targets
+## 🚀 Releasing
 
-Use the provided Makefile:
+Versioning and releases are managed separately for crates and services.
 
-- `make help`: Show all available targets with descriptions
-- `make build`: Build Rust workspace and Solidity contracts
-- `make fmt`: Format Rust and Solidity
-- `make lint`: Run Rust clippy (fails on warnings)
-- `make test`: Run both Rust and Solidity tests
-- `make rust-build`: `cargo build --workspace`
-- `make rust-test`: `cargo test --workspace`
-- `make rust-fmt`: `cargo fmt --all`
-- `make rust-clippy`: `cargo clippy --workspace --all-targets -D warnings`
-- `make run-indexer`: Run `world-id-indexer`
-- `make run-gateway`: Run `world-id-gateway` (defaults to 127.0.0.1:4000)
-- `make sol-build`: `forge build` in `contracts/`
-- `make sol-test`: `forge test -vvv` in `contracts/`
-- `make sol-fmt`: `forge fmt` in `contracts/`
+### Crates
 
-## Solidity contracts
+Crate releases (`world-id-core`, `world-id-primitives`) are automated using `release-plz`.
 
-Foundry project under `contracts/`.
+**How it works:**
 
-Common commands:
+1. Commits to `main` follow [conventional commits](https://www.conventionalcommits.org/). To override the version, simply update the PR.
+2. release-plz creates/updates a release PR with:
+   - Version bumps in `Cargo.toml` files
+   - Updated `CHANGELOG.md` for each crate
+3. When the release PR is merged:
+   - Crates are published to [crates.io](https://crates.io) using trusted publishing
+   - GitHub releases are created for each updated crate (e.g., `world-id-core-v0.2.0`)
 
-```
-cd contracts
-forge build
-forge test -vvv
-forge fmt
-```
+### Services
 
-## Development
-
-- Build everything: `make build`
-- Test Rust: `make rust-test`; Test Solidity: `make sol-test`; Both: `make test`
-- Format: `make fmt`
-- Lint: `make lint`
-
-## Notes
-
-- This codebase is unaudited. Do not use in production.
-- Ensure RPC and Postgres credentials are correct before running services.
+Information coming soon.

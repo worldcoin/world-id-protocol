@@ -5,6 +5,7 @@ use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
 use world_id_core::account_registry::AccountRegistry;
 
+use crate::error::{parse_contract_error, ErrorCode};
 use crate::{RequestState, RequestTracker};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
@@ -27,7 +28,7 @@ pub struct OpsBatcherHandle {
 #[derive(Debug)]
 pub enum OpKind {
     Update {
-        account_index: U256,
+        leaf_index: U256,
         old_authenticator_address: Address,
         new_authenticator_address: Address,
         old_commit: U256,
@@ -39,7 +40,7 @@ pub enum OpKind {
         new_pubkey: U256,
     },
     Insert {
-        account_index: U256,
+        leaf_index: U256,
         new_authenticator_address: Address,
         old_commit: U256,
         new_commit: U256,
@@ -50,7 +51,7 @@ pub enum OpKind {
         new_pubkey: U256,
     },
     Remove {
-        account_index: U256,
+        leaf_index: U256,
         authenticator_address: Address,
         old_commit: U256,
         new_commit: U256,
@@ -61,7 +62,7 @@ pub enum OpKind {
         authenticator_pubkey: U256,
     },
     Recover {
-        account_index: U256,
+        leaf_index: U256,
         new_authenticator_address: Address,
         old_commit: U256,
         new_commit: U256,
@@ -116,6 +117,7 @@ impl OpsBatcherRunner {
                 tracing::info!("ops batcher channel closed");
                 return;
             };
+
             let mut batch = vec![first];
             let deadline = tokio::time::Instant::now() + self.window;
 
@@ -142,7 +144,7 @@ impl OpsBatcherRunner {
             for env in &batch {
                 let data: alloy::primitives::Bytes = match &env.kind {
                     OpKind::Update {
-                        account_index,
+                        leaf_index,
                         old_authenticator_address,
                         new_authenticator_address,
                         old_commit,
@@ -154,7 +156,7 @@ impl OpsBatcherRunner {
                         new_pubkey,
                     } => contract
                         .updateAuthenticator(
-                            *account_index,
+                            *leaf_index,
                             *old_authenticator_address,
                             *new_authenticator_address,
                             *pubkey_id,
@@ -168,7 +170,7 @@ impl OpsBatcherRunner {
                         .calldata()
                         .clone(),
                     OpKind::Insert {
-                        account_index,
+                        leaf_index,
                         new_authenticator_address,
                         old_commit,
                         new_commit,
@@ -179,7 +181,7 @@ impl OpsBatcherRunner {
                         new_pubkey,
                     } => contract
                         .insertAuthenticator(
-                            *account_index,
+                            *leaf_index,
                             *new_authenticator_address,
                             *pubkey_id,
                             *new_pubkey,
@@ -192,7 +194,7 @@ impl OpsBatcherRunner {
                         .calldata()
                         .clone(),
                     OpKind::Remove {
-                        account_index,
+                        leaf_index,
                         authenticator_address,
                         old_commit,
                         new_commit,
@@ -203,7 +205,7 @@ impl OpsBatcherRunner {
                         authenticator_pubkey,
                     } => contract
                         .removeAuthenticator(
-                            *account_index,
+                            *leaf_index,
                             *authenticator_address,
                             *pubkey_id,
                             *authenticator_pubkey,
@@ -216,7 +218,7 @@ impl OpsBatcherRunner {
                         .calldata()
                         .clone(),
                     OpKind::Recover {
-                        account_index,
+                        leaf_index,
                         new_authenticator_address,
                         old_commit,
                         new_commit,
@@ -226,7 +228,7 @@ impl OpsBatcherRunner {
                         new_pubkey,
                     } => contract
                         .recoverAccount(
-                            *account_index,
+                            *leaf_index,
                             *new_authenticator_address,
                             *new_pubkey,
                             *old_commit,
@@ -276,11 +278,12 @@ impl OpsBatcherRunner {
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::Failed {
-                                                error: format!(
+                                            RequestState::failed(
+                                                format!(
                                                     "transaction reverted on-chain (tx: {hash})"
                                                 ),
-                                            },
+                                                Some(ErrorCode::TransactionReverted),
+                                            ),
                                         )
                                         .await;
                                 }
@@ -289,9 +292,10 @@ impl OpsBatcherRunner {
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::Failed {
-                                            error: format!("transaction confirmation error: {err}"),
-                                        },
+                                        RequestState::failed(
+                                            format!("transaction confirmation error: {err}"),
+                                            Some(ErrorCode::ConfirmationError),
+                                        ),
                                     )
                                     .await;
                             }
@@ -300,13 +304,10 @@ impl OpsBatcherRunner {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "multicall3 send failed");
+                    let error_str = e.to_string();
+                    let code = parse_contract_error(&error_str);
                     self.tracker
-                        .set_status_batch(
-                            &ids,
-                            RequestState::Failed {
-                                error: e.to_string(),
-                            },
-                        )
+                        .set_status_batch(&ids, RequestState::failed(error_str, Some(code)))
                         .await;
                 }
             }

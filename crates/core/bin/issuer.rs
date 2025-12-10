@@ -11,11 +11,14 @@ static EXPIRATION_TIME: u64 = 3600;
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut rng = rand::thread_rng();
-    let user_id: u64 = args().nth(1).expect("user_id is required").parse::<u64>()?;
+    let leaf_index: u64 = args()
+        .nth(1)
+        .expect("leaf_index is required")
+        .parse::<u64>()?;
     let sk = EdDSAPrivateKey::random(&mut rng);
     let current_timestamp = Utc::now().timestamp() as u64;
     let credential = Credential::new()
-        .account_id(user_id)
+        .sub(leaf_index)
         .issuer_schema_id(ISSUER_SCHEMA_ID)
         .genesis_issued_at(current_timestamp)
         .expires_at(current_timestamp + EXPIRATION_TIME)

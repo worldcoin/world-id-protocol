@@ -29,6 +29,7 @@ async fn test_authenticator_registration() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        redis_url: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -63,10 +64,10 @@ async fn test_authenticator_registration() {
             .unwrap();
     let elapsed = start.elapsed();
     println!("Account creation successful in {elapsed:?}");
-    assert_eq!(authenticator.account_id(), U256::from(1));
+    assert_eq!(authenticator.leaf_index(), U256::from(1));
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 
     // If we initialize again, it will work
     let authenticator = Authenticator::init(&seed, config).await.unwrap();
-    assert_eq!(authenticator.account_id(), U256::from(1));
+    assert_eq!(authenticator.leaf_index(), U256::from(1));
 }

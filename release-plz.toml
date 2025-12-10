@@ -1,0 +1,37 @@
+[workspace]
+# Automatically create GitHub releases for each package
+# This creates tags like: world-id-core-v0.1.4, world-id-primitives-v0.1.2
+# Services can have their own release process with tags like: indexer-v1.0.0
+git_release_enable = true
+git_release_type = "auto"
+# Don't update workspace-level changelog - each package has its own
+changelog_update = false
+pr_labels = ["release"]
+
+# Publish only specific packages to crates.io
+# Services (indexer, gateway) are not published to crates.io
+[[package]]
+name = "world-id-core"
+publish = true
+# Each crate maintains its own changelog
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+
+[[package]]
+name = "world-id-primitives"
+publish = true
+# Each crate maintains its own changelog
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+
+[[package]]
+name = "test-utils"
+publish = false
+
+[[package]]
+name = "world-id-indexer"
+publish = false
+
+[[package]]
+name = "world-id-gateway"
+publish = false
