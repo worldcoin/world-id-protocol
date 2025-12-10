@@ -3,8 +3,8 @@ use alloy::primitives::{address, Address, Bytes, TxKind, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
-use alloy::sol;
 use alloy::sol_types::SolCall;
+use alloy::{sol, uint};
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
 use oprf_types::OprfKeyId;
@@ -330,6 +330,8 @@ impl TestAnvil {
                 _keygenAdmin: signer.address(),
                 _keyGenVerifierAddress: *key_gen_verifier.address(),
                 _accumulatorAddress: *babyjubjub.address(),
+                _threshold: uint!(2_U256),
+                _numPeers: uint!(3_U256),
             }
             .abi_encode(),
         );

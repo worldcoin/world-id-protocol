@@ -7,6 +7,7 @@ use std::{
 
 use alloy::primitives::U256;
 use eyre::{eyre, Context as _, Result};
+use oprf_types::ShareEpoch;
 use test_utils::{
     fixtures::{
         build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
@@ -51,7 +52,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // deploy the OprfKeyRegistry
     let oprf_registry = anvil.deploy_oprf_key_registry(deployer.clone()).await?;
     // signers must match the ones used in the TestSecretManager
-    let oprf_node_signers = [anvil.signer(7)?, anvil.signer(8)?, anvil.signer(9)?];
+    let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
     anvil
         .register_oprf_nodes(
             oprf_registry,
@@ -142,7 +143,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let secret_managers = test_utils::oprf_test::create_secret_managers();
+    let secret_managers = test_utils::oprf_test::create_3_secret_managers();
     // OPRF key-gen instances
     test_utils::stubs::spawn_key_gens(anvil.ws_endpoint(), secret_managers.clone(), oprf_registry)
         .await;
@@ -159,6 +160,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let oprf_key_id = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;
     let oprf_public_key = test_utils::oprf_test::health_checks::oprf_public_key_from_services(
         oprf_key_id,
+        ShareEpoch::default(),
         &nodes,
         Duration::from_secs(60),
     )

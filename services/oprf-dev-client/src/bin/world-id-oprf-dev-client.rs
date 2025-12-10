@@ -518,6 +518,7 @@ async fn main() -> eyre::Result<()> {
         let oprf_key_id = OprfKeyId::new(oprf_key_id);
         let oprf_public_key = oprf_test::health_checks::oprf_public_key_from_services(
             oprf_key_id,
+            ShareEpoch::default(),
             &config.services,
             Duration::from_secs(10), // should already be there
         )
@@ -532,6 +533,7 @@ async fn main() -> eyre::Result<()> {
         tracing::info!("registered OPRF key with: {oprf_key_id}");
         let oprf_public_key = oprf_test::health_checks::oprf_public_key_from_services(
             oprf_key_id,
+            ShareEpoch::default(),
             &config.services,
             config.max_wait_time_key_gen,
         )

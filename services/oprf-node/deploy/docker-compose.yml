@@ -19,7 +19,7 @@ services:
       POSTGRES_DB: postgres
   oprf-key-gen0:
     container_name: "oprf-key-gen0"
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-6ffd9fdcebd0dcc2aa89426346e5441b53cb537e
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-887b6564ea4a75a6d4b66959930005aedb1ddd11
     network_mode: "host"
     environment:
       OPRF_NODE_ENVIRONMENT: dev
@@ -31,7 +31,7 @@ services:
       OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
   oprf-key-gen1:
     container_name: "oprf-key-gen1"
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-6ffd9fdcebd0dcc2aa89426346e5441b53cb537e
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-887b6564ea4a75a6d4b66959930005aedb1ddd11
     network_mode: "host"
     environment:
       OPRF_NODE_ENVIRONMENT: dev
@@ -43,7 +43,7 @@ services:
       OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
   oprf-key-gen2:
     container_name: "oprf-key-gen2"
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-6ffd9fdcebd0dcc2aa89426346e5441b53cb537e
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-887b6564ea4a75a6d4b66959930005aedb1ddd11
     network_mode: "host"
     environment:
       OPRF_NODE_ENVIRONMENT: dev
