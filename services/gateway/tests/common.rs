@@ -42,7 +42,7 @@ pub(crate) async fn wait_for_finalized(client: &Client, port: u16, request_id: &
         let body: GatewayStatusResponse = resp.json().await.unwrap();
         match body.status {
             GatewayRequestState::Finalized { tx_hash } => return tx_hash,
-            GatewayRequestState::Failed { error } => {
+            GatewayRequestState::Failed { error, .. } => {
                 panic!("request {request_id} failed: {error}");
             }
             _ => {

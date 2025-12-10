@@ -36,7 +36,7 @@ async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {
         let body: GatewayStatusResponse = resp.json().await.unwrap();
         match body.status {
             GatewayRequestState::Finalized { .. } => return,
-            GatewayRequestState::Failed { error } => panic!("request failed: {error}"),
+            GatewayRequestState::Failed { error, .. } => panic!("request failed: {error}"),
             _ => {
                 if std::time::Instant::now() > deadline {
                     panic!("timeout waiting for request to finalize");
