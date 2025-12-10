@@ -7,7 +7,6 @@ use std::{
 
 use alloy::primitives::U256;
 use eyre::{eyre, Context as _, Result};
-use oprf_types::crypto::RpNullifierKey;
 use test_utils::{
     fixtures::{
         build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
@@ -15,9 +14,16 @@ use test_utils::{
     },
     stubs::{spawn_indexer_stub, spawn_oprf_stub},
 };
-use world_id_core::{Authenticator, AuthenticatorError, HashableCredential};
+use world_id_core::{
+    requests::{ProofRequest, RequestItem, RequestVersion},
+    Authenticator, AuthenticatorError, HashableCredential,
+};
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
-use world_id_primitives::{merkle::AccountInclusionProof, Config, FieldElement, TREE_DEPTH};
+use world_id_primitives::{
+    merkle::AccountInclusionProof,
+    rp::{RpId, RpNullifierKey},
+    Config, FieldElement, TREE_DEPTH,
+};
 
 const GW_PORT: u16 = 4104;
 
@@ -50,6 +56,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        redis_url: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -166,21 +173,33 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to hash credential prior to signing")?;
     credential.signature = Some(issuer_sk.sign(*credential_hash));
 
-    let rp_request = world_id_core::types::RpRequest {
-        rp_id: rp_fixture.oprf_rp_id.into_inner().to_string(),
+    // Create a ProofRequest
+    let proof_request = ProofRequest {
+        id: "test_request".to_string(),
+        version: RequestVersion::V1,
+        created_at: rp_fixture.current_timestamp,
+        expires_at: rp_fixture.current_timestamp + 300, // 5 minutes from now
+        rp_id: RpId::from(rp_fixture.oprf_rp_id.into_inner()),
+        action: rp_fixture.action.into(),
         rp_nullifier_key: RpNullifierKey::new(rp_fixture.rp_nullifier_point),
         signature: rp_fixture.signature,
-        current_time_stamp: rp_fixture.current_timestamp,
-        action_id: rp_fixture.action.into(),
         nonce: rp_fixture.nonce.into(),
+        requests: vec![RequestItem {
+            identifier: "test_credential".to_string(),
+            issuer_schema_id: issuer_schema_id_u64.into(),
+            signal: Some("my_signal".to_string()),
+        }],
+        constraints: None,
     };
 
     // Call generate_proof and ensure a nullifier is produced.
     let (_proof, nullifier) = authenticator
-        .generate_proof(rp_fixture.signal_hash, rp_request, credential)
+        .generate_proof(proof_request, credential)
         .await
         .wrap_err("failed to generate proof")?;
     assert_ne!(nullifier, FieldElement::ZERO);
+
+    // FIXME: verify proof with verifier contract
 
     indexer_handle.abort();
     oprf_server.join_handle.abort();

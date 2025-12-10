@@ -8,7 +8,8 @@ use alloy::{
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, PrimeField, UniformRand};
+use ark_ff::{PrimeField, UniformRand};
+use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{eyre, Context as _, Result};
 use k256::ecdsa::{signature::Signer, Signature, SigningKey};
@@ -153,7 +154,6 @@ pub struct RpFixture {
     pub nonce: Fq,
     pub current_timestamp: u64,
     pub signature: Signature,
-    pub signal_hash: FieldElement,
     pub rp_session_id_r_seed: FieldElement,
     pub signing_key: SigningKey,
     pub rp_secret: Fr,
@@ -175,12 +175,11 @@ pub fn generate_rp_fixture() -> RpFixture {
         .as_secs();
 
     let mut msg = Vec::new();
-    msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_timestamp.to_le_bytes());
+    nonce.serialize_compressed(&mut msg).unwrap();
+    msg.extend(current_timestamp.to_be_bytes());
     let signing_key = SigningKey::random(&mut rng);
     let signature = signing_key.sign(&msg);
 
-    let signal_hash = FieldElement::from(Fq::rand(&mut rng));
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
 
     let rp_secret = Fr::rand(&mut rng);
@@ -194,7 +193,6 @@ pub fn generate_rp_fixture() -> RpFixture {
         nonce,
         current_timestamp,
         signature,
-        signal_hash,
         rp_session_id_r_seed,
         signing_key,
         rp_secret,

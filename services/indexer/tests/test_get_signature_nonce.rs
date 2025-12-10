@@ -67,7 +67,7 @@ async fn test_signature_nonce_endpoint() {
 
     // Test successful lookup for account index 1
     let resp = client
-        .post("http://127.0.0.1:8084/signature_nonce")
+        .post("http://127.0.0.1:8084/signature-nonce")
         .json(&serde_json::json!({
             "leaf_index": "0x1"
         }))
@@ -84,7 +84,7 @@ async fn test_signature_nonce_endpoint() {
 
     // Test zero account index (should fail)
     let resp = client
-        .post("http://127.0.0.1:8084/signature_nonce")
+        .post("http://127.0.0.1:8084/signature-nonce")
         .json(&serde_json::json!({
             "leaf_index": "0x0"
         }))

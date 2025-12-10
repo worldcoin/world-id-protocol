@@ -1,7 +1,7 @@
 {
   "rpc_url": "http://localhost:8545",
   "chain_id": 31337,
-  "registry_address": "0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2",
+  "registry_address": "0xc9A0165FA64fD336035C7D9183C211034E8021B3",
   "indexer_url": "http://localhost:8080",
   "gateway_url": "http://localhost:8081",
   "nullifier_oracle_urls": [

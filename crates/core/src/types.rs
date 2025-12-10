@@ -2,44 +2,21 @@
 #[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
+use serde::{Deserialize, Serialize};
+
 #[cfg(feature = "authenticator")]
-use serde::Serialize;
-
-use serde::Deserialize;
-
+use alloy::primitives::Address;
 #[cfg(feature = "authenticator")]
 use strum::EnumString;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
-pub use world_id_primitives::merkle::AccountInclusionProof;
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use world_id_primitives::FieldElement;
-
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use alloy::signers::k256::ecdsa::Signature;
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-use oprf_types::crypto::RpNullifierKey;
 
 #[cfg(feature = "authenticator")]
-use alloy::primitives::Address;
+use world_id_primitives::serde_utils::{
+    hex_u256, hex_u256_opt, hex_u256_vec, hex_u32, hex_u32_opt,
+};
 
-/// The request to register an action for an RP.
-#[cfg(any(feature = "authenticator", feature = "rp"))]
-#[derive(Serialize, Deserialize)]
-pub struct RpRequest {
-    /// The ID of the RP.
-    pub rp_id: String,
-    /// The nullifier key of the RP.
-    pub rp_nullifier_key: RpNullifierKey,
-    /// The signature of the RP.
-    pub signature: Signature,
-    /// The current timestamp.
-    pub current_time_stamp: u64,
-    /// The action ID.
-    pub action_id: FieldElement,
-    /// The nonce.
-    pub nonce: FieldElement,
-}
+pub use world_id_primitives::merkle::AccountInclusionProof;
 
 /// The request to create a new World ID account.
 #[cfg(feature = "authenticator")]
@@ -53,10 +30,12 @@ pub struct CreateAccountRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_addresses: Vec<Address>,
     /// The compressed public keys of the authenticators.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
+    #[serde(with = "hex_u256_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_pubkeys: Vec<U256>,
     /// The offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub offchain_signer_commitment: U256,
 }
 
@@ -66,7 +45,8 @@ pub struct CreateAccountRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateAuthenticatorRequest {
     /// The account index.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub leaf_index: U256,
     /// The old authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -75,26 +55,32 @@ pub struct UpdateAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
+    #[serde(with = "hex_u256_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub sibling_nodes: Vec<U256>,
     /// The signature.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
     /// The nonce.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub nonce: U256,
     /// The pubkey id.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub pubkey_id: Option<u32>,
+    #[serde(with = "hex_u32")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub pubkey_id: u32,
     /// The new authenticator pubkey.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
-    pub new_authenticator_pubkey: Option<U256>,
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub new_authenticator_pubkey: U256,
 }
 
 /// The request to insert an authenticator.
@@ -103,31 +89,38 @@ pub struct UpdateAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InsertAuthenticatorRequest {
     /// The account index.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub leaf_index: U256,
     /// The new authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
+    #[serde(with = "hex_u256_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub sibling_nodes: Vec<U256>,
     /// The signature.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
     /// The nonce.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub nonce: U256,
     /// The pubkey id.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u32")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub pubkey_id: u32,
     /// The new authenticator pubkey.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_pubkey: U256,
 }
 
@@ -137,31 +130,38 @@ pub struct InsertAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RemoveAuthenticatorRequest {
     /// The account index.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub leaf_index: U256,
     /// The authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub authenticator_address: Address,
     /// The old offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
+    #[serde(with = "hex_u256_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub sibling_nodes: Vec<U256>,
     /// The signature.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
     /// The nonce.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub nonce: U256,
     /// The pubkey id.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(default, with = "hex_u32_opt")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
     pub pubkey_id: Option<u32>,
     /// The authenticator pubkey.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(default, with = "hex_u256_opt")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
     pub authenticator_pubkey: Option<U256>,
 }
 
@@ -171,28 +171,34 @@ pub struct RemoveAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RecoverAccountRequest {
     /// The account index.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub leaf_index: U256,
     /// The new authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
     /// The old offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub old_offchain_signer_commitment: U256,
     /// The new offchain signer commitment.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The sibling nodes.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "decimal"))]
+    #[serde(with = "hex_u256_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub sibling_nodes: Vec<U256>,
     /// The signature.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
     /// The nonce.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub nonce: U256,
     /// The new authenticator pubkey.
-    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "decimal"))]
+    #[serde(default, with = "hex_u256_opt")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
     pub new_authenticator_pubkey: Option<U256>,
 }
 
@@ -245,6 +251,9 @@ pub enum GatewayRequestState {
     Failed {
         /// Error message returned by the gateway.
         error: String,
+        /// Specific error code, if available.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        error_code: Option<GatewayErrorCode>,
     },
 }
 
@@ -264,16 +273,20 @@ pub struct IndexerPackedAccountRequest {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerPackedAccountResponse {
     /// The packed account data [32 bits recoveryCounter][32 bits pubkeyId][192 bits leafIndex]
+    #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
     pub packed_account_data: U256,
 }
 
-/// Request to fetch a signature nonce from the indexer.
+/// Query for the indexer based on a leaf index.
+///
+/// Used for getting inclusion proofs and signature nonces.
 #[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct IndexerSignatureNonceRequest {
-    /// The account index to look up
+pub struct IndexerQueryRequest {
+    /// The leaf index to query (from the `AccountRegistry`)
+    #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
     pub leaf_index: U256,
 }
@@ -284,6 +297,7 @@ pub struct IndexerSignatureNonceRequest {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerSignatureNonceResponse {
     /// The signature nonce for the account
+    #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x0"))]
     pub signature_nonce: U256,
 }
@@ -305,6 +319,40 @@ pub enum IndexerErrorCode {
     Locked,
     /// The account does not exist.
     AccountDoesNotExist,
+}
+
+/// Gateway error codes.
+#[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayErrorCode {
+    /// Internal server error occurred in the gateway.
+    InternalServerError,
+    /// Requested resource was not found.
+    NotFound,
+    /// Bad request - invalid input.
+    BadRequest,
+    /// Batcher service unavailable.
+    BatcherUnavailable,
+    /// Authenticator address is already in use by another account.
+    AuthenticatorAlreadyExists,
+    /// Authenticator does not exist on the account.
+    AuthenticatorDoesNotExist,
+    /// The signature nonce does not match the expected value.
+    MismatchedSignatureNonce,
+    /// The pubkey ID slot is already in use.
+    PubkeyIdInUse,
+    /// The pubkey ID is out of bounds (max 4 authenticators).
+    PubkeyIdOutOfBounds,
+    /// The authenticator does not belong to the specified account.
+    AuthenticatorDoesNotBelongToAccount,
+    /// Transaction was submitted but reverted on-chain.
+    TransactionReverted,
+    /// Error while waiting for transaction confirmation.
+    ConfirmationError,
+    /// Pre-flight simulation failed.
+    PreFlightFailed,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).
