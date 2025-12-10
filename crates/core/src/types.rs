@@ -2,10 +2,7 @@
 #[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
-#[cfg(feature = "authenticator")]
-use serde::Serialize;
-
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
@@ -77,13 +74,13 @@ pub struct UpdateAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub nonce: U256,
     /// The pubkey id.
-    #[serde(default, with = "hex_u32_opt")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
-    pub pubkey_id: Option<u32>,
+    #[serde(with = "hex_u32")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub pubkey_id: u32,
     /// The new authenticator pubkey.
-    #[serde(default, with = "hex_u256_opt")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
-    pub new_authenticator_pubkey: Option<U256>,
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub new_authenticator_pubkey: U256,
 }
 
 /// The request to insert an authenticator.
@@ -254,6 +251,9 @@ pub enum GatewayRequestState {
     Failed {
         /// Error message returned by the gateway.
         error: String,
+        /// Specific error code, if available.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        error_code: Option<GatewayErrorCode>,
     },
 }
 
@@ -322,7 +322,6 @@ pub enum IndexerErrorCode {
 }
 
 /// Gateway error codes.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
@@ -336,6 +335,24 @@ pub enum GatewayErrorCode {
     BadRequest,
     /// Batcher service unavailable.
     BatcherUnavailable,
+    /// Authenticator address is already in use by another account.
+    AuthenticatorAlreadyExists,
+    /// Authenticator does not exist on the account.
+    AuthenticatorDoesNotExist,
+    /// The signature nonce does not match the expected value.
+    MismatchedSignatureNonce,
+    /// The pubkey ID slot is already in use.
+    PubkeyIdInUse,
+    /// The pubkey ID is out of bounds (max 4 authenticators).
+    PubkeyIdOutOfBounds,
+    /// The authenticator does not belong to the specified account.
+    AuthenticatorDoesNotBelongToAccount,
+    /// Transaction was submitted but reverted on-chain.
+    TransactionReverted,
+    /// Error while waiting for transaction confirmation.
+    ConfirmationError,
+    /// Pre-flight simulation failed.
+    PreFlightFailed,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{sync::RwLock, time::Instant};
 use utoipa::ToSchema;
 
+use crate::error::ErrorCode;
 use crate::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -22,9 +23,35 @@ pub enum RequestKind {
 pub enum RequestState {
     Queued,
     Batching,
-    Submitted { tx_hash: String },
-    Finalized { tx_hash: String },
-    Failed { error: String },
+    Submitted {
+        tx_hash: String,
+    },
+    Finalized {
+        tx_hash: String,
+    },
+    Failed {
+        error: String,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        error_code: Option<ErrorCode>,
+    },
+}
+
+impl RequestState {
+    /// Creates a failed state with an error message and optional error code.
+    pub fn failed(error: impl Into<String>, error_code: Option<ErrorCode>) -> Self {
+        Self::Failed {
+            error: error.into(),
+            error_code,
+        }
+    }
+
+    /// Creates a failed state from an error code (uses the code's display as the message).
+    pub fn failed_from_code(code: ErrorCode) -> Self {
+        Self::Failed {
+            error: code.to_string(),
+            error_code: Some(code),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
