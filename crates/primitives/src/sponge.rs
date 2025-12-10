@@ -72,7 +72,9 @@ pub fn derive_safe_tag(
     squeeze_len_bytes: u32,
     domain_separator: &[u8],
 ) -> FieldElement {
-    let absorb_word = IO_ABSORB_PREFIX.wrapping_add(absorb_len_bytes).to_be_bytes();
+    let absorb_word = IO_ABSORB_PREFIX
+        .wrapping_add(absorb_len_bytes)
+        .to_be_bytes();
     let squeeze_word = IO_SQUEEZE_PREFIX
         .wrapping_add(squeeze_len_bytes)
         .to_be_bytes();
@@ -101,12 +103,18 @@ pub fn hash_bytes_with_poseidon2_t16_r15(
     domain_separator: &[u8],
     attr: &str,
 ) -> Result<FieldElement, PrimitiveError> {
+    if data.is_empty() {
+        return Err(PrimitiveError::InvalidInput {
+            attribute: attr.to_string(),
+            reason: "data cannot be empty".to_string(),
+        });
+    }
 
     let poseidon2: Poseidon2<Fq, 16, 5> = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
 
     // Initialize state with zeros
     let mut state: [Fq; 16] = [Fq::zero(); 16];
-    
+
     let mut io_pattern = IoPattern::new(
         attr,
         vec![
@@ -135,4 +143,34 @@ pub fn hash_bytes_with_poseidon2_t16_r15(
 
     // Squeeze from the rate portion (index 0).
     Ok(FieldElement::from(state[0]))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{sponge::hash_bytes_with_poseidon2_t16_r15, FieldElement, PrimitiveError};
+
+    #[test]
+    fn derive_tag_stable() {
+        let tag = super::derive_safe_tag(10, super::IO_SQUEEZE_LEN_BYTES, b"DS");
+        let again = super::derive_safe_tag(10, super::IO_SQUEEZE_LEN_BYTES, b"DS");
+        assert_eq!(tag, again);
+    }
+
+    #[test]
+    fn hash_bytes_rejects_empty() {
+        let res = hash_bytes_with_poseidon2_t16_r15(&[], b"DS", "test");
+        assert!(matches!(
+            res,
+            Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "test"
+        ));
+    }
+
+    #[test]
+    fn hash_bytes_deterministic_nonzero() {
+        let data = vec![1u8, 2, 3, 4];
+        let h1 = hash_bytes_with_poseidon2_t16_r15(&data, b"DS", "test").unwrap();
+        let h2 = hash_bytes_with_poseidon2_t16_r15(&data, b"DS", "test").unwrap();
+        assert_eq!(h1, h2);
+        assert_ne!(h1, FieldElement::ZERO);
+    }
 }

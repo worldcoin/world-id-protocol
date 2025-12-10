@@ -3,10 +3,7 @@ use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{
-    sponge::hash_bytes_with_poseidon2_t16_r15,
-    FieldElement, PrimitiveError,
-};
+use crate::{sponge::hash_bytes_with_poseidon2_t16_r15, FieldElement, PrimitiveError};
 
 /// Domain separation tag to avoid collisions with other Poseidon2 usages.
 const DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
@@ -384,8 +381,8 @@ mod tests {
             31,
             32,
             33,
-            15 * 31,       // exactly fills 15 chunks -> one batch
-            15 * 31 + 1,   // spills into a second batch
+            15 * 31,     // exactly fills 15 chunks -> one batch
+            15 * 31 + 1, // spills into a second batch
         ];
 
         for size in sizes {
@@ -393,7 +390,11 @@ mod tests {
             let h1 = Credential::hash_bytes_to_field_element(&data).unwrap();
             let h2 = Credential::hash_bytes_to_field_element(&data).unwrap();
 
-            assert_ne!(h1, FieldElement::ZERO, "size {size} should not hash to zero");
+            assert_ne!(
+                h1,
+                FieldElement::ZERO,
+                "size {size} should not hash to zero"
+            );
             assert_eq!(h1, h2, "hash should be deterministic for size {size}");
         }
     }
