@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// FIXME: This is deprecated in favor of the OprfKeyRegistry
 pragma solidity ^0.8.13;
 
 library Types {

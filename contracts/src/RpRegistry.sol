@@ -8,8 +8,11 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+    using SafeERC20 for IERC20;
+
     modifier onlyInitialized() {
         _onlyInitialized();
         _;
@@ -233,7 +236,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @dev Get a relying party by id. will revert if it's not a valid id or is inactive.
      * @param rpId the id of the relying party to get
      */
-    function getRp(uint64 rpId) external view returns (RelyingParty memory) {
+    function getRp(uint64 rpId) external view onlyProxy onlyInitialized returns (RelyingParty memory) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         if (!_relyingParties[rpId].active) revert RpIdInactive();
@@ -245,7 +248,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @dev Get a relying party by id. will return even if the rp is inactive.
      * @param rpId the id of the relying party to get
      */
-    function getRpUnchecked(uint64 rpId) external view returns (RelyingParty memory) {
+    function getRpUnchecked(uint64 rpId) external view onlyProxy onlyInitialized returns (RelyingParty memory) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         return _relyingParties[rpId];
@@ -255,7 +258,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @dev Convenience method to get the oprf key id and signer of a relying party. Useful for proof generation/verification.
      * @param rpId the id of the relying party to get
      */
-    function getOprfKeyIdAndSigner(uint64 rpId) external view returns (uint160, address) {
+    function getOprfKeyIdAndSigner(uint64 rpId) external view onlyProxy onlyInitialized returns (uint160, address) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         if (!_relyingParties[rpId].active) revert RpIdInactive();
@@ -310,7 +313,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         string calldata unverifiedWellKnownDomain,
         uint256 nonce,
         bytes calldata signature
-    ) external {
+    ) external onlyProxy onlyInitialized {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         if (nonce != _rpIdToSignatureNonce[rpId]) revert InvalidNonce();
@@ -378,7 +381,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         emit RpRegistered(rpId, 0, manager, unverifiedWellKnownDomain);
 
         if (_registrationFee > 0) {
-            _feeToken.transferFrom(msg.sender, _feeRecipient, _registrationFee);
+            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
         }
     }
 
@@ -393,20 +396,20 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      */
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
-    function setFeeRecipient(address newFeeRecipient) external onlyOwner {
+    function setFeeRecipient(address newFeeRecipient) external onlyOwner onlyProxy onlyInitialized {
         if (newFeeRecipient == address(0)) revert ZeroAddress();
         address oldRecipient = _feeRecipient;
         _feeRecipient = newFeeRecipient;
         emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
     }
 
-    function setRegistrationFee(uint256 newFee) external onlyOwner {
+    function setRegistrationFee(uint256 newFee) external onlyOwner onlyProxy onlyInitialized {
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
     }
 
-    function setFeeToken(address newFeeToken) external onlyOwner {
+    function setFeeToken(address newFeeToken) external onlyOwner onlyProxy onlyInitialized {
         if (newFeeToken == address(0)) revert ZeroAddress();
         address oldToken = address(_feeToken);
         _feeToken = IERC20(newFeeToken);
