@@ -1404,6 +1404,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "askama"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f75363874b771be265f4ffe307ca705ef6f3baa19011c149da8674a87f1b75c4"
+dependencies = [
+ "askama_derive",
+ "itoa",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "askama_derive"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "129397200fe83088e8a68407a8e2b1f826cf0086b21ccdb866a722c8bcd3a94f"
+dependencies = [
+ "askama_parser",
+ "basic-toml",
+ "memchr",
+ "proc-macro2",
+ "quote",
+ "rustc-hash",
+ "serde",
+ "serde_derive",
+ "syn 2.0.111",
+]
+
+[[package]]
+name = "askama_parser"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6ab5630b3d5eaf232620167977f95eb51f3432fc76852328774afbd242d4358"
+dependencies = [
+ "memchr",
+ "serde",
+ "serde_derive",
+ "winnow",
+]
+
+[[package]]
 name = "assert-json-diff"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2075,6 +2117,15 @@ name = "base64ct"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e050f626429857a27ddccb31e0aca21356bfa709c04041aefddac081a8f068a"
+
+[[package]]
+name = "basic-toml"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba62675e8242a4c4e806d12f11d136e626e6c8361d6b829310732241652a178a"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bimap"
@@ -4386,23 +4437,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nodes-telemetry"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nodes-telemetry.git?rev=00824cd#00824cd47d660314d0dcd77f497e9592a37e5ea5"
-dependencies = [
- "eyre",
- "humantime",
- "metrics",
- "metrics-exporter-dogstatsd",
- "metrics-exporter-prometheus 0.17.2",
- "metrics-exporter-statsd",
- "secrecy",
- "telemetry-batteries",
- "tracing",
- "tracing-subscriber 0.3.22",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4626,7 +4660,7 @@ dependencies = [
 [[package]]
 name = "oprf-client"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=97643e4#97643e4db9b1eb6c42382504c909c6f1369e6146"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=6ffd9fd#6ffd9fdcebd0dcc2aa89426346e5441b53cb537e"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -4646,7 +4680,7 @@ dependencies = [
 [[package]]
 name = "oprf-client-example"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=97643e4#97643e4db9b1eb6c42382504c909c6f1369e6146"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=6ffd9fd#6ffd9fdcebd0dcc2aa89426346e5441b53cb537e"
 dependencies = [
  "ark-ff 0.5.0",
  "oprf-client",
@@ -4657,9 +4691,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "oprf-service"
+name = "oprf-key-gen"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=97643e4#97643e4db9b1eb6c42382504c909c6f1369e6146"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=6ffd9fd#6ffd9fdcebd0dcc2aa89426346e5441b53cb537e"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -4668,16 +4702,45 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
+ "clap",
+ "eyre",
+ "futures",
+ "humantime",
+ "itertools 0.14.0",
+ "k256",
+ "metrics",
+ "rand 0.8.5",
+ "rustls 0.23.35",
+ "secrecy",
+ "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-groth16-material",
+ "taceo-nodes-common",
+ "taceo-nodes-observability",
+ "taceo-oprf-core",
+ "taceo-oprf-types",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "oprf-service"
+version = "0.1.0"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=6ffd9fd#6ffd9fdcebd0dcc2aa89426346e5441b53cb537e"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-secretsmanager",
  "axum 0.8.7",
  "ciborium",
  "clap",
  "eyre",
  "futures",
- "git-version",
  "http 1.4.0",
  "humantime",
- "itertools 0.14.0",
- "k256",
  "metrics",
  "parking_lot",
  "rand 0.8.5",
@@ -4685,8 +4748,7 @@ dependencies = [
  "serde",
  "serde_json",
  "taceo-ark-babyjubjub",
- "taceo-circom-types",
- "taceo-groth16-material",
+ "taceo-nodes-common",
  "taceo-oprf-core",
  "taceo-oprf-types",
  "thiserror 2.0.17",
@@ -4695,13 +4757,12 @@ dependencies = [
  "tower-http 0.6.8",
  "tracing",
  "uuid",
- "zeroize",
 ]
 
 [[package]]
 name = "oprf-service-example"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=97643e4#97643e4db9b1eb6c42382504c909c6f1369e6146"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=6ffd9fd#6ffd9fdcebd0dcc2aa89426346e5441b53cb537e"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -4709,10 +4770,11 @@ dependencies = [
  "clap",
  "eyre",
  "humantime",
- "nodes-telemetry",
  "oprf-service",
  "rustls 0.23.35",
  "serde",
+ "taceo-nodes-common",
+ "taceo-nodes-observability",
  "taceo-oprf-types",
  "thiserror 2.0.17",
  "tokio",
@@ -4723,7 +4785,7 @@ dependencies = [
 [[package]]
 name = "oprf-test"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=97643e4#97643e4db9b1eb6c42382504c909c6f1369e6146"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=6ffd9fd#6ffd9fdcebd0dcc2aa89426346e5441b53cb537e"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -4733,6 +4795,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "oprf-client-example",
+ "oprf-key-gen",
  "oprf-service",
  "oprf-service-example",
  "parking_lot",
@@ -6608,9 +6671,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "taceo-groth16-sol"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70bc9cde94809b52a212c19afef9ea9a8a649580652424512161822a0eeaaef9"
+dependencies = [
+ "alloy-primitives",
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
+ "askama",
+ "eyre",
+ "ruint",
+]
+
+[[package]]
+name = "taceo-nodes-common"
+version = "0.1.0"
+source = "git+https://github.com/TaceoLabs/nodes-helpers.git?rev=33fcbcc#33fcbcca1882cd7582b416dd8ec203d104e6fdbb"
+dependencies = [
+ "aws-config",
+ "aws-sdk-secretsmanager",
+ "git-version",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "taceo-nodes-observability"
+version = "0.1.0"
+source = "git+https://github.com/TaceoLabs/nodes-helpers.git?rev=33fcbcc#33fcbcca1882cd7582b416dd8ec203d104e6fdbb"
+dependencies = [
+ "eyre",
+ "humantime",
+ "metrics",
+ "metrics-exporter-dogstatsd",
+ "metrics-exporter-prometheus 0.17.2",
+ "metrics-exporter-statsd",
+ "secrecy",
+ "telemetry-batteries",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+]
+
+[[package]]
 name = "taceo-oprf-core"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=97643e4#97643e4db9b1eb6c42382504c909c6f1369e6146"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=6ffd9fd#6ffd9fdcebd0dcc2aa89426346e5441b53cb537e"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -6631,7 +6740,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-types"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=97643e4#97643e4db9b1eb6c42382504c909c6f1369e6146"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=6ffd9fd#6ffd9fdcebd0dcc2aa89426346e5441b53cb537e"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -6640,6 +6749,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
  "taceo-circom-types",
+ "taceo-groth16-sol",
  "taceo-oprf-core",
  "uuid",
 ]
@@ -6747,7 +6857,9 @@ dependencies = [
  "futures",
  "hex",
  "k256",
+ "oprf-key-gen",
  "oprf-service",
+ "oprf-test",
  "parking_lot",
  "rand 0.8.5",
  "reqwest",
@@ -8086,7 +8198,6 @@ dependencies = [
  "eyre",
  "futures",
  "humantime",
- "nodes-telemetry",
  "oprf-client",
  "oprf-service",
  "oprf-test",
@@ -8098,6 +8209,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
+ "taceo-nodes-observability",
  "taceo-oprf-core",
  "taceo-oprf-types",
  "thiserror 1.0.69",
@@ -8124,7 +8236,6 @@ dependencies = [
  "eyre",
  "futures",
  "humantime",
- "nodes-telemetry",
  "oprf-service",
  "parking_lot",
  "rustls 0.23.35",
@@ -8132,6 +8243,8 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
+ "taceo-nodes-common",
+ "taceo-nodes-observability",
  "taceo-oprf-types",
  "thiserror 1.0.69",
  "tokio",

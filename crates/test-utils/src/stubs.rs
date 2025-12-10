@@ -3,11 +3,13 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use alloy::primitives::{Address, U256};
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use eyre::{Context as _, Result};
+use oprf_test::{
+    test_secret_manager::TestSecretManager, OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1,
+    OPRF_PEER_ADDRESS_2,
+};
 use tokio::{net::TcpListener, task::JoinHandle};
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 use world_id_primitives::{merkle::AccountInclusionProof, TREE_DEPTH};
-
-use crate::test_secret_manager::TestSecretManager;
 
 use std::sync::RwLock;
 
@@ -139,6 +141,7 @@ async fn spawn_orpf_node(
     secret_manager: TestSecretManager,
     rp_registry_contract: Address,
     account_registry_contract: Address,
+    wallet_address: Address,
 ) -> String {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
@@ -152,16 +155,13 @@ async fn spawn_orpf_node(
         account_registry_contract,
         node_config: oprf_service::config::OprfNodeConfig {
             environment: oprf_service::config::Environment::Dev,
-            request_lifetime: Duration::from_secs(5 * 60),
-            session_cleanup_interval: Duration::from_micros(1000000),
             rp_secret_id_prefix: format!("oprf/rp/n{id}"),
             oprf_key_registry_contract: rp_registry_contract,
             chain_ws_rpc_url: chain_ws_rpc_url.into(),
-            key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.13.bin"),
-            key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.13.arks.zkey"),
-            wallet_private_key_secret_id: "wallet/privatekey".to_string(),
-            ws_max_message_size: 8192,
+            ws_max_message_size: 512 * 1024,
             session_lifetime: Duration::from_secs(5 * 60),
+            wallet_address,
+            get_oprf_key_material_timeout: Duration::from_secs(60),
         },
     };
     let never = async { futures::future::pending::<()>().await };
@@ -198,6 +198,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager0,
             key_gen_contract,
             account_registry_contract,
+            OPRF_PEER_ADDRESS_0,
         )
         .await,
         spawn_orpf_node(
@@ -206,6 +207,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager1,
             key_gen_contract,
             account_registry_contract,
+            OPRF_PEER_ADDRESS_1,
         )
         .await,
         spawn_orpf_node(
@@ -214,7 +216,45 @@ pub async fn spawn_oprf_nodes(
             secret_manager2,
             key_gen_contract,
             account_registry_contract,
+            OPRF_PEER_ADDRESS_2,
         )
         .await,
     ]
+}
+
+async fn spawn_key_gen(
+    id: usize,
+    chain_ws_rpc_url: &str,
+    secret_manager: TestSecretManager,
+    rp_registry_contract: Address,
+) {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let config = oprf_key_gen::config::OprfKeyGenConfig {
+        environment: oprf_key_gen::config::Environment::Dev,
+        oprf_key_registry_contract: rp_registry_contract,
+        chain_ws_rpc_url: chain_ws_rpc_url.into(),
+        rp_secret_id_prefix: format!("oprf/rp/n{id}"),
+        wallet_private_key_secret_id: "wallet/privatekey".to_string(),
+        key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.13.arks.zkey"),
+        key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.13.bin"),
+        max_wait_time_shutdown: Duration::from_secs(10),
+    };
+    let never = async { futures::future::pending::<()>().await };
+    tokio::spawn(async move {
+        let res = oprf_key_gen::start(config, Arc::new(secret_manager), never).await;
+        eprintln!("key-gen failed to start: {res:?}");
+    });
+}
+
+pub async fn spawn_key_gens(
+    chain_ws_rpc_url: &str,
+    secret_manager: [TestSecretManager; 3],
+    key_gen_contract: Address,
+) {
+    let [secret_manager0, secret_manager1, secret_manager2] = secret_manager;
+    tokio::join!(
+        spawn_key_gen(0, chain_ws_rpc_url, secret_manager0, key_gen_contract),
+        spawn_key_gen(1, chain_ws_rpc_url, secret_manager1, key_gen_contract),
+        spawn_key_gen(2, chain_ws_rpc_url, secret_manager2, key_gen_contract),
+    );
 }

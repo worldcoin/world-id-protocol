@@ -1,25 +1,19 @@
 use std::{
     collections::HashMap,
-    str::FromStr as _,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use alloy::{
-    network::EthereumWallet,
     primitives::{Address, U160},
-    providers::ProviderBuilder,
-    signers::{
-        k256::ecdsa::{signature::Signer as _, SigningKey},
-        local::PrivateKeySigner,
-    },
+    signers::k256::ecdsa::{signature::Signer as _, SigningKey},
 };
 use ark_ff::{BigInteger as _, PrimeField as _, UniformRand as _};
 use clap::{Parser, Subcommand};
 use eyre::Context as _;
 use oprf_client::Connector;
 use oprf_core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor};
-use oprf_test::{health_checks, oprf_key_registry_scripts, OprfKeyRegistry};
+use oprf_test::{health_checks, oprf_key_registry_scripts};
 use oprf_types::{
     api::v1::{OprfRequest, ShareIdentifier},
     crypto::OprfPublicKey,
@@ -100,7 +94,7 @@ pub struct OprfDevClientConfig {
     #[clap(
         long,
         env = "OPRF_DEV_CLIENT_ACCOUNT_REGISTRY_CONTRACT",
-        default_value = "0xc38917F36cCB24b11dc908fe6ecCC22b1148F381"
+        default_value = "0xEC64d56653710db35cb57Ac3F983cfbcEfca1D15"
     )]
     pub account_registry_contract: Address,
 
@@ -149,37 +143,6 @@ pub struct OprfDevClientConfig {
     /// Command
     #[command(subcommand)]
     pub command: Command,
-}
-
-async fn fetch_oprf_public_key(
-    oprf_key_id: OprfKeyId,
-    wallet: &EthereumWallet,
-    config: &OprfDevClientConfig,
-) -> eyre::Result<OprfPublicKey> {
-    tracing::info!("fetching OPRF public-key..");
-    let provider = ProviderBuilder::new()
-        .wallet(wallet)
-        .connect(config.chain_rpc_url.expose_secret())
-        .await
-        .context("while connecting to RPC")?;
-    let contract = OprfKeyRegistry::new(config.oprf_key_registry_contract, provider.clone());
-    let mut interval = tokio::time::interval(Duration::from_millis(500));
-    let oprf_public_key = tokio::time::timeout(config.max_wait_time_key_gen, async move {
-        loop {
-            interval.tick().await;
-            let maybe_oprf_public_key = contract
-                .getOprfPublicKey(oprf_key_id.into_inner())
-                .call()
-                .await;
-            if let Ok(oprf_public_key) = maybe_oprf_public_key {
-                return eyre::Ok(OprfPublicKey::new(oprf_public_key.try_into()?));
-            }
-        }
-    })
-    .await
-    .context("could not fetch rp nullifier key in time")?
-    .context("while polling RP key")?;
-    Ok(oprf_public_key)
 }
 
 fn create_and_sign_credential(
@@ -538,7 +501,7 @@ async fn stress_test(
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    nodes_telemetry::install_tracing("world_id_oprf_dev_client=trace,warn");
+    nodes_observability::install_tracing("world_id_oprf_dev_client=trace,warn");
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");
@@ -551,12 +514,14 @@ async fn main() -> eyre::Result<()> {
         .context("while doing health checks")?;
     tracing::info!("everyone online..");
 
-    let private_key = PrivateKeySigner::from_str(config.taceo_private_key.expose_secret())?;
-    let wallet = EthereumWallet::from(private_key);
-
     let (oprf_key_id, oprf_public_key) = if let Some(oprf_key_id) = config.oprf_key_id {
         let oprf_key_id = OprfKeyId::new(oprf_key_id);
-        let oprf_public_key = fetch_oprf_public_key(oprf_key_id, &wallet, &config).await?;
+        let oprf_public_key = oprf_test::health_checks::oprf_public_key_from_services(
+            oprf_key_id,
+            &config.services,
+            Duration::from_secs(10), // should already be there
+        )
+        .await?;
         (oprf_key_id, oprf_public_key)
     } else {
         let oprf_key_id = oprf_key_registry_scripts::init_key_gen(
@@ -565,8 +530,12 @@ async fn main() -> eyre::Result<()> {
             config.taceo_private_key.expose_secret(),
         );
         tracing::info!("registered OPRF key with: {oprf_key_id}");
-
-        let oprf_public_key = fetch_oprf_public_key(oprf_key_id, &wallet, &config).await?;
+        let oprf_public_key = oprf_test::health_checks::oprf_public_key_from_services(
+            oprf_key_id,
+            &config.services,
+            config.max_wait_time_key_gen,
+        )
+        .await?;
         (oprf_key_id, oprf_public_key)
     };
 

@@ -2,7 +2,7 @@
 
 use std::{
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use alloy::primitives::U256;
@@ -12,8 +12,7 @@ use test_utils::{
         build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
         RegistryTestContext,
     },
-    stubs::{spawn_indexer_stub, spawn_oprf_nodes},
-    test_secret_manager::create_secret_managers,
+    stubs::spawn_indexer_stub,
 };
 use world_id_core::{
     requests::{ProofRequest, RequestItem, RequestVersion},
@@ -51,7 +50,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // deploy the OprfKeyRegistry
     let oprf_registry = anvil.deploy_oprf_key_registry(deployer.clone()).await?;
-    let oprf_node_signers = [anvil.signer(1)?, anvil.signer(2)?, anvil.signer(3)?];
+    // signers must match the ones used in the TestSecretManager
+    let oprf_node_signers = [anvil.signer(7)?, anvil.signer(8)?, anvil.signer(9)?];
     anvil
         .register_oprf_nodes(
             oprf_registry,
@@ -142,17 +142,27 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    // OPRF nodes setup
-    let nodes = spawn_oprf_nodes(
+    let secret_managers = test_utils::oprf_test::create_secret_managers();
+    // OPRF key-gen instances
+    test_utils::stubs::spawn_key_gens(anvil.ws_endpoint(), secret_managers.clone(), oprf_registry)
+        .await;
+    // OPRF nodes
+    let nodes = test_utils::stubs::spawn_oprf_nodes(
         anvil.ws_endpoint(),
-        create_secret_managers(&oprf_node_signers),
+        secret_managers.clone(),
         oprf_registry,
         registry_address,
     )
     .await;
 
     // init key gen for a new RP, wait until its done and fetch the public key
-    let (oprf_key_id, oprf_public_key) = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;
+    let oprf_key_id = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;
+    let oprf_public_key = test_utils::oprf_test::health_checks::oprf_public_key_from_services(
+        oprf_key_id,
+        &nodes,
+        Duration::from_secs(60),
+    )
+    .await?;
 
     // Config for proof generation uses the indexer + OPRF stubs.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");

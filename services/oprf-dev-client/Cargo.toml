@@ -21,7 +21,7 @@ clap = { version = "4", features = ["derive", "env"] }
 eyre.workspace = true
 futures = { workspace = true }
 humantime = "2"
-nodes-telemetry = { git = "https://github.com/TaceoLabs/nodes-telemetry.git", rev = "00824cd" }
+nodes-observability = { package = "taceo-nodes-observability", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "33fcbcc" }
 oprf-service = { workspace = true }
 oprf-types = { workspace = true }
 oprf-client = { workspace = true }

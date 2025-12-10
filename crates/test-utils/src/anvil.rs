@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use alloy::network::EthereumWallet;
 use alloy::primitives::{address, Address, Bytes, TxKind, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
@@ -9,7 +7,6 @@ use alloy::sol;
 use alloy::sol_types::SolCall;
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
-use oprf_types::crypto::OprfPublicKey;
 use oprf_types::OprfKeyId;
 
 /// Canonical Multicall3 address (same on all EVM chains).
@@ -67,10 +64,10 @@ sol!(
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    Groth16VerifierKeyGen13,
+    VerifierKeyGen13,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/Groth16VerifierKeyGen13.sol/Groth16Verifier.json"
+        "/../../contracts/out/VerifierKeyGen13.sol/Verifier.json"
     )
 );
 
@@ -313,8 +310,8 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        // Step 1: Deploy Groth16VerifierKeyGen13 contract (no dependencies)
-        let groth16_verifier = Groth16VerifierKeyGen13::deploy(provider.clone())
+        // Step 1: Deploy VerifierKeyGen13 contract (no dependencies)
+        let key_gen_verifier = VerifierKeyGen13::deploy(provider.clone())
             .await
             .context("failed to deploy Groth16VerifierKeyGen13 contract")?;
 
@@ -331,7 +328,7 @@ impl TestAnvil {
         let init_data = Bytes::from(
             OprfKeyRegistry::initializeCall {
                 _keygenAdmin: signer.address(),
-                _keyGenVerifierAddress: *groth16_verifier.address(),
+                _keyGenVerifierAddress: *key_gen_verifier.address(),
                 _accumulatorAddress: *babyjubjub.address(),
             }
             .abi_encode(),
@@ -372,7 +369,7 @@ impl TestAnvil {
         &self,
         oprf_key_registry_contract: Address,
         signer: PrivateKeySigner,
-    ) -> Result<(OprfKeyId, OprfPublicKey)> {
+    ) -> Result<OprfKeyId> {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
@@ -387,29 +384,7 @@ impl TestAnvil {
         if !receipt.status() {
             eyre::bail!("failed to init oprf key gen");
         }
-
-        let mut interval = tokio::time::interval(Duration::from_millis(500));
-        // very graceful timeout for CI
-        let oprf_public_key = tokio::time::timeout(Duration::from_secs(60), async {
-            loop {
-                interval.tick().await;
-                let maybe_oprf_public_key = oprf_key_registry
-                    .getOprfPublicKey(oprf_key_id.into_inner())
-                    .call()
-                    .await;
-                if let Ok(oprf_public_key) = maybe_oprf_public_key {
-                    let p = ark_babyjubjub::EdwardsAffine::new(
-                        oprf_public_key.x.try_into().expect("valid x"),
-                        oprf_public_key.y.try_into().expect("valid y"),
-                    );
-                    break OprfPublicKey::new(p);
-                }
-            }
-        })
-        .await
-        .context("could not finish key-gen in 60 seconds")?;
-
-        Ok((oprf_key_id, oprf_public_key))
+        Ok(oprf_key_id)
     }
 
     /// Links a library address into contract bytecode by replacing all placeholder references.

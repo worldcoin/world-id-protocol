@@ -36,7 +36,7 @@ pub async fn start(
 ) -> eyre::Result<()> {
     tracing::info!("starting oprf-node with config: {config:#?}");
     let node_config = config.node_config;
-    let cancellation_token = oprf_service::spawn_shutdown_task(shutdown_signal);
+    let cancellation_token = nodes_common::spawn_shutdown_task(shutdown_signal);
 
     tracing::info!(
         "loading Groth16 verification key from: {:?}",
