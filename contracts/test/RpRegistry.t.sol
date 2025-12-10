@@ -5,12 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {RpRegistry} from "../src/RpRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract RpRegistryTest is Test {
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     RpRegistry private registry;
+    ERC20Mock private feeToken;
     address private owner;
     address private feeRecipient;
     address private manager1;
@@ -30,11 +32,15 @@ contract RpRegistryTest is Test {
         manager2 = vm.addr(manager2Pk);
         signer2 = vm.addr(0x4444);
 
+        // Deploy mock ERC20 token
+        feeToken = new ERC20Mock();
+
         // Deploy implementation
         RpRegistry implementation = new RpRegistry();
 
-        // Deploy proxy with fee recipient and zero fee
-        bytes memory initData = abi.encodeWithSelector(RpRegistry.initialize.selector, feeRecipient, 0);
+        // Deploy proxy with fee recipient, fee token, and zero fee
+        bytes memory initData =
+            abi.encodeWithSelector(RpRegistry.initialize.selector, feeRecipient, address(feeToken), 0);
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         registry = RpRegistry(address(proxy));
@@ -594,49 +600,94 @@ contract RpRegistryTest is Test {
         registry.setRegistrationFee(newFee);
     }
 
+    function testSetFeeToken() public {
+        ERC20Mock newToken = new ERC20Mock();
+
+        vm.expectEmit(true, true, false, true);
+        emit RpRegistry.FeeTokenUpdated(address(feeToken), address(newToken));
+
+        registry.setFeeToken(address(newToken));
+
+        assertEq(registry.getFeeToken(), address(newToken));
+    }
+
+    function testCannotSetFeeTokenToZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ZeroAddress.selector));
+        registry.setFeeToken(address(0));
+    }
+
+    function testOnlyOwnerCanSetFeeToken() public {
+        ERC20Mock newToken = new ERC20Mock();
+
+        vm.prank(manager1);
+        vm.expectRevert();
+        registry.setFeeToken(address(newToken));
+
+        assertEq(registry.getFeeToken(), address(feeToken));
+    }
+
     function testRegisterWithFee() public {
-        uint256 fee = 0.1 ether;
+        uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
         uint64 rpId = 1;
         string memory domain = "example.world.org";
 
-        uint256 recipientBalanceBefore = feeRecipient.balance;
+        // Mint tokens to manager1 and approve registry
+        feeToken.mint(manager1, fee);
+        vm.prank(manager1);
+        feeToken.approve(address(registry), fee);
 
-        registry.register{value: fee}(rpId, manager1, signer1, domain);
+        uint256 recipientBalanceBefore = feeToken.balanceOf(feeRecipient);
 
-        assertEq(feeRecipient.balance, recipientBalanceBefore + fee);
+        vm.prank(manager1);
+        registry.register(rpId, manager1, signer1, domain);
+
+        assertEq(feeToken.balanceOf(feeRecipient), recipientBalanceBefore + fee);
+        assertEq(feeToken.balanceOf(manager1), 0);
     }
 
     function testRegisterWithExcessFee() public {
-        uint256 fee = 0.1 ether;
+        uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
         uint64 rpId = 1;
         string memory domain = "example.world.org";
 
-        uint256 recipientBalanceBefore = feeRecipient.balance;
+        // Mint more tokens than required and approve registry
+        feeToken.mint(manager1, fee * 2);
+        vm.prank(manager1);
+        feeToken.approve(address(registry), fee * 2);
 
-        // Send more than required
-        registry.register{value: fee * 2}(rpId, manager1, signer1, domain);
+        uint256 recipientBalanceBefore = feeToken.balanceOf(feeRecipient);
+
+        vm.prank(manager1);
+        registry.register(rpId, manager1, signer1, domain);
 
         // Only the fee amount should be transferred
-        assertEq(feeRecipient.balance, recipientBalanceBefore + fee);
+        assertEq(feeToken.balanceOf(feeRecipient), recipientBalanceBefore + fee);
+        assertEq(feeToken.balanceOf(manager1), fee);
     }
 
     function testCannotRegisterWithInsufficientFee() public {
-        uint256 fee = 0.1 ether;
+        uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
         uint64 rpId = 1;
         string memory domain = "example.world.org";
 
+        // Mint insufficient tokens
+        feeToken.mint(manager1, fee - 1);
+        vm.prank(manager1);
+        feeToken.approve(address(registry), fee - 1);
+
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
-        registry.register{value: fee - 1}(rpId, manager1, signer1, domain);
+        vm.prank(manager1);
+        registry.register(rpId, manager1, signer1, domain);
     }
 
     function testRegisterManyWithFee() public {
-        uint256 fee = 0.1 ether;
+        uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
         uint64[] memory rpIds = new uint64[](3);
@@ -659,15 +710,22 @@ contract RpRegistryTest is Test {
         domains[1] = "app2.world.org";
         domains[2] = "app3.world.org";
 
-        uint256 recipientBalanceBefore = feeRecipient.balance;
+        // Mint tokens and approve
+        feeToken.mint(manager1, fee * 3);
+        vm.prank(manager1);
+        feeToken.approve(address(registry), fee * 3);
 
-        registry.registerMany{value: fee * 3}(rpIds, managers, signers, domains);
+        uint256 recipientBalanceBefore = feeToken.balanceOf(feeRecipient);
 
-        assertEq(feeRecipient.balance, recipientBalanceBefore + fee * 3);
+        vm.prank(manager1);
+        registry.registerMany(rpIds, managers, signers, domains);
+
+        assertEq(feeToken.balanceOf(feeRecipient), recipientBalanceBefore + fee * 3);
+        assertEq(feeToken.balanceOf(manager1), 0);
     }
 
     function testCannotRegisterManyWithInsufficientFee() public {
-        uint256 fee = 0.1 ether;
+        uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
         uint64[] memory rpIds = new uint64[](3);
@@ -690,81 +748,13 @@ contract RpRegistryTest is Test {
         domains[1] = "app2.world.org";
         domains[2] = "app3.world.org";
 
-        // Send less than required (3 * fee - 1)
+        // Mint insufficient tokens (3 * fee - 1)
+        feeToken.mint(manager1, fee * 3 - 1);
+        vm.prank(manager1);
+        feeToken.approve(address(registry), fee * 3 - 1);
+
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
-        registry.registerMany{value: fee * 3 - 1}(rpIds, managers, signers, domains);
-    }
-
-    // Reentrancy Protection Tests
-
-    function testReentrancyAttackPrevented() public {
-        uint256 fee = 0.1 ether;
-
-        // Deploy a new registry with a malicious fee recipient
-        RpRegistry implementation = new RpRegistry();
-        MaliciousFeeRecipient malicious = new MaliciousFeeRecipient(address(0), manager1, signer1);
-
-        bytes memory initData = abi.encodeWithSelector(RpRegistry.initialize.selector, address(malicious), fee);
-        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
-        RpRegistry testRegistry = RpRegistry(address(proxy));
-
-        // Update the malicious contract to point to the correct registry
-        malicious = new MaliciousFeeRecipient(address(testRegistry), manager1, signer1);
-
-        // Update fee recipient to the malicious contract
-        testRegistry.setFeeRecipient(address(malicious));
-
-        uint256 maliciousBalanceBefore = address(malicious).balance;
-
-        // Fund the test contract
-        vm.deal(address(this), 10 ether);
-
-        // Attempt to register - the malicious contract will try to reenter
-        testRegistry.register{value: fee}(1, manager1, signer1, "first.world.org");
-
-        // Verify that only ONE fee was transferred (not multiple due to reentrancy)
-        assertEq(address(malicious).balance, maliciousBalanceBefore + fee);
-
-        // Verify that the malicious contract was called (attempted reentrancy)
-        assertGt(malicious.callCount(), 0);
-
-        // Verify that only the first RP was registered (reentrancy attempts failed)
-        // The first RP should exist
-        RpRegistry.RelyingParty memory rp1 = testRegistry.getRp(1);
-        assertEq(rp1.manager, manager1);
-
-        // The attempted reentrant registrations should have failed
-        // callCount 1 would try to register rpId 101, callCount 2 would try 102
-        vm.expectRevert();
-        testRegistry.getRp(101);
-
-        vm.expectRevert();
-        testRegistry.getRp(102);
-    }
-}
-
-/**
- * @dev Malicious contract that attempts reentrancy attack during fee payment
- */
-contract MaliciousFeeRecipient {
-    RpRegistry public registry;
-    uint256 public callCount;
-    uint256 public maxCalls = 3;
-    address public manager;
-    address public signer;
-
-    constructor(address _registry, address _manager, address _signer) {
-        registry = RpRegistry(payable(_registry));
-        manager = _manager;
-        signer = _signer;
-    }
-
-    receive() external payable {
-        callCount++;
-        if (callCount < maxCalls) {
-            // Attempt to register another RP with the same fee
-            try registry.register{value: msg.value}(uint64(callCount + 100), manager, signer, "malicious.world.org") {}
-                catch {}
-        }
+        vm.prank(manager1);
+        registry.registerMany(rpIds, managers, signers, domains);
     }
 }

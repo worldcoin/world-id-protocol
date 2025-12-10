@@ -7,15 +7,9 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract RpRegistry is
-    Initializable,
-    EIP712Upgradeable,
-    Ownable2StepUpgradeable,
-    UUPSUpgradeable,
-    ReentrancyGuardUpgradeable
-{
+contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     modifier onlyInitialized() {
         _onlyInitialized();
         _;
@@ -63,6 +57,9 @@ contract RpRegistry is
     // the recipient of registration fees
     address private _feeRecipient;
 
+    // the token used to pay registration fees
+    IERC20 private _feeToken;
+
     ////////////////////////////////////////////////////////////
     //                        Events                          //
     ////////////////////////////////////////////////////////////
@@ -74,6 +71,8 @@ contract RpRegistry is
     event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
 
     event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
+
+    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -163,15 +162,16 @@ contract RpRegistry is
     /**
      * @dev Initializes the contract.
      */
-    function initialize(address feeRecipient, uint256 registrationFee) public initializer {
+    function initialize(address feeRecipient, address feeToken, uint256 registrationFee) public initializer {
         require(feeRecipient != address(0), "initialize a fee recipient");
+        require(feeToken != address(0), "initialize a fee token");
 
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
-        __ReentrancyGuard_init();
 
         _feeRecipient = feeRecipient;
+        _feeToken = IERC20(feeToken);
         _registrationFee = registrationFee;
     }
 
@@ -195,12 +195,10 @@ contract RpRegistry is
      */
     function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain)
         external
-        payable
         onlyProxy
         onlyInitialized
-        nonReentrant
     {
-        if (msg.value < _registrationFee) revert InsufficientFunds();
+        if (_feeToken.balanceOf(msg.sender) < _registrationFee) revert InsufficientFunds();
         _register(rpId, manager, signer, unverifiedWellKnownDomain);
     }
 
@@ -216,7 +214,7 @@ contract RpRegistry is
         address[] calldata managers,
         address[] calldata signers,
         string[] calldata unverifiedWellKnownDomains
-    ) external payable onlyProxy onlyInitialized nonReentrant {
+    ) external onlyProxy onlyInitialized {
         if (
             rpIds.length != managers.length || rpIds.length != signers.length
                 || rpIds.length != unverifiedWellKnownDomains.length
@@ -224,7 +222,7 @@ contract RpRegistry is
             revert MismatchingArrayLengths();
         }
 
-        if (msg.value < rpIds.length * _registrationFee) revert InsufficientFunds();
+        if (_feeToken.balanceOf(msg.sender) < rpIds.length * _registrationFee) revert InsufficientFunds();
 
         for (uint256 i = 0; i < rpIds.length; i++) {
             _register(rpIds[i], managers[i], signers[i], unverifiedWellKnownDomains[i]);
@@ -281,10 +279,17 @@ contract RpRegistry is
     }
 
     /**
-     * @dev Returns the current fee recipient for a relying party.
+     * @dev Returns the current recipient for RP registration fees.
      */
     function getFeeRecipient() public view onlyProxy onlyInitialized returns (address) {
         return _feeRecipient;
+    }
+
+    /**
+     * @dev Returns the current token with which fees are paid.
+     */
+    function getFeeToken() public view onlyProxy onlyInitialized returns (address) {
+        return address(_feeToken);
     }
 
     /**
@@ -359,7 +364,6 @@ contract RpRegistry is
 
         if (signer == address(0)) revert SignerCannotBeZeroAddress();
 
-        // update state before external calls to prevent reentrancy
         RelyingParty memory rp = RelyingParty({
             initialized: true,
             active: true,
@@ -373,10 +377,8 @@ contract RpRegistry is
 
         emit RpRegistered(rpId, 0, manager, unverifiedWellKnownDomain);
 
-        // Interactions - external calls last
         if (_registrationFee > 0) {
-            (bool ok,) = _feeRecipient.call{value: _registrationFee}("");
-            if (!ok) revert PaymentFailure();
+            _feeToken.transferFrom(msg.sender, _feeRecipient, _registrationFee);
         }
     }
 
@@ -402,6 +404,13 @@ contract RpRegistry is
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
+    }
+
+    function setFeeToken(address newFeeToken) external onlyOwner {
+        if (newFeeToken == address(0)) revert ZeroAddress();
+        address oldToken = address(_feeToken);
+        _feeToken = IERC20(newFeeToken);
+        emit FeeTokenUpdated(oldToken, newFeeToken);
     }
 
     ////////////////////////////////////////////////////////////
