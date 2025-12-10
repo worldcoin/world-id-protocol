@@ -108,7 +108,7 @@ pub fn bytes_to_field_elements(chunk_size: usize, data: &[u8]) -> Vec<Fq> {
 }
 
 /// Hash arbitrary bytes to a field element with Poseidon2 (t=16, rate=15, capacity=1),
-/// using a SAFE-style tag placed in the rate portion (per design note).
+/// using a SAFE-style tag placed in the **capacity** portion
 ///
 /// # Errors
 /// - Returns `InvalidInput` if `data` is empty or exceeds `u32::MAX` bytes.
@@ -143,9 +143,9 @@ pub fn hash_bytes_with_poseidon2_t16_r15(
     );
     io_pattern.record_absorb(data_len_u32)?;
 
-    // Compute SAFE-style tag and place it in the rate (index 0). Capacity is the last element.
+    // Compute SAFE-style tag and place it in the capacity (index 15).
     let tag_fe: Fq = *derive_safe_tag(data_len_u32, IO_SQUEEZE_LEN_BYTES, domain_separator);
-    state[0] += tag_fe;
+    state[15] += tag_fe;
 
     // Convert bytes to field elements and absorb in RATE-sized batches.
     let field_elements = bytes_to_field_elements(CHUNK_SIZE_BYTES, data);

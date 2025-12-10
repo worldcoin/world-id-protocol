@@ -187,8 +187,7 @@ impl Credential {
     /// 1. Compute a SAFE-style tag from an IO pattern that encodes the input
     ///    length (in bytes), the squeeze size (32 bytes), and a domain separator.
     ///    The tag is derived by hashing these bytes with SHA3-256 and reducing to
-    ///    a field element (SAFE would normally place this in capacity; we place it
-    ///    in the rate per the design note for this usage).
+    ///    a field element (placed in the capacity element, per SAFE guidance).
     /// 2. Split input into 31-byte chunks, convert each to a field element.
     /// 3. Absorb at most 15 field elements at a time (add into rate), then
     ///    permute (Poseidon2 t16) after each batch.
