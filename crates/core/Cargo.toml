@@ -46,7 +46,6 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-ark-serde-compat = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 oprf-types = { workspace = true, optional = true }
 serde_json = { workspace = true }
@@ -54,7 +53,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 circom-types = { workspace = true, optional = true }
 rand = { workspace = true }
 ark-ec = { workspace = true }
-uuid = { workspace = true }
 eyre = { workspace = true }
 reqwest = { workspace = true, optional = true }
 secrecy = { version = "0.10", optional = true }
@@ -64,7 +62,6 @@ utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 oprf-client = { workspace = true, optional = true }
 oprf-core = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
 k256 = { workspace = true, features = ["ecdsa","serde"] }
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
@@ -83,7 +80,6 @@ authenticator = [
     "dep:groth16-material",
     "dep:oprf-client",
     "dep:oprf-core",
-    "dep:futures",
     "dep:rustls",
     "dep:webpki-roots"
 ]
