@@ -18,11 +18,16 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     error ImplementationNotInitialized();
 
     modifier onlyInitialized() {
+        _onlyInitialized();
+        _;
+    }
+
+    function _onlyInitialized() internal view {
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-        _;
     }
+
     /// @notice Registry for credential schema and issuer management
     CredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
 
