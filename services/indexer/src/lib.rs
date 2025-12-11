@@ -267,26 +267,17 @@ async fn run_indexer_only(
     indexer_cfg: IndexerConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-
-    // Determine starting block from checkpoint or env
-    let mut from = load_checkpoint(&pool)
-        .await?
-        .unwrap_or(indexer_cfg.start_block);
-
-    // Backfill until head (update_tree = false for indexer-only mode)
-    backfill(
-        &provider,
-        &pool,
+    tracing::info!("starting persistent indexer tasks (backfill + stream loops)");
+    run_indexer_tasks(
+        &indexer_cfg.ws_url,
+        rpc_url,
+        pool,
         registry_address,
-        &mut from,
+        indexer_cfg.start_block,
         indexer_cfg.batch_size,
         false, // Don't update in-memory tree
     )
     .await?;
-
-    tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, false).await?;
 
     Ok(())
 }
@@ -337,8 +328,6 @@ async fn run_both(
     http_cfg: HttpConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-
     // Start HTTP server
     let http_pool = pool.clone();
     let http_addr = http_cfg.http_addr;
@@ -361,30 +350,23 @@ async fn run_both(
         }));
     }
 
-    // Determine starting block from checkpoint or env
-    let mut from = load_checkpoint(&pool)
-        .await?
-        .unwrap_or(indexer_cfg.start_block);
-
-    // Backfill until head (update_tree = true for both mode)
-    backfill(
-        &provider,
-        &pool,
+    tracing::info!("starting persistent indexer tasks (backfill + stream loops)");
+    let stream_result = run_indexer_tasks(
+        &indexer_cfg.ws_url,
+        rpc_url,
+        pool,
         registry_address,
-        &mut from,
+        indexer_cfg.start_block,
         indexer_cfg.batch_size,
         true, // Update in-memory tree directly from events
     )
-    .await?;
-
-    tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, true).await?;
+    .await;
 
     http_handle.abort();
     if let Some(handle) = sanity_handle {
         handle.abort();
     }
-    Ok(())
+    stream_result
 }
 
 pub async fn make_db_pool(db_url: &str) -> anyhow::Result<PgPool> {
@@ -1003,29 +985,207 @@ async fn fetch_recent_account_updates(
     Ok(updates)
 }
 
+
+/// Runs two persistent tasks in parallel:
+/// 1. Backfill loop: Continuously checks for new blocks and backfills from the last checkpoint
+/// 2. Stream loop: Continuously connects to WebSocket and reconnects on disconnect
+/// Both tasks run independently and all database updates are dedup-safe via conflict handling.
+async fn run_indexer_tasks(
+    ws_url: &str,
+    rpc_url: &str,
+    pool: PgPool,
+    registry_address: Address,
+    initial_block: u64,
+    batch_size: u64,
+    update_tree: bool,
+) -> anyhow::Result<()> {
+    // Spawn backfill loop task
+    let rpc_url_backfill = rpc_url.to_string();
+    let pool_backfill = pool.clone();
+    let registry_backfill = registry_address;
+    let batch_size_backfill = batch_size;
+    let update_tree_backfill = update_tree;
+    let initial_block_backfill = initial_block;
+    
+    let backfill_handle = tokio::spawn(async move {
+        backfill_loop(
+            &rpc_url_backfill,
+            &pool_backfill,
+            registry_backfill,
+            initial_block_backfill,
+            batch_size_backfill,
+            update_tree_backfill,
+        )
+        .await
+    });
+
+    // Spawn stream loop task
+    let ws_url_stream = ws_url.to_string();
+    let pool_stream = pool.clone();
+    let registry_stream = registry_address;
+    let update_tree_stream = update_tree;
+    
+    let stream_handle = tokio::spawn(async move {
+        stream_loop(
+            &ws_url_stream,
+            &pool_stream,
+            registry_stream,
+            update_tree_stream,
+        )
+        .await
+    });
+
+    // Wait for either task to fail (they should run forever)
+    tokio::select! {
+        result = backfill_handle => {
+            tracing::error!("backfill loop task exited: {:?}", result);
+            if let Err(e) = result {
+                return Err(anyhow::anyhow!("backfill task panicked: {:?}", e));
+            }
+        }
+        result = stream_handle => {
+            tracing::error!("stream loop task exited: {:?}", result);
+            if let Err(e) = result {
+                return Err(anyhow::anyhow!("stream task panicked: {:?}", e));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Continuously backfills from the last saved checkpoint.
+/// This task runs in a loop, periodically checking for new blocks and catching up.
+/// Fetches the starting block from checkpoint inside the loop.
+async fn backfill_loop(
+    rpc_url: &str,
+    pool: &PgPool,
+    registry_address: Address,
+    initial_block: u64,
+    batch_size: u64,
+    update_tree: bool,
+) -> anyhow::Result<()> {
+    const BACKFILL_INTERVAL: Duration = Duration::from_secs(10);
+
+    loop {
+        let provider = ProviderBuilder::new()
+            .connect_http(rpc_url.parse().expect("invalid RPC URL"));
+
+        // Get last processed block from checkpoint (fetched inside the loop)
+        let last_processed = match load_checkpoint(pool).await {
+            Ok(Some(block)) => {
+                tracing::debug!(
+                    block,
+                    "backfill loop: loaded checkpoint"
+                );
+                block
+            }
+            _ => {
+                tracing::info!(initial_block, "backfill loop: no checkpoint found, starting from initial block");
+                initial_block
+            }
+        };
+
+        // Get current chain head
+        let current_head = provider.get_block_number().await?;
+
+        // If we're behind, backfill
+        if last_processed < current_head {
+            tracing::info!(
+                from = last_processed,
+                to = current_head,
+                "backfill loop: catching up blocks"
+            );
+            let mut from = last_processed;
+            if let Err(e) = backfill(
+                &provider,
+                pool,
+                registry_address,
+                &mut from,
+                batch_size,
+                update_tree,
+            )
+            .await
+            {
+                tracing::error!(?e, "backfill loop: failed to backfill, will retry");
+                continue;
+            }
+            tracing::info!(
+                from = last_processed,
+                to = current_head,
+                "backfill loop: successfully caught up"
+            );
+        } else {
+            tracing::debug!(
+                last_processed,
+                current_head,
+                "backfill loop: already caught up"
+            );
+        }
+
+        // Wait before next check
+        tokio::time::sleep(BACKFILL_INTERVAL).await;
+    }
+}
+
+/// Continuously connects to WebSocket stream and reconnects on disconnect.
+/// This task runs in a loop, automatically reconnecting when the connection drops.
+/// WebSocket subscriptions only receive new blocks, so no from_block is needed.
+async fn stream_loop(
+    ws_url: &str,
+    pool: &PgPool,
+    registry_address: Address,
+    update_tree: bool,
+) -> anyhow::Result<()> {
+    let mut reconnect_delay = Duration::from_secs(1);
+    const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(60);
+
+    loop {
+        tracing::info!(
+            reconnect_delay = ?reconnect_delay,
+            "stream loop: connecting to WebSocket"
+        );
+
+        // Connect and stream logs (WebSocket subscriptions only receive new blocks)
+        let result = stream_logs(ws_url, pool, registry_address, update_tree).await;
+
+        match result {
+            Ok(()) => {
+                tracing::error!(
+                    "stream loop: connection closed, reconnecting"
+                );
+            }
+            _ => {
+                tracing::error!(
+                    "stream loop: connection errored, reconnecting"
+                );
+            }
+        }
+
+        // Exponential backoff before reconnecting
+        tracing::info!(
+            reconnect_delay = ?reconnect_delay,
+            "stream loop: waiting before reconnect"
+        );
+        tokio::time::sleep(reconnect_delay).await;
+        reconnect_delay = (reconnect_delay * 2).min(MAX_RECONNECT_DELAY);
+    }
+}
+
 pub async fn stream_logs(
     ws_url: &str,
     pool: &PgPool,
     registry: Address,
-    start_from: u64,
     update_tree: bool,
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
 
-    let event_signatures = vec![
-        WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-        WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-        WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-    ];
 
     let filter = Filter::new()
         .address(registry)
-        .event_signature(event_signatures)
-        .from_block(start_from);
+        .event_signature(event_signatures);
     let sub = provider.subscribe_logs(&filter).await?;
     let mut stream = sub.into_stream();
     while let Some(log) = stream.next().await {
