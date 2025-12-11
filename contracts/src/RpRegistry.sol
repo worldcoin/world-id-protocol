@@ -360,7 +360,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     ////////////////////////////////////////////////////////////
 
     function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
-        // Checks
         if (_relyingParties[rpId].initialized) revert RpIdAlreadyInUse(rpId);
 
         if (manager == address(0)) revert ManagerCannotBeZeroAddress();
