@@ -2,8 +2,8 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
-import {InternalBinaryIMT} from "../src/tree/InternalBinaryIMT.sol";
+import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
+import {InternalBinaryIMT} from "../src/libraries/InternalBinaryIMT.sol";
 import {console} from "forge-std/console.sol";
 
 contract BinaryIMTTest is Test {

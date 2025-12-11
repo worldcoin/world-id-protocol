@@ -239,14 +239,14 @@ impl TestAnvil {
         bytecode_str = Self::link_bytecode_hex(
             world_id_registry_json,
             &bytecode_str,
-            "src/tree/BinaryIMT.sol:BinaryIMT",
+            "src/libraries/BinaryIMT.sol:BinaryIMT",
             binary_imt_address,
         )?;
 
         bytecode_str = Self::link_bytecode_hex(
             world_id_registry_json,
             &bytecode_str,
-            "src/lib/PackedAccountData.sol:PackedAccountData",
+            "src/libraries/PackedAccountData.sol:PackedAccountData",
             *packed_account_data.address(),
         )?;
 

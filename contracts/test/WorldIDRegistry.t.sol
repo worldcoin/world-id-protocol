@@ -3,8 +3,8 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
-import {BinaryIMT, BinaryIMTData} from "../src/tree/BinaryIMT.sol";
-import {PackedAccountData} from "../src/lib/PackedAccountData.sol";
+import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
+import {PackedAccountData} from "../src/libraries/PackedAccountData.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";

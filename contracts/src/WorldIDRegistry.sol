@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {BinaryIMT, BinaryIMTData} from "./tree/BinaryIMT.sol";
+import {BinaryIMT, BinaryIMTData} from "./libraries/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
@@ -9,7 +9,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {PackedAccountData} from "./lib/PackedAccountData.sol";
+import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 
 /**
  * @title WorldIDRegistry
@@ -473,15 +473,14 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 leafIndex = nextLeafIndex;
 
         uint256 bitmap = 0;
-        for (uint256 i = 0; i < authenticatorAddresses.length; i++) {
+        for (uint32 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
             if (authenticatorAddress == address(0)) {
                 revert ZeroAddress();
             }
 
             _validateNewAuthenticatorAddress(authenticatorAddress);
-            authenticatorAddressToPackedAccountData[authenticatorAddress] =
-                PackedAccountData.pack(leafIndex, 0, uint32(i));
+            authenticatorAddressToPackedAccountData[authenticatorAddress] = PackedAccountData.pack(leafIndex, 0, i);
             bitmap = bitmap | (1 << i);
         }
         _setRecoveryAddressAndBitmap(leafIndex, recoveryAddress, bitmap);
