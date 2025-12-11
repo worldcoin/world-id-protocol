@@ -31,7 +31,7 @@ const GW_PORT: u16 = 4104;
 async fn e2e_authenticator_generate_proof() -> Result<()> {
     let RegistryTestContext {
         anvil,
-        account_registry: registry_address,
+        world_id_registry: registry_address,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,

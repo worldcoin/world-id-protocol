@@ -8,7 +8,7 @@ use alloy::signers::local::PrivateKeySigner;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::Client;
 use test_utils::{
-    anvil::{AccountRegistry, TestAnvil},
+    anvil::{TestAnvil, WorldIDRegistry},
     fixtures::{single_leaf_merkle_fixture, MerkleFixture},
     stubs::MutableIndexerStub,
 };
@@ -95,7 +95,7 @@ async fn e2e_authenticator_insert_update_remove() {
         .expect("failed to spawn anvil with multicall3");
     let deployer = anvil.signer(0).unwrap();
     let registry_address = anvil
-        .deploy_account_registry(deployer.clone())
+        .deploy_world_id_registry(deployer.clone())
         .await
         .unwrap();
 
@@ -177,7 +177,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify secondary authenticator is now registered in the contract
     let provider = ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let contract = AccountRegistry::new(registry_address, provider);
+    let contract = WorldIDRegistry::new(registry_address, provider);
     let packed = contract
         .authenticatorAddressToPackedAccountData(secondary_address)
         .call()

@@ -1,13 +1,13 @@
 pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
-import {AccountRegistry} from "../src/AccountRegistry.sol";
+import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
 
 contract InsertAuthenticatorScript is Script {
-    AccountRegistry public accountRegistry;
+    WorldIDRegistry public worldIDRegistry;
 
     function setUp() public {
-        accountRegistry = AccountRegistry(vm.envAddress("ACCOUNT_REGISTRY"));
+        worldIDRegistry = WorldIDRegistry(vm.envAddress("WORLD_ID_REGISTRY"));
     }
 
     function run() public {
@@ -18,7 +18,7 @@ contract InsertAuthenticatorScript is Script {
         uint256[] memory authenticatorPubkeys = new uint256[](1);
         authenticatorPubkeys[0] = 57915933778004089767388106625639599040044329507355901050367950978468818626307;
 
-        accountRegistry.createAccount(
+        worldIDRegistry.createAccount(
             address(0xABCD),
             authenticatorAddresses,
             authenticatorPubkeys,

@@ -9,7 +9,7 @@ use crate::{
 
 /// Get Packed Account Data
 ///
-/// Returns the packed account data for a given authenticator address from the `AccountRegistry` contract.
+/// Returns the packed account data for a given authenticator address from the `WorldIDRegistry` contract.
 #[utoipa::path(
     post,
     summary = "Get Packed Account Data",

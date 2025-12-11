@@ -11,7 +11,12 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 
-contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+/**
+ * @title WorldIDRegistry
+ * @author World Contributors
+ * @dev The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
+ */
+contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
 
     modifier onlyInitialized() {
@@ -121,7 +126,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     bytes32 public constant UPDATE_RECOVERY_ADDRESS_TYPEHASH =
         keccak256("UpdateRecoveryAddress(uint256 leafIndex,address newRecoveryAddress,uint256 nonce)");
 
-    string public constant EIP712_NAME = "AccountRegistry";
+    string public constant EIP712_NAME = "WorldIDRegistry";
     string public constant EIP712_VERSION = "1.0";
 
     ////////////////////////////////////////////////////////////
@@ -319,7 +324,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Returns the recovery address for the given the leaf index.
+     * @dev Returns the recovery address for the given World ID (based on its leaf index).
      * @param leafIndex The index of the leaf.
      */
     function getRecoveryAddress(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
@@ -340,7 +345,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Helper function to get recovery address from packed
+     * @dev Helper function to get recovery address from the packed storage.
      */
     function _getRecoveryAddress(uint256 leafIndex) internal view returns (address) {
         return address(uint160(_leafIndexToRecoveryAddressPacked[leafIndex]));
@@ -488,7 +493,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Creates a new account.
+     * @dev Creates a new World ID account.
      * @param recoveryAddress The address of the recovery signer.
      * @param authenticatorAddresses The addresses of the authenticators.
      * @param offchainSignerCommitment The offchain signer commitment.
@@ -505,7 +510,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Creates multiple accounts.
+     * @dev Creates multiple World ID accounts.
      * @param recoveryAddresses The addresses of the recovery signers.
      * @param authenticatorAddresses The addresses of the authenticators.
      * @param offchainSignerCommitments The offchain signer commitments.
@@ -542,7 +547,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Updates an existing authenticator.
+     * @dev Updates an existing Authenticator.
      * @param oldAuthenticatorAddress The authenticator address to update.
      * @param newAuthenticatorAddress The new authenticator address.
      * @param oldOffchainSignerCommitment The old offchain signer commitment.
@@ -634,7 +639,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Inserts a new authenticator.
+     * @dev Inserts a new Authenticator.
      * @param newAuthenticatorAddress The authenticator address to insert.
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      * @param signature The signature.
@@ -706,7 +711,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Removes an authenticator.
+     * @dev Removes an Authenticator.
      * @param authenticatorAddress The authenticator address to remove.
      * @param oldOffchainSignerCommitment The old offchain signer commitment.
      * @param newOffchainSignerCommitment The new offchain signer commitment.
@@ -784,7 +789,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Recovers an account.
+     * @dev Recovers a World ID.
      * @param leafIndex The index of the leaf.
      * @param newAuthenticatorAddress The new authenticator address.
      * @param newAuthenticatorPubkey The new authenticator pubkey.
@@ -854,7 +859,7 @@ contract AccountRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
-     * @dev Updates the recovery address for an account.
+     * @dev Updates the recovery address for a World ID.
      * @param leafIndex The index of the leaf.
      * @param newRecoveryAddress The new recovery address.
      * @param signature The signature authorizing the change.

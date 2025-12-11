@@ -5,16 +5,16 @@ use std::sync::Arc;
 use alloy::primitives::Address;
 use alloy::providers::DynProvider;
 use sqlx::PgPool;
-use world_id_core::account_registry::AccountRegistry::AccountRegistryInstance;
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub registry: Arc<AccountRegistryInstance<DynProvider>>,
+    pub registry: Arc<WorldIdRegistryInstance<DynProvider>>,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, registry: Arc<AccountRegistryInstance<DynProvider>>) -> Self {
+    pub fn new(pool: PgPool, registry: Arc<WorldIdRegistryInstance<DynProvider>>) -> Self {
         Self { pool, registry }
     }
 }
@@ -82,7 +82,7 @@ pub struct HttpConfig {
     pub db_poll_interval_secs: u64,
     /// Optional sanity check interval in seconds. If not set, the sanity check will not be run.
     ///
-    /// The sanity check calls the `isValidRoot` function on the `AccountRegistry` contract to ensure the local Merkle root is valid.
+    /// The sanity check calls the `isValidRoot` function on the `WorldIDRegistry` contract to ensure the local Merkle root is valid.
     pub sanity_check_interval_secs: Option<u64>,
 }
 

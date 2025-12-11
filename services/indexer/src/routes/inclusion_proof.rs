@@ -36,7 +36,7 @@ pub(crate) struct AccountInclusionProofSchema {
 
 /// Get Inclusion Proof
 ///
-/// Returns a Merkle inclusion proof for the given leaf index to the current `AccountRegistry` tree. In
+/// Returns a Merkle inclusion proof for the given leaf index to the current `WorldIDRegistry` tree. In
 /// addition, it also includes the entire list of Authenticator public keys registered for the World ID.
 #[utoipa::path(
     post,

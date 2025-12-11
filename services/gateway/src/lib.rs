@@ -19,11 +19,11 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 use utoipa::{IntoParams, OpenApi, ToSchema};
-use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::{
     CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
+use world_id_core::world_id_registry::WorldIdRegistry;
 
 pub use crate::config::{GatewayConfig, SignerConfig};
 pub use crate::error::ErrorResponse;
@@ -275,7 +275,7 @@ async fn create_account(
     }
 
     // Simulate the account creation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .createAccount(
             req.recovery_address.unwrap_or(Address::ZERO),
@@ -335,7 +335,7 @@ async fn update_authenticator(
     }
 
     // Simulate the operation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .updateAuthenticator(
             req.leaf_index,
@@ -414,7 +414,7 @@ async fn insert_authenticator(
     }
 
     // Simulate the operation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .insertAuthenticator(
             req.leaf_index,
@@ -493,7 +493,7 @@ async fn remove_authenticator(
     }
 
     // Simulate the operation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .removeAuthenticator(
             req.leaf_index,
@@ -566,7 +566,7 @@ async fn recover_account(
     }
 
     // Simulate the operation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .recoverAccount(
             req.leaf_index,
@@ -650,7 +650,7 @@ async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
         .call()

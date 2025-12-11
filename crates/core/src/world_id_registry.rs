@@ -1,4 +1,4 @@
-//! This module allows interactions with the `AccountRegistry`.
+//! This module allows interactions with the `WorldIDRegistry`.
 
 use alloy::sol_types::{eip712_domain, Eip712Domain, SolStruct};
 use alloy::{
@@ -8,10 +8,11 @@ use alloy::{
 };
 
 sol!(
-    #[allow(missing_docs, clippy::too_many_arguments)]
+    /// The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
+    #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    AccountRegistry,
-    "contracts/out/AccountRegistry.sol/AccountRegistryAbi.json"
+    WorldIdRegistry,
+    "contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
 );
 
 sol! {
@@ -52,12 +53,12 @@ sol! {
     }
 }
 
-/// Returns the EIP-712 domain used by the `AccountRegistry` contract
+/// Returns the EIP-712 domain used by the `[WorldIdRegistry]` contract
 /// for a given `chain_id` and `verifying_contract` address.
 #[must_use]
 pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
     eip712_domain!(
-        name: "AccountRegistry",
+        name: "WorldIDRegistry",
         version: "1.0",
         chain_id: chain_id,
         verifying_contract: verifying_contract,

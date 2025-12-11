@@ -56,7 +56,7 @@ pub struct Credential {
     pub issuer_schema_id: u64,
     /// The subject (World ID) to which the credential is issued.
     ///
-    /// This ID comes from the `AccountRegistry` and it's the `leaf_index` of the World ID on the Merkle tree.
+    /// This ID comes from the `WorldIDRegistry` and it's the `leaf_index` of the World ID on the Merkle tree.
     pub sub: u64,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),

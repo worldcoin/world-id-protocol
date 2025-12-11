@@ -14,7 +14,7 @@
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]
-pub mod account_registry;
+pub mod world_id_registry;
 
 #[cfg(feature = "authenticator")]
 mod authenticator;

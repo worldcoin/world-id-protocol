@@ -5,16 +5,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
-use crate::account_registry::{
-    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
-};
 use crate::requests::ProofRequest;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
     IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+};
+use crate::world_id_registry::WorldIdRegistry::{self, WorldIdRegistryInstance};
+use crate::world_id_registry::{
+    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
@@ -50,11 +50,11 @@ type UniquenessProof = (Proof<Bn254>, FieldElement);
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
-    /// The packed account data for the holder's World ID is a `uint256` defined in the `AccountRegistry` contract as:
+    /// The packed account data for the holder's World ID is a `uint256` defined in the `WorldIDRegistry` contract as:
     /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
     pub packed_account_data: U256,
     signer: Signer,
-    registry: Option<Arc<AccountRegistryInstance<DynProvider>>>,
+    registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
 }
 
@@ -77,7 +77,7 @@ impl Authenticator {
                 let provider = ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(AccountRegistry::new(
+                Some(WorldIdRegistry::new(
                     *config.registry_address(),
                     provider.erased(),
                 ))
@@ -236,7 +236,7 @@ impl Authenticator {
     /// Will error if the network call fails or if the account does not exist.
     pub async fn get_packed_account_data(
         onchain_signer_address: Address,
-        registry: Option<&AccountRegistryInstance<DynProvider>>,
+        registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,
         http_client: &reqwest::Client,
     ) -> Result<U256, AuthenticatorError> {
@@ -285,7 +285,7 @@ impl Authenticator {
     }
 
     /// Returns the k256 public key of the Authenticator signer which is used to verify on-chain operations,
-    /// chiefly with the `AccountRegistry` contract.
+    /// chiefly with the `WorldIdRegistry` contract.
     #[must_use]
     pub const fn onchain_address(&self) -> Address {
         self.signer.onchain_signer_address()
@@ -310,9 +310,9 @@ impl Authenticator {
         Ok(U256::from_le_slice(&compressed_bytes))
     }
 
-    /// Returns a reference to the `AccountRegistry` contract instance.
+    /// Returns a reference to the `WorldIdRegistry` contract instance.
     #[must_use]
-    pub fn registry(&self) -> Option<Arc<AccountRegistryInstance<DynProvider>>> {
+    pub fn registry(&self) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
         self.registry.clone()
     }
 
@@ -802,7 +802,7 @@ impl ProtocolSigner for Authenticator {
 
 /// A trait for types that can be represented as a `U256` on-chain.
 pub trait OnchainKeyRepresentable {
-    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `AccountRegistry` contract.
+    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `WorldIDRegistry` contract.
     ///
     /// The `U256` representation is a 32-byte little-endian encoding of the **compressed** (single point) public key.
     ///

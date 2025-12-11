@@ -285,7 +285,7 @@ pub struct IndexerPackedAccountResponse {
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerQueryRequest {
-    /// The leaf index to query (from the `AccountRegistry`)
+    /// The leaf index to query (from the `WorldIDRegistry`)
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
     pub leaf_index: U256,

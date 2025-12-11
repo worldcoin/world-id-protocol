@@ -53,10 +53,10 @@ sol!(
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    AccountRegistry,
+    WorldIDRegistry,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
+        "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
     )
 );
 
@@ -184,9 +184,9 @@ impl TestAnvil {
         Ok(*proxy.address())
     }
 
-    /// Deploys the `AccountRegistry` contract using the supplied signer.
+    /// Deploys the `WorldIDRegistry` contract using the supplied signer.
     #[allow(dead_code)]
-    pub async fn deploy_account_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
+    pub async fn deploy_world_id_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
         let tree_depth = 30u64;
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
@@ -217,14 +217,14 @@ impl TestAnvil {
             .await
             .context("failed to deploy PackedAccountData library")?;
 
-        // Step 4: Link both BinaryIMT and PackedAccountData to AccountRegistry
-        let account_registry_json = include_str!(concat!(
+        // Step 4: Link both BinaryIMT and PackedAccountData to WorldIDRegistry
+        let world_id_registry_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/AccountRegistry.sol/AccountRegistry.json"
+            "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
         ));
 
-        // Link both libraries to AccountRegistry (keep as hex string until both are linked)
-        let json_value: serde_json::Value = serde_json::from_str(account_registry_json)?;
+        // Link both libraries to WorldIDRegistry (keep as hex string until both are linked)
+        let json_value: serde_json::Value = serde_json::from_str(world_id_registry_json)?;
         let mut bytecode_str = json_value["bytecode"]["object"]
             .as_str()
             .context("bytecode not found in JSON")?
@@ -237,29 +237,29 @@ impl TestAnvil {
             .to_string();
 
         bytecode_str = Self::link_bytecode_hex(
-            account_registry_json,
+            world_id_registry_json,
             &bytecode_str,
             "src/libraries/BinaryIMT.sol:BinaryIMT",
             binary_imt_address,
         )?;
 
         bytecode_str = Self::link_bytecode_hex(
-            account_registry_json,
+            world_id_registry_json,
             &bytecode_str,
             "src/libraries/PackedAccountData.sol:PackedAccountData",
             *packed_account_data.address(),
         )?;
 
         // Decode the fully-linked bytecode
-        let account_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
+        let world_id_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
 
         let implementation_address =
-            Self::deploy_contract(provider.clone(), account_registry_bytecode, Bytes::new())
+            Self::deploy_contract(provider.clone(), world_id_registry_bytecode, Bytes::new())
                 .await
-                .context("failed to deploy AccountRegistry implementation")?;
+                .context("failed to deploy WorldIDRegistry implementation")?;
 
         let init_data = Bytes::from(
-            AccountRegistry::initializeCall {
+            WorldIDRegistry::initializeCall {
                 initialTreeDepth: U256::from(tree_depth),
             }
             .abi_encode(),
@@ -267,7 +267,7 @@ impl TestAnvil {
 
         let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await
-            .context("failed to deploy AccountRegistry proxy")?;
+            .context("failed to deploy WorldIDRegistry proxy")?;
 
         Ok(*proxy.address())
     }

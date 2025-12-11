@@ -73,15 +73,15 @@ pub struct QueryProofCircuitInput<const MAX_DEPTH: usize> {
     pub cred_r: Affine,
     /// The current timestamp.
     pub current_timestamp: BaseField,
-    /// The root of the Merkle tree of the `AccountRegistry` contract.
+    /// The root of the Merkle tree of the `WorldIDRegistry` contract.
     pub merkle_root: BaseField,
-    /// The depth of the Merkle tree of the `AccountRegistry` contract.
+    /// The depth of the Merkle tree of the `WorldIDRegistry` contract.
     pub depth: BaseField,
-    /// The leaf index of the World ID in the Merkle tree of the `AccountRegistry` contract.
+    /// The leaf index of the World ID in the Merkle tree of the `WorldIDRegistry` contract.
     ///
     /// In the `MerkleInclusionProof` type, this is the `leaf_index` field.
     pub mt_index: BaseField,
-    /// The siblings of the Merkle proof of the account in the `AccountRegistry` contract.
+    /// The siblings of the Merkle proof of the account in the `WorldIDRegistry` contract.
     pub siblings: [BaseField; MAX_DEPTH],
     /// The (non-inverted) blinding factor of the OPRF query.
     pub beta: ScalarField,
