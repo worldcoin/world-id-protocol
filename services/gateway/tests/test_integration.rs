@@ -470,7 +470,7 @@ async fn test_authenticator_already_exists_error_code() {
 
     let client = Client::builder().build().unwrap();
     wait_http_ready(&client, 4102).await;
-    let base = format!("http://127.0.0.1:4102");
+    let base = "http://127.0.0.1:4102".to_string();
 
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
@@ -602,7 +602,7 @@ async fn test_same_authenticator_different_accounts() {
 
     let client = Client::builder().build().unwrap();
     wait_http_ready(&client, 4103).await;
-    let base = format!("http://127.0.0.1:4103");
+    let base = "http://127.0.0.1:4103".to_string();
 
     // Create first account with wallet_addr as authenticator
     let body_create1 = serde_json::json!({
