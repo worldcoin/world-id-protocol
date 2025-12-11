@@ -29,7 +29,7 @@ run-setup:
     sleep 1
     mkdir -p logs
     echo "starting localstack and anvil"
-    docker compose -f ./services/oprf-node/deploy/docker-compose.yml up -d localstack postgres
+    docker compose up -d localstack postgres
     sleep 1
     echo "preparing localstack"
     just prepare-localstack-secrets
@@ -44,11 +44,11 @@ run-setup:
     echo "starting indexer..."
     REGISTRY_ADDRESS=$account_registry just run-indexer-and-gateway
     echo "starting OPRF key-gen instances..."
-    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose -f ./services/oprf-node/deploy/docker-compose.yml up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
+    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     echo "starting OPRF nodes..."
     OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry OPRF_NODE_ACCOUNT_REGISTRY_CONTRACT=$account_registry just run-nodes
     echo "stopping containers..."
-    docker compose -f ./services/oprf-node/deploy/docker-compose.yml down 
+    docker compose down
     killall -9 world-id-indexer
     killall -9 world-id-indexer
     killall -9 world-id-oprf-node

@@ -224,7 +224,6 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 /// Returns [`ProofError`] in the following cases:
 /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
 /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
-#[expect(clippy::missing_panics_doc)]
 #[expect(clippy::too_many_arguments)]
 pub async fn nullifier<R: Rng + CryptoRng>(
     services: &[String],
@@ -292,7 +291,12 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     let id_commitment = public[0];
     let nullifier = public[1];
 
-    assert_eq!(nullifier, verifiable_oprf_output.output);
+    // Verify that the computed nullifier matches the OPRF output, this should never fail unless there is a bug
+    if nullifier != verifiable_oprf_output.output {
+        return Err(ProofError::InternalError(eyre::eyre!(
+            "Computed nullifier does not match OPRF output"
+        )));
+    }
 
     Ok((proof.into(), public, nullifier, id_commitment))
 }
