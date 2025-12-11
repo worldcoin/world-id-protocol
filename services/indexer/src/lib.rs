@@ -27,6 +27,17 @@ pub use config::GlobalConfig;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
+// Event signatures for all registry events that change commitment
+fn event_signatures() -> Vec<alloy::primitives::FixedBytes<32>> {
+    vec![
+        WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
+        WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
+        WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
+        WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
+        WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
+    ]
+}
+
 #[derive(Debug, Clone)]
 pub struct AccountCreatedEvent {
     pub leaf_index: U256,
@@ -267,7 +278,6 @@ async fn run_indexer_only(
     indexer_cfg: IndexerConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    tracing::info!("starting persistent indexer tasks (backfill + stream loops)");
     run_indexer_tasks(
         &indexer_cfg.ws_url,
         rpc_url,
@@ -350,7 +360,6 @@ async fn run_both(
         }));
     }
 
-    tracing::info!("starting persistent indexer tasks (backfill + stream loops)");
     let stream_result = run_indexer_tasks(
         &indexer_cfg.ws_url,
         rpc_url,
@@ -417,18 +426,9 @@ async fn backfill_batch<P: Provider>(
 
     let to_block = (*from_block + batch_size - 1).min(head);
 
-    // Listen for all events that change commitment
-    let event_signatures = vec![
-        WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-        WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-        WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-    ];
-
     let filter = Filter::new()
         .address(registry)
-        .event_signature(event_signatures)
+        .event_signature(event_signatures())
         .from_block(*from_block)
         .to_block(to_block);
 
@@ -985,7 +985,6 @@ async fn fetch_recent_account_updates(
     Ok(updates)
 }
 
-
 /// Runs two persistent tasks in parallel:
 /// 1. Backfill loop: Continuously checks for new blocks and backfills from the last checkpoint
 /// 2. Stream loop: Continuously connects to WebSocket and reconnects on disconnect
@@ -999,6 +998,8 @@ async fn run_indexer_tasks(
     batch_size: u64,
     update_tree: bool,
 ) -> anyhow::Result<()> {
+    tracing::info!("starting persistent indexer tasks (backfill + stream loops)");
+
     // Spawn backfill loop task
     let rpc_url_backfill = rpc_url.to_string();
     let pool_backfill = pool.clone();
@@ -1006,7 +1007,7 @@ async fn run_indexer_tasks(
     let batch_size_backfill = batch_size;
     let update_tree_backfill = update_tree;
     let initial_block_backfill = initial_block;
-    
+
     let backfill_handle = tokio::spawn(async move {
         backfill_loop(
             &rpc_url_backfill,
@@ -1018,13 +1019,14 @@ async fn run_indexer_tasks(
         )
         .await
     });
+    let backfill_abort = backfill_handle.abort_handle();
 
     // Spawn stream loop task
     let ws_url_stream = ws_url.to_string();
     let pool_stream = pool.clone();
     let registry_stream = registry_address;
     let update_tree_stream = update_tree;
-    
+
     let stream_handle = tokio::spawn(async move {
         stream_loop(
             &ws_url_stream,
@@ -1034,22 +1036,29 @@ async fn run_indexer_tasks(
         )
         .await
     });
+    let stream_abort = stream_handle.abort_handle();
 
     // Wait for either task to fail (they should run forever)
     tokio::select! {
         result = backfill_handle => {
+            // Kill other task
+            stream_abort.abort();
             tracing::error!("backfill loop task exited: {:?}", result);
             if let Err(e) = result {
                 return Err(anyhow::anyhow!("backfill task panicked: {:?}", e));
             }
         }
         result = stream_handle => {
+            // Kill other task
+            backfill_abort.abort();
             tracing::error!("stream loop task exited: {:?}", result);
             if let Err(e) = result {
                 return Err(anyhow::anyhow!("stream task panicked: {:?}", e));
             }
         }
     }
+
+    tracing::info!("persistent indexer tasks (backfill + stream loops) exited");
 
     Ok(())
 }
@@ -1068,20 +1077,20 @@ async fn backfill_loop(
     const BACKFILL_INTERVAL: Duration = Duration::from_secs(10);
 
     loop {
-        let provider = ProviderBuilder::new()
-            .connect_http(rpc_url.parse().expect("invalid RPC URL"));
+        let provider =
+            ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
         // Get last processed block from checkpoint (fetched inside the loop)
         let last_processed = match load_checkpoint(pool).await {
             Ok(Some(block)) => {
-                tracing::debug!(
-                    block,
-                    "backfill loop: loaded checkpoint"
-                );
+                tracing::debug!(block, "backfill loop: loaded checkpoint");
                 block
             }
             _ => {
-                tracing::info!(initial_block, "backfill loop: no checkpoint found, starting from initial block");
+                tracing::info!(
+                    initial_block,
+                    "backfill loop: no checkpoint found, starting from initial block"
+                );
                 initial_block
             }
         };
@@ -1151,14 +1160,10 @@ async fn stream_loop(
 
         match result {
             Ok(()) => {
-                tracing::error!(
-                    "stream loop: connection closed, reconnecting"
-                );
+                tracing::error!("stream loop: connection closed, reconnecting");
             }
             _ => {
-                tracing::error!(
-                    "stream loop: connection errored, reconnecting"
-                );
+                tracing::error!("stream loop: connection errored, reconnecting");
             }
         }
 
@@ -1182,10 +1187,9 @@ pub async fn stream_logs(
     let ws = WsConnect::new(ws_url);
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
 
-
     let filter = Filter::new()
         .address(registry)
-        .event_signature(event_signatures);
+        .event_signature(event_signatures());
     let sub = provider.subscribe_logs(&filter).await?;
     let mut stream = sub.into_stream();
     while let Some(log) = stream.next().await {
