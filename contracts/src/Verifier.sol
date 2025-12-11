@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+import {Types} from "oprf-service/src/Types.sol";
+import {OprfKeyRegistry} from "oprf-service/src/OprfKeyRegistry.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {CredentialSchemaIssuerRegistry} from "./CredentialSchemaIssuerRegistry.sol";
 import {WorldIDRegistry} from "./WorldIDRegistry.sol";
 import {Groth16Verifier as Groth16VerifierNullifier} from "./Groth16VerifierNullifier.sol";
-import {IOprfKeyRegistry, Types} from "./interfaces/OprfKeyRegistry.sol";
 
 /**
  * @title Verifier
@@ -35,7 +36,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     WorldIDRegistry public worldIDRegistry;
 
     /// @notice Registry for OPRF key management
-    IOprfKeyRegistry public oprfKeyRegistry;
+    OprfKeyRegistry public oprfKeyRegistry;
 
     /// @notice Contract for nullifier proof verification
     Groth16VerifierNullifier public groth16VerifierNullifier;
@@ -184,7 +185,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         pubSignals[11] = signalHash;
         pubSignals[12] = nonce;
 
-        return groth16VerifierNullifier.verifyProof(proof.a, proof.b, proof.c, pubSignals);
+        return groth16VerifierNullifier.verifyProof(proof.pA, proof.pB, proof.pC, pubSignals);
     }
 
     /**
@@ -222,7 +223,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      */
     function updateOprfKeyRegistry(address _oprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldOprfKeyRegistry = address(oprfKeyRegistry);
-        oprfKeyRegistry = IOprfKeyRegistry(_oprfKeyRegistry);
+        oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
         emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, _oprfKeyRegistry);
     }
 
