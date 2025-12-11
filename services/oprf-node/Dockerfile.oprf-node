@@ -27,13 +27,13 @@ ARG GIT_HASH
 LABEL org.opencontainers.image.revision=$GIT_HASH
 LABEL org.opencontainers.image.vendor=TACEO
 LABEL org.opencontainers.image.source=https://github.com/worldcoin/world-id-protocol
-LABEL org.opencontainers.image.description="REST API service that answers OPRF requests"
+LABEL org.opencontainers.image.description="World ID OPRF node"
 WORKDIR /app
 # copy healthcheck 
 COPY --from=healthcheck-builder /usr/local/cargo/bin/simple-web-healthcheck /healthcheck
 
 # copy needed files and binary for oprf-node
-COPY ./circom/OPRFKeyGen.13.arks.zkey /app/OPRFKeyGenProof.13.zkey
+COPY ./circom/OPRFKeyGen.13.arks.zkey /app/OPRFKeyGen.13.arks.zkey
 COPY ./circom/OPRFQuery.vk.json /app/OPRFQuery.vk.json
 COPY ./circom/OPRFKeyGenGraph.13.bin /app/OPRFKeyGenGraph.13.bin
 COPY --from=builder /app/target/release/world-id-oprf-node /app/world-id-oprf-node

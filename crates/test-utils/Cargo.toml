@@ -29,15 +29,11 @@ k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }
 ark-ec = { workspace = true }
 oprf-types = { workspace = true }
-oprf-core = { workspace = true }
 oprf-test = { workspace = true }
 oprf-key-gen = { workspace = true }
 axum = { version = "0.8", features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
-uuid = { workspace = true }
 oprf-service = { workspace = true }
-async-trait = "0.1"
-parking_lot = "0.12"
 world-id-oprf-node = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }

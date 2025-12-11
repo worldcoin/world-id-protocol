@@ -48,7 +48,6 @@ const MAX_POLL_TIMEOUT_SECS: u64 = 30;
 type UniquenessProof = (Proof<Bn254>, FieldElement);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
-#[derive(Debug)]
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
@@ -58,6 +57,18 @@ pub struct Authenticator {
     signer: Signer,
     registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
+    ws_connector: Connector,
+}
+
+#[expect(clippy::missing_fields_in_debug)]
+impl std::fmt::Debug for Authenticator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Authenticator")
+            .field("config", &self.config)
+            .field("packed_account_data", &self.packed_account_data)
+            .field("signer", &self.signer)
+            .finish()
+    }
 }
 
 impl Authenticator {
@@ -96,12 +107,20 @@ impl Authenticator {
         )
         .await?;
 
+        let mut root_store = RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let rustls_config = ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        let ws_connector = Connector::Rustls(Arc::new(rustls_config));
+
         Ok(Self {
             packed_account_data,
             signer,
             config,
             registry: registry.map(Arc::new),
             http_client,
+            ws_connector,
         })
     }
 
@@ -460,15 +479,6 @@ impl Authenticator {
         }
         let threshold = requested_threshold.min(services.len());
 
-        // TODO decide on rustls or native_tls? make configurable?
-        // TODO store the connector somewhere (maybe in Authenticator?) to avoid recreating it every time because it is expensive
-        let mut root_store = RootCertStore::empty();
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let rustls_config = ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
-        let connector = Connector::Rustls(Arc::new(rustls_config));
-
         let mut rng = rand::thread_rng();
         let (proof, _public, nullifier, _id_commitment) = crate::proof::nullifier(
             services,
@@ -477,7 +487,7 @@ impl Authenticator {
             &nullifier_material,
             args,
             private_key,
-            connector,
+            self.ws_connector.clone(),
             &mut rng,
         )
         .await
@@ -1054,6 +1064,7 @@ mod tests {
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
         };
 
         let nonce = authenticator.signing_nonce().await.unwrap();
@@ -1099,6 +1110,7 @@ mod tests {
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
         };
 
         let result = authenticator.signing_nonce().await;
