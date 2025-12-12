@@ -6,6 +6,7 @@
 //! For details on the OPRF protocol, see the [design document](https://github.com/TaceoLabs/nullifier-oracle-service/blob/491416de204dcad8d46ee1296d59b58b5be54ed9/docs/oprf.pdf).
 use std::{fs::File, sync::Arc};
 
+use alloy::providers::{Provider as _, ProviderBuilder, WsConnect};
 use ark_bn254::Bn254;
 use circom_types::groth16::VerificationKey;
 use eyre::Context;
@@ -13,7 +14,10 @@ use oprf_service::secret_manager::SecretManagerService;
 use secrecy::ExposeSecret;
 
 use crate::{
-    auth::{merkle_watcher::MerkleWatcher, WorldOprfRequestAuthenticator},
+    auth::{
+        issuer_schema_watcher::IssuerSchemaWatcher, merkle_watcher::MerkleWatcher,
+        WorldOprfRequestAuthenticator,
+    },
     config::WorldOprfNodeConfig,
 };
 
@@ -47,11 +51,30 @@ pub async fn start(
     let vk: VerificationKey<Bn254> = serde_json::from_reader(vk)
         .context("while parsing Groth16 verification key for user proof")?;
 
+    tracing::info!("create provider for the contract watchers..");
+    let ws = WsConnect::new(node_config.chain_ws_rpc_url.expose_secret());
+    let provider = ProviderBuilder::default()
+        .connect_ws(ws)
+        .await
+        .context("while connecting to RPC")?
+        .erased();
+
     tracing::info!("init merkle watcher..");
     let merkle_watcher = MerkleWatcher::init(
         config.account_registry_contract,
-        node_config.chain_ws_rpc_url.expose_secret(),
         config.max_merkle_store_size,
+        provider.clone(),
+        cancellation_token.clone(),
+    )
+    .await
+    .context("while starting merkle watcher")?;
+
+    tracing::info!("init issuer schema pubkey watcher..");
+    let issuer_schema_watcher = IssuerSchemaWatcher::init(
+        config.credential_issuer_registry_contract,
+        config.max_issuer_pubkey_store_size,
+        config.max_issuer_pubkey_not_used,
+        provider.clone(),
         cancellation_token.clone(),
     )
     .await
@@ -60,6 +83,7 @@ pub async fn start(
     tracing::info!("init oprf request auth service..");
     let oprf_req_auth_service = Arc::new(WorldOprfRequestAuthenticator::init(
         merkle_watcher,
+        issuer_schema_watcher,
         vk.into(),
         config.current_time_stamp_max_difference,
         config.signature_history_cleanup_interval,

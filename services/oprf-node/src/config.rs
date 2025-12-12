@@ -29,6 +29,10 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_ACCOUNT_REGISTRY_CONTRACT")]
     pub account_registry_contract: Address,
 
+    /// The address of the CredentialSchemaIssuerRegistry smart contract
+    #[clap(long, env = "OPRF_NODE_CREDENTIAL_ISSUER_REGISTRY_CONTRACT")]
+    pub credential_issuer_registry_contract: Address,
+
     /// Path to the verification key used to verify the proof provided by the user during session initialization.
     #[clap(long, env = "OPRF_NODE_USER_PROOF_VERIFICATION_KEY_PATH")]
     pub user_verification_key_path: PathBuf,
@@ -38,6 +42,28 @@ pub struct WorldOprfNodeConfig {
     /// Will drop old merkle roots if this capacity is reached.
     #[clap(long, env = "OPRF_NODE_MERKLE_STORE_SIZE", default_value = "100")]
     pub max_merkle_store_size: usize,
+
+    /// The maximum size of the issuer pubkey store.
+    ///
+    /// Will drop not used public keys if this capacity is reached.
+    #[clap(
+        long,
+        env = "OPRF_NODE_MAX_ISSUER_PUBKEY_STORE_SIZE",
+        default_value = "10000"
+    )]
+    pub max_issuer_pubkey_store_size: usize,
+
+    /// If an issuer public key is not used longer than this duration, the node will drop the public key.
+    ///
+    /// This will only get relevant though if `max_issuer_pubkey_store_size` is reached.
+    #[clap(
+        long,
+        env = "OPRF_NODE_MAX_ISSUER_PUBKEY_NOT_USED",
+        default_value = "1d",
+        value_parser = humantime::parse_duration
+
+    )]
+    pub max_issuer_pubkey_not_used: Duration,
 
     /// The maximum delta between the received current_time_stamp the node current_time_stamp
     #[clap(
