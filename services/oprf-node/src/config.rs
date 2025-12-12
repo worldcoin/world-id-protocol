@@ -25,9 +25,9 @@ pub struct WorldOprfNodeConfig {
     )]
     pub max_wait_time_shutdown: Duration,
 
-    /// The address of the AccountRegistry smart contract
-    #[clap(long, env = "OPRF_NODE_ACCOUNT_REGISTRY_CONTRACT")]
-    pub account_registry_contract: Address,
+    /// The address of the WorldIDRegistry smart contract
+    #[clap(long, env = "OPRF_NODE_WORLD_ID_REGISTRY_CONTRACT")]
+    pub world_id_registry_contract: Address,
 
     /// Path to the verification key used to verify the proof provided by the user during session initialization.
     #[clap(long, env = "OPRF_NODE_USER_PROOF_VERIFICATION_KEY_PATH")]

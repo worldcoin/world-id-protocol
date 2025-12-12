@@ -8235,6 +8235,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "world-id-core",
  "world-id-primitives",
 ]
 

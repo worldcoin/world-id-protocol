@@ -14,7 +14,6 @@ use alloy::{
     primitives::Address,
     providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
     rpc::types::Filter,
-    sol,
     sol_types::SolEvent as _,
 };
 use eyre::Context as _;
@@ -22,16 +21,8 @@ use futures::StreamExt as _;
 use parking_lot::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
+use world_id_core::world_id_registry::WorldIdRegistry::{self, RootRecorded};
 use world_id_primitives::FieldElement;
-
-sol! {
-    #[sol(rpc)]
-    contract AccountRegistry {
-        function isValidRoot(uint256 root) external view returns (bool);
-        function currentRoot() external view returns (uint256);
-    }
-    event RootRecorded(uint256 indexed root, uint256 timestamp, uint256 indexed rootEpoch);
-}
 
 /// Error returned by the [`MerkleWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
@@ -69,7 +60,7 @@ impl MerkleWatcher {
         tracing::info!("creating provider...");
         let ws = WsConnect::new(ws_rpc_url);
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
-        let contract = AccountRegistry::new(contract_address, provider.clone());
+        let contract = WorldIdRegistry::new(contract_address, provider.clone());
 
         tracing::info!("get current root...");
         let current_root = contract.currentRoot().call().await?;
@@ -136,7 +127,7 @@ impl MerkleWatcher {
             }
         }
         tracing::debug!("check in contract");
-        let contract = AccountRegistry::new(self.contract_address, self.provider.clone());
+        let contract = WorldIdRegistry::new(self.contract_address, self.provider.clone());
         let valid = contract
             .isValidRoot(root.into())
             .call()

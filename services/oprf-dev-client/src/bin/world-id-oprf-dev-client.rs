@@ -90,13 +90,13 @@ pub struct OprfDevClientConfig {
     )]
     pub oprf_key_registry_contract: Address,
 
-    /// The Address of the AccountRegistry contract.
+    /// The Address of the WorldIDRegistry contract.
     #[clap(
         long,
-        env = "OPRF_DEV_CLIENT_ACCOUNT_REGISTRY_CONTRACT",
-        default_value = "0xEC64d56653710db35cb57Ac3F983cfbcEfca1D15"
+        env = "OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT",
+        default_value = "0x17946e3536aC12f22ebaad76F53Aa3A30e6BfA62"
     )]
-    pub account_registry_contract: Address,
+    pub world_id_registry_contract: Address,
 
     /// The RPC for chain communication
     #[clap(
@@ -544,7 +544,7 @@ async fn main() -> eyre::Result<()> {
     let world_config = Config::new(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         31_337, // anvil hardhat chain id
-        config.account_registry_contract,
+        config.world_id_registry_contract,
         config.indexer_url,
         config.gateway_url,
         config.services.clone(),

@@ -33,20 +33,20 @@ run-setup:
     sleep 1
     echo "preparing localstack"
     just prepare-localstack-secrets
-    echo "starting AccountRegistry contract..."
-    just deploy-account-registry-anvil | tee logs/deploy_account_registry.log
-    account_registry=$(grep -oP 'AccountRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_account_registry.log)
+    echo "starting WorldIDRegistry contract..."
+    just deploy-world-id-registry-anvil | tee logs/deploy_world_id_registry.log
+    world_id_registry=$(grep -oP 'WorldIDRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_world_id_registry.log)
     echo "starting OprfKeyRegistry contract.."
     just deploy-oprf-key-registry-with-deps-anvil | tee logs/deploy_oprf_key_registry.log
     oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     echo "register oprf-nodes..."
     OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry just register-participants-anvil
     echo "starting indexer..."
-    REGISTRY_ADDRESS=$account_registry just run-indexer-and-gateway
+    REGISTRY_ADDRESS=$world_id_registry just run-indexer-and-gateway
     echo "starting OPRF key-gen instances..."
     OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     echo "starting OPRF nodes..."
-    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry OPRF_NODE_ACCOUNT_REGISTRY_CONTRACT=$account_registry just run-nodes
+    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry OPRF_NODE_WORLD_ID_REGISTRY_CONTRACT=$world_id_registry just run-nodes
     echo "stopping containers..."
     docker compose down
     killall -9 world-id-indexer
@@ -54,7 +54,7 @@ run-setup:
     killall -9 world-id-oprf-node
     killall -9 anvil
 
-run-oprf-key-registry-and-nodes $OPRF_SERVICE_ACCOUNT_REGISTRY_CONTRACT:
+run-oprf-key-registry-and-nodes $OPRF_SERVICE_WORLD_ID_REGISTRY_CONTRACT:
     #!/usr/bin/env bash
     mkdir -p logs
     echo "starting OprfKeyRegistry contract.."
@@ -87,8 +87,8 @@ run-indexer-and-gateway:
 
 [private]
 [working-directory('contracts/script')]
-deploy-account-registry-anvil:
-    forge script AccountRegistry.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+deploy-world-id-registry-anvil:
+    forge script WorldIDRegistry.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 [private]
 [working-directory('contracts/lib/oprf-service/contracts/script/deploy')]

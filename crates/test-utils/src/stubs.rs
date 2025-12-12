@@ -140,7 +140,7 @@ async fn spawn_orpf_node(
     chain_ws_rpc_url: &str,
     secret_manager: TestSecretManager,
     rp_registry_contract: Address,
-    account_registry_contract: Address,
+    world_id_registry_contract: Address,
     wallet_address: Address,
 ) -> String {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -152,7 +152,7 @@ async fn spawn_orpf_node(
         max_merkle_store_size: 10,
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         signature_history_cleanup_interval: Duration::from_secs(30),
-        account_registry_contract,
+        world_id_registry_contract,
         node_config: oprf_service::config::OprfNodeConfig {
             environment: oprf_service::config::Environment::Dev,
             rp_secret_id_prefix: format!("oprf/rp/n{id}"),
@@ -189,7 +189,7 @@ pub async fn spawn_oprf_nodes(
     chain_ws_rpc_url: &str,
     secret_manager: [TestSecretManager; 3],
     key_gen_contract: Address,
-    account_registry_contract: Address,
+    world_id_registry_contract: Address,
 ) -> [String; 3] {
     let [secret_manager0, secret_manager1, secret_manager2] = secret_manager;
     [
@@ -198,7 +198,7 @@ pub async fn spawn_oprf_nodes(
             chain_ws_rpc_url,
             secret_manager0,
             key_gen_contract,
-            account_registry_contract,
+            world_id_registry_contract,
             OPRF_PEER_ADDRESS_0,
         )
         .await,
@@ -207,7 +207,7 @@ pub async fn spawn_oprf_nodes(
             chain_ws_rpc_url,
             secret_manager1,
             key_gen_contract,
-            account_registry_contract,
+            world_id_registry_contract,
             OPRF_PEER_ADDRESS_1,
         )
         .await,
@@ -216,7 +216,7 @@ pub async fn spawn_oprf_nodes(
             chain_ws_rpc_url,
             secret_manager2,
             key_gen_contract,
-            account_registry_contract,
+            world_id_registry_contract,
             OPRF_PEER_ADDRESS_2,
         )
         .await,

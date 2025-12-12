@@ -49,7 +49,7 @@ pub async fn start(
 
     tracing::info!("init merkle watcher..");
     let merkle_watcher = MerkleWatcher::init(
-        config.account_registry_contract,
+        config.world_id_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_merkle_store_size,
         cancellation_token.clone(),
