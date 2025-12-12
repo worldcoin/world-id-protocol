@@ -21,3 +21,48 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+  # world-id-oprf-node
+  localstack:
+    image: localstack/localstack
+    container_name: localstack
+    ports:
+      - "4566:4566"            
+    environment:
+      - SERVICES=secretsmanager
+      - DEBUG=1
+  oprf-key-gen0:
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v0.1.0-beta.0
+    network_mode: "host"
+    environment:
+      OPRF_NODE_ENVIRONMENT: dev
+      OPRF_NODE_BIND_ADDR: 0.0.0.0:20000
+      OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT:
+      OPRF_NODE_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
+      OPRF_NODE_RP_SECRET_ID_PREFIX: oprf/rp/n0
+      OPRF_NODE_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n0
+      OPRF_NODE_KEY_GEN_ZKEY: /app/OPRFKeyGen.13.arks.zkey
+      OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
+  oprf-key-gen1:
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v0.1.0-beta.0
+    network_mode: "host"
+    environment:
+      OPRF_NODE_ENVIRONMENT: dev
+      OPRF_NODE_BIND_ADDR: 0.0.0.0:20001
+      OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT:
+      OPRF_NODE_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
+      OPRF_NODE_RP_SECRET_ID_PREFIX: oprf/rp/n1
+      OPRF_NODE_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n1
+      OPRF_NODE_KEY_GEN_ZKEY: /app/OPRFKeyGen.13.arks.zkey
+      OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
+  oprf-key-gen2:
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v0.1.0-beta.0
+    network_mode: "host"
+    environment:
+      OPRF_NODE_ENVIRONMENT: dev
+      OPRF_NODE_BIND_ADDR: 0.0.0.0:20002
+      OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT:
+      OPRF_NODE_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
+      OPRF_NODE_RP_SECRET_ID_PREFIX: oprf/rp/n2
+      OPRF_NODE_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n2
+      OPRF_NODE_KEY_GEN_ZKEY: /app/OPRFKeyGen.13.arks.zkey
+      OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin

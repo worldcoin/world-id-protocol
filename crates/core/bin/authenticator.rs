@@ -23,6 +23,9 @@ fn install_tracing() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("can install");
     install_tracing();
     let json_config = std::fs::read_to_string("config.json").unwrap();
     let config = Config::from_json(&json_config).unwrap();

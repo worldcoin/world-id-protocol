@@ -2,26 +2,28 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {Groth16Verifier} from "../src/Groth16VerifierNullifier.sol";
 import {Verifier} from "../src/Verifier.sol";
-import {Types, IRpRegistry} from "../src/interfaces/RpRegistry.sol";
-import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
+import {Types} from "oprf-service/src/Types.sol";
+import {Groth16Verifier} from "../src/Groth16VerifierNullifier.sol";
+import {OprfKeyRegistry} from "oprf-service/src/OprfKeyRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 
 uint256 constant credentialIssuerIdCorrect = 1;
 uint256 constant credentialIssuerIdWrong = 2;
 
-uint128 constant rpIdCorrect = 0xa3d3be8a7b705148db53d2bb75cf436b;
-uint128 constant rpIdWrong = 2;
+uint160 constant rpIdCorrect = 0xa3d3be8a7b705148db53d2bb75cf436b;
+uint160 constant rpIdWrong = 2;
 
 uint256 constant rootCorrect = 0x1d22549d78774db0d351d984a476f26fca780643e134f435ad966c29c4652122;
 uint256 constant rootWrong = 2;
 
-contract RpRegistryMock {
+contract OprfKeyRegistryMock {
     using Types for Types.BabyJubJubElement;
 
-    function getRpNullifierKey(uint128 rpId) external view returns (Types.BabyJubJubElement memory) {
-        if (rpId == rpIdCorrect) {
+    function getOprfPublicKey(uint160 oprfKeyId) external view returns (Types.BabyJubJubElement memory) {
+        // TODO update for mapping of rpId to oprfKeyId
+        if (oprfKeyId == rpIdCorrect) {
             return Types.BabyJubJubElement({
                 x: 0x158bde45465f643c741ec671211d8cdda47f2015843d5d8d6f0fd3823773b08e,
                 y: 0x6cd134f217937f3f88d19f9418a67d481b67c87ce959e51f08d18ea76972d8b
@@ -75,19 +77,19 @@ contract NullifierVerifier is Test {
     uint256 accountCommitment = 0x08987cf30dc2d612c1ff5b578e13c88e79c93f97ce5b5de38cd32398e38b49e0;
     uint256 nullifier = 0x5a691b2dce9717b041201d1050b716c2c53626b71283c4dfa8a69a1f05e0500;
     uint256 proofTimestamp = 0x691c5060;
-    uint128 rpId = 0xa3d3be8a7b705148db53d2bb75cf436b;
+    uint160 rpId = 0xa3d3be8a7b705148db53d2bb75cf436b;
     uint256 action = 0x5af36be93f35ed0611d38e6f759aade2532563da3bf91fbf251bedb228c4326;
-    uint256 rpKey_x = 0x158bde45465f643c741ec671211d8cdda47f2015843d5d8d6f0fd3823773b08e;
-    uint256 rpKey_y = 0x6cd134f217937f3f88d19f9418a67d481b67c87ce959e51f08d18ea76972d8b;
+    uint256 oprfPublicKey_x = 0x158bde45465f643c741ec671211d8cdda47f2015843d5d8d6f0fd3823773b08e;
+    uint256 oprfPublicKey_y = 0x6cd134f217937f3f88d19f9418a67d481b67c87ce959e51f08d18ea76972d8b;
     uint256 signalHash = 0x2ecfa99ecb77772534c42713e20a21ff36c838870a6a3846fd1c4667326ca5e5;
     uint256 nonce = 0x2005e5e4b247df0f284a7e717835b18d18dfddcbb8f65c31fa22edbb047d78ea;
 
     Types.Groth16Proof proof = Types.Groth16Proof({
-        a: [
+        pA: [
             0x187f24c372a1c42c8a8ed9c74592210ac3fa4337d810c401dbd313a2e9424f03,
             0x13fff489f24d745ecb90697e33d35e02e1c1f14c2ee28d4677c8fdf5d19ba947
         ],
-        b: [
+        pB: [
             [
                 0x2586480928ac0651b735c8024d575d2f5d59c2946c305e123a867ae88fd83600,
                 0x07f3795a9842c1a41ca17f0f7c275efa0da09f214d61267126f7f317afc39133
@@ -97,14 +99,14 @@ contract NullifierVerifier is Test {
                 0x1e8306e907e700e1f9160eee3bc9cc7fe988bb66a28f232e43d988c32675b50a
             ]
         ],
-        c: [
+        pC: [
             0x220825adf76ca3730ce0241de7cf5ce388d4d275886fe7b01d82155c55915d24,
             0x202410723daf76348a7d4123e867676e27375a95e70a06815b8895f9d21f8ecb
         ]
     });
 
     function setUp() public {
-        address rpRegistry = address(new RpRegistryMock());
+        address oprfKeyRegistry = address(new OprfKeyRegistryMock());
         address worldIDRegistryMock = address(new WorldIDRegistryMock());
         address credentialSchemaIssuerRegistryMock = address(new CredentialSchemaIssuerRegistryMock());
         verifierGroth16 = address(new Groth16Verifier());
@@ -121,7 +123,7 @@ contract NullifierVerifier is Test {
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         verifier = Verifier(address(proxy));
-        verifier.updateRpRegistry(rpRegistry);
+        verifier.updateOprfKeyRegistry(oprfKeyRegistry);
     }
 
     function test_Success() public {
@@ -177,11 +179,11 @@ contract NullifierVerifier is Test {
 
     function test_WrongProof() public {
         Types.Groth16Proof memory brokenProof = Types.Groth16Proof({
-            a: [
+            pA: [
                 0x220825adf76ca3730ce0241de7cf5ce388d4d275886fe7b01d82155c55915d24,
                 0x202410723daf76348a7d4123e867676e27375a95e70a06815b8895f9d21f8ecb
             ],
-            b: [
+            pB: [
                 [
                     0x2586480928ac0651b735c8024d575d2f5d59c2946c305e123a867ae88fd83600,
                     0x07f3795a9842c1a41ca17f0f7c275efa0da09f214d61267126f7f317afc39133
@@ -191,7 +193,7 @@ contract NullifierVerifier is Test {
                     0x1e8306e907e700e1f9160eee3bc9cc7fe988bb66a28f232e43d988c32675b50a
                 ]
             ],
-            c: [
+            pC: [
                 0x187f24c372a1c42c8a8ed9c74592210ac3fa4337d810c401dbd313a2e9424f03,
                 0x13fff489f24d745ecb90697e33d35e02e1c1f14c2ee28d4677c8fdf5d19ba947
             ]

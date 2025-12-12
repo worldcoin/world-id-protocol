@@ -13,6 +13,7 @@ node_modules/
 # Misc
 .env
 .DS_Store
+logs/
 
 # IDE
 .idea

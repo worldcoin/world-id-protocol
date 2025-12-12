@@ -1,0 +1,38 @@
+[package]
+name = "world-id-oprf-dev-client"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+alloy = { workspace = true, features = ["full", "rpc", "rpc-client-ws"] }
+ark-babyjubjub = { workspace = true }
+ark-ff.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+eyre.workspace = true
+humantime = "2"
+nodes-observability = { package = "taceo-nodes-observability", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "25bc2dc" }
+oprf-types = { workspace = true }
+oprf-client = { workspace = true }
+oprf-core = { workspace = true }
+oprf-test = { workspace = true }
+rand.workspace = true
+rand_chacha.workspace = true
+rustls.workspace = true
+secrecy = "0.10"
+tokio = { workspace = true, features = [
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+  "tokio-macros",
+] }
+tracing.workspace = true
+uuid = { workspace = true, features = ["serde", "v4"] }
+webpki-roots.workspace = true
+world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
+world-id-primitives = { workspace = true }
