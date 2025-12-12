@@ -34,5 +34,5 @@ tokio = { workspace = true, features = [
 tracing.workspace = true
 uuid = { workspace = true, features = ["serde", "v4"] }
 webpki-roots.workspace = true
-world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
+world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys", "issuer"] }
 world-id-primitives = { workspace = true }

@@ -6,85 +6,31 @@
 //!
 //! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
 //! - [`signature_history`] – keeps track of nonce + time_stamp signatures to detect replays
-
-use crate::auth::{
-    merkle_watcher::{MerkleWatcher, MerkleWatcherError},
-    signature_history::{DuplicateSignatureError, SignatureHistory},
-};
-use ark_bn254::Bn254;
-use async_trait::async_trait;
-use axum::{http::StatusCode, response::IntoResponse};
-use oprf_service::OprfRequestAuthenticator;
-use oprf_types::api::v1::OprfRequest;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use uuid::Uuid;
+
+use crate::auth::{
+    errors::OprfRequestAuthError, issuer_schema_watcher::IssuerSchemaWatcher,
+    merkle_watcher::MerkleWatcher, signature_history::SignatureHistory,
+};
+use alloy::primitives::U256;
+use ark_bn254::Bn254;
+use async_trait::async_trait;
+use oprf_service::OprfRequestAuthenticator;
+use oprf_types::api::v1::OprfRequest;
+use tracing::instrument;
 use world_id_primitives::{oprf::OprfRequestAuthV1, TREE_DEPTH};
 
+pub(crate) mod errors;
+pub(crate) mod issuer_schema_watcher;
 pub(crate) mod merkle_watcher;
 pub(crate) mod signature_history;
 
-/// Errors returned by the [`WorldOprfReqAuthenticator`].
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum OprfRequestAuthError {
-    /// The client Groth16 proof did not verify.
-    #[error("client proof did not verify")]
-    InvalidProof,
-    /// An error returned from the merkle watcher service during merkle look-up.
-    #[error(transparent)]
-    MerkleWatcherError(#[from] MerkleWatcherError),
-    /// The current time stamp difference between client and service is larger than allowed.
-    #[error("the time stamp difference is too large")]
-    TimeStampDifference,
-    /// A nonce signature was uses more than once
-    #[error(transparent)]
-    DuplicateSignatureError(#[from] DuplicateSignatureError),
-    /// The provided merkle root is not valid
-    #[error("invalid merkle root")]
-    InvalidMerkleRoot,
-    /// Internal server error
-    #[error(transparent)]
-    InternalServerError(#[from] eyre::Report),
-}
-
-impl IntoResponse for OprfRequestAuthError {
-    fn into_response(self) -> axum::response::Response {
-        match self {
-            OprfRequestAuthError::InvalidProof => {
-                (StatusCode::BAD_REQUEST, "invalid proof").into_response()
-            }
-            OprfRequestAuthError::MerkleWatcherError(err) => {
-                tracing::error!("merkle watcher error: {err}");
-                (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
-            }
-            OprfRequestAuthError::TimeStampDifference => (
-                StatusCode::BAD_REQUEST,
-                "the time stamp difference is too large",
-            )
-                .into_response(),
-            OprfRequestAuthError::DuplicateSignatureError(err) => {
-                (StatusCode::BAD_REQUEST, err.to_string()).into_response()
-            }
-            OprfRequestAuthError::InvalidMerkleRoot => {
-                (StatusCode::BAD_REQUEST, "invalid merkle root").into_response()
-            }
-            OprfRequestAuthError::InternalServerError(err) => {
-                let error_id = Uuid::new_v4();
-                tracing::error!("{error_id} - {err:?}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("An internal server error has occurred. Error ID={error_id}"),
-                )
-                    .into_response()
-            }
-        }
-    }
-}
-
 pub(crate) struct WorldOprfRequestAuthenticator {
     merkle_watcher: MerkleWatcher,
+    issuer_schema_watcher: IssuerSchemaWatcher,
     signature_history: SignatureHistory,
     vk: Arc<ark_groth16::PreparedVerifyingKey<Bn254>>,
     current_time_stamp_max_difference: Duration,
@@ -93,6 +39,7 @@ pub(crate) struct WorldOprfRequestAuthenticator {
 impl WorldOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
+        issuer_schema_watcher: IssuerSchemaWatcher,
         vk: ark_groth16::VerifyingKey<Bn254>,
         current_time_stamp_max_difference: Duration,
         signature_history_cleanup_interval: Duration,
@@ -103,6 +50,7 @@ impl WorldOprfRequestAuthenticator {
                 signature_history_cleanup_interval,
             ),
             merkle_watcher,
+            issuer_schema_watcher,
             vk: Arc::new(ark_groth16::prepare_verifying_key(&vk)),
             current_time_stamp_max_difference,
         }
@@ -114,6 +62,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
     type RequestAuth = OprfRequestAuthV1;
     type RequestAuthError = OprfRequestAuthError;
 
+    #[instrument(level = "debug", skip_all)]
     async fn verify(
         &self,
         request: &OprfRequest<Self::RequestAuth>,
@@ -126,6 +75,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         if current_time.abs_diff(req_time_stamp) > self.current_time_stamp_max_difference {
             return Err(OprfRequestAuthError::TimeStampDifference);
         }
+        tracing::debug!("timestamp difference check success");
 
         // TODO check the RP nonce signature
 
@@ -133,22 +83,24 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         self.signature_history
             .add_signature(request.auth.signature.to_vec(), req_time_stamp)?;
 
-        // check if the merkle root is valid
-        let valid = self
-            .merkle_watcher
-            .is_root_valid(request.auth.merkle_root.into())
-            .await?;
-        if !valid {
-            return Err(OprfRequestAuthError::InvalidMerkleRoot)?;
-        }
+        tracing::debug!("checking root and issuer schema...");
+        // check if the merkle root is valid and get issuer pk
+        let (root_valid, issuer_pk) = tokio::join!(
+            self.merkle_watcher
+                .is_root_valid(request.auth.merkle_root.into()),
+            self.issuer_schema_watcher
+                .get_pubkey(U256::from(request.auth.cred_type_id))
+        );
 
+        root_valid?;
+        let cred_pk = issuer_pk?;
         // verify the user proof
         let public = [
             request.blinded_query.x,
             request.blinded_query.y,
             request.auth.cred_type_id.into(),
-            request.auth.cred_pk.pk.x,
-            request.auth.cred_pk.pk.y,
+            cred_pk.x,
+            cred_pk.y,
             request.auth.current_time_stamp.into(),
             request.auth.merkle_root,
             ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
@@ -163,7 +115,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
             &request.auth.proof.clone().into(),
             &public,
         )
-        .unwrap();
+        .map_err(|err| eyre::eyre!(err))?;
         if valid {
             tracing::debug!("proof valid");
             Ok(())

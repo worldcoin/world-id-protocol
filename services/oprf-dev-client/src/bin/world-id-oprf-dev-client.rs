@@ -6,7 +6,10 @@ use std::{
 
 use alloy::{
     primitives::{Address, U160},
-    signers::k256::ecdsa::{signature::Signer as _, SigningKey},
+    signers::{
+        k256::ecdsa::{signature::Signer as _, SigningKey},
+        local::PrivateKeySigner,
+    },
 };
 use ark_ff::{BigInteger as _, PrimeField as _, UniformRand as _};
 use clap::{Parser, Subcommand};
@@ -21,7 +24,7 @@ use oprf_types::{
 };
 use rand::SeedableRng;
 use rustls::{ClientConfig, RootCertStore};
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::{ExposeSecret, SecretBox, SecretString};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 use world_id_core::{
@@ -40,8 +43,6 @@ use world_id_primitives::{
     rp::RpId,
     Config, TREE_DEPTH,
 };
-
-const ISSUER_SCHEMA_ID: u64 = 1;
 
 #[derive(Parser, Debug)]
 pub struct StressTestCommand {
@@ -86,7 +87,7 @@ pub struct OprfDevClientConfig {
     #[clap(
         long,
         env = "OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT",
-        default_value = "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6"
+        default_value = "0x610178dA211FEF7D417bC0e6FeD39F05609AD788"
     )]
     pub oprf_key_registry_contract: Address,
 
@@ -94,9 +95,17 @@ pub struct OprfDevClientConfig {
     #[clap(
         long,
         env = "OPRF_DEV_CLIENT_ACCOUNT_REGISTRY_CONTRACT",
-        default_value = "0xEC64d56653710db35cb57Ac3F983cfbcEfca1D15"
+        default_value = "0x7532e6Ddf7dC09F0c91BfD2861084a311231C7e5"
     )]
     pub account_registry_contract: Address,
+
+    /// The Address of the IssuerSchemaRegistry contract.
+    #[clap(
+        long,
+        env = "OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY",
+        default_value = "0x138E7A554ac757b88D118a84b8dD49C492275856"
+    )]
+    pub issuer_schema_registry_contract: Address,
 
     /// The RPC for chain communication
     #[clap(
@@ -115,6 +124,10 @@ pub struct OprfDevClientConfig {
         default_value = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     )]
     pub taceo_private_key: SecretString,
+
+    /// The `issuer_schema_id`. If `None`, will create a new one. If set, should have the public-key registered with the corresponding `taceo_private_key`.
+    #[clap(long, env = "TACEO_ISSUER_SCHEMA_ID")]
+    pub issuer_schema_id: Option<u64>,
 
     /// Indexer address
     #[clap(
@@ -146,8 +159,9 @@ pub struct OprfDevClientConfig {
 }
 
 fn create_and_sign_credential(
+    issuer_schema_id: u64,
     issuer_pk: EdDSAPublicKey,
-    issuer_sk: EdDSAPrivateKey,
+    issuer_sk: &EdDSAPrivateKey,
     leaf_index: u64,
 ) -> eyre::Result<Credential> {
     let current_timestamp = SystemTime::now()
@@ -157,7 +171,7 @@ fn create_and_sign_credential(
 
     let mut credential = Credential::new()
         .sub(leaf_index)
-        .issuer_schema_id(ISSUER_SCHEMA_ID)
+        .issuer_schema_id(issuer_schema_id)
         .genesis_issued_at(current_timestamp)
         .expires_at(current_timestamp + 3600);
 
@@ -172,16 +186,18 @@ fn create_and_sign_credential(
 
 async fn run_nullifier(
     authenticator: &Authenticator,
+    issuer_id: u64,
+    issuer_sk: SecretBox<EdDSAPrivateKey>,
     oprf_key_id: OprfKeyId,
     oprf_public_key: OprfPublicKey,
 ) -> eyre::Result<()> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
-    let issuer_sk = EdDSAPrivateKey::random(&mut rng);
-    let issuer_pk = issuer_sk.public();
+    let issuer_pk = issuer_sk.expose_secret().public();
     let credential = create_and_sign_credential(
+        issuer_id,
         issuer_pk,
-        issuer_sk,
+        issuer_sk.expose_secret(),
         authenticator
             .leaf_index()
             .try_into()
@@ -213,7 +229,7 @@ async fn run_nullifier(
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
-            issuer_schema_id: ISSUER_SCHEMA_ID.into(),
+            issuer_schema_id: issuer_id.into(),
             signal: Some("my_signal".to_string()),
         }],
         constraints: None,
@@ -236,6 +252,8 @@ fn prepare_nullifier_stress_test_oprf_request(
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
     key_index: u64,
+    issuer_schema_id: u64,
+    issuer_sk: &SecretBox<EdDSAPrivateKey>,
     query_material: &CircomGroth16Material,
 ) -> eyre::Result<(
     SingleProofInput<TREE_DEPTH>,
@@ -245,11 +263,11 @@ fn prepare_nullifier_stress_test_oprf_request(
 )> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
-    let issuer_sk = EdDSAPrivateKey::random(&mut rng);
-    let issuer_pk = issuer_sk.public();
+    let issuer_pk = issuer_sk.expose_secret().public();
     let credential = create_and_sign_credential(
+        issuer_schema_id,
         issuer_pk,
-        issuer_sk,
+        issuer_sk.expose_secret(),
         authenticator
             .leaf_index()
             .try_into()
@@ -330,7 +348,10 @@ fn avg(durations: &[Duration]) -> Duration {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn stress_test(
+    issuer_schema_id: u64,
+    issuer_sk: SecretBox<EdDSAPrivateKey>,
     authenticator: &Authenticator,
     authenticator_private_key: EdDSAPrivateKey,
     oprf_key_id: OprfKeyId,
@@ -365,6 +386,8 @@ async fn stress_test(
             inclusion_proof.clone(),
             key_set.clone(),
             key_index,
+            issuer_schema_id,
+            &issuer_sk,
             &query_material,
         )?;
         request_ids.insert(idx, req.request_id);
@@ -541,7 +564,7 @@ async fn main() -> eyre::Result<()> {
         (oprf_key_id, oprf_public_key)
     };
 
-    let world_config = Config::new(
+    let world_config_authenticator = Config::new(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         31_337, // anvil hardhat chain id
         config.account_registry_contract,
@@ -552,11 +575,42 @@ async fn main() -> eyre::Result<()> {
     )
     .unwrap();
 
+    let world_config_issuer = Config::new(
+        Some(config.chain_rpc_url.expose_secret().to_string()),
+        31_337, // anvil hardhat chain id
+        config.issuer_schema_registry_contract,
+        "".to_owned(), // not needed for issuer
+        "".to_owned(), // not needed for issuer
+        config.services.clone(),
+        config.threshold,
+    )
+    .unwrap();
+
+    let issuer_seed_bytes = config
+        .taceo_private_key
+        .expose_secret()
+        .parse::<PrivateKeySigner>()?
+        .to_field_bytes();
+    let offchain_signer = SecretBox::new(Box::new(EdDSAPrivateKey::from_bytes(
+        issuer_seed_bytes.into(),
+    )));
+
+    let issuer_schema_id = if let Some(issuer_schema_id) = config.issuer_schema_id {
+        tracing::info!("using issuer schema id: {issuer_schema_id}");
+        issuer_schema_id
+    } else {
+        tracing::info!("registering new issuer schema id...");
+        let mut issuer = world_id_core::Issuer::new(&issuer_seed_bytes, world_config_issuer)?;
+        u64::try_from(issuer.register_schema().await?)
+            .expect("Returned issuer schema id fits into u64")
+    };
+
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_create_blocking(&seed, world_config, None)
-        .await
-        .context("failed to initialize or create authenticator")?;
+    let authenticator =
+        Authenticator::init_or_create_blocking(&seed, world_config_authenticator, None)
+            .await
+            .context("failed to initialize or create authenticator")?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
 
     // setup TLS config - even if we are http
@@ -570,12 +624,21 @@ async fn main() -> eyre::Result<()> {
     match config.command {
         Command::Test => {
             tracing::info!("running single nullifier");
-            run_nullifier(&authenticator, oprf_key_id, oprf_public_key).await?;
+            run_nullifier(
+                &authenticator,
+                issuer_schema_id,
+                offchain_signer,
+                oprf_key_id,
+                oprf_public_key,
+            )
+            .await?;
             tracing::info!("nullifier successful");
         }
         Command::StressTest(cmd) => {
             tracing::info!("running stress-test");
             stress_test(
+                issuer_schema_id,
+                offchain_signer,
                 &authenticator,
                 authenticator_private_key,
                 oprf_key_id,

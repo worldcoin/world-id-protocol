@@ -37,6 +37,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         account_registry: registry_address,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
+        credential_registry,
         issuer_schema_id,
         ..
     } = RegistryTestContext::new().await?;
@@ -153,6 +154,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         secret_managers.clone(),
         oprf_registry,
         registry_address,
+        credential_registry,
     )
     .await;
 

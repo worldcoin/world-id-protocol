@@ -11,6 +11,7 @@ license.workspace = true
 alloy = { workspace = true, features = ["full", "rpc", "rpc-client-ws"] }
 ark-babyjubjub = { workspace = true }
 ark-bn254.workspace = true
+ark-ff.workspace = true
 ark-groth16.workspace = true
 async-trait = "0.1"
 aws-config = { version = "1", features = ["behavior-version-latest"] }
@@ -20,7 +21,7 @@ clap = { version = "4", features = ["derive", "env"] }
 eyre.workspace = true
 futures = { workspace = true }
 humantime = "2"
-nodes-common= { package = "taceo-nodes-common", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "33fcbcc" }
+nodes-common = { package = "taceo-nodes-common", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "33fcbcc" }
 nodes-observability = { package = "taceo-nodes-observability", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "33fcbcc" }
 oprf-service = { workspace = true }
 oprf-types = { workspace = true }

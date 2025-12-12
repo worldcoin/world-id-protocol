@@ -12,7 +12,7 @@ use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
-    providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
+    providers::{DynProvider, Provider as _},
     rpc::types::Filter,
     sol,
     sol_types::SolEvent as _,
@@ -33,10 +33,14 @@ sol! {
     event RootRecorded(uint256 indexed root, uint256 timestamp, uint256 indexed rootEpoch);
 }
 
-/// Error returned by the [`MerkleWatcher`] implementation.
+/// Error returned by the [`MerkleWatcher`].
 #[derive(Debug, thiserror::Error)]
-#[error("chain communication error: {0}")]
-pub(crate) struct MerkleWatcherError(pub String);
+pub(crate) enum MerkleWatcherError {
+    #[error("invalid merkle root")]
+    InvalidMerkleRoot,
+    #[error(transparent)]
+    AlloyError(#[from] alloy::contract::Error),
+}
 
 /// Monitors merkle roots from an on-chain AccountRegistry contract.
 ///
@@ -56,19 +60,16 @@ impl MerkleWatcher {
     ///
     /// # Arguments
     /// * `contract_address` - Address of the AccountRegistry contract
-    /// * `ws_rpc_url` - WebSocket RPC URL for blockchain connection
-    /// * `max_merkle_store_size` - Maximum number of merkle roots to store
+    /// * `max_store_size` - Maximum number of keys to store
+    /// * `provider` - Alloy provider that establishes connection to chain. Doesn't need a signing key.
     /// * `cancellation_token` - CancellationToken to cancel the service in case of an error
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        ws_rpc_url: &str,
-        max_merkle_store_size: usize,
+        max_store_size: usize,
+        provider: DynProvider,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
-        tracing::info!("creating provider...");
-        let ws = WsConnect::new(ws_rpc_url);
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
         let contract = AccountRegistry::new(contract_address, provider.clone());
 
         tracing::info!("get current root...");
@@ -78,7 +79,7 @@ impl MerkleWatcher {
         let merkle_root_store = Arc::new(Mutex::new(
             MerkleRootStore::new(
                 HashMap::from([(current_root.try_into()?, 0)]), // insert current root with 0 timestamp so it is oldest
-                max_merkle_store_size,
+                max_store_size,
             )
             .context("while building merkle root store")?,
         ));
@@ -122,26 +123,19 @@ impl MerkleWatcher {
     }
 
     #[instrument(level = "debug", skip(self))]
-    pub(crate) async fn is_root_valid(
-        &self,
-        root: FieldElement,
-    ) -> Result<bool, MerkleWatcherError> {
+    pub(crate) async fn is_root_valid(&self, root: FieldElement) -> Result<(), MerkleWatcherError> {
         {
             let store = self.merkle_root_store.lock();
             // first check if the merkle root is already registered
             if store.contains_root(root) {
                 tracing::trace!("root was in store");
                 tracing::trace!("root valid: true");
-                return Ok(true);
+                return Ok(());
             }
         }
         tracing::debug!("check in contract");
         let contract = AccountRegistry::new(self.contract_address, self.provider.clone());
-        let valid = contract
-            .isValidRoot(root.into())
-            .call()
-            .await
-            .map_err(|err| MerkleWatcherError(err.to_string()))?;
+        let valid = contract.isValidRoot(root.into()).call().await?;
         {
             tracing::debug!("add root to store");
             let mut store = self.merkle_root_store.lock();
@@ -152,7 +146,11 @@ impl MerkleWatcher {
             store.insert(root, timestamp);
         }
         tracing::debug!("root valid: {valid}");
-        return Ok(valid);
+        return if valid {
+            Ok(())
+        } else {
+            Err(MerkleWatcherError::InvalidMerkleRoot)
+        };
     }
 }
 

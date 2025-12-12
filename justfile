@@ -7,15 +7,15 @@ run-nodes:
     mkdir -p logs
     cargo build -p world-id-oprf-node --release
     # anvil wallet 7
-    RUST_LOG="oprf_service=trace,warn" ./target/release/world-id-oprf-node --bind-addr 127.0.0.1:10000 --rp-secret-id-prefix oprf/rp/n0 --environment dev --wallet-address 0x14dC79964da2C08b23698B3D3cc7Ca32193d9955 --user-verification-key-path ./circom/OPRFQuery.vk.json > logs/service0.log 2>&1 &
+    RUST_LOG="world_id_oprf_node=trace,oprf_service=trace,warn" ./target/release/world-id-oprf-node --bind-addr 127.0.0.1:10000 --rp-secret-id-prefix oprf/rp/n0 --environment dev --wallet-address 0x14dC79964da2C08b23698B3D3cc7Ca32193d9955 --user-verification-key-path ./circom/OPRFQuery.vk.json > logs/service0.log 2>&1 &
     pid0=$!
     echo "started service0 with PID $pid0"
     # anvil wallet 8
-    RUST_LOG="oprf_service=trace,warn" ./target/release/world-id-oprf-node --bind-addr 127.0.0.1:10001 --rp-secret-id-prefix oprf/rp/n1 --environment dev --wallet-address 0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f --user-verification-key-path ./circom/OPRFQuery.vk.json > logs/service1.log 2>&1 &
+    RUST_LOG="world_id_oprf_node=trace,oprf_service=trace,warn" ./target/release/world-id-oprf-node --bind-addr 127.0.0.1:10001 --rp-secret-id-prefix oprf/rp/n1 --environment dev --wallet-address 0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f --user-verification-key-path ./circom/OPRFQuery.vk.json > logs/service1.log 2>&1 &
     pid1=$!
     echo "started service1 with PID $pid1"
     # anvil wallet 9
-    RUST_LOG="oprf_service=trace,warn" ./target/release/world-id-oprf-node --bind-addr 127.0.0.1:10002 --rp-secret-id-prefix oprf/rp/n2 --environment dev --wallet-address 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720 --user-verification-key-path ./circom/OPRFQuery.vk.json > logs/service2.log 2>&1  &
+    RUST_LOG="world_id_oprf_node=trace,oprf_service=trace,warn" ./target/release/world-id-oprf-node --bind-addr 127.0.0.1:10002 --rp-secret-id-prefix oprf/rp/n2 --environment dev --wallet-address 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720 --user-verification-key-path ./circom/OPRFQuery.vk.json > logs/service2.log 2>&1  &
     pid2=$!
     echo "started service2 with PID $pid2"
     trap "kill $pid0 $pid1 $pid2" SIGINT SIGTERM
@@ -36,6 +36,9 @@ run-setup:
     echo "starting AccountRegistry contract..."
     just deploy-account-registry-anvil | tee logs/deploy_account_registry.log
     account_registry=$(grep -oP 'AccountRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_account_registry.log)
+    echo "starting CredentialSchemaIssuerRegistry contract..."
+    just deploy-credential-schema-issuer-registry | tee logs/deploy_credential_schema_issuer_registry.log
+    credential_schema_issuer_registry=$(grep -oP 'CredentialSchemaIssuerRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_credential_schema_issuer_registry.log)
     echo "starting OprfKeyRegistry contract.."
     just deploy-oprf-key-registry-with-deps-anvil | tee logs/deploy_oprf_key_registry.log
     oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
@@ -46,7 +49,7 @@ run-setup:
     echo "starting OPRF key-gen instances..."
     OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     echo "starting OPRF nodes..."
-    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry OPRF_NODE_ACCOUNT_REGISTRY_CONTRACT=$account_registry just run-nodes
+    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry OPRF_NODE_ACCOUNT_REGISTRY_CONTRACT=$account_registry OPRF_NODE_CREDENTIAL_ISSUER_REGISTRY_CONTRACT=$credential_schema_issuer_registry just run-nodes
     echo "stopping containers..."
     docker compose down
     killall -9 world-id-indexer
@@ -89,6 +92,11 @@ run-indexer-and-gateway:
 [working-directory('contracts/script')]
 deploy-account-registry-anvil:
     forge script AccountRegistry.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+[private]
+[working-directory('contracts/script')]
+deploy-credential-schema-issuer-registry:
+    forge script CredentialSchemaIssuerRegistry.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 [private]
 [working-directory('contracts/lib/oprf-service/contracts/script/deploy')]
