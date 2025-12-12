@@ -70,7 +70,7 @@ jobs:
           tags: |
             type=sha,format=long
             type=match,pattern=^${{ inputs.image-name }}-(v\d+\.\d+\.\d+.*)$,group=1
-            type=raw,value=dev
+            type=match,pattern=^${{ inputs.image-name }}-(v\d+\.\d+\.\d+)-(dev).*$,group=2
 
           labels: |
             org.opencontainers.image.title=${{ inputs.image-name }}
@@ -142,7 +142,7 @@ jobs:
           tags: |
             type=sha,format=long
             type=match,pattern=^${{ inputs.image-name }}-(v\d+\.\d+\.\d+.*)$,group=1
-            type=raw,value=dev
+            type=match,pattern=^${{ inputs.image-name }}-(v\d+\.\d+\.\d+)-(dev).*$,group=2
 
           labels: |
             org.opencontainers.image.title=${{ inputs.image-name }}
