@@ -4660,7 +4660,7 @@ dependencies = [
 [[package]]
 name = "oprf-client"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=887b656#887b6564ea4a75a6d4b66959930005aedb1ddd11"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=683d4c6#683d4c64901d5682cd6eb0cafa5e7a78092591e1"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -4680,7 +4680,7 @@ dependencies = [
 [[package]]
 name = "oprf-client-example"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=887b656#887b6564ea4a75a6d4b66959930005aedb1ddd11"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=683d4c6#683d4c64901d5682cd6eb0cafa5e7a78092591e1"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -4695,7 +4695,7 @@ dependencies = [
 [[package]]
 name = "oprf-key-gen"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=887b656#887b6564ea4a75a6d4b66959930005aedb1ddd11"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=683d4c6#683d4c64901d5682cd6eb0cafa5e7a78092591e1"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -4704,6 +4704,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
+ "axum 0.8.7",
  "clap",
  "eyre",
  "futures",
@@ -4723,6 +4724,7 @@ dependencies = [
  "taceo-oprf-types",
  "tokio",
  "tokio-util",
+ "tower-http 0.6.8",
  "tracing",
  "zeroize",
 ]
@@ -4730,7 +4732,7 @@ dependencies = [
 [[package]]
 name = "oprf-service"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=887b656#887b6564ea4a75a6d4b66959930005aedb1ddd11"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=683d4c6#683d4c64901d5682cd6eb0cafa5e7a78092591e1"
 dependencies = [
  "alloy",
  "async-trait",
@@ -4764,7 +4766,7 @@ dependencies = [
 [[package]]
 name = "oprf-service-example"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=887b656#887b6564ea4a75a6d4b66959930005aedb1ddd11"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=683d4c6#683d4c64901d5682cd6eb0cafa5e7a78092591e1"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -4787,7 +4789,7 @@ dependencies = [
 [[package]]
 name = "oprf-test"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=887b656#887b6564ea4a75a6d4b66959930005aedb1ddd11"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=683d4c6#683d4c64901d5682cd6eb0cafa5e7a78092591e1"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -6691,7 +6693,7 @@ dependencies = [
 [[package]]
 name = "taceo-nodes-common"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nodes-helpers.git?rev=33fcbcc#33fcbcca1882cd7582b416dd8ec203d104e6fdbb"
+source = "git+https://github.com/TaceoLabs/nodes-helpers.git?rev=25bc2dc#25bc2dca7627342777aa5dc46000ee5d8d9dfd65"
 dependencies = [
  "aws-config",
  "aws-sdk-secretsmanager",
@@ -6704,7 +6706,7 @@ dependencies = [
 [[package]]
 name = "taceo-nodes-observability"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nodes-helpers.git?rev=33fcbcc#33fcbcca1882cd7582b416dd8ec203d104e6fdbb"
+source = "git+https://github.com/TaceoLabs/nodes-helpers.git?rev=25bc2dc#25bc2dca7627342777aa5dc46000ee5d8d9dfd65"
 dependencies = [
  "eyre",
  "humantime",
@@ -6721,7 +6723,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-core"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=887b656#887b6564ea4a75a6d4b66959930005aedb1ddd11"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=683d4c6#683d4c64901d5682cd6eb0cafa5e7a78092591e1"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -6742,7 +6744,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-types"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=887b656#887b6564ea4a75a6d4b66959930005aedb1ddd11"
+source = "git+https://github.com/TaceoLabs/nullifier-oracle-service.git?rev=683d4c6#683d4c64901d5682cd6eb0cafa5e7a78092591e1"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",

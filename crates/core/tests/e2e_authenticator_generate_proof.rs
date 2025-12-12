@@ -145,8 +145,12 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let secret_managers = test_utils::oprf_test::create_3_secret_managers();
     // OPRF key-gen instances
-    test_utils::stubs::spawn_key_gens(anvil.ws_endpoint(), secret_managers.clone(), oprf_registry)
-        .await;
+    let oprf_key_gens = test_utils::stubs::spawn_key_gens(
+        anvil.ws_endpoint(),
+        secret_managers.clone(),
+        oprf_registry,
+    )
+    .await;
     // OPRF nodes
     let nodes = test_utils::stubs::spawn_oprf_nodes(
         anvil.ws_endpoint(),
@@ -155,6 +159,12 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         registry_address,
     )
     .await;
+
+    test_utils::oprf_test::health_checks::services_health_check(
+        &oprf_key_gens,
+        Duration::from_secs(60),
+    )
+    .await?;
 
     // init key gen for a new RP, wait until its done and fetch the public key
     let oprf_key_id = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;

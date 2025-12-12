@@ -14,7 +14,7 @@ ark-ff.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 eyre.workspace = true
 humantime = "2"
-nodes-observability = { package = "taceo-nodes-observability", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "33fcbcc" }
+nodes-observability = { package = "taceo-nodes-observability", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "25bc2dc" }
 oprf-types = { workspace = true }
 oprf-client = { workspace = true }
 oprf-core = { workspace = true }

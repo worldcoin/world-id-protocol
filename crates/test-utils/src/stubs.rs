@@ -228,10 +228,12 @@ async fn spawn_key_gen(
     chain_ws_rpc_url: &str,
     secret_manager: TestSecretManager,
     rp_registry_contract: Address,
-) {
+) -> String {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let url = format!("http://localhost:2{id:04}"); // set port based on id, e.g. 20001 for id 1
     let config = oprf_key_gen::config::OprfKeyGenConfig {
         environment: oprf_key_gen::config::Environment::Dev,
+        bind_addr: format!("0.0.0.0:2{id:04}").parse().unwrap(),
         oprf_key_registry_contract: rp_registry_contract,
         chain_ws_rpc_url: chain_ws_rpc_url.into(),
         rp_secret_id_prefix: format!("oprf/rp/n{id}"),
@@ -241,23 +243,26 @@ async fn spawn_key_gen(
         max_wait_time_shutdown: Duration::from_secs(10),
         max_epoch_cache_size: 3,
         start_block: Some(0),
+        transaction_attempts: 3,
     };
     let never = async { futures::future::pending::<()>().await };
     tokio::spawn(async move {
         let res = oprf_key_gen::start(config, Arc::new(secret_manager), never).await;
         eprintln!("key-gen failed to start: {res:?}");
     });
+    url
 }
 
 pub async fn spawn_key_gens(
     chain_ws_rpc_url: &str,
     secret_manager: [TestSecretManager; 3],
     key_gen_contract: Address,
-) {
+) -> [String; 3] {
     let [secret_manager0, secret_manager1, secret_manager2] = secret_manager;
     tokio::join!(
         spawn_key_gen(0, chain_ws_rpc_url, secret_manager0, key_gen_contract),
         spawn_key_gen(1, chain_ws_rpc_url, secret_manager1, key_gen_contract),
         spawn_key_gen(2, chain_ws_rpc_url, secret_manager2, key_gen_contract),
-    );
+    )
+    .into()
 }
