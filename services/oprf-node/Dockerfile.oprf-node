@@ -1,0 +1,41 @@
+FROM lukemathwalker/cargo-chef:0.1.73-rust-1.91.0-bookworm AS chef
+WORKDIR /app
+
+
+FROM chef AS planner
+# look at .dockerignore if this does not copy what you want
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder 
+ARG GIT_HASH
+RUN apt-get update && apt-get install -y pkg-config
+COPY --from=planner /app/recipe.json recipe.json
+# Build dependencies - this is the caching Docker layer!
+RUN cargo chef cook --release --recipe-path recipe.json
+# Build application
+COPY . .
+RUN cargo build --release --bin world-id-oprf-node
+
+# Build healthcheck
+FROM rust:1.91-bookworm AS healthcheck-builder
+RUN cargo install simple-web-healthcheck
+
+
+FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+ARG GIT_HASH
+LABEL org.opencontainers.image.revision=$GIT_HASH
+LABEL org.opencontainers.image.vendor=TACEO
+LABEL org.opencontainers.image.source=https://github.com/worldcoin/world-id-protocol
+LABEL org.opencontainers.image.description="World ID OPRF node"
+WORKDIR /app
+# copy healthcheck 
+COPY --from=healthcheck-builder /usr/local/cargo/bin/simple-web-healthcheck /healthcheck
+
+# copy needed files and binary for oprf-node
+COPY ./circom/OPRFKeyGen.13.arks.zkey /app/OPRFKeyGen.13.arks.zkey
+COPY ./circom/OPRFQuery.vk.json /app/OPRFQuery.vk.json
+COPY ./circom/OPRFKeyGenGraph.13.bin /app/OPRFKeyGenGraph.13.bin
+COPY --from=builder /app/target/release/world-id-oprf-node /app/world-id-oprf-node
+
+ENTRYPOINT [ "/app/world-id-oprf-node" ]
