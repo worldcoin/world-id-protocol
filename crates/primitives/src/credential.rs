@@ -43,7 +43,7 @@ pub enum CredentialVersion {
 /// - Associated data is authenticated in the Credential through the `associated_data_hash` field. The issuer
 ///   can determine how this data is hashed. However providing the raw data to `associated_data` can ensure a
 ///   consistent hashing into the field.
-/// ```
+/// ```text
 /// +------------------------------+
 /// |          Credential          |
 /// |                              |
