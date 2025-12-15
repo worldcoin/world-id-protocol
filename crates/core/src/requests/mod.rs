@@ -6,10 +6,11 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
+use oprf_types::crypto::OprfPublicKey;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use world_id_primitives::rp::{RpId, RpNullifierKey};
+use world_id_primitives::rp::RpId;
 use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof};
 
 /// Protocol schema version for proof requests and responses.
@@ -63,7 +64,7 @@ pub struct ProofRequest {
     /// hash function like keccak256 or SHA256 and then reduced to a field element.
     pub action: FieldElement,
     /// The nullifier key of the RP (FIXME: documentation & serialization after #129)
-    pub rp_nullifier_key: RpNullifierKey,
+    pub oprf_public_key: OprfPublicKey,
     /// The RP's ECDSA signature over the request
     pub signature: k256::ecdsa::Signature,
     /// Unique nonce for this request (serialized as hex string)
@@ -444,6 +445,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::uint;
     use k256::ecdsa::{signature::Signer, SigningKey};
 
     // Test helpers
@@ -452,10 +454,10 @@ mod tests {
         signing_key.sign(b"test")
     }
 
-    fn test_rp_nullifier_key() -> RpNullifierKey {
+    fn test_oprf_public_key() -> OprfPublicKey {
         // Create a dummy point for testing
         use ark_ec::AffineRepr;
-        RpNullifierKey::new(ark_babyjubjub::EdwardsAffine::generator())
+        OprfPublicKey::new(ark_babyjubjub::EdwardsAffine::generator())
     }
 
     fn test_nonce() -> FieldElement {
@@ -536,9 +538,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_700_000_000,
             expires_at: 1_700_100_000,
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: FieldElement::ZERO,
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -573,9 +575,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: FieldElement::ZERO,
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -649,9 +651,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(1),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -721,9 +723,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(5),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -844,9 +846,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(1),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -929,9 +931,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(1),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -968,9 +970,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(1),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1028,9 +1030,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(1),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1158,9 +1160,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(5),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1198,9 +1200,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(5),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1242,9 +1244,9 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
-            rp_id: RpId::from(1u128),
+            rp_id: RpId::from(uint!(1_U160)),
             action: test_field_element(1),
-            rp_nullifier_key: test_rp_nullifier_key(),
+            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
