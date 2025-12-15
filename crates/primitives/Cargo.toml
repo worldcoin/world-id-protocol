@@ -35,6 +35,7 @@ url = { workspace = true, features = ["serde"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 poseidon2 = { workspace = true }
 sha3 = { version = "0.10", default-features = false }
+rand.workspace = true
 
 [dev-dependencies]
 ciborium = "0.2.2"

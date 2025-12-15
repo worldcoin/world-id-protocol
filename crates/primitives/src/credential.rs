@@ -1,5 +1,6 @@
 use ark_babyjubjub::EdwardsAffine;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use rand::Rng;
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -36,12 +37,12 @@ pub enum CredentialVersion {
 /// **Associated Data**.
 /// - Associated data is stored by Authenticators with the Credential.
 /// - Including associated data is a decision by the issuer. Its structure and content is solely
-/// determined by the issuer and the data will not be exposed to RPs or others.
+///   determined by the issuer and the data will not be exposed to RPs or others.
 /// - An example of associated data use is supporting data to re-issue a credential (e.g. a sign up number).
 /// - Associated data is never exposed to RPs or others. It only lives in the Authenticator.
 /// - Associated data is authenticated in the Credential through the `associated_data_hash` field. The issuer
-/// can determine how this data is hashed. However providing the raw data to `associated_data` can ensure a
-/// consistent hashing into the field.
+///   can determine how this data is hashed. However providing the raw data to `associated_data` can ensure a
+///   consistent hashing into the field.
 /// ```
 /// +------------------------------+
 /// |          Credential          |
@@ -84,7 +85,7 @@ pub struct Credential {
     /// to manage credential lifecycle.
     ///
     /// - This ID is never exposed or used outside of issuer scope. It is never part of proofs
-    /// or exposed to RPs.
+    ///   or exposed to RPs.
     /// - Generally, it is recommended to maintain the default of a random identifier.
     ///
     /// # Example Uses
@@ -142,7 +143,9 @@ impl Credential {
     /// Note default fields occupy a sentinel value of `BaseField::zero()`
     #[must_use]
     pub fn new() -> Self {
+        let mut rng = rand::thread_rng();
         Self {
+            id: rng.gen(),
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
             sub: 0,
@@ -155,6 +158,13 @@ impl Credential {
                 pk: EdwardsAffine::default(),
             },
         }
+    }
+
+    /// Set the `id` of the credential.
+    #[must_use]
+    pub const fn id(mut self, id: u64) -> Self {
+        self.id = id;
+        self
     }
 
     /// Set the `version` of the credential.
