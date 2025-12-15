@@ -213,6 +213,10 @@ fn hash_bytes_with_poseidon2_t16_r15(
 mod tests {
     use crate::{sponge::hash_bytes_with_poseidon2_t16_r15, FieldElement, PrimitiveError};
 
+    use super::hash_bytes_to_field_element;
+
+    const TEST_DS_TAG: &[u8] = b"TEST_DS_TAG";
+
     #[test]
     fn derive_tag_stable() {
         let tag = super::derive_safe_tag(10, super::IO_SQUEEZE_LEN_BYTES, b"DS");
@@ -236,5 +240,109 @@ mod tests {
         let h2 = hash_bytes_with_poseidon2_t16_r15(&data, b"DS", "test").unwrap();
         assert_eq!(h1, h2);
         assert_ne!(h1, FieldElement::ZERO);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_basic() {
+        let data = vec![1u8, 2, 3, 4, 5];
+        let result = hash_bytes_to_field_element(TEST_DS_TAG, &data);
+        assert!(result.is_ok());
+
+        // Should produce a non-zero result
+        let hash = result.unwrap();
+        assert_ne!(hash, FieldElement::ZERO);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_deterministic() {
+        let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        let result1 = hash_bytes_to_field_element(TEST_DS_TAG, &data).unwrap();
+        let result2 = hash_bytes_to_field_element(TEST_DS_TAG, &data).unwrap();
+
+        // Same input should produce same output
+        assert_eq!(result1, result2);
+        // Should produce a non-zero result
+        assert_ne!(result1, FieldElement::ZERO);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_different_inputs() {
+        let data1 = vec![1u8, 2, 3, 4, 5];
+        let data2 = vec![5u8, 4, 3, 2, 1];
+        let data3 = vec![1u8, 2, 3, 4, 5, 6];
+
+        let hash1 = hash_bytes_to_field_element(TEST_DS_TAG, &data1).unwrap();
+        let hash2 = hash_bytes_to_field_element(TEST_DS_TAG, &data2).unwrap();
+        let hash3 = hash_bytes_to_field_element(TEST_DS_TAG, &data3).unwrap();
+
+        // Different inputs should produce different outputs
+        assert_ne!(hash1, hash2);
+        assert_ne!(hash1, hash3);
+        assert_ne!(hash2, hash3);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_empty_error() {
+        let data: Vec<u8> = vec![];
+        let result = hash_bytes_to_field_element(TEST_DS_TAG, &data);
+
+        assert!(result.is_err());
+        if let Err(PrimitiveError::InvalidInput { attribute, reason }) = result {
+            assert_eq!(attribute, "associated_data");
+            assert!(reason.contains("empty"));
+        } else {
+            panic!("Expected InvalidInput error");
+        }
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_large_input() {
+        // Test with a large input (10KB) to ensure arbitrary-length support
+        let data = vec![42u8; 10 * 1024];
+        let result = hash_bytes_to_field_element(TEST_DS_TAG, &data);
+        assert!(result.is_ok());
+
+        // Should produce a non-zero result
+        let hash = result.unwrap();
+        assert_ne!(hash, FieldElement::ZERO);
+    }
+
+    #[test]
+    fn test_hash_bytes_to_field_element_length_domain_separation() {
+        // Two inputs with same data but different lengths should hash differently
+        let data1 = vec![0u8; 10];
+        let data2 = vec![0u8; 11];
+
+        let hash1 = hash_bytes_to_field_element(TEST_DS_TAG, &data1).unwrap();
+        let hash2 = hash_bytes_to_field_element(TEST_DS_TAG, &data2).unwrap();
+
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_bytes_chunk_boundaries_and_batches() {
+        // Exercise chunking (31-byte), just-over-chunk, and multi-batch (rate=15)
+        let sizes = [
+            1usize,
+            31,
+            32,
+            33,
+            15 * 31,     // exactly fills 15 chunks -> one batch
+            15 * 31 + 1, // spills into a second batch
+        ];
+
+        for size in sizes {
+            let data = vec![42u8; size];
+            let h1 = hash_bytes_to_field_element(TEST_DS_TAG, &data).unwrap();
+            let h2 = hash_bytes_to_field_element(TEST_DS_TAG, &data).unwrap();
+
+            assert_ne!(
+                h1,
+                FieldElement::ZERO,
+                "size {size} should not hash to zero"
+            );
+            assert_eq!(h1, h2, "hash should be deterministic for size {size}");
+        }
     }
 }
