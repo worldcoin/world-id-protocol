@@ -1210,9 +1210,6 @@ async fn stream_loop(
         // Increment reconnect count (this is a reconnect attempt after the initial connection)
         reconnect_count += 1;
 
-        // Capture error context before checking if we should exit
-        let error_context = result.as_ref().err().map(|e| e.to_string());
-
         match &result {
             Ok(()) => {
                 tracing::error!(
@@ -1237,6 +1234,9 @@ async fn stream_loop(
                 "stream loop: exceeded max reconnect attempts ({MAX_RECONNECT_ATTEMPTS})"
             ));
         }
+
+        // Sleep before reconnecting
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
 
