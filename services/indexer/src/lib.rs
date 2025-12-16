@@ -401,13 +401,26 @@ pub async fn load_checkpoint(pool: &PgPool) -> anyhow::Result<Option<u64>> {
 }
 
 pub async fn save_checkpoint(pool: &PgPool, block: u64) -> anyhow::Result<()> {
-    sqlx::query(
-        "insert into checkpoints (name, last_block) values ($1, $2) on conflict (name) do update set last_block = excluded.last_block",
+    let result = sqlx::query(
+        "insert into checkpoints (name, last_block) values ($1, $2) 
+         on conflict (name) do update set last_block = excluded.last_block 
+         where excluded.last_block > checkpoints.last_block",
     )
     .bind("account_created")
     .bind(block as i64)
     .execute(pool)
     .await?;
+
+    // If no rows were affected, it means the block number wasn't greater than the existing one
+    if result.rows_affected() == 0 && tracing::enabled!(tracing::Level::DEBUG) {
+        let existing_block = load_checkpoint(pool).await?.unwrap_or(0);
+        tracing::debug!(
+            attempted_block = block,
+            existing_block,
+            "checkpoint not updated: block number not greater than existing checkpoint"
+        );
+    }
+
     Ok(())
 }
 
