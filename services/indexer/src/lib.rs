@@ -449,10 +449,14 @@ async fn backfill_batch<P: Provider>(
                 let tx_hash = lg.transaction_hash;
                 let log_index = lg.log_index;
 
-                if let Err(e) =
-                    handle_registry_event(pool, &event, block_number, tx_hash, log_index).await
-                {
-                    tracing::error!(?e, ?event, "failed to handle registry event in DB");
+                if let Some(bn) = block_number {
+                    if let Err(e) =
+                        handle_registry_event(pool, &event, bn, tx_hash, log_index).await
+                    {
+                        tracing::error!(?e, ?event, "failed to handle registry event in DB");
+                    }
+                } else {
+                    tracing::warn!(?lg, "skipping event with no block_number");
                 }
 
                 if update_tree {
@@ -636,11 +640,16 @@ pub fn decode_registry_event(lg: &alloy::rpc::types::Log) -> anyhow::Result<Regi
     }
 }
 
-pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::Result<()> {
+pub async fn insert_account(
+    pool: &PgPool,
+    ev: &AccountCreatedEvent,
+    block_number: u64,
+) -> anyhow::Result<()> {
+    let block_num = block_number as i64;
     sqlx::query(
         r#"insert into accounts
-        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
-        values ($1, $2, $3, $4, $5)
+        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment, last_updated_block)
+        values ($1, $2, $3, $4, $5, $6)
         on conflict (leaf_index) do nothing"#,
     )
     .bind(ev.leaf_index.to_string())
@@ -658,6 +667,7 @@ pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::
             .collect::<Vec<_>>(),
     ))
     .bind(ev.offchain_signer_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -667,14 +677,17 @@ pub async fn update_commitment(
     pool: &PgPool,
     leaf_index: U256,
     new_commitment: U256,
+    block_number: u64,
 ) -> anyhow::Result<()> {
+    let block_num = block_number as i64;
     sqlx::query(
         r#"update accounts
-        set offchain_signer_commitment = $2
-        where leaf_index = $1"#,
+        set offchain_signer_commitment = $2, last_updated_block = $3
+        where leaf_index = $1 and (last_updated_block is null or last_updated_block < $3)"#,
     )
     .bind(leaf_index.to_string())
     .bind(new_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -687,20 +700,25 @@ pub async fn update_authenticator_at_index(
     new_address: Address,
     new_pubkey: U256,
     new_commitment: U256,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     // Update authenticator at specific index (pubkey_id)
+    // Enforce that last_updated_block must increase
+    let block_num = block_number as i64;
     sqlx::query(
         r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), false),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), false),
-            offchain_signer_commitment = $5
-        where leaf_index = $1"#,
+            offchain_signer_commitment = $5,
+            last_updated_block = $6
+        where leaf_index = $1 and (last_updated_block is null or last_updated_block < $6)"#,
     )
     .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -713,20 +731,25 @@ pub async fn insert_authenticator_at_index(
     new_address: Address,
     new_pubkey: U256,
     new_commitment: U256,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     // Ensure arrays are large enough and insert at specific index
+    // Enforce that last_updated_block must increase
+    let block_num = block_number as i64;
     sqlx::query(
         r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), true),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), true),
-            offchain_signer_commitment = $5
-        where leaf_index = $1"#,
+            offchain_signer_commitment = $5,
+            last_updated_block = $6
+        where leaf_index = $1 and (last_updated_block is null or last_updated_block < $6)"#,
     )
     .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}"))
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -737,18 +760,23 @@ pub async fn remove_authenticator_at_index(
     leaf_index: U256,
     pubkey_id: u32,
     new_commitment: U256,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     // Remove authenticator at specific index by setting to null
+    // Enforce that last_updated_block must increase
+    let block_num = block_number as i64;
     sqlx::query(
         r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, 'null'::jsonb, false),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, 'null'::jsonb, false),
-            offchain_signer_commitment = $3
-        where leaf_index = $1"#,
+            offchain_signer_commitment = $3,
+            last_updated_block = $4
+        where leaf_index = $1 and (last_updated_block is null or last_updated_block < $4)"#,
     )
     .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}"))
     .bind(new_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -783,20 +811,20 @@ pub async fn record_commitment_update(
 pub async fn handle_registry_event(
     pool: &PgPool,
     event: &RegistryEvent,
-    block_number: Option<u64>,
+    block_number: u64,
     tx_hash: Option<alloy::primitives::B256>,
     log_index: Option<u64>,
 ) -> anyhow::Result<()> {
     match event {
         RegistryEvent::AccountCreated(ev) => {
-            insert_account(pool, ev).await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            insert_account(pool, ev, block_number).await?;
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "created",
                     ev.offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -811,15 +839,16 @@ pub async fn handle_registry_event(
                 ev.new_authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
+                block_number,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "updated",
                     ev.new_offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -834,15 +863,16 @@ pub async fn handle_registry_event(
                 ev.authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
+                block_number,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "inserted",
                     ev.new_offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -855,15 +885,16 @@ pub async fn handle_registry_event(
                 ev.leaf_index,
                 ev.pubkey_id,
                 ev.new_offchain_signer_commitment,
+                block_number,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "removed",
                     ev.new_offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -879,15 +910,16 @@ pub async fn handle_registry_event(
                 ev.new_authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
+                block_number,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "recovered",
                     ev.new_offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -1201,10 +1233,14 @@ pub async fn stream_logs(
                 let tx_hash = log.transaction_hash;
                 let log_index = log.log_index;
 
-                if let Err(e) =
-                    handle_registry_event(pool, &event, block_number, tx_hash, log_index).await
-                {
-                    tracing::error!(?e, ?event, "failed to handle registry event in DB");
+                if let Some(bn) = block_number {
+                    if let Err(e) =
+                        handle_registry_event(pool, &event, bn, tx_hash, log_index).await
+                    {
+                        tracing::error!(?e, ?event, "failed to handle registry event in DB");
+                    }
+                } else {
+                    tracing::warn!(?log, "skipping event with no block_number");
                 }
 
                 if update_tree {
