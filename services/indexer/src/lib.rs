@@ -462,19 +462,32 @@ async fn backfill_batch<P: Provider>(
                 let tx_hash = lg.transaction_hash;
                 let log_index = lg.log_index;
 
+                // Deduplication: Check if this event has already been processed
+                if let (Some(tx), Some(li)) = (tx_hash, log_index) {
+                    match is_event_already_processed(pool, &tx, li).await {
+                        Ok(true) => {
+                            tracing::debug!(
+                                tx_hash = ?tx,
+                                log_index = li,
+                                block_number = ?block_number,
+                                "event already processed, skipping"
+                            );
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+
                 if let Some(bn) = block_number {
                     if let Err(e) =
                         handle_registry_event(pool, &event, bn, tx_hash, log_index).await
                     {
                         tracing::error!(?e, ?event, "failed to handle registry event in DB");
                     }
-                } else {
-                    tracing::warn!(?lg, "skipping event with no block_number");
-                }
-
-                if update_tree {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for event");
+                    if update_tree {
+                        if let Err(e) = update_tree_with_event(&event).await {
+                            tracing::error!(?e, ?event, "failed to update tree for event");
+                        }
                     }
                 }
             }
@@ -483,7 +496,6 @@ async fn backfill_batch<P: Provider>(
             }
         }
     }
-
     if let Err(e) = save_checkpoint(pool, to_block).await {
         tracing::error!(?e, to_block, "failed to save checkpoint in backfill batch");
         // Continue processing even if checkpoint save fails
@@ -798,6 +810,25 @@ pub async fn remove_authenticator_at_index(
     Ok(())
 }
 
+/// Check if an event has already been processed by querying commitment_update_events.
+/// Returns true if the event exists (already processed), false otherwise.
+async fn is_event_already_processed(
+    pool: &PgPool,
+    tx_hash: &alloy::primitives::B256,
+    log_index: u64,
+) -> anyhow::Result<bool> {
+    let tx_str = format!("{tx_hash:?}");
+    let exists: Option<(i64,)> = sqlx::query_as(
+        "select 1 from commitment_update_events where tx_hash = $1 and log_index = $2 limit 1",
+    )
+    .bind(&tx_str)
+    .bind(log_index as i64)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(exists.is_some())
+}
+
 pub async fn record_commitment_update(
     pool: &PgPool,
     leaf_index: U256,
@@ -831,28 +862,6 @@ pub async fn handle_registry_event(
     tx_hash: Option<alloy::primitives::B256>,
     log_index: Option<u64>,
 ) -> anyhow::Result<()> {
-    // Deduplication: Check if this event has already been processed
-    if let (Some(tx), Some(li)) = (tx_hash, log_index) {
-        let tx_str = format!("{tx:?}");
-        let exists: Option<(i64,)> = sqlx::query_as(
-            "select 1 from commitment_update_events where tx_hash = $1 and log_index = $2 limit 1",
-        )
-        .bind(&tx_str)
-        .bind(li as i64)
-        .fetch_optional(pool)
-        .await?;
-
-        if exists.is_some() {
-            tracing::debug!(
-                tx_hash = ?tx,
-                log_index = li,
-                block_number,
-                "event already processed, skipping"
-            );
-            return Ok(());
-        }
-    }
-
     match event {
         RegistryEvent::AccountCreated(ev) => {
             insert_account(pool, ev, block_number).await?;
@@ -1302,23 +1311,35 @@ pub async fn stream_logs(
                 let tx_hash = log.transaction_hash;
                 let log_index = log.log_index;
 
+                // Deduplication: Check if this event has already been processed
+                if let (Some(tx), Some(li)) = (tx_hash, log_index) {
+                    match is_event_already_processed(pool, &tx, li).await {
+                        Ok(true) => {
+                            tracing::debug!(
+                                tx_hash = ?tx,
+                                log_index = li,
+                                block_number = ?block_number,
+                                "event already processed, skipping"
+                            );
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+
                 if let Some(bn) = block_number {
                     if let Err(e) =
                         handle_registry_event(pool, &event, bn, tx_hash, log_index).await
                     {
                         tracing::error!(?e, ?event, "failed to handle registry event in DB");
                     }
-                } else {
-                    tracing::warn!(?log, "skipping event with no block_number");
-                }
 
-                if update_tree {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for live event");
+                    if update_tree {
+                        if let Err(e) = update_tree_with_event(&event).await {
+                            tracing::error!(?e, ?event, "failed to update tree for live event");
+                        }
                     }
-                }
 
-                if let Some(bn) = log.block_number {
                     if let Err(e) = save_checkpoint(pool, bn).await {
                         tracing::error!(?e, block = bn, "failed to save checkpoint in stream");
                         // Continue processing even if checkpoint save fails
