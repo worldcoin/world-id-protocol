@@ -484,7 +484,10 @@ async fn backfill_batch<P: Provider>(
         }
     }
 
-    save_checkpoint(pool, to_block).await?;
+    if let Err(e) = save_checkpoint(pool, to_block).await {
+        tracing::error!(?e, to_block, "failed to save checkpoint in backfill batch");
+        // Continue processing even if checkpoint save fails
+    }
     tracing::debug!(
         from = *from_block,
         to = to_block,
@@ -828,6 +831,28 @@ pub async fn handle_registry_event(
     tx_hash: Option<alloy::primitives::B256>,
     log_index: Option<u64>,
 ) -> anyhow::Result<()> {
+    // Deduplication: Check if this event has already been processed
+    if let (Some(tx), Some(li)) = (tx_hash, log_index) {
+        let tx_str = format!("{tx:?}");
+        let exists: Option<(i64,)> = sqlx::query_as(
+            "select 1 from commitment_update_events where tx_hash = $1 and log_index = $2 limit 1",
+        )
+        .bind(&tx_str)
+        .bind(li as i64)
+        .fetch_optional(pool)
+        .await?;
+
+        if exists.is_some() {
+            tracing::debug!(
+                tx_hash = ?tx,
+                log_index = li,
+                block_number,
+                "event already processed, skipping"
+            );
+            return Ok(());
+        }
+    }
+
     match event {
         RegistryEvent::AccountCreated(ev) => {
             insert_account(pool, ev, block_number).await?;
@@ -1294,7 +1319,10 @@ pub async fn stream_logs(
                 }
 
                 if let Some(bn) = log.block_number {
-                    save_checkpoint(pool, bn).await?;
+                    if let Err(e) = save_checkpoint(pool, bn).await {
+                        tracing::error!(?e, block = bn, "failed to save checkpoint in stream");
+                        // Continue processing even if checkpoint save fails
+                    }
                 }
             }
             Err(e) => {
