@@ -1194,34 +1194,49 @@ async fn stream_loop(
     registry_address: Address,
     update_tree: bool,
 ) -> anyhow::Result<()> {
-    let mut reconnect_delay = Duration::from_secs(1);
-    const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(60);
+    const MAX_RECONNECT_ATTEMPTS: u32 = 10;
+    let mut reconnect_count = 0;
 
     loop {
         tracing::info!(
-            reconnect_delay = ?reconnect_delay,
+            reconnect_count,
+            max_attempts = MAX_RECONNECT_ATTEMPTS,
             "stream loop: connecting to WebSocket"
         );
 
         // Connect and stream logs (WebSocket subscriptions only receive new blocks)
         let result = stream_logs(ws_url, pool, registry_address, update_tree).await;
 
-        match result {
+        // Increment reconnect count (this is a reconnect attempt after the initial connection)
+        reconnect_count += 1;
+
+        // Capture error context before checking if we should exit
+        let error_context = result.as_ref().err().map(|e| e.to_string());
+
+        match &result {
             Ok(()) => {
-                tracing::error!("stream loop: connection closed, reconnecting");
+                tracing::error!(
+                    reconnect_count,
+                    max_attempts = MAX_RECONNECT_ATTEMPTS,
+                    "stream loop: connection closed, reconnecting"
+                );
             }
-            _ => {
-                tracing::error!("stream loop: connection errored, reconnecting");
+            Err(e) => {
+                tracing::error!(
+                    reconnect_count,
+                    max_attempts = MAX_RECONNECT_ATTEMPTS,
+                    ?e,
+                    "stream loop: connection errored, reconnecting"
+                );
             }
         }
 
-        // Exponential backoff before reconnecting
-        tracing::info!(
-            reconnect_delay = ?reconnect_delay,
-            "stream loop: waiting before reconnect"
-        );
-        tokio::time::sleep(reconnect_delay).await;
-        reconnect_delay = (reconnect_delay * 2).min(MAX_RECONNECT_DELAY);
+        // Exit if we've exceeded max reconnect attempts
+        if reconnect_count >= MAX_RECONNECT_ATTEMPTS {
+            return Err(anyhow::anyhow!(
+                "stream loop: exceeded max reconnect attempts ({MAX_RECONNECT_ATTEMPTS})"
+            ));
+        }
     }
 }
 
