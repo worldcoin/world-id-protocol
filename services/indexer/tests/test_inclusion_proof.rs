@@ -157,8 +157,8 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     sqlx::query(
         r#"insert into accounts
-        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
-        values ($1, $2, $3, $4, $5)"#,
+        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment, last_updated_block)
+        values ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind("1")
     .bind(RECOVERY_ADDRESS.to_string())
@@ -167,6 +167,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     ]))
     .bind(Json(vec!["11".to_string()]))
     .bind("99")
+    .bind(1) // last_updated_block, matches the block number of the event below
     .execute(&setup.pool)
     .await
     .unwrap();
