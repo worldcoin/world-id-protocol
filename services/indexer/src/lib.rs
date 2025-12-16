@@ -1075,24 +1075,40 @@ async fn run_indexer_tasks(
         result = backfill_handle => {
             // Kill other task
             stream_abort.abort();
-            tracing::error!("backfill loop task exited: {:?}", result);
-            if let Err(e) = result {
-                return Err(anyhow::anyhow!("backfill task panicked: {:?}", e));
+            match result {
+                Err(e) => {
+                    tracing::error!("backfill task panicked: {:?}", e);
+                    return Err(anyhow::anyhow!("backfill task panicked: {:?}", e));
+                }
+                Ok(Err(e)) => {
+                    tracing::error!("backfill task returned error: {:?}", e);
+                    return Err(anyhow::anyhow!("backfill task failed: {:?}", e).context("backfill loop error"));
+                }
+                Ok(Ok(())) => {
+                    tracing::error!("backfill loop task exited unexpectedly (should run forever)");
+                    return Err(anyhow::anyhow!("backfill loop task exited unexpectedly"));
+                }
             }
         }
         result = stream_handle => {
             // Kill other task
             backfill_abort.abort();
-            tracing::error!("stream loop task exited: {:?}", result);
-            if let Err(e) = result {
-                return Err(anyhow::anyhow!("stream task panicked: {:?}", e));
+            match result {
+                Err(e) => {
+                    tracing::error!("stream task panicked: {:?}", e);
+                    return Err(anyhow::anyhow!("stream task panicked: {:?}", e));
+                }
+                Ok(Err(e)) => {
+                    tracing::error!("stream task returned error: {:?}", e);
+                    return Err(anyhow::anyhow!("stream task failed: {:?}", e).context("stream loop error"));
+                }
+                Ok(Ok(())) => {
+                    tracing::error!("stream loop task exited unexpectedly (should run forever)");
+                    return Err(anyhow::anyhow!("stream loop task exited unexpectedly"));
+                }
             }
         }
     }
-
-    tracing::info!("persistent indexer tasks (backfill + stream loops) exited");
-
-    Ok(())
 }
 
 /// Continuously backfills from the last saved checkpoint.
