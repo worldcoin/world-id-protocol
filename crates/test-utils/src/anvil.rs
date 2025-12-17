@@ -7,7 +7,7 @@ use alloy::sol_types::SolCall;
 use alloy::{sol, uint};
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
-use oprf_types::OprfKeyId;
+use taceo_oprf_types::OprfKeyId;
 
 /// Canonical Multicall3 address (same on all EVM chains).
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");

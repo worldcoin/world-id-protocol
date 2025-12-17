@@ -4,7 +4,7 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use alloy::primitives::Address;
 use clap::Parser;
-use oprf_service::config::OprfNodeConfig;
+use taceo_oprf_service::config::OprfNodeConfig;
 
 /// The configuration for the OPRF node.
 ///

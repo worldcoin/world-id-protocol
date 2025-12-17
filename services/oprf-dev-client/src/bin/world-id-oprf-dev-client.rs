@@ -11,17 +11,17 @@ use alloy::{
 use ark_ff::{BigInteger as _, PrimeField as _, UniformRand as _};
 use clap::{Parser, Subcommand};
 use eyre::Context as _;
-use oprf_client::Connector;
-use oprf_core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor};
-use oprf_test::{health_checks, oprf_key_registry_scripts};
-use oprf_types::{
+use rand::SeedableRng;
+use rustls::{ClientConfig, RootCertStore};
+use secrecy::{ExposeSecret, SecretString};
+use taceo_oprf_client::Connector;
+use taceo_oprf_core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor};
+use taceo_oprf_test::{health_checks, oprf_key_registry_scripts};
+use taceo_oprf_types::{
     api::v1::{OprfRequest, ShareIdentifier},
     crypto::OprfPublicKey,
     OprfKeyId, ShareEpoch,
 };
-use rand::SeedableRng;
-use rustls::{ClientConfig, RootCertStore};
-use secrecy::{ExposeSecret, SecretString};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 use world_id_core::{
@@ -305,7 +305,8 @@ fn prepare_nullifier_stress_test_oprf_request(
         &mut rng,
     )?;
 
-    let blinded_request = oprf_core::oprf::client::blind_query(query_hash, blinding_factor.clone());
+    let blinded_request =
+        taceo_oprf_core::oprf::client::blind_query(query_hash, blinding_factor.clone());
 
     let req = OprfRequest {
         request_id,
@@ -385,7 +386,8 @@ async fn stress_test(
         let connector = connector.clone();
         init_results.spawn(async move {
             let init_start = Instant::now();
-            let sessions = oprf_client::init_sessions(&services, threshold, req, connector).await?;
+            let sessions =
+                taceo_oprf_client::init_sessions(&services, threshold, req, connector).await?;
             eyre::Ok((idx, sessions, init_start.elapsed()))
         });
         if cmd.sequential {
@@ -414,7 +416,7 @@ async fn stress_test(
     let mut finish_challenges = sessions
         .iter()
         .map(|(idx, sessions)| {
-            let challenge_request = oprf_client::generate_challenge_request(sessions);
+            let challenge_request = taceo_oprf_client::generate_challenge_request(sessions);
             eyre::Ok((*idx, challenge_request))
         })
         .collect::<eyre::Result<HashMap<_, _>>>()?;
@@ -428,7 +430,7 @@ async fn stress_test(
         let challenge = finish_challenges.remove(&idx).expect("is there");
         finish_results.spawn(async move {
             let finish_start = Instant::now();
-            let responses = oprf_client::finish_sessions(sessions, challenge.clone()).await?;
+            let responses = taceo_oprf_client::finish_sessions(sessions, challenge.clone()).await?;
             let duration = finish_start.elapsed();
             eyre::Ok((idx, responses, challenge, duration))
         });
@@ -456,7 +458,7 @@ async fn stress_test(
                     let query_input = query_inputs.remove(&idx).expect("is there");
                     let blinded_query = blinded_queries.remove(&idx).expect("is there");
                     let blinding_factor = blinding_factors.remove(&idx).expect("is there");
-                    let dlog_proof = oprf_client::verify_dlog_equality(
+                    let dlog_proof = taceo_oprf_client::verify_dlog_equality(
                         request_id,
                         oprf_public_key,
                         &BlindedOprfRequest::new(blinded_query),
@@ -501,7 +503,7 @@ async fn stress_test(
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    nodes_observability::install_tracing("world_id_oprf_dev_client=trace,warn");
+    taceo_nodes_observability::install_tracing("world_id_oprf_dev_client=trace,warn");
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");
@@ -516,7 +518,7 @@ async fn main() -> eyre::Result<()> {
 
     let (oprf_key_id, oprf_public_key) = if let Some(oprf_key_id) = config.oprf_key_id {
         let oprf_key_id = OprfKeyId::new(oprf_key_id);
-        let oprf_public_key = oprf_test::health_checks::oprf_public_key_from_services(
+        let oprf_public_key = taceo_oprf_test::health_checks::oprf_public_key_from_services(
             oprf_key_id,
             ShareEpoch::default(),
             &config.services,
@@ -531,7 +533,7 @@ async fn main() -> eyre::Result<()> {
             config.taceo_private_key.expose_secret(),
         );
         tracing::info!("registered OPRF key with: {oprf_key_id}");
-        let oprf_public_key = oprf_test::health_checks::oprf_public_key_from_services(
+        let oprf_public_key = taceo_oprf_test::health_checks::oprf_public_key_from_services(
             oprf_key_id,
             ShareEpoch::default(),
             &config.services,

@@ -14,12 +14,12 @@ use crate::auth::{
 use ark_bn254::Bn254;
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
-use oprf_service::OprfRequestAuthenticator;
-use oprf_types::api::v1::OprfRequest;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use taceo_oprf_service::OprfRequestAuthenticator;
+use taceo_oprf_types::api::v1::OprfRequest;
 use uuid::Uuid;
 use world_id_primitives::{oprf::OprfRequestAuthV1, TREE_DEPTH};
 

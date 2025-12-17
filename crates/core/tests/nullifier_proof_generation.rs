@@ -8,11 +8,11 @@ use ark_ec::CurveGroup;
 use ark_ff::{AdditiveGroup, PrimeField};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use eyre::{eyre, WrapErr as _};
-use oprf_client::BlindingFactor;
-use oprf_core::{dlog_equality::DLogEqualityProof, oprf::BlindedOprfResponse};
-use oprf_types::crypto::OprfPublicKey;
 use rand::thread_rng;
 use ruint::aliases::U256;
+use taceo_oprf_client::BlindingFactor;
+use taceo_oprf_core::{dlog_equality::DLogEqualityProof, oprf::BlindedOprfResponse};
+use taceo_oprf_types::crypto::OprfPublicKey;
 use test_utils::{
     anvil::{CredentialSchemaIssuerRegistry, WorldIDRegistry},
     fixtures::{build_base_credential, generate_rp_fixture, RegistryTestContext},
@@ -214,7 +214,8 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         &mut rng,
     )?;
 
-    let blinded_request = oprf_core::oprf::client::blind_query(query_hash, blinding_factor.clone());
+    let blinded_request =
+        taceo_oprf_core::oprf::client::blind_query(query_hash, blinding_factor.clone());
 
     // Derive blinded response C = x * B, where B is the blinded query
     let blinded_query = blinded_request.blinded_query();
