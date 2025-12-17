@@ -9,7 +9,7 @@
 //! 2. Signing OPRF queries and generating a Query Proof `π1`
 //! 3. Interacting with OPRF services to obtain challenge responses
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
-//! 5. Generating the final Nullifier Proof `π2`
+//! 5. Generating the final Uniqueness Proof `π2`
 
 use ark_ff::PrimeField as _;
 use circom_types::ark_bn254::Bn254;
@@ -79,7 +79,8 @@ pub enum ProofError {
 // Circuit Material Loaders
 // ============================================================================
 
-/// Loads the [`CircomGroth16Material`] for the nullifier proof from the embedded keys in the binary.
+/// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also nullifier proof)
+/// from the embedded keys in the binary.
 ///
 /// # Panics
 /// Will panic if the embedded material cannot be loaded or verified.
@@ -103,7 +104,8 @@ pub fn load_embedded_query_material() -> CircomGroth16Material {
         .expect("works when loading embedded groth16-material")
 }
 
-/// Loads the [`CircomGroth16Material`] for the nullifier proof from the embedded keys in the binary.
+/// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also nullifier proof)
+/// from the embedded keys in the binary.
 #[cfg(docsrs)]
 #[must_use]
 pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
@@ -192,7 +194,7 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 }
 
 // ============================================================================
-// Nullifier Proof Generation
+// Uniqueness Proof (internally also called nullifier proof) Generation
 // ============================================================================
 
 /// Generates a nullifier proof for a given query.
@@ -250,6 +252,11 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     // TODO get from rp_id -> oprf_key_id mapping?
     let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
     let share_epoch = ShareEpoch::new(args.share_epoch);
+    let cred_signature = args
+        .credential
+        .signature
+        .clone()
+        .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
     let query_hash = query_hash(args.inclusion_proof.leaf_index, args.rp_id, args.action);
     let blinding_factor = BlindingFactor::rand(rng);
 
@@ -276,18 +283,30 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     )
     .await?;
 
+    // Compute claims hash from credential
+    let claims_hash = compute_claims_hash(&args.credential)?;
+
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
         query_input,
+        cred_type_id: args.credential.issuer_schema_id.into(),
+        cred_pk: args.credential.issuer.pk,
+        cred_hashes: [claims_hash, *args.credential.associated_data_hash],
+        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
+        cred_expires_at: args.credential.expires_at.into(),
+        cred_id: args.credential.id.into(),
+        cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
+        cred_s: cred_signature.s,
+        cred_r: cred_signature.r,
+        id_commitment_r: *args.session_id_r_seed,
         dlog_e: verifiable_oprf_output.dlog_proof.e,
         dlog_s: verifiable_oprf_output.dlog_proof.s,
         oprf_pk: args.oprf_public_key.inner(),
         oprf_response_blinded: verifiable_oprf_output.blinded_response,
         oprf_response: verifiable_oprf_output.unblinded_response,
         signal_hash: *args.signal_hash,
-        id_commitment_r: *args.rp_session_id_r_seed,
+        current_timestamp: args.current_timestamp.into(),
     };
 
-    tracing::debug!("generate nullifier proof");
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
     nullifier_material.verify_proof(&proof, &public)?;
 
@@ -336,16 +355,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
     blinding_factor: &BlindingFactor,
     rng: &mut R,
 ) -> Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>), ProofError> {
-    let cred_signature = args
-        .credential
-        .signature
-        .clone()
-        .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
-
     let signature = private_key.sign(query_hash);
-
-    // Compute claims hash from credential
-    let claims_hash = compute_claims_hash(&args.credential)?;
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = args.inclusion_proof.siblings.map(|s| *s);
 
@@ -354,14 +364,6 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         pk_index: args.key_index.into(),
         s: signature.s,
         r: signature.r,
-        cred_type_id: args.credential.issuer_schema_id.into(),
-        cred_pk: args.credential.issuer.pk,
-        cred_hashes: [claims_hash, *args.credential.associated_data_hash],
-        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
-        cred_expires_at: args.credential.expires_at.into(),
-        cred_s: cred_signature.s,
-        cred_r: cred_signature.r,
-        current_timestamp: args.current_timestamp.into(),
         merkle_root: *args.inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
         mt_index: args.inclusion_proof.leaf_index.into(),

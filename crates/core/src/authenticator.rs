@@ -431,6 +431,7 @@ impl Authenticator {
         &self,
         proof_request: ProofRequest,
         credential: Credential,
+        credential_sub_blinding_factor: FieldElement,
     ) -> Result<UniquenessProof, AuthenticatorError> {
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
@@ -446,12 +447,17 @@ impl Authenticator {
             .find_request_by_issuer_schema_id(credential.issuer_schema_id.into())
             .ok_or(AuthenticatorError::InvalidCredentialForProofRequest)?;
 
+        let mut rng = rand::thread_rng();
+
+        let session_id_r_seed = FieldElement::random(&mut rng);
+
         let args = SingleProofInput::<TREE_DEPTH> {
             credential,
             inclusion_proof,
             key_set,
             key_index,
-            rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
+            session_id_r_seed,
+            credential_sub_blinding_factor,
             rp_id: proof_request.rp_id,
             share_epoch: ShareEpoch::default().into_inner(),
             action: proof_request.action,

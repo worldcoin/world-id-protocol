@@ -70,7 +70,7 @@ impl HashableCredential for Credential {
                     self.expires_at.into(),
                     *self.claims_hash()?,
                     *self.associated_data_hash,
-                    *FieldElement::ZERO,
+                    self.id.into(),
                 ];
                 hasher.permutation_in_place(&mut input);
                 Ok(input[1].into())
