@@ -40,12 +40,12 @@ hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
-oprf-core = { package = "taceo-oprf-core", version = "0.1", default-features = false, git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" }
-oprf-types = { package = "taceo-oprf-types", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" }
-oprf-client = { package = "oprf-client", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" }
-oprf-service = { package = "oprf-service", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" }
-oprf-test = { package = "oprf-test", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" }
-oprf-key-gen = { package = "oprf-key-gen", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" }
+oprf-core = { package = "taceo-oprf-core", version = "0.2", default-features = false }
+oprf-types = { package = "taceo-oprf-types", version = "0.2" }
+oprf-client = { package = "taceo-oprf-client", version = "0.1" }
+oprf-service = { package = "taceo-oprf-service", version = "0.1" }
+oprf-test = { package = "taceo-oprf-test", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "b7337f1" }
+oprf-key-gen = { package = "taceo-oprf-key-gen", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "b7337f1" } 
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
 rand = "0.8"
@@ -67,3 +67,9 @@ world-id-core = { version = "0.2.0", default-features = false, path = "crates/co
 world-id-primitives = { version = "0.2.0", path = "crates/primitives"}
 world-id-oprf-node = { version = "0.1", path = "./services/oprf-node"}
 zeroize = "1"
+
+[patch.crates-io]
+oprf-core = { package = "taceo-oprf-core", version = "0.2", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "b7337f1" }
+oprf-types = { package = "taceo-oprf-types", version = "0.2", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "b7337f1" } 
+oprf-client = { package = "taceo-oprf-client", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "b7337f1" } 
+oprf-service = { package = "taceo-oprf-service", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "b7337f1" } 
