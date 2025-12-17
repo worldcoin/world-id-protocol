@@ -19,7 +19,7 @@ use oprf_types::{
     crypto::OprfPublicKey,
     OprfKeyId, ShareEpoch,
 };
-use rand::SeedableRng;
+use rand::{rngs, SeedableRng};
 use rustls::{ClientConfig, RootCertStore};
 use secrecy::{ExposeSecret, SecretString};
 use tokio::task::JoinSet;
@@ -275,15 +275,17 @@ fn prepare_nullifier_stress_test_oprf_request(
     let signal_hash = ark_babyjubjub::Fq::rand(&mut rng);
 
     let request_id = Uuid::new_v4();
+    let mut rng = rand::thread_rng();
 
+    // FIXME: sub blinding factor
     let args = SingleProofInput::<TREE_DEPTH> {
         credential,
         inclusion_proof,
         key_set,
         key_index,
-        rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
+        session_id_r_seed: FieldElement::random(&mut rng),
         rp_id: primitives_rp_id,
-        share_epoch: ShareEpoch::default().into_inner(), // TODO
+        share_epoch: ShareEpoch::default().into_inner(),
         action: action.into(),
         nonce: nonce.into(),
         current_timestamp,
@@ -476,7 +478,7 @@ async fn stress_test(
                         oprf_response_blinded: blinded_response,
                         oprf_response: unblinded_response,
                         signal_hash: *args.signal_hash,
-                        id_commitment_r: *args.rp_session_id_r_seed,
+                        id_commitment_r: *args.session_id_r_seed,
                     };
                     let (proof, public) =
                         nullifier_material.generate_proof(&nullifier_input, &mut rng)?;
