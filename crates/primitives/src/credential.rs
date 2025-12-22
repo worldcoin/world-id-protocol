@@ -1,12 +1,13 @@
 use ark_babyjubjub::EdwardsAffine;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use rand::Rng;
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{sponge::hash_bytes_with_poseidon2_t16_r15, FieldElement, PrimitiveError};
+use crate::{sponge::hash_bytes_to_field_element, FieldElement, PrimitiveError};
 
 /// Domain separation tag to avoid collisions with other Poseidon2 usages.
-const DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
+const ASSOCIATED_DATA_HASH_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
 
 /// Version of the `Credential` object
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -29,7 +30,37 @@ pub enum CredentialVersion {
 /// In the case of World ID these statements are about humans, with the most common
 /// credentials being Orb verification or document verification.
 ///
-/// Design Principles:
+/// # Associated Data
+///
+/// Credentials have a pre-defined strict structure, which is determined by their version. Extending this,
+/// issuers may opt to include additional arbitrary data with the Credential. This data is called
+/// **Associated Data**.
+/// - Associated data is stored by Authenticators with the Credential.
+/// - Including associated data is a decision by the issuer. Its structure and content is solely
+///   determined by the issuer and the data will not be exposed to RPs or others.
+/// - An example of associated data use is supporting data to re-issue a credential (e.g. a sign up number).
+/// - Associated data is never exposed to RPs or others. It only lives in the Authenticator.
+/// - Associated data is authenticated in the Credential through the `associated_data_hash` field. The issuer
+///   can determine how this data is hashed. However providing the raw data to `associated_data` can ensure a
+///   consistent hashing into the field.
+/// ```text
+/// +------------------------------+
+/// |          Credential          |
+/// |                              |
+/// |  - associated_data_hash <----+
+/// |  - signature                 |
+/// +------------------------------+
+///           ^
+///           |
+///     Hash(associated_data)
+///           |
+/// Associated Data
+/// +------------------------------+
+/// | Optional arbitrary data      |
+/// +------------------------------+
+/// ```
+///
+/// # Design Principles:
 /// - A credential clearly separates:
 ///    - **Assertion** (the claim being made)
 ///    - **Issuer** (who attests to it / vouches for it)
@@ -50,33 +81,56 @@ pub enum CredentialVersion {
 /// burden on holders (to make sense of which passport they have), and similarly, RPs.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Credential {
-    /// Version representation of this structure
+    /// A reference identifier for the credential. This can be used by issuers
+    /// to manage credential lifecycle.
+    ///
+    /// - This ID is never exposed or used outside of issuer scope. It is never part of proofs
+    ///   or exposed to RPs.
+    /// - Generally, it is recommended to maintain the default of a random identifier.
+    ///
+    /// # Example Uses
+    /// - Track issued credentials to later support revocation after refreshing.
+    pub id: u64,
+    /// The version of the Credential determines its structure.
     pub version: CredentialVersion,
-    /// Unique issuer schema id that is used to lookup of verifying information
+    /// Unique issuer schema id represents the unique combination of the credential's
+    /// schema and the issuer.
+    ///
+    /// The `issuer_schema_id` is registered in the `CredentialSchemaIssuerRegistry`. With this
+    /// identifier, the RPs lookup the authorized keys that can sign the credential.
     pub issuer_schema_id: u64,
-    /// The subject (World ID) to which the credential is issued.
+    /// The subject (World ID) for which the credential is issued.
     ///
     /// This ID comes from the `WorldIDRegistry` and it's the `leaf_index` of the World ID on the Merkle tree.
     pub sub: u64,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
     /// this timestamp should stay constant.
+    ///
+    /// This timestamp can be queried (only as a minimum value) by RPs.
     pub genesis_issued_at: u64,
     /// Expiration timestamp (unix seconds)
     pub expires_at: u64,
-    /// These are concrete statements that the issuer attests about the receiver.
-    /// Could be just commitments to data (e.g. passport image) or
-    /// the value directly (e.g. date of birth)
+    /// **For Future Use**. Concrete statements that the issuer attests about the receiver.
+    ///
+    /// They can be just commitments to data (e.g. passport image) or
+    /// the value directly (e.g. date of birth).
+    ///
+    /// Currently these statements are not in use in the Proofs yet.
     pub claims: Vec<FieldElement>,
-    /// If needed, can be used as commitment to the underlying data.
-    /// This can be useful to tie multiple proofs about the same data together.
+    /// The commitment to the associated data issued with the Credential.
+    ///
+    /// By default this uses the internal `hash_bytes_to_field_element` function,
+    /// but each issuer may determine their own hashing algorithm.
+    ///
+    /// This hash is generally only used by the issuer.
     pub associated_data_hash: FieldElement,
     /// The signature of the credential (signed by the issuer's key)
     #[serde(serialize_with = "serialize_signature")]
     #[serde(deserialize_with = "deserialize_signature")]
     #[serde(default)]
     pub signature: Option<EdDSASignature>,
-    /// The issuer's public key of the credential.
+    /// The public component of the issuer's key which signed the Credential.
     pub issuer: EdDSAPublicKey,
 }
 
@@ -89,7 +143,9 @@ impl Credential {
     /// Note default fields occupy a sentinel value of `BaseField::zero()`
     #[must_use]
     pub fn new() -> Self {
+        let mut rng = rand::thread_rng();
         Self {
+            id: rng.gen(),
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
             sub: 0,
@@ -102,6 +158,13 @@ impl Credential {
                 pk: EdwardsAffine::default(),
             },
         }
+    }
+
+    /// Set the `id` of the credential.
+    #[must_use]
+    pub const fn id(mut self, id: u64) -> Self {
+        self.id = id;
+        self
     }
 
     /// Set the `version` of the credential.
@@ -176,50 +239,8 @@ impl Credential {
     /// # Errors
     /// Will error if the data is empty.
     pub fn associated_data(mut self, data: &[u8]) -> Result<Self, PrimitiveError> {
-        self.associated_data_hash = Self::hash_bytes_to_field_element(data)?;
+        self.associated_data_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, data)?;
         Ok(self)
-    }
-
-    /// Hashes arbitrary bytes to a field element using Poseidon2 sponge construction.
-    ///
-    /// This uses a SAFE-inspired sponge construction to support **arbitrary
-    /// length** input:
-    /// 1. Compute a SAFE-style tag from an IO pattern that encodes the input
-    ///    length (in bytes), the squeeze size (32 bytes), and a domain separator.
-    ///    The tag is derived by hashing these bytes with SHA3-256 and reducing to
-    ///    a field element (placed in the capacity element, per SAFE guidance).
-    /// 2. Split input into 31-byte chunks, convert each to a field element.
-    /// 3. Absorb at most 15 field elements at a time (add into rate), then
-    ///    permute (Poseidon2 t16) after each batch.
-    /// 4. Enforce the SAFE IO pattern (one absorb of `len(data)` bytes, one
-    ///    squeeze of 32 bytes); abort on mismatch.
-    /// 5. Ensure a permutation has run before squeezing; squeeze one element
-    ///    from the rate portion.
-    ///
-    /// The state is divided into:
-    /// - Rate portion (indices 0-14): where data is absorbed via addition
-    /// - Capacity portion (index 15): provides security, not directly modified by input
-    ///
-    /// # Arguments
-    /// * `data` - Arbitrary bytes to hash (any length).
-    ///
-    /// # Errors
-    /// Will error if the data is empty.
-    pub fn hash_bytes_to_field_element(data: &[u8]) -> Result<FieldElement, PrimitiveError> {
-        if data.is_empty() {
-            return Err(PrimitiveError::InvalidInput {
-                attribute: "associated_data".to_string(),
-                reason: "data cannot be empty".to_string(),
-            });
-        }
-        if data.len() > (u32::MAX as usize) {
-            return Err(PrimitiveError::InvalidInput {
-                attribute: "associated_data".to_string(),
-                reason: "data length exceeds supported range (u32::MAX)".to_string(),
-            });
-        }
-
-        hash_bytes_with_poseidon2_t16_r15(data, DS_TAG, "associated_data")
     }
 
     /// Get the credential domain separator for the given version.
@@ -279,46 +300,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hash_bytes_to_field_element_basic() {
-        let data = vec![1u8, 2, 3, 4, 5];
-        let result = Credential::hash_bytes_to_field_element(&data);
-        assert!(result.is_ok());
-
-        // Should produce a non-zero result
-        let hash = result.unwrap();
-        assert_ne!(hash, FieldElement::ZERO);
-    }
-
-    #[test]
-    fn test_hash_bytes_to_field_element_deterministic() {
-        let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-        let result1 = Credential::hash_bytes_to_field_element(&data).unwrap();
-        let result2 = Credential::hash_bytes_to_field_element(&data).unwrap();
-
-        // Same input should produce same output
-        assert_eq!(result1, result2);
-        // Should produce a non-zero result
-        assert_ne!(result1, FieldElement::ZERO);
-    }
-
-    #[test]
-    fn test_hash_bytes_to_field_element_different_inputs() {
-        let data1 = vec![1u8, 2, 3, 4, 5];
-        let data2 = vec![5u8, 4, 3, 2, 1];
-        let data3 = vec![1u8, 2, 3, 4, 5, 6];
-
-        let hash1 = Credential::hash_bytes_to_field_element(&data1).unwrap();
-        let hash2 = Credential::hash_bytes_to_field_element(&data2).unwrap();
-        let hash3 = Credential::hash_bytes_to_field_element(&data3).unwrap();
-
-        // Different inputs should produce different outputs
-        assert_ne!(hash1, hash2);
-        assert_ne!(hash1, hash3);
-        assert_ne!(hash2, hash3);
-    }
-
-    #[test]
     fn test_associated_data_matches_direct_hash() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -326,74 +307,10 @@ mod tests {
         let credential = Credential::new().associated_data(&data).unwrap();
 
         // Using the hash function directly
-        let direct_hash = Credential::hash_bytes_to_field_element(&data).unwrap();
+        let direct_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, &data).unwrap();
 
         // Both should produce the same hash
         assert_eq!(credential.associated_data_hash, direct_hash);
-    }
-
-    #[test]
-    fn test_hash_bytes_to_field_element_empty_error() {
-        let data: Vec<u8> = vec![];
-        let result = Credential::hash_bytes_to_field_element(&data);
-
-        assert!(result.is_err());
-        if let Err(PrimitiveError::InvalidInput { attribute, reason }) = result {
-            assert_eq!(attribute, "associated_data");
-            assert!(reason.contains("empty"));
-        } else {
-            panic!("Expected InvalidInput error");
-        }
-    }
-
-    #[test]
-    fn test_hash_bytes_to_field_element_large_input() {
-        // Test with a large input (10KB) to ensure arbitrary-length support
-        let data = vec![42u8; 10 * 1024];
-        let result = Credential::hash_bytes_to_field_element(&data);
-        assert!(result.is_ok());
-
-        // Should produce a non-zero result
-        let hash = result.unwrap();
-        assert_ne!(hash, FieldElement::ZERO);
-    }
-
-    #[test]
-    fn test_hash_bytes_to_field_element_length_domain_separation() {
-        // Two inputs with same data but different lengths should hash differently
-        let data1 = vec![0u8; 10];
-        let data2 = vec![0u8; 11];
-
-        let hash1 = Credential::hash_bytes_to_field_element(&data1).unwrap();
-        let hash2 = Credential::hash_bytes_to_field_element(&data2).unwrap();
-
-        assert_ne!(hash1, hash2);
-    }
-
-    #[test]
-    fn test_hash_bytes_chunk_boundaries_and_batches() {
-        // Exercise chunking (31-byte), just-over-chunk, and multi-batch (rate=15)
-        let sizes = [
-            1usize,
-            31,
-            32,
-            33,
-            15 * 31,     // exactly fills 15 chunks -> one batch
-            15 * 31 + 1, // spills into a second batch
-        ];
-
-        for size in sizes {
-            let data = vec![42u8; size];
-            let h1 = Credential::hash_bytes_to_field_element(&data).unwrap();
-            let h2 = Credential::hash_bytes_to_field_element(&data).unwrap();
-
-            assert_ne!(
-                h1,
-                FieldElement::ZERO,
-                "size {size} should not hash to zero"
-            );
-            assert_eq!(h1, h2, "hash should be deterministic for size {size}");
-        }
     }
 
     #[test]
@@ -414,7 +331,7 @@ mod tests {
         let credential = Credential::new().associated_data(&data).unwrap();
 
         // Using the hash function directly
-        let direct_hash = Credential::hash_bytes_to_field_element(&data).unwrap();
+        let direct_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, &data).unwrap();
 
         // Both should produce the same hash
         assert_eq!(credential.associated_data_hash, direct_hash);

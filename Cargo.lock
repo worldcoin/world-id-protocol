@@ -8253,6 +8253,7 @@ dependencies = [
  "ciborium",
  "hex",
  "k256",
+ "rand 0.8.5",
  "ruint",
  "serde",
  "serde_json",
