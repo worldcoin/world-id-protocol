@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use alloy::primitives::{Address, Log, U256};
-use alloy::providers::{Provider, ProviderBuilder, WsConnect};
+use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
@@ -278,10 +278,9 @@ async fn run_indexer_only(
     indexer_cfg: IndexerConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    run_indexer_tasks(
-        &indexer_cfg.ws_url,
+    index_task(
         rpc_url,
-        pool,
+        &pool,
         registry_address,
         indexer_cfg.start_block,
         indexer_cfg.batch_size,
@@ -360,10 +359,9 @@ async fn run_both(
         }));
     }
 
-    let stream_result = run_indexer_tasks(
-        &indexer_cfg.ws_url,
+    let index_result = index_task(
         rpc_url,
-        pool,
+        &pool,
         registry_address,
         indexer_cfg.start_block,
         indexer_cfg.batch_size,
@@ -375,7 +373,7 @@ async fn run_both(
     if let Some(handle) = sanity_handle {
         handle.abort();
     }
-    stream_result
+    index_result
 }
 
 pub async fn make_db_pool(db_url: &str) -> anyhow::Result<PgPool> {
@@ -437,124 +435,83 @@ async fn backfill_batch<P: Provider>(
         *from_block = 1;
     }
 
-    let to_block = (*from_block + batch_size - 1).min(head);
+    // Process batches until caught up to head
+    while *from_block <= head {
+        let to_block = (*from_block + batch_size - 1).min(head);
 
-    let filter = Filter::new()
-        .address(registry)
-        .event_signature(event_signatures())
-        .from_block(*from_block)
-        .to_block(to_block);
+        let filter = Filter::new()
+            .address(registry)
+            .event_signature(event_signatures())
+            .from_block(*from_block)
+            .to_block(to_block);
 
-    let logs = provider.get_logs(&filter).await?;
-    if !logs.is_empty() {
-        tracing::info!(
-            count = logs.len(),
-            from = *from_block,
-            to = to_block,
-            "processing registry logs"
-        );
-    }
-    for lg in logs {
-        match decode_registry_event(&lg) {
-            Ok(event) => {
-                tracing::debug!(?event, "decoded registry event");
-                let block_number = lg.block_number;
-                let tx_hash = lg.transaction_hash;
-                let log_index = lg.log_index;
+        let mut logs = provider.get_logs(&filter).await?;
 
-                // Deduplication: Check if this event has already been processed
-                if let (Some(tx), Some(li)) = (tx_hash, log_index) {
-                    match is_event_already_processed(pool, &tx, li).await {
-                        Ok(true) => {
-                            tracing::debug!(
-                                tx_hash = ?tx,
-                                log_index = li,
-                                block_number = ?block_number,
-                                "event already processed, skipping"
-                            );
-                            continue;
-                        }
-                        _ => {}
+        // Sort logs by block number, then by log index to ensure correct processing order
+        // The RPC spec doesn't guarantee order, so we must sort explicitly
+        logs.sort_by(|a, b| {
+            match (a.block_number, b.block_number) {
+                (Some(a_bn), Some(b_bn)) => {
+                    let block_cmp = a_bn.cmp(&b_bn);
+                    if block_cmp != std::cmp::Ordering::Equal {
+                        return block_cmp;
+                    }
+                    // Within the same block, sort by log index
+                    match (a.log_index, b.log_index) {
+                        (Some(a_li), Some(b_li)) => a_li.cmp(&b_li),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
                     }
                 }
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+        });
 
-                if let Some(bn) = block_number {
-                    if let Err(e) =
-                        handle_registry_event(pool, &event, bn, tx_hash, log_index).await
-                    {
-                        tracing::error!(?e, ?event, "failed to handle registry event in DB");
-                    }
-                    if update_tree {
-                        if let Err(e) = update_tree_with_event(&event).await {
-                            tracing::error!(?e, ?event, "failed to update tree for event");
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!(?e, ?lg, "failed to decode registry event");
-            }
+        if !logs.is_empty() {
+            tracing::info!(
+                count = logs.len(),
+                from = *from_block,
+                to = to_block,
+                "processing registry logs"
+            );
         }
-    }
-    if let Err(e) = save_checkpoint(pool, to_block).await {
-        tracing::error!(?e, to_block, "failed to save checkpoint in backfill batch");
-        // Continue processing even if checkpoint save fails
-    }
-    tracing::debug!(
-        from = *from_block,
-        to = to_block,
-        "✔️ finished processing batch until block {to_block}"
-    );
-    *from_block = to_block + 1;
-    Ok(())
-}
+        for lg in logs {
+            let event = decode_registry_event(&lg)?;
+            tracing::debug!(?event, "decoded registry event");
+            let block_number = lg.block_number;
+            let tx_hash = lg.transaction_hash;
+            let log_index = lg.log_index;
 
-/// Backfill the entire history of the registry.
-pub async fn backfill<P: Provider>(
-    provider: &P,
-    pool: &PgPool,
-    registry: Address,
-    from_block: &mut u64,
-    batch_size: u64,
-    update_tree: bool,
-) -> anyhow::Result<()> {
-    let mut head = provider.get_block_number().await?;
-    loop {
-        match backfill_batch(
-            provider,
-            pool,
-            registry,
-            from_block,
-            batch_size,
-            update_tree,
-            head,
-        )
-        .await
-        {
-            Ok(()) => {
-                // Check if we're caught up to chain head
-                let new_head = provider.get_block_number().await;
-                if let Ok(new_head) = new_head {
-                    head = new_head;
-                } else {
-                    tracing::error!("failed to get current chain head; retrying after delay");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+            // Deduplication: Check if this event has already been processed
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
+                if is_event_already_processed(pool, &tx, li).await? {
+                    tracing::debug!(
+                        tx_hash = ?tx,
+                        log_index = li,
+                        block_number = ?block_number,
+                        "event already processed, skipping"
+                    );
                     continue;
                 }
-                if *from_block > head {
-                    tracing::info!(
-                        from = *from_block,
-                        head,
-                        "✅ backfill complete, caught up to chain head"
-                    );
-                    break;
+            }
+
+            if let Some(bn) = block_number {
+                handle_registry_event(pool, &event, bn, tx_hash, log_index).await?;
+                if update_tree {
+                    update_tree_with_event(&event).await?;
                 }
             }
-            Err(err) => {
-                tracing::error!(?err, "backfill error; retrying after delay");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
         }
+        save_checkpoint(pool, to_block).await?;
+        tracing::info!(
+            from = *from_block,
+            to = to_block,
+            "✔️ finished processing batch until block {to_block}"
+        );
+        *from_block = to_block + 1;
     }
     Ok(())
 }
@@ -1064,294 +1021,108 @@ async fn fetch_recent_account_updates(
     Ok(updates)
 }
 
-/// Runs two persistent tasks in parallel:
-/// 1. Backfill loop: Continuously checks for new blocks and backfills from the last checkpoint
-/// 2. Stream loop: Continuously connects to WebSocket and reconnects on disconnect
-/// Both tasks run independently and all database updates are dedup-safe via conflict handling.
-async fn run_indexer_tasks(
-    ws_url: &str,
-    rpc_url: &str,
-    pool: PgPool,
-    registry_address: Address,
-    initial_block: u64,
-    batch_size: u64,
-    update_tree: bool,
-) -> anyhow::Result<()> {
-    tracing::info!("starting persistent indexer tasks (backfill + stream loops)");
-
-    // Spawn backfill loop task
-    let rpc_url_backfill = rpc_url.to_string();
-    let pool_backfill = pool.clone();
-    let registry_backfill = registry_address;
-    let batch_size_backfill = batch_size;
-    let update_tree_backfill = update_tree;
-    let initial_block_backfill = initial_block;
-
-    let backfill_handle = tokio::spawn(async move {
-        backfill_loop(
-            &rpc_url_backfill,
-            &pool_backfill,
-            registry_backfill,
-            initial_block_backfill,
-            batch_size_backfill,
-            update_tree_backfill,
-        )
-        .await
-    });
-    let backfill_abort = backfill_handle.abort_handle();
-
-    // Spawn stream loop task
-    let ws_url_stream = ws_url.to_string();
-    let pool_stream = pool.clone();
-    let registry_stream = registry_address;
-    let update_tree_stream = update_tree;
-
-    let stream_handle = tokio::spawn(async move {
-        stream_loop(
-            &ws_url_stream,
-            &pool_stream,
-            registry_stream,
-            update_tree_stream,
-        )
-        .await
-    });
-    let stream_abort = stream_handle.abort_handle();
-
-    // Wait for either task to fail (they should run forever)
-    tokio::select! {
-        result = backfill_handle => {
-            // Kill other task
-            stream_abort.abort();
-            match result {
-                Err(e) => {
-                    tracing::error!("backfill task panicked: {:?}", e);
-                    Err(anyhow::anyhow!("backfill task panicked: {:?}", e))
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("backfill task returned error: {:?}", e);
-                    Err(anyhow::anyhow!("backfill task failed: {:?}", e).context("backfill loop error"))
-                }
-                Ok(Ok(())) => {
-                    tracing::error!("backfill loop task exited unexpectedly (should run forever)");
-                    Err(anyhow::anyhow!("backfill loop task exited unexpectedly"))
-                }
-            }
-        }
-        result = stream_handle => {
-            // Kill other task
-            backfill_abort.abort();
-            match result {
-                Err(e) => {
-                    tracing::error!("stream task panicked: {:?}", e);
-                    Err(anyhow::anyhow!("stream task panicked: {:?}", e))
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("stream task returned error: {:?}", e);
-                    Err(anyhow::anyhow!("stream task failed: {:?}", e).context("stream loop error"))
-                }
-                Ok(Ok(())) => {
-                    tracing::error!("stream loop task exited unexpectedly (should run forever)");
-                    Err(anyhow::anyhow!("stream loop task exited unexpectedly"))
-                }
-            }
-        }
-    }
-}
-
-/// Continuously backfills from the last saved checkpoint.
+/// Continuously indexes from the last saved checkpoint.
 /// This task runs in a loop, periodically checking for new blocks and catching up.
 /// Fetches the starting block from checkpoint inside the loop.
-async fn backfill_loop(
+/// Uses checkpoint as the source of truth and runs on a 1-second interval.
+/// All database updates are dedup-safe via conflict handling.
+async fn index_task(
     rpc_url: &str,
     pool: &PgPool,
     registry_address: Address,
-    initial_block: u64,
+    start_block: Option<u64>,
     batch_size: u64,
     update_tree: bool,
 ) -> anyhow::Result<()> {
-    const BACKFILL_INTERVAL: Duration = Duration::from_secs(10);
+    const INTERVAL: Duration = Duration::from_secs(1);
 
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
+
+    // If start_block is defined do initial backfill from start_block
+    if let Some(block) = start_block {
+        let current_head = provider.get_block_number().await?;
+        let mut from = block;
+        let head = current_head;
+        // If initial backfill_fails, error out. Don't retry indefinitely like the loop below.
+        backfill_batch(
+            &provider,
+            pool,
+            registry_address,
+            &mut from,
+            batch_size,
+            update_tree,
+            head,
+        )
+        .await?;
+    }
+
+    // Main loop: always use checkpoint as source of truth
     loop {
-        let provider =
-            ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-
-        // Get last processed block from checkpoint (fetched inside the loop)
+        // Step 1: Get last processed block from checkpoint
         let last_processed = match load_checkpoint(pool).await {
             Ok(Some(block)) => {
-                tracing::debug!(block, "backfill loop: loaded checkpoint");
+                tracing::debug!(block, "index task: loaded checkpoint");
                 block
             }
-            _ => {
-                tracing::info!(
-                    initial_block,
-                    "backfill loop: no checkpoint found, starting from initial block"
-                );
-                initial_block
+            Ok(None) => {
+                tracing::info!("index task: no checkpoint found, starting from block 1");
+                1
+            }
+            Err(e) => {
+                tracing::error!(?e, "index task: failed to load checkpoint, will retry");
+                tokio::time::sleep(INTERVAL).await;
+                continue;
             }
         };
 
-        // Get current chain head
-        let current_head = provider.get_block_number().await?;
+        // Step 2: Get current chain head
+        let current_head = match provider.get_block_number().await {
+            Ok(head) => head,
+            Err(e) => {
+                tracing::error!(
+                    ?e,
+                    "index task: failed to get current chain head, will retry"
+                );
+                tokio::time::sleep(INTERVAL).await;
+                continue;
+            }
+        };
 
-        // If we're behind, backfill
+        // Step 3: If we're behind, process one batch
         if last_processed < current_head {
             tracing::info!(
                 from = last_processed,
                 to = current_head,
-                "backfill loop: catching up blocks"
+                "index task: processing batch"
             );
             let mut from = last_processed;
-            if let Err(e) = backfill(
+
+            if let Err(err) = backfill_batch(
                 &provider,
                 pool,
                 registry_address,
                 &mut from,
                 batch_size,
                 update_tree,
+                current_head,
             )
             .await
             {
-                tracing::error!(?e, "backfill loop: failed to backfill, will retry");
+                tracing::error!(?err, "index task: failed to backfill batch, will retry");
+                tokio::time::sleep(INTERVAL).await;
                 continue;
             }
-            tracing::info!(
-                from = last_processed,
-                to = current_head,
-                "backfill loop: successfully caught up"
-            );
         } else {
             tracing::debug!(
                 last_processed,
                 current_head,
-                "backfill loop: already caught up"
+                "index task: already caught up"
             );
         }
 
         // Wait before next check
-        tokio::time::sleep(BACKFILL_INTERVAL).await;
+        tokio::time::sleep(INTERVAL).await;
     }
-}
-
-/// Continuously connects to WebSocket stream and reconnects on disconnect.
-/// This task runs in a loop, automatically reconnecting when the connection drops.
-/// WebSocket subscriptions only receive new blocks, so no from_block is needed.
-async fn stream_loop(
-    ws_url: &str,
-    pool: &PgPool,
-    registry_address: Address,
-    update_tree: bool,
-) -> anyhow::Result<()> {
-    const MAX_RECONNECT_ATTEMPTS: u32 = 10;
-    let mut reconnect_count = 0;
-
-    loop {
-        tracing::info!(
-            reconnect_count,
-            max_attempts = MAX_RECONNECT_ATTEMPTS,
-            "stream loop: connecting to WebSocket"
-        );
-
-        // Connect and stream logs (WebSocket subscriptions only receive new blocks)
-        let result = stream_logs(ws_url, pool, registry_address, update_tree).await;
-
-        // Increment reconnect count (this is a reconnect attempt after the initial connection)
-        reconnect_count += 1;
-
-        match &result {
-            Ok(()) => {
-                tracing::error!(
-                    reconnect_count,
-                    max_attempts = MAX_RECONNECT_ATTEMPTS,
-                    "stream loop: connection closed, reconnecting"
-                );
-            }
-            Err(e) => {
-                tracing::error!(
-                    reconnect_count,
-                    max_attempts = MAX_RECONNECT_ATTEMPTS,
-                    ?e,
-                    "stream loop: connection errored, reconnecting"
-                );
-            }
-        }
-
-        // Exit if we've exceeded max reconnect attempts
-        if reconnect_count >= MAX_RECONNECT_ATTEMPTS {
-            return Err(anyhow::anyhow!(
-                "stream loop: exceeded max reconnect attempts ({MAX_RECONNECT_ATTEMPTS})"
-            ));
-        }
-
-        // Sleep before reconnecting
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-pub async fn stream_logs(
-    ws_url: &str,
-    pool: &PgPool,
-    registry: Address,
-    update_tree: bool,
-) -> anyhow::Result<()> {
-    use futures_util::StreamExt;
-    let ws = WsConnect::new(ws_url);
-    let provider = ProviderBuilder::new().connect_ws(ws).await?;
-
-    let filter = Filter::new()
-        .address(registry)
-        .event_signature(event_signatures());
-    let sub = provider.subscribe_logs(&filter).await?;
-    let mut stream = sub.into_stream();
-    while let Some(log) = stream.next().await {
-        tracing::info!(?log, "processing live registry log");
-        match decode_registry_event(&log) {
-            Ok(event) => {
-                tracing::info!(?event, "decoded live registry event");
-                let block_number = log.block_number;
-                let tx_hash = log.transaction_hash;
-                let log_index = log.log_index;
-
-                // Deduplication: Check if this event has already been processed
-                if let (Some(tx), Some(li)) = (tx_hash, log_index) {
-                    match is_event_already_processed(pool, &tx, li).await {
-                        Ok(true) => {
-                            tracing::debug!(
-                                tx_hash = ?tx,
-                                log_index = li,
-                                block_number = ?block_number,
-                                "event already processed, skipping"
-                            );
-                            continue;
-                        }
-                        _ => {}
-                    }
-                }
-
-                if let Some(bn) = block_number {
-                    if let Err(e) =
-                        handle_registry_event(pool, &event, bn, tx_hash, log_index).await
-                    {
-                        tracing::error!(?e, ?event, "failed to handle registry event in DB");
-                    }
-
-                    if update_tree {
-                        if let Err(e) = update_tree_with_event(&event).await {
-                            tracing::error!(?e, ?event, "failed to update tree for live event");
-                        }
-                    }
-
-                    if let Err(e) = save_checkpoint(pool, bn).await {
-                        tracing::error!(?e, block = bn, "failed to save checkpoint in stream");
-                        // Continue processing even if checkpoint save fails
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!(?e, ?log, "failed to decode live registry event");
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

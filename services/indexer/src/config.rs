@@ -123,19 +123,16 @@ impl HttpConfig {
 
 #[derive(Debug)]
 pub struct IndexerConfig {
-    pub ws_url: String,
-    pub start_block: u64,
+    pub start_block: Option<u64>,
     pub batch_size: u64,
 }
 
 impl IndexerConfig {
     pub fn from_env() -> Self {
         let config = Self {
-            ws_url: std::env::var("WS_URL").expect("WS_URL must be set."),
             start_block: std::env::var("START_BLOCK")
                 .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0),
+                .and_then(|s| s.parse().ok()),
             batch_size: std::env::var("BATCH_SIZE")
                 .ok()
                 .and_then(|s| s.parse().ok())
