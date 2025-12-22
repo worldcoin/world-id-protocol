@@ -359,21 +359,83 @@ async fn run_both(
         }));
     }
 
-    let index_result = index_task(
-        rpc_url,
-        &pool,
-        registry_address,
-        indexer_cfg.start_block,
-        indexer_cfg.batch_size,
-        true, // Update in-memory tree directly from events
-    )
-    .await;
+    // Spawn indexer task
+    let indexer_pool = pool.clone();
+    let indexer_rpc_url = rpc_url.to_string();
+    let indexer_registry = registry_address;
+    let indexer_start_block = indexer_cfg.start_block;
+    let indexer_batch_size = indexer_cfg.batch_size;
+    let indexer_handle = tokio::spawn(async move {
+        index_task(
+            &indexer_rpc_url,
+            &indexer_pool,
+            indexer_registry,
+            indexer_start_block,
+            indexer_batch_size,
+            true, // Update in-memory tree directly from events
+        )
+        .await
+    });
 
-    http_handle.abort();
-    if let Some(handle) = sanity_handle {
-        handle.abort();
+    // Get abort handles before select (select moves the handles)
+    let http_abort = http_handle.abort_handle();
+    let indexer_abort = indexer_handle.abort_handle();
+    let sanity_abort = sanity_handle.as_ref().map(|h| h.abort_handle());
+
+    // Wait for any task to complete
+    tokio::select! {
+        http_result = http_handle => {
+            // HTTP server completed (or errored)
+            if let Err(e) = http_result {
+                tracing::error!(?e, "HTTP server task panicked");
+            } else if let Err(e) = http_result.unwrap() {
+                tracing::error!(?e, "HTTP server exited with error");
+            } else {
+                tracing::info!("HTTP server exited normally");
+            }
+
+            // Gracefully shut down other tasks
+            indexer_abort.abort();
+            if let Some(abort) = sanity_abort {
+                abort.abort();
+            }
+        }
+        indexer_result = indexer_handle => {
+            // Indexer task completed (or errored)
+            if let Err(e) = indexer_result {
+                tracing::error!(?e, "Indexer task panicked");
+            } else if let Err(e) = indexer_result.unwrap() {
+                tracing::error!(?e, "Indexer exited with error");
+            } else {
+                tracing::info!("Indexer exited normally");
+            }
+
+            // Gracefully shut down other tasks
+            http_abort.abort();
+            if let Some(abort) = sanity_abort {
+                abort.abort();
+            }
+        }
+        sanity_result = async {
+            match sanity_handle {
+                Some(handle) => handle.await,
+                None => std::future::pending().await,
+            }
+        } => {
+            // Sanity checker completed (shouldn't normally happen, but handle it)
+            if let Err(e) = sanity_result {
+                tracing::error!(?e, "Sanity checker task panicked");
+            } else {
+                tracing::warn!("Sanity checker task completed unexpectedly");
+            }
+
+            // Gracefully shut down other tasks
+            http_abort.abort();
+            indexer_abort.abort();
+        }
     }
-    index_result
+
+    Ok(())
 }
 
 pub async fn make_db_pool(db_url: &str) -> anyhow::Result<PgPool> {
