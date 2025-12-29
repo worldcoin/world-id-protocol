@@ -341,7 +341,6 @@ mod tests {
         assert_ne!(credential.associated_data_hash, FieldElement::ZERO);
     }
 
-
     #[test]
     fn test_claim_matches_direct_hash() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
