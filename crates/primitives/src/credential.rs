@@ -8,6 +8,7 @@ use crate::{sponge::hash_bytes_to_field_element, FieldElement, PrimitiveError};
 
 /// Domain separation tag to avoid collisions with other Poseidon2 usages.
 const ASSOCIATED_DATA_HASH_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
+const CLAIMS_HASH_DS_TAG: &[u8] = b"CLAIMS_HASH_V1";
 
 /// Version of the `Credential` object
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -202,11 +203,11 @@ impl Credential {
         self
     }
 
-    /// Set a claim for the credential at an index.
+    /// Set a claim hash for the credential at an index.
     ///
     /// # Errors
     /// Will error if the index is out of bounds.
-    pub fn claim(mut self, index: usize, claim: U256) -> Result<Self, PrimitiveError> {
+    pub fn claim_hash(mut self, index: usize, claim: U256) -> Result<Self, PrimitiveError> {
         if index >= self.claims.len() {
             return Err(PrimitiveError::OutOfBounds);
         }
@@ -214,6 +215,23 @@ impl Credential {
         Ok(self)
     }
 
+    /// Set the claim hash at specific index by hashing arbitrary bytes using Poseidon2.
+    ///
+    /// This method accepts arbitrary bytes, converts them to field elements,
+    /// applies a Poseidon2 hash, and stores the result as claim at the provided index.
+    ///
+    /// # Arguments
+    /// * `claim` - Arbitrary bytes to hash (any length).
+    ///
+    /// # Errors
+    /// Will error if the data is empty and if the index is out of bounds.
+    pub fn claim(mut self, index: usize, claim: &[u8]) -> Result<Self, PrimitiveError> {
+        if index >= self.claims.len() {
+            return Err(PrimitiveError::OutOfBounds);
+        }
+        self.claims[index] = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, claim)?;
+        Ok(self)
+    }
     /// Set the associated data hash of the credential from a pre-computed hash.
     ///
     /// # Errors
@@ -323,17 +341,28 @@ mod tests {
         assert_ne!(credential.associated_data_hash, FieldElement::ZERO);
     }
 
+
     #[test]
-    fn test_associated_data_vs_manual_hash() {
+    fn test_claim_matches_direct_hash() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
         // Using the associated_data method
-        let credential = Credential::new().associated_data(&data).unwrap();
+        let credential = Credential::new().claim(0, &data).unwrap();
 
         // Using the hash function directly
-        let direct_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, &data).unwrap();
+        let direct_hash = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, &data).unwrap();
 
         // Both should produce the same hash
-        assert_eq!(credential.associated_data_hash, direct_hash);
+        assert_eq!(credential.claims[0], direct_hash);
+    }
+
+    #[test]
+    fn test_claim_method() {
+        let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+
+        let credential = Credential::new().claim(1, &data).unwrap();
+
+        // Should have a non-zero associated data hash
+        assert_ne!(credential.claims[1], FieldElement::ZERO);
     }
 }
