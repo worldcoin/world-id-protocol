@@ -46,7 +46,7 @@ oprf-client = { package = "oprf-client", version = "0.1", git = "https://github.
 oprf-service = { package = "oprf-service", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" } 
 oprf-test = { package = "oprf-test", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" } 
 oprf-key-gen = { package = "oprf-key-gen", version = "0.1", git = "https://github.com/TaceoLabs/nullifier-oracle-service.git", rev = "683d4c6" } 
-ruint = { version = "1.16", features = ["ark-ff-05"] }
+ruint = { version = "1.17.2", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
 rand = "0.8"
 rand_chacha = "0.3"
