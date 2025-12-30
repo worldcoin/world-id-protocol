@@ -361,7 +361,7 @@ mod tests {
 
         let credential = Credential::new().claim(1, &data).unwrap();
 
-        // Should have a non-zero associated data hash
+        // Should have a non-zero claim hash
         assert_ne!(credential.claims[1], FieldElement::ZERO);
     }
 }
