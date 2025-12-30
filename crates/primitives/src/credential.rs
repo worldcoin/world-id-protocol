@@ -345,7 +345,7 @@ mod tests {
     fn test_claim_matches_direct_hash() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        // Using the associated_data method
+        // Using the claim method
         let credential = Credential::new().claim(0, &data).unwrap();
 
         // Using the hash function directly
