@@ -83,6 +83,7 @@ pub struct GlobalConfig {
     pub db_url: String,
     pub rpc_url: String,
     pub registry_address: Address,
+    pub tree_cache: TreeCacheConfig,
 }
 
 #[derive(Debug)]
@@ -157,6 +158,50 @@ impl IndexerConfig {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TreeCacheConfig {
+    /// Path to mmap cache file (mandatory)
+    pub cache_file_path: String,
+
+    /// Depth of dense tree prefix (mandatory, default: 20)
+    pub dense_tree_prefix_depth: usize,
+
+    /// Maximum blocks to replay before triggering full rebuild (default: 10000)
+    pub replay_threshold_blocks: u64,
+
+    /// HttpOnly mode: interval in seconds to check for cache updates (default: 30)
+    pub http_cache_refresh_interval_secs: u64,
+}
+
+impl TreeCacheConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let cache_file_path = std::env::var("TREE_CACHE_FILE")
+            .map_err(|_| anyhow::anyhow!("TREE_CACHE_FILE environment variable is required"))?;
+
+        let config = Self {
+            cache_file_path,
+            dense_tree_prefix_depth: std::env::var("TREE_DENSE_PREFIX_DEPTH")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20),
+            replay_threshold_blocks: std::env::var("TREE_REPLAY_THRESHOLD_BLOCKS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10_000),
+            http_cache_refresh_interval_secs: std::env::var("TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30),
+        };
+
+        tracing::info!(
+            "✔️ Tree cache config loaded from env. Cache file: {}",
+            config.cache_file_path
+        );
+        Ok(config)
+    }
+}
+
 impl GlobalConfig {
     pub fn from_env() -> Self {
         let environment = std::env::var("ENVIRONMENT")
@@ -175,12 +220,16 @@ impl GlobalConfig {
             .parse::<Address>()
             .expect("REGISTRY_ADDRESS must be a valid address");
 
+        let tree_cache = TreeCacheConfig::from_env()
+            .expect("Failed to load tree cache configuration");
+
         Self {
             environment,
             run_mode,
             db_url,
             rpc_url,
             registry_address,
+            tree_cache,
         }
     }
 }
