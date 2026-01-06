@@ -166,9 +166,6 @@ pub struct TreeCacheConfig {
     /// Depth of dense tree prefix (mandatory, default: 20)
     pub dense_tree_prefix_depth: usize,
 
-    /// Maximum blocks to replay before triggering full rebuild (default: 10000)
-    pub replay_threshold_blocks: u64,
-
     /// HttpOnly mode: interval in seconds to check for cache updates (default: 30)
     pub http_cache_refresh_interval_secs: u64,
 }
@@ -184,10 +181,6 @@ impl TreeCacheConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(20),
-            replay_threshold_blocks: std::env::var("TREE_REPLAY_THRESHOLD_BLOCKS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(10_000),
             http_cache_refresh_interval_secs: std::env::var("TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS")
                 .ok()
                 .and_then(|s| s.parse().ok())
