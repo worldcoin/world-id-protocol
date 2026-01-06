@@ -1,7 +1,5 @@
 # Abstract
 
----
-
 The World ID v4.0 release introduces *account abstraction* at its core, transforming a World ID from a single secret into an abstract record in a public registry (called `WorldIDRegistry`) with multiple authorized keys. This fundamental change enables several key improvements:
 
 1. **Multi-key support**: Users can generate proofs using multiple valid authenticators (such as across multiple devices, multiple platforms or multiple applications) while maintaining the same identity.
@@ -12,8 +10,6 @@ The World ID v4.0 release introduces *account abstraction* at its core, transfor
 These changes collectively increase security, privacy, and usability while enabling more sophisticated applications of human verification in the Age of AI. For more details on what is changing from a technical standpoint, please see *Summary: What is Changing?*.
 
 # Product Specs
-
----
 
 At a high level, this release of the Protocol is about *Account Abstraction*. A World ID is no longer tied to a single secret, and instead is an abstract record created in the public `WorldIDRegistry` with a defined set of authorized keys which allow the user to interact with their World ID (a similar mental model is how passkeys authorize accounts for specific websites or how smart contract wallets work in the Ethereum ecosystem).
 
@@ -68,11 +64,12 @@ This notes the key **new** features or functionality for this **release** of Wor
 
 - The privacy and security implications of Authenticators is improved (key revocation, etc.) but the user must trust their Authenticator(s). The Authenticator must handle the user’s Credentials (or previously Personal Custody Packages) and keys correctly.
 
-# Technical Specs
-
 ---
 
-Please note these are the high level technical specifications at the time of introduction of World ID 4.0. The most up-to-date technical documentation reflecting the current state of the Protocol can always be found in the [developer documentation](https://docs.world.org/world-id) and the [Protocol repository](https://github.com/worldcoin/world-id-protocol).
+# Technical Specs
+
+> [!TIP]
+> Please note these are the high level technical specifications at the time of introduction of World ID 4.0. The most up-to-date technical documentation reflecting the current state of the Protocol can always be found in the [developer documentation](https://docs.world.org/world-id) and the [Protocol repository](https://github.com/worldcoin/world-id-protocol).
 
 ## Summary: What is Changing?
 
@@ -81,10 +78,10 @@ Please note these are the high level technical specifications at the time of int
     - Also implies that the on-chain trees of identity commitments is gone in favor of a single `WorldIDRegistry`.
 - Creating a World ID now occurs through on-chain registration (vs. as an offline keypair generation previously), and issuing Credentials is now done without on-chain interaction. Credentials are now issued by the Issuer signing them. Previously, the Issuer would add the user’s identity commitment to the relevant on-chain tree.
 - Nullifiers are enforced one-time use. Previously there was no enforcement of nullifiers being one-time use and they could become pseudonymous identifiers for an RP, now Authenticators will not issue a nullifier more than once.
-- [For RPs only]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier from the original action (a `sessionId`) and provide it to the user for subsequent proves. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See *Session Proofs* for further details.
-- [For Issuers only]. Authentication based on using nullifiers from ZKPs as identifiers is no longer supported. A new authentication mechanism is introduced for issuers.
+- [**For RPs only**]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier from the original action (a `sessionId`) and provide it to the user for subsequent proves. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See *Session Proofs* for further details.
+- [**For Issuers only**]. Authentication based on using nullifiers from ZKPs as identifiers is no longer supported. A new authentication mechanism is introduced for issuers.
 - Access to a World ID can be recovered. A user can designate a *Recovery Agent* for their account which will allow for recovery in case of access to all Authenticators is lost.
-    - [Recovery Agent Scope]. Users may designate the *PoH AMPC* system as their Recovery Agent to recover their World ID.
+    - [**Recovery Agent Scope**]. Users may designate the *PoH AMPC* system as their Recovery Agent to recover their World ID.
 
 ## High level overview
 
@@ -109,22 +106,16 @@ Diagram of components for the World ID 4.0 Protocol.
     | Proof Generation | [Semaphore](https://semaphore.pse.dev/) proofs generated on the client. | *Conceptually the same but with new ZK-circuits.* Users generate a query proof for OPRF nodes, which provide computations that enable the nullifier generation. A final Uniqueness Proof is generated and presented to RPs. |
     | How does the Relying Party enforce uniqueness? | Storing a nullifier hash. | *Conceptually the same.* |
     | Post-compromise privacy | If the user’s World ID secret leaks, all past activity could be identified.
-    
     Furthermore, the secret cannot be rotated. | If a user’s authenticator secret leaks, no past activity can be identified on its own. Collusion with an RP would be required to compromise *some* past activity.
-    
     Secrets can be easily rotated. |
     | Recoverability | Cannot be recovered if the secret is lost. | Can be optionally recovered through a Recovery Agent. |
     | Credential Issuance | On-chain Merkle Tree containing `idComm`s.
-    
     Credential-equivalent held self-custodially. | Signed message from the Issuer.
-    
     Credential held self-custodially. |
     | Signal (proof messages) | An RP can include an arbitrary signal to which the user commits. | *Conceptually the same.* |
     | Secret Security | Secret must be stored with software protections and loaded into memory. | Conceptually possible to store keys in hardware-based key stores. *Initial keys will have the same characteristics as the previous protocol version due to ZK proving limitations.* |
 
 ## Technical Details
-
-The detailed technical reference starts below.
 
 ### Uniqueness Proofs
 
@@ -163,15 +154,14 @@ RP ->> RP: Verify nullifier uniqueness
 
 - The nullifier is computed by the OPRF Nodes. Computing it requires output from a threshold number of nodes to be valid.
     - Importantly, the input to the OPRF Nodes is blinded so that no OPRF node can see the raw `leafIndex` (i.e. OPRF nodes only know that the request is from an authorized authenticator).
-    - Importantly, the nullifier is credential *independent*, so the action can only be performed once regardless of which credentials are available at the time*.*
+    - Importantly, the nullifier is credential *independent*, so the action can only be performed once regardless of which credentials are available at the time.
     - Further information on how the nullifier is computed can be found in the [TACEO OPRF Whitepaper](https://github.com/TaceoLabs/nullifier-oracle-service/blob/main/docs/oprf.pdf).
 - Nullifiers have the following properties, which in combination make them amenable for use by an RP to enforce anonymous per-action uniqueness:
     
     
     | **Property** | **Description** |
     | --- | --- |
-    | Deterministic | Given the same context (`leafIndex` [blinded], `rpId`, `action`), the nullifier is always the same. Assuming honest behavior of OPRF nodes never rotating their base key. 
-    *Note that the credential is intentionally not included in this context. This means that the action can be performed only once, regardless of which credentials are available at the time.* |
+    | Deterministic | Given the same context (`leafIndex` [blinded], `rpId`, `action`), the nullifier is always the same. Assuming honest behavior of OPRF nodes never rotating their base key. *Note that the credential is intentionally not included in this context. This means that the action can be performed only once, regardless of which credentials are available at the time.* |
     | Unguessable | For a fixed context, the nullifier output is uniformly distributed over the output space. Even with the full set of possible users, computing candidate nullifiers is infeasible without collusion of a threshold of OPRF nodes such that the OPRF key is known. |
     | Authenticated | It’s probabilistically impossible to claim ownership over a nullifier if you don’t know a secret value (a secret key whose public counterpart is registered in the `WorldIDRegistry`). |
     | Anonymous | A nullifier hides which user generated it. To preserve anonymity, each nullifier must only be used once (otherwise repeated use makes it pseudonymous). This is the responsibility of Authenticators. |
