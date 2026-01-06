@@ -107,9 +107,7 @@ Diagram of components for the World ID 4.0 Protocol.
     | How does the Relying Party enforce uniqueness? | Storing a nullifier hash. | *Conceptually the same.* |
     | Post-compromise privacy | If the user’s World ID secret leaks, all past activity could be identified. Furthermore, the secret cannot be rotated. | If a user’s authenticator secret leaks, no past activity can be identified on its own. Collusion with an RP would be required to compromise *some* past activity. **Secrets can be easily rotated.** |
     | Recoverability | Cannot be recovered if the secret is lost. | Can be optionally recovered through a Recovery Agent. |
-    | Credential Issuance | On-chain Merkle Tree containing `idComm`s.
-    Credential-equivalent held self-custodially. | Signed message from the Issuer.
-    Credential held self-custodially. |
+    | Credential Issuance | On-chain Merkle Tree containing `idComm`s. Credential-equivalent held self-custodially. | Signed message from the Issuer. <br /> Credential held self-custodially. |
     | Signal (proof messages) | An RP can include an arbitrary signal to which the user commits. | *Conceptually the same.* |
     | Secret Security | Secret must be stored with software protections and loaded into memory. | Conceptually possible to store keys in hardware-based key stores. *Initial keys will have the same characteristics as the previous protocol version due to ZK proving limitations.* |
 
