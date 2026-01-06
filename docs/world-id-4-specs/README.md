@@ -105,9 +105,7 @@ Diagram of components for the World ID 4.0 Protocol.
     | What is a World ID? | A secret. | An entry in public registry. |
     | Proof Generation | [Semaphore](https://semaphore.pse.dev/) proofs generated on the client. | *Conceptually the same but with new ZK-circuits.* Users generate a query proof for OPRF nodes, which provide computations that enable the nullifier generation. A final Uniqueness Proof is generated and presented to RPs. |
     | How does the Relying Party enforce uniqueness? | Storing a nullifier hash. | *Conceptually the same.* |
-    | Post-compromise privacy | If the user’s World ID secret leaks, all past activity could be identified.
-    Furthermore, the secret cannot be rotated. | If a user’s authenticator secret leaks, no past activity can be identified on its own. Collusion with an RP would be required to compromise *some* past activity.
-    Secrets can be easily rotated. |
+    | Post-compromise privacy | If the user’s World ID secret leaks, all past activity could be identified. Furthermore, the secret cannot be rotated. | If a user’s authenticator secret leaks, no past activity can be identified on its own. Collusion with an RP would be required to compromise *some* past activity. **Secrets can be easily rotated.** |
     | Recoverability | Cannot be recovered if the secret is lost. | Can be optionally recovered through a Recovery Agent. |
     | Credential Issuance | On-chain Merkle Tree containing `idComm`s.
     Credential-equivalent held self-custodially. | Signed message from the Issuer.
