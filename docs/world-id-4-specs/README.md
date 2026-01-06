@@ -15,7 +15,7 @@ These changes collectively increase security, privacy, and usability while enabl
 
 ---
 
-At a high level, this release of the Protocol is about *Account Abstraction*. A World ID is no longer tied to a single secret, and instead is an abstract record created in the public `WorldIDRegistry` **with a defined set of authorized keys which allow the user to interact with their World ID (a similar mental model is how passkeys authorize accounts for specific websites or how smart contract wallets work in the Ethereum ecosystem).
+At a high level, this release of the Protocol is about *Account Abstraction*. A World ID is no longer tied to a single secret, and instead is an abstract record created in the public `WorldIDRegistry` with a defined set of authorized keys which allow the user to interact with their World ID (a similar mental model is how passkeys authorize accounts for specific websites or how smart contract wallets work in the Ethereum ecosystem).
 
 Stemming from the enablement of other Authenticators to exist, a reference open-source, web-based Authenticator will be published which will reduce some of the overhead for using a World ID and simplifies the user experience. The enhanced user experience will enable simpler and more widespread adoption of the Protocol.
 
