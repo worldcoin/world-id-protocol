@@ -114,7 +114,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.13
+      - uses: EmbarkStudios/cargo-deny-action@v2.0.14
         with:
           command: check ${{ matrix.checks }}
 
