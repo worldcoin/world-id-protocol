@@ -81,7 +81,7 @@ This notes the key **new** features or functionality for this **release** of Wor
 - [**For RPs only**]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier from the original action (a `sessionId`) and provide it to the user for subsequent proves. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See *Session Proofs* for further details.
 - [**For Issuers only**]. Authentication based on using nullifiers from ZKPs as identifiers is no longer supported. A new authentication mechanism is introduced for issuers.
 - Access to a World ID can be recovered. A user can designate a *Recovery Agent* for their account which will allow for recovery in case of access to all Authenticators is lost.
-    - [**Recovery Agent Scope**]. Users may designate the *PoH AMPC* system as their Recovery Agent to recover their World ID.
+    - [**Recovery Agent Scope**]. Users may designate the *PoH AMPC* system as their Recovery Agent to recover their World ID. In the future, other Recovery Agents are expected to be available.
 
 ## High level overview
 
@@ -268,9 +268,9 @@ rp->>rp: verify proof (checking sessionId == C')
 To allow for an improved user experience, a reference browser-based Authenticator provider is being introduced. This app provides (currently limited) World ID functionality but without leaving the browser. 
 
 1. At a high-level, it allows **usage** of a World ID. The user can generate proofs in their browser, and this is particularly useful for when working on other devices (such as desktop) or on non-native apps.
-2. **Enrollment** (or credential issuing) is currently **not** supported, but this may be introduced in the future. Credential issuance from the browser may not be feasible for all credentials.
-3. Whenever an RP requires a user’s World ID proof, they can simply redirect the user to the web app (handled automatically by common SDKs like [ID Kit](https://github.com/worldcoin/idkit)). The user authenticates with their passkey, generates the proof in their browser and passes it back to the RP.
-4. Further documentation on the architecture of the reference web-based Authenticator provider will be published in the https://github.com/worldcoin/web-authenticator repository.
+2. Whenever an RP requires a user’s World ID proof, they can simply redirect the user to the web app (handled automatically by common SDKs like [ID Kit](https://github.com/worldcoin/idkit)). The user authenticates with their passkey, generates the proof in their browser and passes it back to the RP.
+3. Further documentation on the architecture of the reference web-based Authenticator provider will be published in the https://github.com/worldcoin/web-authenticator repository.
+4. **Credential Enrollment** will not be supported in the initial release, but this may be introduced in the future.
 
 ## Migration Considerations
 
