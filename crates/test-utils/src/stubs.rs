@@ -143,12 +143,10 @@ async fn spawn_orpf_node(
     world_id_registry_contract: Address,
     wallet_address: Address,
 ) -> String {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
     let config = WorldOprfNodeConfig {
         bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
         max_wait_time_shutdown: Duration::from_secs(10),
-        user_verification_key_path: dir.join("../../circom/OPRFQuery.vk.json"),
         max_merkle_store_size: 10,
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         signature_history_cleanup_interval: Duration::from_secs(30),
