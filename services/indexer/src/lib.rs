@@ -27,6 +27,172 @@ use crate::events::RegistryEvent;
 use crate::tree::{build_tree_from_db, update_tree_with_commitment};
 pub use config::GlobalConfig;
 
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+
+#[derive(Debug, Clone)]
+pub struct AccountCreatedEvent {
+    pub leaf_index: U256,
+    pub recovery_address: Address,
+    pub authenticator_addresses: Vec<Address>,
+    pub authenticator_pubkeys: Vec<U256>,
+    pub offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountUpdatedEvent {
+    pub leaf_index: U256,
+    pub pubkey_id: u32,
+    pub new_authenticator_pubkey: U256,
+    pub old_authenticator_address: Address,
+    pub new_authenticator_address: Address,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatorInsertedEvent {
+    pub leaf_index: U256,
+    pub pubkey_id: u32,
+    pub authenticator_address: Address,
+    pub new_authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatorRemovedEvent {
+    pub leaf_index: U256,
+    pub pubkey_id: u32,
+    pub authenticator_address: Address,
+    pub authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountRecoveredEvent {
+    pub leaf_index: U256,
+    pub new_authenticator_address: Address,
+    pub new_authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub enum RegistryEvent {
+    AccountCreated(AccountCreatedEvent),
+    AccountUpdated(AccountUpdatedEvent),
+    AuthenticatorInserted(AuthenticatorInsertedEvent),
+    AuthenticatorRemoved(AuthenticatorRemovedEvent),
+    AccountRecovered(AccountRecoveredEvent),
+}
+
+static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> =
+    LazyLock::new(|| Poseidon2::new(&POSEIDON2_BN254_T2_PARAMS));
+
+struct PoseidonHasher {}
+
+impl Hasher for PoseidonHasher {
+    type Hash = U256;
+
+    fn hash_node(left: &Self::Hash, right: &Self::Hash) -> Self::Hash {
+        let left: Fr = left.try_into().unwrap();
+        let right: Fr = right.try_into().unwrap();
+        let mut input = [left, right];
+        let feed_forward = input[0];
+        POSEIDON_HASHER.permutation_in_place(&mut input);
+        input[0] += feed_forward;
+        input[0].into()
+    }
+}
+
+fn tree_capacity() -> usize {
+    1usize << TREE_DEPTH
+}
+
+// Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
+pub(crate) static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
+    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
+
+async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
+    if leaf_index >= tree_capacity() {
+        anyhow::bail!("leaf index {leaf_index} out of range for tree depth {TREE_DEPTH}");
+    }
+
+    let mut tree = GLOBAL_TREE.write().await;
+    take_mut::take(&mut *tree, |tree| {
+        tree.update_with_mutation(leaf_index, &value)
+    });
+    Ok(())
+}
+
+async fn initialize_tree_with_config(
+    tree_cache_cfg: &config::TreeCacheConfig,
+    pool: &PgPool,
+) -> anyhow::Result<()> {
+    let initializer = tree::TreeInitializer::new(
+        tree_cache_cfg.cache_file_path.clone(),
+        TREE_DEPTH,
+        tree_cache_cfg.dense_tree_prefix_depth,
+        U256::ZERO,
+    );
+
+    let new_tree = initializer.initialize(pool).await?;
+
+    let root = new_tree.root();
+    {
+        let mut tree = GLOBAL_TREE.write().await;
+        *tree = new_tree;
+    }
+
+    tracing::info!(
+        root = %format!("0x{:x}", root),
+        depth = TREE_DEPTH,
+        "Tree initialized successfully"
+    );
+    Ok(())
+}
+
+async fn update_tree_with_commitment(leaf_index: U256, new_commitment: U256) -> anyhow::Result<()> {
+    if leaf_index == 0 {
+        anyhow::bail!("account index cannot be zero");
+    }
+    let leaf_index = leaf_index.as_limbs()[0] as usize;
+    set_leaf_at_index(leaf_index, new_commitment).await?;
+    Ok(())
+}
+
+async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
+    match ev {
+        RegistryEvent::AccountCreated(e) => {
+            update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment).await
+        }
+        RegistryEvent::AccountUpdated(e) => {
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AuthenticatorInserted(e) => {
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AuthenticatorRemoved(e) => {
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AccountRecovered(e) => {
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
+        }
+    }
+}
+
+fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
+    proof
+        .0
+        .iter()
+        .map(|b| match b {
+            Branch::Left(sib) => *sib,
+            Branch::Right(sib) => *sib,
+        })
+        .collect()
+}
+
 async fn start_http_server(
     rpc_url: &str,
     registry_address: Address,
@@ -49,6 +215,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
 
     let rpc_url = &cfg.rpc_url;
     let registry_address = cfg.registry_address;
+    let tree_cache_cfg = &cfg.tree_cache;
 
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
@@ -56,11 +223,11 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             run_indexer_only(rpc_url, registry_address, indexer_config, pool).await
         }
         RunMode::HttpOnly { http_config } => {
-            tracing::info!("Running in HTTP-ONLY mode (building tree from DB)");
-            // Build tree from DB for HTTP-only mode
+            tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
+            // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
-            build_tree_from_db(&pool).await?;
-            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
+            initialize_tree_with_config(tree_cache_cfg, &pool).await?;
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
             run_http_only(rpc_url, registry_address, http_config, pool).await
         }
         RunMode::Both {
@@ -68,11 +235,19 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             http_config,
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
-            // Build tree from DB for both mode
+            // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
-            build_tree_from_db(&pool).await?;
-            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_both(rpc_url, registry_address, indexer_config, http_config, pool).await
+            initialize_tree_with_config(tree_cache_cfg, &pool).await?;
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            run_both(
+                rpc_url,
+                registry_address,
+                indexer_config,
+                http_config,
+                pool,
+                tree_cache_cfg.cache_file_path.clone(),
+            )
+            .await
         }
     }
 }
@@ -98,11 +273,20 @@ async fn run_indexer_only(
         &mut from,
         indexer_cfg.batch_size,
         false, // Don't update in-memory tree
+        None,  // No cache updates in indexer-only mode
     )
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, false).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        registry_address,
+        from,
+        false, // Don't update in-memory tree
+        None,  // No cache updates in indexer-only mode
+    )
+    .await?;
 
     Ok(())
 }
@@ -152,6 +336,7 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     pool: PgPool,
+    cache_file_path: String,
 ) -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
@@ -189,12 +374,21 @@ async fn run_both(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        true, // Update in-memory tree directly from events
+        true,                       // Update in-memory tree directly from events
+        Some(cache_file_path.as_str()), // Update cache metadata after each batch
     )
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, true).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        registry_address,
+        from,
+        true,                       // Update in-memory tree
+        Some(cache_file_path.as_str()), // Update cache metadata after each event
+    )
+    .await?;
 
     http_handle.abort();
     if let Some(handle) = sanity_handle {
@@ -211,6 +405,7 @@ async fn backfill_batch<P: Provider>(
     batch_size: u64,
     update_tree: bool,
     head: u64,
+    cache_file_path: Option<&str>,
 ) -> anyhow::Result<()> {
     if *from_block == 0 {
         *from_block = 1;
@@ -269,6 +464,20 @@ async fn backfill_batch<P: Provider>(
     }
 
     save_checkpoint(pool, to_block).await?;
+
+    // Update cache metadata if cache is enabled and tree was updated
+    if update_tree {
+        if let Some(cache_path) = cache_file_path {
+            let cache_path_buf = std::path::PathBuf::from(cache_path);
+            let tree = GLOBAL_TREE.read().await;
+            tree::metadata::write_metadata(&cache_path_buf, &tree, pool, to_block)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(?e, "Failed to update cache metadata");
+                });
+        }
+    }
+
     tracing::debug!(
         from = *from_block,
         to = to_block,
@@ -286,6 +495,7 @@ pub async fn backfill<P: Provider>(
     from_block: &mut u64,
     batch_size: u64,
     update_tree: bool,
+    cache_file_path: Option<&str>,
 ) -> anyhow::Result<()> {
     let mut head = provider.get_block_number().await?;
     loop {
@@ -297,6 +507,7 @@ pub async fn backfill<P: Provider>(
             batch_size,
             update_tree,
             head,
+            cache_file_path,
         )
         .await
         {
@@ -518,6 +729,7 @@ pub async fn stream_logs(
     registry: Address,
     start_from: u64,
     update_tree: bool,
+    cache_file_path: Option<&str>,
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
@@ -560,6 +772,19 @@ pub async fn stream_logs(
 
                 if let Some(bn) = log.block_number {
                     save_checkpoint(pool, bn).await?;
+
+                    // Update cache metadata if cache is enabled and tree was updated
+                    if update_tree {
+                        if let Some(cache_path) = cache_file_path {
+                            let cache_path_buf = std::path::PathBuf::from(cache_path);
+                            let tree = GLOBAL_TREE.read().await;
+                            tree::metadata::write_metadata(&cache_path_buf, &tree, pool, bn)
+                                .await
+                                .unwrap_or_else(|e| {
+                                    tracing::warn!(?e, "Failed to update cache metadata");
+                                });
+                        }
+                    }
                 }
             }
             Err(e) => {
