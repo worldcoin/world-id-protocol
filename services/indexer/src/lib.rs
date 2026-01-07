@@ -153,6 +153,66 @@ async fn initialize_tree_with_config(
     Ok(())
 }
 
+/// Background task for HttpOnly mode: periodically check for stale cache and refresh
+async fn cache_refresh_loop(
+    tree_cache_cfg: config::TreeCacheConfig,
+    pool: PgPool,
+    refresh_interval_secs: u64,
+) -> anyhow::Result<()> {
+    let check_interval = Duration::from_secs(refresh_interval_secs);
+    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
+
+    loop {
+        tokio::time::sleep(check_interval).await;
+
+        // Check if cache needs refresh
+        match check_and_refresh_cache(&tree_cache_cfg, &pool, &cache_path).await {
+            Ok(refreshed) => {
+                if refreshed {
+                    tracing::info!("Cache refreshed with new events");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(?e, "Cache refresh check failed, will retry");
+            }
+        }
+    }
+}
+
+/// Check if cache is stale and refresh if needed
+async fn check_and_refresh_cache(
+    tree_cache_cfg: &config::TreeCacheConfig,
+    pool: &PgPool,
+    cache_path: &std::path::Path,
+) -> anyhow::Result<bool> {
+    // Read current cache metadata
+    let metadata = tree::metadata::read_metadata(cache_path)?;
+
+    // Get current DB state
+    let db_state = tree::metadata::get_db_state(pool).await?;
+
+    let blocks_behind = db_state
+        .max_block_number
+        .saturating_sub(metadata.last_block_number);
+
+    if blocks_behind == 0 {
+        tracing::debug!("Cache is up-to-date");
+        return Ok(false);
+    }
+
+    tracing::info!(
+        cache_block = metadata.last_block_number,
+        current_block = db_state.max_block_number,
+        blocks_behind,
+        "Cache is stale, refreshing"
+    );
+
+    // Re-initialize tree (will restore from cache + replay missed events)
+    initialize_tree_with_config(tree_cache_cfg, pool).await?;
+
+    Ok(true)
+}
+
 async fn update_tree_with_commitment(leaf_index: U256, new_commitment: U256) -> anyhow::Result<()> {
     if leaf_index == 0 {
         anyhow::bail!("account index cannot be zero");
@@ -228,7 +288,14 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             let start_time = std::time::Instant::now();
             initialize_tree_with_config(tree_cache_cfg, &pool).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
-            run_http_only(rpc_url, registry_address, http_config, pool).await
+            run_http_only(
+                rpc_url,
+                registry_address,
+                http_config,
+                pool,
+                tree_cache_cfg.clone(),
+            )
+            .await
         }
         RunMode::Both {
             indexer_config,
@@ -296,6 +363,7 @@ async fn run_http_only(
     registry_address: Address,
     http_cfg: HttpConfig,
     pool: PgPool,
+    tree_cache_cfg: config::TreeCacheConfig,
 ) -> anyhow::Result<()> {
     // Start DB poller for account updates
     let poller_pool = pool.clone();
@@ -320,10 +388,22 @@ async fn run_http_only(
         }));
     }
 
+    // Start cache refresh task in the background
+    let refresh_pool = pool.clone();
+    let refresh_interval = tree_cache_cfg.http_cache_refresh_interval_secs;
+    let refresh_cache_cfg = tree_cache_cfg.clone();
+    let cache_refresh_handle = tokio::spawn(async move {
+        if let Err(e) = cache_refresh_loop(refresh_cache_cfg, refresh_pool, refresh_interval).await
+        {
+            tracing::error!(?e, "Cache refresh task failed");
+        }
+    });
+
     // Start HTTP server
     let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
+    cache_refresh_handle.abort();
     if let Some(handle) = sanity_handle {
         handle.abort();
     }
