@@ -18,6 +18,7 @@ jobs:
         service:
           - indexer
           - gateway
+          - oprf-node
     permissions:
       contents: read
       id-token: write
@@ -57,7 +58,9 @@ jobs:
           cache-from: type=gha
           cache-to: "type=gha,mode=max"
           platforms: linux/amd64
-          build-args: SERVICE_NAME=world-id-${{ matrix.service }}
+          build-args: |
+            SERVICE_NAME=world-id-${{ matrix.service }}
+            GIT_HASH=${{ github.sha }}
 
       - name: Attest
         uses: actions/attest-build-provenance@v1

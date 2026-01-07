@@ -10,6 +10,9 @@ WORKDIR /app
 ARG SERVICE_NAME
 RUN test -n "$SERVICE_NAME" || (echo "ERROR: SERVICE_NAME is required" && exit 1)
 
+ARG GIT_HASH
+ENV GIT_HASH=$GIT_HASH
+
 # Install dependencies (required for ring crate)
 RUN apt-get update && apt-get install -y \
   musl-tools \
