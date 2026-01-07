@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -35,7 +36,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
             type=sha
 
       - name: Set up Docker Buildx
