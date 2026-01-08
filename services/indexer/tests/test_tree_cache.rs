@@ -9,7 +9,9 @@ use alloy::primitives::{address, U256};
 use common::{query_count, TestSetup, RECOVERY_ADDRESS};
 use serial_test::serial;
 use sqlx::types::Json;
-use world_id_indexer::config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig};
+use world_id_indexer::config::{
+    Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
+};
 use world_id_indexer::tree::metadata;
 
 /// Helper to create tree cache config with a unique temporary path
@@ -40,17 +42,21 @@ async fn test_cache_creation_and_restoration() {
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create some accounts
-    setup.create_account(
-        address!("0x0000000000000000000000000000000000000011"),
-        U256::from(11),
-        1,
-    ).await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000011"),
+            U256::from(11),
+            1,
+        )
+        .await;
 
-    setup.create_account(
-        address!("0x0000000000000000000000000000000000000012"),
-        U256::from(12),
-        2,
-    ).await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000012"),
+            U256::from(12),
+            2,
+        )
+        .await;
 
     // Start indexer in Both mode (will create cache)
     let global_config = GlobalConfig {
@@ -103,7 +109,10 @@ async fn test_cache_creation_and_restoration() {
     let metadata = metadata::read_metadata(&cache_path).expect("Should read metadata");
     assert_eq!(metadata.tree_depth, 30);
     assert_eq!(metadata.dense_prefix_depth, 20);
-    assert!(metadata.last_block_number > 0, "Should have processed at least one block");
+    assert!(
+        metadata.last_block_number > 0,
+        "Should have processed at least one block"
+    );
 
     // Cleanup
     cleanup_cache_files(&cache_path);
@@ -116,17 +125,21 @@ async fn test_incremental_replay() {
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create initial accounts and build cache
-    setup.create_account(
-        address!("0x0000000000000000000000000000000000000011"),
-        U256::from(11),
-        1,
-    ).await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000011"),
+            U256::from(11),
+            1,
+        )
+        .await;
 
-    setup.create_account(
-        address!("0x0000000000000000000000000000000000000012"),
-        U256::from(12),
-        2,
-    ).await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000012"),
+            U256::from(12),
+            2,
+        )
+        .await;
 
     // Start indexer to build initial cache
     let cfg1 = GlobalConfig {
@@ -174,11 +187,13 @@ async fn test_incremental_replay() {
     let initial_block = initial_metadata.last_block_number;
 
     // Create more accounts (simulating new events)
-    setup.create_account(
-        address!("0x0000000000000000000000000000000000000013"),
-        U256::from(13),
-        3,
-    ).await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000013"),
+            U256::from(13),
+            3,
+        )
+        .await;
 
     // Restart indexer (should use replay, not full rebuild)
     let cfg2 = GlobalConfig {
@@ -243,11 +258,13 @@ async fn test_missing_cache_creates_new() {
     assert!(!cache_path.exists(), "Cache should not exist initially");
 
     // Create an account
-    setup.create_account(
-        address!("0x0000000000000000000000000000000000000011"),
-        U256::from(11),
-        1,
-    ).await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000011"),
+            U256::from(11),
+            1,
+        )
+        .await;
 
     // Start indexer (should create cache from scratch)
     let global_config = GlobalConfig {
@@ -306,11 +323,13 @@ async fn test_http_only_cache_refresh() {
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create initial account and build cache with Both mode
-    setup.create_account(
-        address!("0x0000000000000000000000000000000000000011"),
-        U256::from(11),
-        1,
-    ).await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000011"),
+            U256::from(11),
+            1,
+        )
+        .await;
 
     let both_config = GlobalConfig {
         environment: Environment::Development,
@@ -379,11 +398,13 @@ async fn test_http_only_cache_refresh() {
     TestSetup::wait_for_health("http://127.0.0.1:8095").await;
 
     // Both mode creates another account
-    setup.create_account(
-        address!("0x0000000000000000000000000000000000000012"),
-        U256::from(12),
-        2,
-    ).await;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000012"),
+            U256::from(12),
+            2,
+        )
+        .await;
 
     // Wait for Both mode to process it
     let deadline2 = std::time::Instant::now() + Duration::from_secs(15);

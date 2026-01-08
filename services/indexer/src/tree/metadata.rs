@@ -2,7 +2,6 @@ use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use alloy::primitives::U256;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -40,7 +39,9 @@ pub struct TreeCacheMetadata {
 #[derive(Debug)]
 pub struct DbState {
     pub max_block_number: u64,
+    #[allow(dead_code)]
     pub total_events: u64,
+    #[allow(dead_code)]
     pub active_leaf_count: u64,
 }
 
@@ -77,11 +78,10 @@ pub async fn write_metadata(
     .await?
     .unwrap_or(0);
 
-    let active_leaf_count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM accounts WHERE leaf_index != '0'",
-    )
-    .fetch_one(pool)
-    .await?;
+    let active_leaf_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE leaf_index != '0'")
+            .fetch_one(pool)
+            .await?;
 
     // Create metadata
     let metadata = TreeCacheMetadata {
@@ -102,21 +102,24 @@ pub async fn write_metadata(
     let meta_path = cache_path.with_extension("mmap.meta");
     let temp_path = cache_path.with_extension("mmap.meta.tmp");
 
-    let meta_json = serde_json::to_string_pretty(&metadata)
-        .context("Failed to serialize metadata")?;
+    let meta_json =
+        serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
 
-    fs::write(&temp_path, meta_json)
-        .with_context(|| format!("Failed to write temporary metadata file: {}", temp_path.display()))?;
+    fs::write(&temp_path, meta_json).with_context(|| {
+        format!(
+            "Failed to write temporary metadata file: {}",
+            temp_path.display()
+        )
+    })?;
 
     // Atomic rename
-    fs::rename(&temp_path, &meta_path)
-        .with_context(|| {
-            format!(
-                "Failed to rename {} to {}",
-                temp_path.display(),
-                meta_path.display()
-            )
-        })?;
+    fs::rename(&temp_path, &meta_path).with_context(|| {
+        format!(
+            "Failed to rename {} to {}",
+            temp_path.display(),
+            meta_path.display()
+        )
+    })?;
 
     tracing::debug!(
         block_number = last_block_number,
@@ -136,17 +139,15 @@ pub async fn get_db_state(pool: &PgPool) -> anyhow::Result<DbState> {
     .await?
     .unwrap_or(0) as u64;
 
-    let total_events = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM commitment_update_events",
-    )
-    .fetch_one(pool)
-    .await?;
+    let total_events =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM commitment_update_events")
+            .fetch_one(pool)
+            .await?;
 
-    let active_leaf_count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM accounts WHERE leaf_index != '0'",
-    )
-    .fetch_one(pool)
-    .await?;
+    let active_leaf_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE leaf_index != '0'")
+            .fetch_one(pool)
+            .await?;
 
     Ok(DbState {
         max_block_number,

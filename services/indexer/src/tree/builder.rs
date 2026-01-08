@@ -14,15 +14,6 @@ pub struct TreeBuilder {
     empty_value: U256,
 }
 
-#[derive(Debug)]
-struct UpdateEvent {
-    leaf_index: String,
-    event_type: String,
-    new_commitment: String,
-    block_number: i64,
-    log_index: i64,
-}
-
 impl TreeBuilder {
     pub fn new(tree_depth: usize, dense_prefix_depth: usize, empty_value: U256) -> Self {
         Self {
@@ -153,17 +144,17 @@ impl TreeBuilder {
                 let event_type: String = row.get("event_type");
                 let new_commitment_str: String = row.get("new_commitment");
 
-                let leaf_index: U256 = leaf_index_str.parse().with_context(|| {
-                    format!("Failed to parse leaf_index: {}", leaf_index_str)
-                })?;
+                let leaf_index: U256 = leaf_index_str
+                    .parse()
+                    .with_context(|| format!("Failed to parse leaf_index: {}", leaf_index_str))?;
                 let leaf_index = leaf_index.as_limbs()[0] as usize;
 
                 let new_value = match event_type.as_str() {
-                    "created" | "updated" | "inserted" | "recovered" => new_commitment_str
-                        .parse::<U256>()
-                        .with_context(|| {
+                    "created" | "updated" | "inserted" | "recovered" => {
+                        new_commitment_str.parse::<U256>().with_context(|| {
                             format!("Failed to parse new_commitment: {}", new_commitment_str)
-                        })?,
+                        })?
+                    }
                     "removed" => U256::ZERO,
                     _ => {
                         warn!("Unknown event type: {}", event_type);
@@ -243,9 +234,9 @@ impl TreeBuilder {
             let leaf_index_str: String = row.get("leaf_index");
             let offchain_str: String = row.get("offchain_signer_commitment");
 
-            let leaf_index: U256 = leaf_index_str.parse().with_context(|| {
-                format!("Failed to parse leaf_index: {}", leaf_index_str)
-            })?;
+            let leaf_index: U256 = leaf_index_str
+                .parse()
+                .with_context(|| format!("Failed to parse leaf_index: {}", leaf_index_str))?;
 
             // Skip leaf index 0 (reserved)
             if leaf_index == U256::ZERO {
@@ -261,9 +252,12 @@ impl TreeBuilder {
                 );
             }
 
-            let leaf_val = offchain_str
-                .parse::<U256>()
-                .with_context(|| format!("Failed to parse offchain_signer_commitment: {}", offchain_str))?;
+            let leaf_val = offchain_str.parse::<U256>().with_context(|| {
+                format!(
+                    "Failed to parse offchain_signer_commitment: {}",
+                    offchain_str
+                )
+            })?;
             leaves[leaf_index] = leaf_val;
         }
 
