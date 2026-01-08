@@ -16,7 +16,7 @@ use alloy_primitives::Keccak256;
 
 pub mod serde_utils;
 use ark_babyjubjub::Fq;
-use ark_ff::{AdditiveGroup, Field, PrimeField};
+use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ruint::aliases::{U160, U256};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
@@ -133,6 +133,13 @@ impl FieldElement {
         }
 
         // FIXME: add unit tests
+    }
+
+    /// Generates a random field element using the system's CSPRNG.
+    #[must_use]
+    pub fn random<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> Self {
+        let field_element = Fq::rand(rng);
+        Self(field_element)
     }
 }
 

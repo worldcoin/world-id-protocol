@@ -8200,6 +8200,7 @@ dependencies = [
  "taceo-nodes-observability",
  "taceo-oprf-core",
  "taceo-oprf-types",
+ "test-utils",
  "tokio",
  "tracing",
  "uuid",
