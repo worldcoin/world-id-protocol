@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use alloy::primitives::U256;
-use anyhow::Context;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use sqlx::PgPool;
 use tracing::{info, warn};
@@ -74,9 +73,7 @@ impl TreeInitializer {
 
         info!(
             current_block = db_state.max_block_number,
-            blocks_behind,
-            "Cache is {} blocks behind",
-            blocks_behind
+            blocks_behind, "Cache is {} blocks behind", blocks_behind
         );
 
         // 3. Restore tree from mmap

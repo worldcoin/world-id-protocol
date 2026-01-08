@@ -9,7 +9,9 @@ use http::StatusCode;
 use serial_test::serial;
 use sqlx::types::Json;
 use world_id_core::EdDSAPrivateKey;
-use world_id_indexer::config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig};
+use world_id_indexer::config::{
+    Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
+};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
@@ -34,7 +36,8 @@ async fn test_backfill_and_live_sync() {
         )
         .await;
 
-    let temp_cache_path = std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
+    let temp_cache_path =
+        std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
     let global_config = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::Both {
@@ -141,7 +144,8 @@ async fn test_backfill_and_live_sync() {
 async fn test_insertion_cycle_and_avoids_race_condition() {
     let setup = TestSetup::new().await;
 
-    let temp_cache_path = std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
+    let temp_cache_path =
+        std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
     let global_config = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {

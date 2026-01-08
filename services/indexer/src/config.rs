@@ -181,10 +181,12 @@ impl TreeCacheConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(20),
-            http_cache_refresh_interval_secs: std::env::var("TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(30),
+            http_cache_refresh_interval_secs: std::env::var(
+                "TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS",
+            )
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(30),
         };
 
         tracing::info!(
@@ -213,8 +215,8 @@ impl GlobalConfig {
             .parse::<Address>()
             .expect("REGISTRY_ADDRESS must be a valid address");
 
-        let tree_cache = TreeCacheConfig::from_env()
-            .expect("Failed to load tree cache configuration");
+        let tree_cache =
+            TreeCacheConfig::from_env().expect("Failed to load tree cache configuration");
 
         Self {
             environment,

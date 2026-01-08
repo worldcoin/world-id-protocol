@@ -9,7 +9,9 @@ use common::{query_count, TestSetup};
 use http::StatusCode;
 use serial_test::serial;
 use world_id_core::EdDSAPrivateKey;
-use world_id_indexer::config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig};
+use world_id_indexer::config::{
+    Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
+};
 
 /// Tests the signature_nonce endpoint that retrieves signature nonces by account index
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -25,7 +27,8 @@ async fn test_signature_nonce_endpoint() {
     // Create an account with a specific authenticator address
     setup.create_account(auth_addr, pk, 1).await;
 
-    let temp_cache_path = std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
+    let temp_cache_path =
+        std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
     let global_config = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::Both {

@@ -339,8 +339,7 @@ async fn run_indexer_only(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        false, // Don't update in-memory tree
-        None,  // No cache updates in indexer-only mode
+        None, // Don't update in-memory tree or cache in indexer-only mode
     )
     .await?;
 
@@ -350,8 +349,7 @@ async fn run_indexer_only(
         &pool,
         registry_address,
         from,
-        false, // Don't update in-memory tree
-        None,  // No cache updates in indexer-only mode
+        None, // Don't update in-memory tree or cache in indexer-only mode
     )
     .await?;
 
@@ -454,8 +452,7 @@ async fn run_both(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        true,                       // Update in-memory tree directly from events
-        Some(cache_file_path.as_str()), // Update cache metadata after each batch
+        Some(cache_file_path.as_str()), // Update in-memory tree and cache metadata after each batch
     )
     .await?;
 
@@ -465,8 +462,7 @@ async fn run_both(
         &pool,
         registry_address,
         from,
-        true,                       // Update in-memory tree
-        Some(cache_file_path.as_str()), // Update cache metadata after each event
+        Some(cache_file_path.as_str()), // Update in-memory tree and cache metadata after each event
     )
     .await?;
 
@@ -483,9 +479,8 @@ async fn backfill_batch<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    update_tree: bool,
     head: u64,
-    cache_file_path: Option<&str>,
+    tree_cache_path: Option<&str>,
 ) -> anyhow::Result<()> {
     if *from_block == 0 {
         *from_block = 1;
@@ -531,7 +526,7 @@ async fn backfill_batch<P: Provider>(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree {
+                if tree_cache_path.is_some() {
                     if let Err(e) = update_tree_with_event(&event).await {
                         tracing::error!(?e, ?event, "failed to update tree for event");
                     }
@@ -545,17 +540,15 @@ async fn backfill_batch<P: Provider>(
 
     save_checkpoint(pool, to_block).await?;
 
-    // Update cache metadata if cache is enabled and tree was updated
-    if update_tree {
-        if let Some(cache_path) = cache_file_path {
-            let cache_path_buf = std::path::PathBuf::from(cache_path);
-            let tree = GLOBAL_TREE.read().await;
-            tree::metadata::write_metadata(&cache_path_buf, &tree, pool, to_block)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(?e, "Failed to update cache metadata");
-                });
-        }
+    // Update cache metadata if tree was updated
+    if let Some(cache_path) = tree_cache_path {
+        let cache_path_buf = std::path::PathBuf::from(cache_path);
+        let tree = GLOBAL_TREE.read().await;
+        tree::metadata::write_metadata(&cache_path_buf, &tree, pool, to_block)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(?e, "Failed to update cache metadata");
+            });
     }
 
     tracing::debug!(
@@ -574,8 +567,7 @@ pub async fn backfill<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    update_tree: bool,
-    cache_file_path: Option<&str>,
+    tree_cache_path: Option<&str>,
 ) -> anyhow::Result<()> {
     let mut head = provider.get_block_number().await?;
     loop {
@@ -585,9 +577,8 @@ pub async fn backfill<P: Provider>(
             registry,
             from_block,
             batch_size,
-            update_tree,
             head,
-            cache_file_path,
+            tree_cache_path,
         )
         .await
         {
@@ -808,8 +799,7 @@ pub async fn stream_logs(
     pool: &PgPool,
     registry: Address,
     start_from: u64,
-    update_tree: bool,
-    cache_file_path: Option<&str>,
+    tree_cache_path: Option<&str>,
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
@@ -844,7 +834,7 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree {
+                if tree_cache_path.is_some() {
                     if let Err(e) = update_tree_with_event(&event).await {
                         tracing::error!(?e, ?event, "failed to update tree for live event");
                     }
@@ -853,17 +843,15 @@ pub async fn stream_logs(
                 if let Some(bn) = log.block_number {
                     save_checkpoint(pool, bn).await?;
 
-                    // Update cache metadata if cache is enabled and tree was updated
-                    if update_tree {
-                        if let Some(cache_path) = cache_file_path {
-                            let cache_path_buf = std::path::PathBuf::from(cache_path);
-                            let tree = GLOBAL_TREE.read().await;
-                            tree::metadata::write_metadata(&cache_path_buf, &tree, pool, bn)
-                                .await
-                                .unwrap_or_else(|e| {
-                                    tracing::warn!(?e, "Failed to update cache metadata");
-                                });
-                        }
+                    // Update cache metadata if tree was updated
+                    if let Some(cache_path) = tree_cache_path {
+                        let cache_path_buf = std::path::PathBuf::from(cache_path);
+                        let tree = GLOBAL_TREE.read().await;
+                        tree::metadata::write_metadata(&cache_path_buf, &tree, pool, bn)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::warn!(?e, "Failed to update cache metadata");
+                            });
                     }
                 }
             }
