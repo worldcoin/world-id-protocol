@@ -14,11 +14,11 @@ ark-ff.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 eyre.workspace = true
 humantime = "2"
-nodes-observability = { package = "taceo-nodes-observability", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "25bc2dc" }
-oprf-types = { workspace = true }
-oprf-client = { workspace = true }
-oprf-core = { workspace = true }
-oprf-test = { workspace = true }
+taceo-nodes-observability = "0.1"
+taceo-oprf-types = { workspace = true }
+taceo-oprf-client = { workspace = true }
+taceo-oprf-core = { workspace = true }
+taceo-oprf-test = { workspace = true }
 rand.workspace = true
 rand_chacha.workspace = true
 rustls.workspace = true

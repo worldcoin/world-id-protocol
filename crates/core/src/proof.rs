@@ -15,13 +15,13 @@ use ark_ff::PrimeField as _;
 use circom_types::ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use groth16_material::Groth16Error;
-use oprf_client::Connector;
-use oprf_core::oprf::BlindingFactor;
-use oprf_types::{OprfKeyId, ShareEpoch};
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use rand::{CryptoRng, Rng};
 use std::io::Read;
 use std::path::Path;
+use taceo_oprf_client::Connector;
+use taceo_oprf_core::oprf::BlindingFactor;
+use taceo_oprf_types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::circuit_inputs::QueryProofCircuitInput;
 use world_id_primitives::oprf::OprfRequestAuthV1;
 use world_id_primitives::rp::RpId;
@@ -66,7 +66,7 @@ const NULLIFIER_ZKEY_BYTES: &[u8] =
 pub enum ProofError {
     /// Error originating from `oprf_client`.
     #[error(transparent)]
-    OprfError(#[from] oprf_client::Error),
+    OprfError(#[from] taceo_oprf_client::Error),
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
@@ -258,7 +258,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         rng,
     )?;
 
-    let verifiable_oprf_output = oprf_client::distributed_oprf(
+    let verifiable_oprf_output = taceo_oprf_client::distributed_oprf(
         services,
         threshold,
         args.oprf_public_key,

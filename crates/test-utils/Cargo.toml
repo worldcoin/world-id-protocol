@@ -28,12 +28,12 @@ eddsa-babyjubjub = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }
 ark-ec = { workspace = true }
-oprf-types = { workspace = true }
-oprf-test = { workspace = true }
-oprf-key-gen = { workspace = true }
+taceo-oprf-types = { workspace = true }
+taceo-oprf-test = { workspace = true }
+taceo-oprf-key-gen = { workspace = true }
 axum = { version = "0.8", features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
-oprf-service = { workspace = true }
+taceo-oprf-service = { workspace = true }
 world-id-oprf-node = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }

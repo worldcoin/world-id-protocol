@@ -13,8 +13,8 @@ use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{eyre, Context as _, Result};
 use k256::ecdsa::{signature::Signer, Signature, SigningKey};
-use oprf_types::{OprfKeyId, ShareEpoch};
 use rand::{thread_rng, Rng};
+use taceo_oprf_types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, credential::Credential, merkle::MerkleInclusionProof,
     rp::RpId as WorldRpId, FieldElement, TREE_DEPTH,

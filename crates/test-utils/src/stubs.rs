@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use alloy::primitives::{Address, U256};
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use eyre::{Context as _, Result};
-use oprf_test::{
+use taceo_oprf_test::{
     test_secret_manager::TestSecretManager, OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1,
     OPRF_PEER_ADDRESS_2,
 };
@@ -153,8 +153,8 @@ async fn spawn_orpf_node(
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         signature_history_cleanup_interval: Duration::from_secs(30),
         world_id_registry_contract,
-        node_config: oprf_service::config::OprfNodeConfig {
-            environment: oprf_service::config::Environment::Dev,
+        node_config: taceo_oprf_service::config::OprfNodeConfig {
+            environment: taceo_oprf_service::config::Environment::Dev,
             rp_secret_id_prefix: format!("oprf/rp/n{id}"),
             oprf_key_registry_contract: rp_registry_contract,
             chain_ws_rpc_url: chain_ws_rpc_url.into(),
@@ -231,8 +231,8 @@ async fn spawn_key_gen(
 ) -> String {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let url = format!("http://localhost:2{id:04}"); // set port based on id, e.g. 20001 for id 1
-    let config = oprf_key_gen::config::OprfKeyGenConfig {
-        environment: oprf_key_gen::config::Environment::Dev,
+    let config = taceo_oprf_key_gen::config::OprfKeyGenConfig {
+        environment: taceo_oprf_key_gen::config::Environment::Dev,
         bind_addr: format!("0.0.0.0:2{id:04}").parse().unwrap(),
         oprf_key_registry_contract: rp_registry_contract,
         chain_ws_rpc_url: chain_ws_rpc_url.into(),
@@ -247,7 +247,7 @@ async fn spawn_key_gen(
     };
     let never = async { futures::future::pending::<()>().await };
     tokio::spawn(async move {
-        let res = oprf_key_gen::start(config, Arc::new(secret_manager), never).await;
+        let res = taceo_oprf_key_gen::start(config, Arc::new(secret_manager), never).await;
         eprintln!("key-gen failed to start: {res:?}");
     });
     url

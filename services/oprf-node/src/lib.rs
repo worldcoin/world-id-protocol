@@ -9,8 +9,8 @@ use std::{fs::File, sync::Arc};
 use ark_bn254::Bn254;
 use circom_types::groth16::VerificationKey;
 use eyre::Context;
-use oprf_service::secret_manager::SecretManagerService;
 use secrecy::ExposeSecret;
+use taceo_oprf_service::secret_manager::SecretManagerService;
 
 use crate::{
     auth::{merkle_watcher::MerkleWatcher, WorldOprfRequestAuthenticator},
@@ -36,7 +36,7 @@ pub async fn start(
 ) -> eyre::Result<()> {
     tracing::info!("starting oprf-node with config: {config:#?}");
     let node_config = config.node_config;
-    let cancellation_token = nodes_common::spawn_shutdown_task(shutdown_signal);
+    let cancellation_token = taceo_nodes_common::spawn_shutdown_task(shutdown_signal);
 
     tracing::info!(
         "loading Groth16 verification key from: {:?}",
@@ -66,7 +66,7 @@ pub async fn start(
     ));
 
     tracing::info!("init oprf service..");
-    let (oprf_service_router, key_event_watcher) = oprf_service::init(
+    let (oprf_service_router, key_event_watcher) = taceo_oprf_service::init(
         node_config,
         secret_manager,
         oprf_req_auth_service,

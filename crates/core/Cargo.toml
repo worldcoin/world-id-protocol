@@ -47,7 +47,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
-oprf-types = { workspace = true, optional = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 circom-types = { workspace = true, optional = true }
@@ -60,8 +59,9 @@ strum = { workspace = true }
 world-id-primitives = { workspace = true }
 utoipa = { workspace = true, optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
-oprf-client = { workspace = true, optional = true }
-oprf-core = { workspace = true, optional = true }
+taceo-oprf-client = { workspace = true, optional = true }
+taceo-oprf-core = { workspace = true, optional = true }
+taceo-oprf-types = { workspace = true, optional = true }
 k256 = { workspace = true, features = ["ecdsa","serde"] }
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
@@ -74,12 +74,12 @@ authenticator = [
     "alloy/signer-local",
     "alloy/reqwest-rustls-tls",
     "dep:circom-types",
-    "dep:oprf-types",
     "dep:reqwest",
     "dep:secrecy",
     "dep:groth16-material",
-    "dep:oprf-client",
-    "dep:oprf-core",
+    "dep:taceo-oprf-client",
+    "dep:taceo-oprf-core",
+    "dep:taceo-oprf-types",
     "dep:rustls",
     "dep:webpki-roots"
 ]
@@ -88,7 +88,7 @@ embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
 issuer = ["alloy/signer-local", "dep:secrecy"]
 
-rp = ["dep:oprf-types"]
+rp = ["dep:taceo-oprf-types"]
 
 cli = []
 
@@ -107,6 +107,6 @@ alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
 axum = { version = "0.8", features = ["macros", "json"] }
-oprf-core = { workspace = true }
+taceo-oprf-core = { workspace = true }
 mockito = "1.6"
-oprf-service = { workspace  = true }
+taceo-oprf-service = { workspace  = true }

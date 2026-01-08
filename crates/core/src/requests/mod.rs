@@ -6,10 +6,10 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
-use oprf_types::crypto::OprfPublicKey;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use taceo_oprf_types::crypto::OprfPublicKey;
 use world_id_primitives::rp::RpId;
 use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof};
 

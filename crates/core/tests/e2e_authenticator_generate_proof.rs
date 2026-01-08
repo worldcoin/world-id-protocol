@@ -7,7 +7,7 @@ use std::{
 
 use alloy::primitives::U256;
 use eyre::{eyre, Context as _, Result};
-use oprf_types::ShareEpoch;
+use taceo_oprf_types::ShareEpoch;
 use test_utils::{
     fixtures::{
         build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
@@ -143,7 +143,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let secret_managers = test_utils::oprf_test::create_3_secret_managers();
+    let secret_managers = test_utils::taceo_oprf_test::create_3_secret_managers();
     // OPRF key-gen instances
     let oprf_key_gens = test_utils::stubs::spawn_key_gens(
         anvil.ws_endpoint(),
@@ -160,7 +160,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .await;
 
-    test_utils::oprf_test::health_checks::services_health_check(
+    test_utils::taceo_oprf_test::health_checks::services_health_check(
         &oprf_key_gens,
         Duration::from_secs(60),
     )
@@ -168,13 +168,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // init key gen for a new RP, wait until its done and fetch the public key
     let oprf_key_id = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;
-    let oprf_public_key = test_utils::oprf_test::health_checks::oprf_public_key_from_services(
-        oprf_key_id,
-        ShareEpoch::default(),
-        &nodes,
-        Duration::from_secs(60),
-    )
-    .await?;
+    let oprf_public_key =
+        test_utils::taceo_oprf_test::health_checks::oprf_public_key_from_services(
+            oprf_key_id,
+            ShareEpoch::default(),
+            &nodes,
+            Duration::from_secs(60),
+        )
+        .await?;
 
     // Config for proof generation uses the indexer + OPRF stubs.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");

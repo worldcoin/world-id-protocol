@@ -20,10 +20,10 @@ clap = { version = "4", features = ["derive", "env"] }
 eyre.workspace = true
 futures = { workspace = true }
 humantime = "2"
-nodes-common= { package = "taceo-nodes-common", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "25bc2dc" }
-nodes-observability = { package = "taceo-nodes-observability", git = "https://github.com/TaceoLabs/nodes-helpers.git", rev = "25bc2dc" }
-oprf-service = { workspace = true }
-oprf-types = { workspace = true }
+taceo-nodes-common = "0.1"
+taceo-nodes-observability = "0.1"
+taceo-oprf-service = { workspace = true }
+taceo-oprf-types = { workspace = true }
 parking_lot = "0.12"
 rustls = "0.23"
 secrecy = "0.10"
