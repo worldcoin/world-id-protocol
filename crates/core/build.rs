@@ -1,7 +1,16 @@
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use serde_json::Value;
 use std::env;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    hash::{DefaultHasher, Hash, Hasher},
+    process::{Command, Stdio},
+};
+
+const CARGO_MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
 #[cfg(feature = "embed-zkeys")]
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
@@ -16,12 +25,32 @@ const CIRCUIT_FILES: &[(&str, &str)] = &[
     ("OPRFNullifier.arks.zkey", "circom/OPRFNullifier.arks.zkey"),
 ];
 
+// (sol_file_name, contract_name) - usually the same, but can differ
+const CONTRACT_TARGETS: &[(&str, &str)] = &[
+    (
+        "CredentialSchemaIssuerRegistry",
+        "CredentialSchemaIssuerRegistry",
+    ),
+    ("Poseidon2", "Poseidon2T2"),
+    ("PackedAccountData", "PackedAccountData"),
+    ("BinaryIMT", "BinaryIMT"),
+    ("WorldIDRegistry", "WorldIDRegistry"),
+    ("Verifier", "Verifier"),
+    ("BabyJubJub", "BabyJubJub"),
+    ("OprfKeyRegistry", "OprfKeyRegistry"),
+    ("ERC1967Proxy", "ERC1967Proxy"),
+];
+
 #[cfg(feature = "embed-zkeys")]
-fn download_file(url: &str, output_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn download_file(url: &str, output_path: &Path) -> anyhow::Result<()> {
     let response = reqwest::blocking::get(url)?;
 
     if !response.status().is_success() {
-        return Err(format!("HTTP error {}: {}", response.status(), url).into());
+        return Err(anyhow::format_err!(format!(
+            "HTTP error {}: {}",
+            response.status(),
+            url
+        )));
     }
 
     let mut file = File::create(output_path)?;
@@ -31,26 +60,21 @@ fn download_file(url: &str, output_path: &Path) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-fn fetch_circuit_file(
-    filename: &str,
-    repo_path: &str,
-    out_dir: &Path,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn fetch_circuit_file(filename: &str, repo_path: &str, out_dir: &Path) -> anyhow::Result<PathBuf> {
     let output_path = out_dir.join(filename);
 
     // Check for local file first (development)
-    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-        let local_path = Path::new(&manifest_dir)
-            .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.join(repo_path));
 
-        if let Some(path) = local_path {
-            if path.exists() {
-                std::fs::copy(&path, &output_path)?;
-                println!("cargo:rerun-if-changed={}", path.display());
-                return Ok(output_path);
-            }
+    let local_path = Path::new(&CARGO_MANIFEST_DIR)
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join(repo_path));
+
+    if let Some(path) = local_path {
+        if path.exists() {
+            std::fs::copy(&path, &output_path)?;
+            println!("cargo:rerun-if-changed={}", path.display());
+            return Ok(output_path);
         }
     }
 
@@ -77,15 +101,7 @@ fn fetch_circuit_file(
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("cargo:rerun-if-changed=build.rs");
-
-    // Skip for docs.rs as it doesn't have network access
-    if env::var("DOCS_RS").is_ok() {
-        println!("cargo:warning=Building for docs.rs, skipping circuit file downloads");
-        return Ok(());
-    }
-
+fn embed_zkeys() -> anyhow::Result<()> {
     let embed_zkeys = env::var("CARGO_FEATURE_EMBED_ZKEYS").is_ok();
 
     // Only fetch circuit files if embed-zkeys feature is enabled
@@ -96,6 +112,86 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fetch_circuit_file(filename, repo_path, &out_dir)?;
         }
     }
+
+    Ok(())
+}
+
+fn compile_contracts() -> anyhow::Result<()> {
+    let status = Command::new("forge")
+        .arg("build")
+        .current_dir("../../contracts")
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+
+    if !status.success() {
+        panic!("fialed to compile contracts");
+    }
+
+    let forge_out_dir = PathBuf::from(CARGO_MANIFEST_DIR).join("../../contracts/out");
+    let res_out_dir = PathBuf::from(CARGO_MANIFEST_DIR).join("contracts/out");
+
+    CONTRACT_TARGETS
+        .par_iter()
+        .for_each(|(sol_file, contract_name)| {
+            let new_abi = forge_out_dir
+                .join(format!("{sol_file}.sol"))
+                .join(format!("{contract_name}.json"));
+
+            if !new_abi.exists() {
+                panic!("Contract ABI not found at {}", new_abi.display());
+            }
+
+            let prev_abi = res_out_dir
+                .join(format!("{sol_file}.sol"))
+                .join(format!("{contract_name}Abi.json"));
+
+            if !prev_abi.exists() {
+                if let Some(parent) = prev_abi.parent() {
+                    fs::create_dir_all(parent).expect("failed to create abi directory");
+                }
+
+                fs::copy(&new_abi, &prev_abi).unwrap();
+
+                let prev_contents: Value =
+                    serde_json::from_str(&fs::read_to_string(&prev_abi).unwrap()).unwrap();
+                let new_contents: Value =
+                    serde_json::from_str(&fs::read_to_string(&new_abi).unwrap()).unwrap();
+
+                let prev_bytecode = prev_contents["bytecode"]["object"]
+                    .as_str()
+                    .expect("Missing prev bytecode");
+                let new_bytecode = new_contents["bytecode"]["object"]
+                    .as_str()
+                    .expect("Missing new bytecode");
+
+                if hash(prev_bytecode) != hash(new_bytecode) {
+                    fs::copy(&new_abi, &prev_abi).unwrap();
+                }
+            }
+        });
+
+    println!("cargo:rerun-if-changed=contracts");
+
+    Ok(())
+}
+
+fn hash(value: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn main() -> anyhow::Result<()> {
+    // Skip for docs.rs as it doesn't have network access
+    if env::var("DOCS_RS").is_ok() {
+        println!("cargo:warning=Building for docs.rs, skipping circuit file downloads");
+        return Ok(());
+    }
+
+    let _ = rayon::join(|| compile_contracts(), || embed_zkeys());
+
+    println!("cargo:rerun-if-changed=build.rs");
 
     Ok(())
 }
