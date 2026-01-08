@@ -42,5 +42,5 @@ allow = [
 ignore = [
     "RUSTSEC-2024-0388",  # Unmaintained `derivative` (2024-11-22)
     "RUSTSEC-2024-0436", # Unmaintained `paste` (2025-04-04)
-    "RUSTSEC-2025-0055" # `tracing-subscriber` < 0.3.20, requires bumps on `semaphore-rs` (and Ark deps) (2025-09-09)
+    "RUSTSEC-2025-0055", # `tracing-subscriber` < 0.3.20, requires bumps on `semaphore-rs` (and Ark deps) (2025-09-09)
 ]
