@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
         ProofRequest::from_json(&std::fs::read_to_string(proof_request_path)?)?;
 
     let (proof, nullifier) = authenticator
-        .generate_proof(proof_request, credential)
+        .generate_proof(proof_request, credential, credential.sub_blinding_factor)
         .await?;
 
     println!("proof: {proof:?}");

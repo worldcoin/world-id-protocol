@@ -2,7 +2,7 @@
 use crate::EdDSAPrivateKey;
 use crate::EdDSAPublicKey;
 use eyre::bail;
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS, POSEIDON2_BN254_T3_PARAMS};
 
 use crate::{Credential, CredentialVersion, FieldElement};
 
@@ -14,6 +14,9 @@ pub trait HashableCredential {
     /// Will error if there are more claims than the maximum allowed.
     /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
     fn claims_hash(&self) -> Result<FieldElement, eyre::Error>;
+
+    /// Get the blinded sub of the credential's `sub` and `sub_blinding_factor`.
+    fn blinded_sub(&self) -> FieldElement;
 
     // Computes the specifically designed hash of the credential for the given version.
     ///
@@ -58,6 +61,17 @@ impl HashableCredential for Credential {
         Ok(input[1].into())
     }
 
+    fn blinded_sub(&self) -> FieldElement {
+        let hasher = Poseidon2::new(&POSEIDON2_BN254_T3_PARAMS);
+        let mut input = [
+            *self.get_sub_ds(),
+            self.sub.into(),
+            *self.sub_blinding_factor,
+        ];
+        hasher.permutation_in_place(&mut input);
+        input[1].into()
+    }
+
     fn hash(&self) -> Result<FieldElement, eyre::Error> {
         match self.version {
             CredentialVersion::V1 => {
@@ -65,7 +79,7 @@ impl HashableCredential for Credential {
                 let mut input = [
                     *self.get_cred_ds(),
                     self.issuer_schema_id.into(),
-                    self.sub.into(),
+                    *self.blinded_sub(),
                     self.genesis_issued_at.into(),
                     self.expires_at.into(),
                     *self.claims_hash()?,

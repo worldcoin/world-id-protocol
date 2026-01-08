@@ -118,7 +118,10 @@ pub fn build_base_credential(
     let credential_sub_blinding_factor = FieldElement::random(&mut rng);
     let credential = Credential::new()
         .issuer_schema_id(issuer_schema_id)
+        // TODO should this here be set to the blinded user id instead? atm i do this in the Credential hash only and kept it here.
+        // if so, probably need to move the bldined_sub method from `HashableCredential` somewhere else and compute here.
         .sub(leaf_index) // FIXME: Determine how the blinding factor and the leaf_index will be hashed and reduced to u64
+        .sub_blinding_factor(credential_sub_blinding_factor)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at);
 
