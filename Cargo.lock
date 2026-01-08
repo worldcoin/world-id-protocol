@@ -6566,9 +6566,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-ark-babyjubjub"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8a24e22f3c7f84af9cdf3c4999bca3e9e1ddb2273fb13f4ca74c277382fe5cb"
+checksum = "55b5a2cc31c90e79778c4f6375e5d9828171d320db3f8c911a8ad47af4a70069"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -6615,9 +6615,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-eddsa-babyjubjub"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48ff585a674087b1a36a5021b48683de100563693d34992aa0cef59e75af1b98"
+checksum = "965bab462ca0ece0fe2616282f7f8bd5568dbf31611a88748163a99ab4ee15d6"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
