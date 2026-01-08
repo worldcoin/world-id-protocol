@@ -22,6 +22,7 @@ use taceo_oprf_types::{
     crypto::OprfPublicKey,
     OprfKeyId, ShareEpoch,
 };
+use test_utils::fixtures::build_base_credential;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 use world_id_core::{
@@ -149,25 +150,20 @@ fn create_and_sign_credential(
     issuer_pk: EdDSAPublicKey,
     issuer_sk: EdDSAPrivateKey,
     leaf_index: u64,
-) -> eyre::Result<Credential> {
-    let current_timestamp = SystemTime::now()
+) -> eyre::Result<(Credential, FieldElement)> {
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("system time is after unix epoch")
+        .expect("system time after epoch")
         .as_secs();
-
-    let mut credential = Credential::new()
-        .sub(leaf_index)
-        .issuer_schema_id(ISSUER_SCHEMA_ID)
-        .genesis_issued_at(current_timestamp)
-        .expires_at(current_timestamp + 3600);
-
+    let (mut credential, credential_sub_blinding_factor) =
+        build_base_credential(ISSUER_SCHEMA_ID, leaf_index, now, now + 3600);
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()
         .wrap_err("failed to hash credential prior to signing")?;
     credential.signature = Some(issuer_sk.sign(*credential_hash));
 
-    Ok(credential)
+    Ok((credential, credential_sub_blinding_factor))
 }
 
 async fn run_nullifier(
@@ -179,7 +175,7 @@ async fn run_nullifier(
 
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
     let issuer_pk = issuer_sk.public();
-    let credential = create_and_sign_credential(
+    let (credential, credential_sub_blinding_factor) = create_and_sign_credential(
         issuer_pk,
         issuer_sk,
         authenticator
@@ -215,12 +211,14 @@ async fn run_nullifier(
             identifier: "test_credential".to_string(),
             issuer_schema_id: ISSUER_SCHEMA_ID.into(),
             signal: Some("my_signal".to_string()),
+            genesis_issued_at_min: None,
+            session_id: None,
         }],
         constraints: None,
     };
 
     let (_proof, _nullifier) = authenticator
-        .generate_proof(proof_request, credential)
+        .generate_proof(proof_request, credential, credential_sub_blinding_factor)
         .await
         .context("while generating proof")?;
 
@@ -247,7 +245,7 @@ fn prepare_nullifier_stress_test_oprf_request(
 
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
     let issuer_pk = issuer_sk.public();
-    let credential = create_and_sign_credential(
+    let (credential, credential_sub_blinding_factor) = create_and_sign_credential(
         issuer_pk,
         issuer_sk,
         authenticator
@@ -292,6 +290,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         rp_signature: signature,
         oprf_public_key,
         signal_hash: signal_hash.into(),
+        credential_sub_blinding_factor,
     };
 
     let query_hash =
@@ -472,6 +471,7 @@ async fn stress_test(
                     let oprf_blinded_response = BlindedOprfResponse::new(blinded_response);
                     let unblinded_response =
                         oprf_blinded_response.unblind_response(&blinding_factor_prepared);
+                    let cred_signature = args.credential.signature.clone().expect("signed cred");
                     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
                         query_input,
                         dlog_e: dlog_proof.e,
@@ -481,6 +481,20 @@ async fn stress_test(
                         oprf_response: unblinded_response,
                         signal_hash: *args.signal_hash,
                         id_commitment_r: *args.session_id_r_seed,
+                        issuer_schema_id: args.credential.issuer_schema_id.into(),
+                        cred_pk: args.credential.issuer.pk,
+                        cred_hashes: [
+                            *args.credential.claims_hash()?,
+                            *args.credential.associated_data_hash,
+                        ],
+                        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
+                        cred_expires_at: args.credential.expires_at.into(),
+                        cred_s: cred_signature.s,
+                        cred_r: cred_signature.r,
+                        current_timestamp: args.current_timestamp.into(),
+                        cred_genesis_issued_at_min: args.credential.genesis_issued_at_min.into(),
+                        cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
+                        cred_id: args.credential.id.into(),
                     };
                     let (proof, public) =
                         nullifier_material.generate_proof(&nullifier_input, &mut rng)?;

@@ -104,12 +104,22 @@ pub struct Credential {
     ///
     /// This ID comes from the `WorldIDRegistry` and it's the `leaf_index` of the World ID on the Merkle tree.
     pub sub: u64,
+    /// The blinding factor used to blind the subject identifier.
+    ///
+    /// This blinding factor is used to compute the `blinded_user_id` which
+    /// is included in the credential hash.
+    pub sub_blinding_factor: FieldElement,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
     /// this timestamp should stay constant.
     ///
     /// This timestamp can be queried (only as a minimum value) by RPs.
     pub genesis_issued_at: u64,
+    /// Minimum for genesis issued at (unix seconds)
+    ///
+    /// This minimum allows RPs to require that the credential was first issued
+    /// after a certain time (`genesis_issued_at` must be >= `genesis_issued_at_min`)
+    pub genesis_issued_at_min: u64,
     /// Expiration timestamp (unix seconds)
     pub expires_at: u64,
     /// **For Future Use**. Concrete statements that the issuer attests about the receiver.
@@ -150,7 +160,9 @@ impl Credential {
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
             sub: 0,
+            sub_blinding_factor: FieldElement::ZERO,
             genesis_issued_at: 0,
+            genesis_issued_at_min: 0,
             expires_at: 0,
             claims: vec![FieldElement::ZERO; Self::MAX_CLAIMS],
             associated_data_hash: FieldElement::ZERO,
@@ -189,10 +201,24 @@ impl Credential {
         self
     }
 
+    /// Set the `sub_blinding_factor` of the credential.
+    #[must_use]
+    pub const fn sub_blinding_factor(mut self, sub_blinding_factor: FieldElement) -> Self {
+        self.sub_blinding_factor = sub_blinding_factor;
+        self
+    }
+
     /// Set the genesis issued at of the credential.
     #[must_use]
     pub const fn genesis_issued_at(mut self, genesis_issued_at: u64) -> Self {
         self.genesis_issued_at = genesis_issued_at;
+        self
+    }
+
+    /// Set the genesis issued at min of the credential.
+    #[must_use]
+    pub const fn genesis_issued_at_min(mut self, genesis_issued_at_min: u64) -> Self {
+        self.genesis_issued_at_min = genesis_issued_at_min;
         self
     }
 
@@ -266,6 +292,14 @@ impl Credential {
     pub fn get_cred_ds(&self) -> FieldElement {
         match self.version {
             CredentialVersion::V1 => FieldElement::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
+        }
+    }
+
+    /// Get the sub domain separator for the given version.
+    #[must_use]
+    pub fn get_sub_ds(&self) -> FieldElement {
+        match self.version {
+            CredentialVersion::V1 => FieldElement::from_be_bytes_mod_order(b"H_CS(id, r)"),
         }
     }
 }

@@ -8203,6 +8203,7 @@ dependencies = [
  "taceo-oprf-core",
  "taceo-oprf-test",
  "taceo-oprf-types",
+ "test-utils",
  "tokio",
  "tracing",
  "uuid",

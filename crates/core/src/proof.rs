@@ -15,7 +15,7 @@ use ark_ff::PrimeField as _;
 use circom_types::ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use groth16_material::Groth16Error;
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
+use poseidon2::Poseidon2;
 use rand::{CryptoRng, Rng};
 use std::io::Read;
 use std::path::Path;
@@ -26,28 +26,30 @@ use world_id_primitives::circuit_inputs::QueryProofCircuitInput;
 use world_id_primitives::oprf::OprfRequestAuthV1;
 use world_id_primitives::rp::RpId;
 use world_id_primitives::{circuit_inputs::NullifierProofCircuitInput, proof::SingleProofInput};
-use world_id_primitives::{Credential, FieldElement, TREE_DEPTH};
+use world_id_primitives::{FieldElement, TREE_DEPTH};
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
 };
+
+use crate::HashableCredential;
 
 const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "2e44038bb851348a3f41b6b543fc5b389f2b977418dae642fad03d4b91fd65b4";
+    "13b45db435c30d2edbef1bd7f8f4ee3c0d7b3629382e4727acaca69510136c2d";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "fb470229d0c0b08fd4a5b0dacfba7b1967ac1bae49e1047dac891905b6003c8f";
+    "0d582137dacb60437a0fb3d67abe38ba7d3c4c55025b53c9997f35cedf27efae";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
-    "eaa8e09b3e6703ca0b264faa252662f11e617ddc925e09302d9d1a35554d85b4";
+    "163da65cc418b640db0dc91816f8e60cc889251793c561582224ff08f6c76db0";
 /// The SHA-256 fingerprint of the `OPRFNullifier` witness graph.
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
-    "33cf2a11a65a7a2ed847c3839ae6b99c69722cf1e19e9dafcf5692589d45efb4";
+    "0a2f5aa1e29781bbb608319b5e21046aea49956b9c7e2083b3ca56fb823af383";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
@@ -283,15 +285,16 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     )
     .await?;
 
-    // Compute claims hash from credential
-    let claims_hash = compute_claims_hash(&args.credential)?;
-
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
         query_input,
-        cred_type_id: args.credential.issuer_schema_id.into(),
+        issuer_schema_id: args.credential.issuer_schema_id.into(),
         cred_pk: args.credential.issuer.pk,
-        cred_hashes: [claims_hash, *args.credential.associated_data_hash],
+        cred_hashes: [
+            *args.credential.claims_hash()?,
+            *args.credential.associated_data_hash,
+        ],
         cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
+        cred_genesis_issued_at_min: args.credential.genesis_issued_at_min.into(),
         cred_expires_at: args.credential.expires_at.into(),
         cred_id: args.credential.id.into(),
         cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
@@ -403,22 +406,4 @@ pub fn query_hash(leaf_index: u64, rp_id: RpId, action: FieldElement) -> ark_bab
     ];
     let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
     poseidon2_4.permutation(&input)[1]
-}
-
-/// Helper function to compute the claims hash for a credential.
-/// TODO: Move to primitives.
-fn compute_claims_hash(credential: &Credential) -> Result<ark_babyjubjub::Fq, ProofError> {
-    let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
-    if credential.claims.len() > Credential::MAX_CLAIMS {
-        return Err(ProofError::InternalError(eyre::eyre!(
-            "There can be at most {} claims",
-            Credential::MAX_CLAIMS
-        )));
-    }
-    let mut input = [*FieldElement::ZERO; Credential::MAX_CLAIMS];
-    for (i, claim) in credential.claims.iter().enumerate() {
-        input[i] = **claim;
-    }
-    hasher.permutation_in_place(&mut input);
-    Ok(input[1])
 }

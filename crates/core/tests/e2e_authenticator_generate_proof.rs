@@ -203,7 +203,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
-    let mut credential = build_base_credential(issuer_schema_id_u64, leaf_index_u64, now, now + 60);
+    let (mut credential, credential_sub_blinding_factor) =
+        build_base_credential(issuer_schema_id_u64, leaf_index_u64, now, now + 60);
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()
@@ -225,13 +226,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             identifier: "test_credential".to_string(),
             issuer_schema_id: issuer_schema_id_u64.into(),
             signal: Some("my_signal".to_string()),
+            genesis_issued_at_min: None,
+            session_id: None,
         }],
         constraints: None,
     };
 
     // Call generate_proof and ensure a nullifier is produced.
     let (_proof, nullifier) = authenticator
-        .generate_proof(proof_request, credential)
+        .generate_proof(proof_request, credential, credential_sub_blinding_factor)
         .await
         .wrap_err("failed to generate proof")?;
     assert_ne!(nullifier, FieldElement::ZERO);
