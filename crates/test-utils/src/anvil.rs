@@ -20,7 +20,7 @@ sol!(
     CredentialSchemaIssuerRegistry,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
+        "/../../contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistry.json"
     )
 );
 
@@ -29,7 +29,7 @@ sol!(
     Poseidon2T2,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/Poseidon2.sol/Poseidon2T2Abi.json"
+        "/../../contracts/out/Poseidon2.sol/Poseidon2T2.json"
     )
 );
 
@@ -38,7 +38,7 @@ sol!(
     PackedAccountData,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/PackedAccountData.sol/PackedAccountDataAbi.json"
+        "/../../contracts/out/PackedAccountData.sol/PackedAccountData.json"
     )
 );
 
@@ -47,7 +47,7 @@ sol!(
     BinaryIMT,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/BinaryIMT.sol/BinaryIMTAbi.json"
+        "/../../contracts/out/BinaryIMT.sol/BinaryIMT.json"
     )
 );
 
@@ -57,7 +57,7 @@ sol!(
     WorldIDRegistry,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
+        "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
     )
 );
 
@@ -67,7 +67,7 @@ sol!(
     VerifierKeyGen13,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/VerifierKeyGen13.sol/VerifierAbi.json"
+        "/../../contracts/out/VerifierKeyGen13.sol/Verifier.json"
     )
 );
 
@@ -77,7 +77,7 @@ sol!(
     BabyJubJub,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/BabyJubJub.sol/BabyJubJubAbi.json"
+        "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
     )
 );
 
@@ -87,7 +87,7 @@ sol!(
     OprfKeyRegistry,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/OprfKeyRegistry.sol/OprfKeyRegistryAbi.json"
+        "/../../contracts/out/OprfKeyRegistry.sol/OprfKeyRegistry.json"
     )
 );
 
@@ -96,7 +96,7 @@ sol!(
     ERC1967Proxy,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../core/contracts/out/ERC1967Proxy.sol/ERC1967ProxyAbi.json"
+        "/../../contracts/out/ERC1967Proxy.sol/ERC1967Proxy.json"
     )
 );
 
@@ -232,7 +232,7 @@ impl TestAnvil {
         let binary_imt_bytecode = Self::link_library(
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../core/contracts/out/BinaryIMT.sol/BinaryIMTAbi.json"
+                "/../../contracts/out/BinaryIMT.sol/BinaryIMT.json"
             )),
             "src/hash/Poseidon2.sol:Poseidon2T2",
             *poseidon.address(),
@@ -251,7 +251,7 @@ impl TestAnvil {
         // Step 4: Link both BinaryIMT and PackedAccountData to WorldIDRegistry
         let world_id_registry_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../core/contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
+            "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
         ));
 
         // Link both libraries to WorldIDRegistry (keep as hex string until both are linked)

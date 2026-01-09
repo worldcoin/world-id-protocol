@@ -1,14 +1,7 @@
 use std::env;
+use std::fs::File;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::{
-    fs,
-    process::{Command, Stdio},
-};
-
-#[cfg(feature = "embed-zkeys")]
-use std::{fs::File, io};
-
-const CARGO_MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
 #[cfg(feature = "embed-zkeys")]
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
@@ -23,32 +16,12 @@ const CIRCUIT_FILES: &[(&str, &str)] = &[
     ("OPRFNullifier.arks.zkey", "circom/OPRFNullifier.arks.zkey"),
 ];
 
-// (sol_file_name, contract_name) - usually the same, but can differ
-const CONTRACT_TARGETS: &[(&str, &str)] = &[
-    (
-        "CredentialSchemaIssuerRegistry",
-        "CredentialSchemaIssuerRegistry",
-    ),
-    ("WorldIDRegistry", "WorldIDRegistry"),
-    ("Poseidon2", "Poseidon2T2"),
-    ("PackedAccountData", "PackedAccountData"),
-    ("BinaryIMT", "BinaryIMT"),
-    ("VerifierKeyGen13", "Verifier"),
-    ("BabyJubJub", "BabyJubJub"),
-    ("OprfKeyRegistry", "OprfKeyRegistry"),
-    ("ERC1967Proxy", "ERC1967Proxy"),
-];
-
 #[cfg(feature = "embed-zkeys")]
-fn download_file(url: &str, output_path: &Path) -> anyhow::Result<()> {
+fn download_file(url: &str, output_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let response = reqwest::blocking::get(url)?;
 
     if !response.status().is_success() {
-        return Err(anyhow::format_err!(format!(
-            "HTTP error {}: {}",
-            response.status(),
-            url
-        )));
+        return Err(format!("HTTP error {}: {}", response.status(), url).into());
     }
 
     let mut file = File::create(output_path)?;
@@ -58,21 +31,26 @@ fn download_file(url: &str, output_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn fetch_circuit_file(filename: &str, repo_path: &str, out_dir: &Path) -> anyhow::Result<PathBuf> {
+fn fetch_circuit_file(
+    filename: &str,
+    repo_path: &str,
+    out_dir: &Path,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let output_path = out_dir.join(filename);
 
     // Check for local file first (development)
+    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        let local_path = Path::new(&manifest_dir)
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join(repo_path));
 
-    let local_path = Path::new(&CARGO_MANIFEST_DIR)
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|p| p.join(repo_path));
-
-    if let Some(path) = local_path {
-        if path.exists() {
-            std::fs::copy(&path, &output_path)?;
-            println!("cargo:rerun-if-changed={}", path.display());
-            return Ok(output_path);
+        if let Some(path) = local_path {
+            if path.exists() {
+                std::fs::copy(&path, &output_path)?;
+                println!("cargo:rerun-if-changed={}", path.display());
+                return Ok(output_path);
+            }
         }
     }
 
@@ -90,86 +68,34 @@ fn fetch_circuit_file(filename: &str, repo_path: &str, out_dir: &Path) -> anyhow
 
     #[cfg(not(feature = "embed-zkeys"))]
     {
-        Err(anyhow::format_err!(format!(
+        Err(format!(
             "Circuit file {} not found locally and embed-zkeys feature is not enabled. \
              Enable the embed-zkeys feature or provide circuit files manually.",
             filename
-        )))
+        )
+        .into())
     }
 }
 
-fn embed_zkeys() -> anyhow::Result<()> {
-    // Only fetch circuit files if embed-zkeys feature is enabled
-    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=build.rs");
 
-    for (filename, repo_path) in CIRCUIT_FILES {
-        fetch_circuit_file(filename, repo_path, &out_dir)?;
-    }
-
-    Ok(())
-}
-
-// NOTE: only for local development
-fn compile_contracts() -> anyhow::Result<()> {
-    let status = Command::new("forge")
-        .arg("build")
-        .current_dir("../../contracts")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()?;
-
-    if !status.success() {
-        panic!("failed to compile contracts");
-    }
-
-    let forge_out_dir = PathBuf::from(CARGO_MANIFEST_DIR).join("../../contracts/out");
-    let res_out_dir = PathBuf::from(CARGO_MANIFEST_DIR).join("contracts/out");
-
-    for (sol_file, contract_name) in CONTRACT_TARGETS {
-        let new_abi = forge_out_dir
-            .join(format!("{sol_file}.sol"))
-            .join(format!("{contract_name}.json"));
-
-        if !new_abi.exists() {
-            panic!("Contract ABI not found at {}", new_abi.display());
-        }
-
-        let prev_abi = res_out_dir
-            .join(format!("{sol_file}.sol"))
-            .join(format!("{contract_name}Abi.json"));
-
-        if !prev_abi.exists() {
-            if let Some(parent) = prev_abi.parent() {
-                fs::create_dir_all(parent)?;
-            }
-
-            fs::copy(&new_abi, &prev_abi)?;
-        }
-    }
-
-    println!("cargo:rerun-if-changed=contracts");
-
-    Ok(())
-}
-
-fn main() -> anyhow::Result<()> {
     // Skip for docs.rs as it doesn't have network access
     if env::var("DOCS_RS").is_ok() {
         println!("cargo:warning=Building for docs.rs, skipping circuit file downloads");
         return Ok(());
     }
 
-    std::thread::scope(|s| {
-        if std::env::var("CONTRACT_ARTIFACTS").is_ok() {
-            s.spawn(compile_contracts);
-        }
+    let embed_zkeys = env::var("CARGO_FEATURE_EMBED_ZKEYS").is_ok();
 
-        if std::env::var("CARGO_FEATURE_EMBED_ZKEYS").is_ok() {
-            s.spawn(embed_zkeys);
-        }
-    });
+    // Only fetch circuit files if embed-zkeys feature is enabled
+    if embed_zkeys {
+        let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    println!("cargo:rerun-if-changed=build.rs");
+        for (filename, repo_path) in CIRCUIT_FILES {
+            fetch_circuit_file(filename, repo_path, &out_dir)?;
+        }
+    }
 
     Ok(())
 }
