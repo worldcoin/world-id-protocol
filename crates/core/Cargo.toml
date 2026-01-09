@@ -97,7 +97,6 @@ openapi = ["dep:utoipa"]
 
 [build-dependencies]
 reqwest = { workspace = true, features = ["blocking"], optional = true }
-anyhow.workspace = true
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
