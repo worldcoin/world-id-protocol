@@ -1,12 +1,10 @@
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use serde_json::Value;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::{
     fs,
-    hash::{DefaultHasher, Hash, Hasher},
     process::{Command, Stdio},
 };
+
 #[cfg(feature = "embed-zkeys")]
 use std::{fs::File, io};
 
@@ -101,25 +99,18 @@ fn fetch_circuit_file(filename: &str, repo_path: &str, out_dir: &Path) -> anyhow
 }
 
 fn embed_zkeys() -> anyhow::Result<()> {
-    let embed_zkeys = env::var("CARGO_FEATURE_EMBED_ZKEYS").is_ok();
-
     // Only fetch circuit files if embed-zkeys feature is enabled
-    if embed_zkeys {
-        let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-        for (filename, repo_path) in CIRCUIT_FILES {
-            fetch_circuit_file(filename, repo_path, &out_dir)?;
-        }
+    for (filename, repo_path) in CIRCUIT_FILES {
+        fetch_circuit_file(filename, repo_path, &out_dir)?;
     }
 
     Ok(())
 }
 
+// NOTE: only for local development
 fn compile_contracts() -> anyhow::Result<()> {
-    if env::var("CONTRACT_ARTIFACTS").is_err() {
-        return Ok(());
-    }
-
     let status = Command::new("forge")
         .arg("build")
         .current_dir("../../contracts")
@@ -134,55 +125,31 @@ fn compile_contracts() -> anyhow::Result<()> {
     let forge_out_dir = PathBuf::from(CARGO_MANIFEST_DIR).join("../../contracts/out");
     let res_out_dir = PathBuf::from(CARGO_MANIFEST_DIR).join("contracts/out");
 
-    CONTRACT_TARGETS
-        .par_iter()
-        .for_each(|(sol_file, contract_name)| {
-            let new_abi = forge_out_dir
-                .join(format!("{sol_file}.sol"))
-                .join(format!("{contract_name}.json"));
+    for (sol_file, contract_name) in CONTRACT_TARGETS {
+        let new_abi = forge_out_dir
+            .join(format!("{sol_file}.sol"))
+            .join(format!("{contract_name}.json"));
 
-            if !new_abi.exists() {
-                panic!("Contract ABI not found at {}", new_abi.display());
+        if !new_abi.exists() {
+            panic!("Contract ABI not found at {}", new_abi.display());
+        }
+
+        let prev_abi = res_out_dir
+            .join(format!("{sol_file}.sol"))
+            .join(format!("{contract_name}Abi.json"));
+
+        if !prev_abi.exists() {
+            if let Some(parent) = prev_abi.parent() {
+                fs::create_dir_all(parent)?;
             }
 
-            let prev_abi = res_out_dir
-                .join(format!("{sol_file}.sol"))
-                .join(format!("{contract_name}Abi.json"));
-
-            if !prev_abi.exists() {
-                if let Some(parent) = prev_abi.parent() {
-                    fs::create_dir_all(parent).expect("failed to create abi directory");
-                }
-
-                fs::copy(&new_abi, &prev_abi).unwrap();
-
-                let prev_contents: Value =
-                    serde_json::from_str(&fs::read_to_string(&prev_abi).unwrap()).unwrap();
-                let new_contents: Value =
-                    serde_json::from_str(&fs::read_to_string(&new_abi).unwrap()).unwrap();
-
-                let prev_bytecode = prev_contents["bytecode"]["object"]
-                    .as_str()
-                    .expect("Missing prev bytecode");
-                let new_bytecode = new_contents["bytecode"]["object"]
-                    .as_str()
-                    .expect("Missing new bytecode");
-
-                if hash(prev_bytecode) != hash(new_bytecode) {
-                    fs::copy(&new_abi, &prev_abi).unwrap();
-                }
-            }
-        });
+            fs::copy(&new_abi, &prev_abi)?;
+        }
+    }
 
     println!("cargo:rerun-if-changed=contracts");
 
     Ok(())
-}
-
-fn hash(value: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
 }
 
 fn main() -> anyhow::Result<()> {
@@ -192,7 +159,15 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let _ = rayon::join(|| compile_contracts(), || embed_zkeys());
+    std::thread::scope(|s| {
+        if std::env::var("CONTRACT_ARTIFACTS").is_ok() {
+            s.spawn(compile_contracts);
+        }
+
+        if std::env::var("CARGO_FEATURE_EMBED_ZKEYS").is_ok() {
+            s.spawn(embed_zkeys);
+        }
+    });
 
     println!("cargo:rerun-if-changed=build.rs");
 
