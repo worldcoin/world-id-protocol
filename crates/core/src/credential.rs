@@ -117,7 +117,7 @@ mod tests {
             .sub(456)
             .genesis_issued_at(1234567890)
             .expires_at(1234567890 + 86_400)
-            .claim(0, U256::from(999))
+            .claim_hash(0, U256::from(999))
             .unwrap()
             .associated_data_hash(U256::from(42))
             .unwrap();
