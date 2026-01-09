@@ -12,7 +12,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "0.2.0"
+version = "0.3.0"
 license = "MIT"
 authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
 homepage = "https://docs.world.org/world-id"
@@ -63,8 +63,8 @@ utoipa = "5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1" }
 webpki-roots = "1.0"
-world-id-core = { version = "0.2.0", default-features = false, path = "crates/core"}
-world-id-primitives = { version = "0.2.0", path = "crates/primitives"}
+world-id-core = { version = "0.3.0", default-features = false, path = "crates/core"}
+world-id-primitives = { version = "0.3.0", path = "crates/primitives"}
 world-id-oprf-node = { version = "0.1", path = "./services/oprf-node"}
 zeroize = "1"
 
