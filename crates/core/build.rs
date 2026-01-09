@@ -1,14 +1,14 @@
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde_json::Value;
 use std::env;
-use std::fs::File;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::{
     fs,
     hash::{DefaultHasher, Hash, Hasher},
     process::{Command, Stdio},
 };
+#[cfg(feature = "embed-zkeys")]
+use std::{fs::File, io};
 
 const CARGO_MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
@@ -31,11 +31,11 @@ const CONTRACT_TARGETS: &[(&str, &str)] = &[
         "CredentialSchemaIssuerRegistry",
         "CredentialSchemaIssuerRegistry",
     ),
+    ("WorldIDRegistry", "WorldIDRegistry"),
     ("Poseidon2", "Poseidon2T2"),
     ("PackedAccountData", "PackedAccountData"),
     ("BinaryIMT", "BinaryIMT"),
-    ("WorldIDRegistry", "WorldIDRegistry"),
-    ("Verifier", "Verifier"),
+    ("VerifierKeyGen13", "Verifier"),
     ("BabyJubJub", "BabyJubJub"),
     ("OprfKeyRegistry", "OprfKeyRegistry"),
     ("ERC1967Proxy", "ERC1967Proxy"),
@@ -92,12 +92,11 @@ fn fetch_circuit_file(filename: &str, repo_path: &str, out_dir: &Path) -> anyhow
 
     #[cfg(not(feature = "embed-zkeys"))]
     {
-        Err(format!(
+        Err(anyhow::format_err!(format!(
             "Circuit file {} not found locally and embed-zkeys feature is not enabled. \
              Enable the embed-zkeys feature or provide circuit files manually.",
             filename
-        )
-        .into())
+        )))
     }
 }
 
@@ -117,6 +116,10 @@ fn embed_zkeys() -> anyhow::Result<()> {
 }
 
 fn compile_contracts() -> anyhow::Result<()> {
+    if env::var("CONTRACT_ARTIFACTS").is_err() {
+        return Ok(());
+    }
+
     let status = Command::new("forge")
         .arg("build")
         .current_dir("../../contracts")
@@ -125,7 +128,7 @@ fn compile_contracts() -> anyhow::Result<()> {
         .status()?;
 
     if !status.success() {
-        panic!("fialed to compile contracts");
+        panic!("failed to compile contracts");
     }
 
     let forge_out_dir = PathBuf::from(CARGO_MANIFEST_DIR).join("../../contracts/out");

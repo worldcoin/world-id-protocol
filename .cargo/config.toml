@@ -3,4 +3,5 @@ target-dir = "target"
 
 [env]
 RUST_LOG = "info"
+CONTRACT_ARTIFACTS = "1"
 
