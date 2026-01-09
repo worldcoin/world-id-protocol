@@ -37,9 +37,16 @@ impl RunMode {
         let str = std::env::var("RUN_MODE").unwrap_or_else(|_| "both".to_string());
 
         match str.to_lowercase().as_str() {
-            "indexer" | "indexer-only" => Self::IndexerOnly { indexer_config: IndexerConfig::from_env() },
-            "http" | "http-only" => Self::HttpOnly { http_config: HttpConfig::from_env() },
-            "both" | "all" => Self::Both { indexer_config: IndexerConfig::from_env(), http_config: HttpConfig::from_env() },
+            "indexer" | "indexer-only" => Self::IndexerOnly {
+                indexer_config: IndexerConfig::from_env(),
+            },
+            "http" | "http-only" => Self::HttpOnly {
+                http_config: HttpConfig::from_env(),
+            },
+            "both" | "all" => Self::Both {
+                indexer_config: IndexerConfig::from_env(),
+                http_config: HttpConfig::from_env(),
+            },
             _ => panic!(
                 "Invalid run mode: '{str}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
             ),
@@ -62,7 +69,9 @@ impl FromStr for Environment {
             "production" => Ok(Self::Production),
             "staging" => Ok(Self::Staging),
             "development" => Ok(Self::Development),
-            _ => Err(format!("Invalid environment: '{s}'. Valid options are: 'production', 'staging', or 'development'")),
+            _ => Err(format!(
+                "Invalid environment: '{s}'. Valid options are: 'production', 'staging', or 'development'"
+            )),
         }
     }
 }
@@ -110,7 +119,9 @@ impl HttpConfig {
         };
 
         if config.http_addr.port() != 8080 {
-            tracing::warn!("Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
+            tracing::warn!(
+                "Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)"
+            );
         }
 
         tracing::info!(

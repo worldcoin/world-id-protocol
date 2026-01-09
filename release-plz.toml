@@ -35,3 +35,11 @@ publish = false
 [[package]]
 name = "world-id-gateway"
 publish = false
+
+[[package]]
+name = "world-id-oprf-node"
+publish = false
+
+[[package]]
+name = "world-id-oprf-dev-client"
+publish = false

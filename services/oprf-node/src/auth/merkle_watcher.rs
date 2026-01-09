@@ -133,17 +133,18 @@ impl MerkleWatcher {
             .call()
             .await
             .map_err(|err| MerkleWatcherError(err.to_string()))?;
-        {
+
+        if valid {
             tracing::debug!("add root to store");
-            let mut store = self.merkle_root_store.lock();
             let timestamp = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("system time is after unix epoch")
                 .as_secs();
-            store.insert(root, timestamp);
+            self.merkle_root_store.lock().insert(root, timestamp);
         }
         tracing::debug!("root valid: {valid}");
-        return Ok(valid);
+
+        Ok(valid)
     }
 }
 
@@ -210,5 +211,64 @@ impl MerkleRootStore {
     /// Returns `true` if the root exists, `false` otherwise.
     pub(crate) fn contains_root(&self, root: FieldElement) -> bool {
         self.store.contains_key(&root)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_utils::anvil::TestAnvil;
+    use tokio_util::sync::CancellationToken;
+
+    /// Regression test for HackerOne report #3494201.
+    #[tokio::test]
+    async fn test_invalid_root_not_cached() {
+        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+        let signer = anvil.signer(0).expect("failed to get signer");
+        let registry_address = anvil
+            .deploy_world_id_registry(signer)
+            .await
+            .expect("failed to deploy WorldIDRegistry");
+
+        let cancellation_token = CancellationToken::new();
+
+        let merkle_watcher = MerkleWatcher::init(
+            registry_address,
+            &anvil.ws_endpoint(),
+            100,
+            cancellation_token,
+        )
+        .await
+        .expect("failed to init MerkleWatcher");
+
+        let invalid_root = FieldElement::from(12345u64);
+
+        let valid = merkle_watcher
+            .is_root_valid(invalid_root)
+            .await
+            .expect("first is_root_valid call should not error");
+
+        assert!(!valid, "First call should return false for invalid root");
+
+        {
+            let store = merkle_watcher.merkle_root_store.lock();
+            assert!(
+                !store.contains_root(invalid_root),
+                "Invalid root should NOT be cached after first rejection"
+            );
+        }
+
+        let valid_root = WorldIdRegistry::new(registry_address, anvil.provider().unwrap())
+            .latestRoot()
+            .call()
+            .await
+            .expect("failed to fetch root");
+
+        let valid = merkle_watcher
+            .is_root_valid(valid_root.try_into().expect("root in field"))
+            .await
+            .expect("second is_root_valid call should not error");
+
+        assert!(valid, "Second call should return true for valid root");
     }
 }

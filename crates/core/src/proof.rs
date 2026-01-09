@@ -108,7 +108,9 @@ pub fn load_embedded_query_material() -> CircomGroth16Material {
 #[must_use]
 pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
     // TODO: This is a stub for docs.rs compilation only
-    todo!("load_embedded_nullifier_material is not available on docs.rs - use load_nullifier_material_from_paths or load_nullifier_material_from_reader instead")
+    todo!(
+        "load_embedded_nullifier_material is not available on docs.rs - use load_nullifier_material_from_paths or load_nullifier_material_from_reader instead"
+    )
 }
 
 /// Loads the [`CircomGroth16Material`] for the query proof from the embedded keys in the binary.
@@ -116,7 +118,9 @@ pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
 #[must_use]
 pub fn load_embedded_query_material() -> CircomGroth16Material {
     // TODO: This is a stub for docs.rs compilation only
-    todo!("load_embedded_query_material is not available on docs.rs - use load_query_material_from_paths or load_query_material_from_reader instead")
+    todo!(
+        "load_embedded_query_material is not available on docs.rs - use load_query_material_from_paths or load_query_material_from_reader instead"
+    )
 }
 
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided reader.

@@ -8235,6 +8235,7 @@ dependencies = [
  "taceo-nodes-observability",
  "taceo-oprf-service",
  "taceo-oprf-types",
+ "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",

@@ -17,8 +17,8 @@
       "rev": "aa677e9d28ed78fc427ec47ba2baef2030c58e7c"
     }
   },
-  "lib/oprf-service": {
-    "rev": "887b6564ea4a75a6d4b66959930005aedb1ddd11"
+  "lib/oprf-key-registry": {
+    "rev": "ba08b63982750532e4ea78e3f2523c6d7eafde63"
   },
   "lib/poseidon-solidity": {
     "tag": {

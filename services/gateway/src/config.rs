@@ -57,7 +57,9 @@ impl GatewayConfig {
         let config = Self::parse();
 
         if config.listen_addr.port() != 8080 {
-            tracing::warn!("Gateway is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
+            tracing::warn!(
+                "Gateway is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)"
+            );
         }
 
         config
