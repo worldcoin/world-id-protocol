@@ -21,7 +21,6 @@ rust-version = "1.87"
 
 [workspace.dependencies]
 alloy = { version = "1", default-features = false }
-alloy-node-bindings = "1.0.38"
 
 anyhow = "1"
 ark-ec = "0.5"
@@ -69,7 +68,6 @@ world-id-core = { version = "0.2.0", default-features = false, path = "crates/co
 world-id-primitives = { version = "0.2.0", path = "crates/primitives"}
 world-id-oprf-node = { version = "0.1", path = "./services/oprf-node"}
 zeroize = "1"
-axum = { version = "0.8", features = ["json"] }
 rayon = "1.11.0"
 
 [patch.crates-io]
