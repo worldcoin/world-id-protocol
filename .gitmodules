@@ -10,6 +10,6 @@
 [submodule "contracts/lib/poseidon-solidity"]
 	path = contracts/lib/poseidon-solidity
 	url = https://github.com/chancehudson/poseidon-solidity
-[submodule "contracts/lib/oprf-service"]
-	path = contracts/lib/oprf-service
-	url = https://github.com/TaceoLabs/oprf-service
+[submodule "contracts/lib/oprf-key-registry"]
+	path = contracts/lib/oprf-key-registry
+	url = https://github.com/TaceoLabs/oprf-key-registry

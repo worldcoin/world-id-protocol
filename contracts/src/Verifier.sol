@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Types} from "oprf-service/src/Types.sol";
-import {OprfKeyRegistry} from "oprf-service/src/OprfKeyRegistry.sol";
+import {Types} from "oprf-key-registry/src/Types.sol";
+import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
