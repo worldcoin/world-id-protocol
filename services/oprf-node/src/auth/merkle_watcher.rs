@@ -243,12 +243,12 @@ mod tests {
 
         let invalid_root = FieldElement::from(12345u64);
 
-        let result1 = merkle_watcher
+        let valid = merkle_watcher
             .is_root_valid(invalid_root)
             .await
             .expect("first is_root_valid call should not error");
 
-        assert!(!result1, "First call should return false for invalid root");
+        assert!(!valid, "First call should return false for invalid root");
 
         {
             let store = merkle_watcher.merkle_root_store.lock();
@@ -257,5 +257,18 @@ mod tests {
                 "Invalid root should NOT be cached after first rejection"
             );
         }
+
+        let valid_root = WorldIdRegistry::new(registry_address, anvil.provider().unwrap())
+            .latestRoot()
+            .call()
+            .await
+            .expect("failed to fetch root");
+
+        let valid = merkle_watcher
+            .is_root_valid(valid_root.try_into().expect("root in field"))
+            .await
+            .expect("second is_root_valid call should not error");
+
+        assert!(valid, "Second call should return true for valid root");
     }
 }
