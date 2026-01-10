@@ -29,8 +29,7 @@ async fn test_packed_account_endpoint() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
-                start_block: 0,
+                start_block: Some(0),
                 batch_size: 1000,
             },
             http_config: HttpConfig {
