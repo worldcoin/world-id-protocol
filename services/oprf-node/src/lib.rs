@@ -4,10 +4,8 @@
 //! It provides an Axum based HTTP-server that computes distributed OPRF (Oblivious Pseudo-Random Function) functions to be used as nullifiers in the World ecosystem.
 //!
 //! For details on the OPRF protocol, see the [design document](https://github.com/TaceoLabs/nullifier-oracle-service/blob/491416de204dcad8d46ee1296d59b58b5be54ed9/docs/oprf.pdf).
-use std::{fs::File, sync::Arc};
+use std::sync::Arc;
 
-use ark_bn254::Bn254;
-use circom_types::groth16::VerificationKey;
 use eyre::Context;
 use secrecy::ExposeSecret;
 use taceo_oprf_service::secret_manager::SecretManagerService;
@@ -38,15 +36,6 @@ pub async fn start(
     let node_config = config.node_config;
     let cancellation_token = taceo_nodes_common::spawn_shutdown_task(shutdown_signal);
 
-    tracing::info!(
-        "loading Groth16 verification key from: {:?}",
-        config.user_verification_key_path
-    );
-    let vk = File::open(&config.user_verification_key_path)
-        .context("while opening file to verification key")?;
-    let vk: VerificationKey<Bn254> = serde_json::from_reader(vk)
-        .context("while parsing Groth16 verification key for user proof")?;
-
     tracing::info!("init merkle watcher..");
     let merkle_watcher = MerkleWatcher::init(
         config.world_id_registry_contract,
@@ -60,7 +49,6 @@ pub async fn start(
     tracing::info!("init oprf request auth service..");
     let oprf_req_auth_service = Arc::new(WorldOprfRequestAuthenticator::init(
         merkle_watcher,
-        vk.into(),
         config.current_time_stamp_max_difference,
         config.signature_history_cleanup_interval,
     ));

@@ -14,6 +14,7 @@ use crate::auth::{
 use ark_bn254::Bn254;
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
+use circom_types::groth16::VerificationKey;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},
@@ -22,6 +23,9 @@ use taceo_oprf_service::OprfRequestAuthenticator;
 use taceo_oprf_types::api::v1::OprfRequest;
 use uuid::Uuid;
 use world_id_primitives::{oprf::OprfRequestAuthV1, TREE_DEPTH};
+
+/// The embedded Groth16 verification key for OPRF query proofs.
+const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
 
 pub(crate) mod merkle_watcher;
 pub(crate) mod signature_history;
@@ -93,17 +97,18 @@ pub(crate) struct WorldOprfRequestAuthenticator {
 impl WorldOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
-        vk: ark_groth16::VerifyingKey<Bn254>,
         current_time_stamp_max_difference: Duration,
         signature_history_cleanup_interval: Duration,
     ) -> Self {
+        let vk: VerificationKey<Bn254> =
+            serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
         Self {
             signature_history: SignatureHistory::init(
                 current_time_stamp_max_difference * 2,
                 signature_history_cleanup_interval,
             ),
             merkle_watcher,
-            vk: Arc::new(ark_groth16::prepare_verifying_key(&vk)),
+            vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
             current_time_stamp_max_difference,
         }
     }
