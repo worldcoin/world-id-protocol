@@ -8,7 +8,7 @@ use redis::{aio::ConnectionManager, AsyncTypedCommands, IntegerReplyOrNoOp};
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
 use world_id_core::types::GatewayStatusResponse;
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
 
 use crate::common::{wait_for_finalized, wait_http_ready};
 
@@ -41,11 +41,11 @@ async fn redis_integration() {
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
+    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.to_string(),
-        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
-        aws_kms_key_id: None,
+        signer_args,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
         max_create_batch_size: 10,
