@@ -102,7 +102,7 @@ reqwest = { workspace = true, features = ["blocking"], optional = true }
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
-alloy-node-bindings = "1.0.38"
+alloy-node-bindings = "1"
 alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
