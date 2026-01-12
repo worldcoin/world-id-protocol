@@ -638,37 +638,6 @@ impl Authenticator {
     }
 }
 
-impl ProtocolSigner for Authenticator {
-    fn sign(&self, message: FieldElement) -> EdDSASignature {
-        self.signer
-            .offchain_signer_private_key()
-            .expose_secret()
-            .sign(*message)
-    }
-}
-
-/// A trait for types that can be represented as a `U256` on-chain.
-pub trait OnchainKeyRepresentable {
-    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `WorldIDRegistry` contract.
-    ///
-    /// The `U256` representation is a 32-byte little-endian encoding of the **compressed** (single point) public key.
-    ///
-    /// # Errors
-    /// Will error if the public key unexpectedly fails to serialize.
-    fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError>;
-}
-
-impl OnchainKeyRepresentable for EdDSAPublicKey {
-    // REVIEW: updating to BE
-    fn to_ethereum_representation(&self) -> Result<U256, PrimitiveError> {
-        let mut compressed_bytes = Vec::new();
-        self.pk
-            .serialize_compressed(&mut compressed_bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        Ok(U256::from_le_slice(&compressed_bytes))
-    }
-}
-
 /// Represents an account in the process of being initialized,
 /// i.e. it is not yet registered in the `WorldIDRegistry` contract.
 pub struct InitializingAuthenticator {
