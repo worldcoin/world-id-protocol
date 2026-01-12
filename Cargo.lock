@@ -6567,7 +6567,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-client"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b7337f1#b7337f191d9f8776e477102b1c1e6da8fbc5bdd7"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=e58e29a#e58e29a3eba67e68ab69de2093c689060a7bb881"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -6587,7 +6587,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-client-example"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b7337f1#b7337f191d9f8776e477102b1c1e6da8fbc5bdd7"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=e58e29a#e58e29a3eba67e68ab69de2093c689060a7bb881"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -6602,7 +6602,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-core"
 version = "0.2.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b7337f1#b7337f191d9f8776e477102b1c1e6da8fbc5bdd7"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=e58e29a#e58e29a3eba67e68ab69de2093c689060a7bb881"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -6623,7 +6623,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-key-gen"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b7337f1#b7337f191d9f8776e477102b1c1e6da8fbc5bdd7"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=e58e29a#e58e29a3eba67e68ab69de2093c689060a7bb881"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -6660,7 +6660,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-service"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b7337f1#b7337f191d9f8776e477102b1c1e6da8fbc5bdd7"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=e58e29a#e58e29a3eba67e68ab69de2093c689060a7bb881"
 dependencies = [
  "alloy",
  "async-trait",
@@ -6694,7 +6694,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-service-example"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b7337f1#b7337f191d9f8776e477102b1c1e6da8fbc5bdd7"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=e58e29a#e58e29a3eba67e68ab69de2093c689060a7bb881"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -6717,7 +6717,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-test"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b7337f1#b7337f191d9f8776e477102b1c1e6da8fbc5bdd7"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=e58e29a#e58e29a3eba67e68ab69de2093c689060a7bb881"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -6746,7 +6746,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-types"
 version = "0.2.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b7337f1#b7337f191d9f8776e477102b1c1e6da8fbc5bdd7"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=e58e29a#e58e29a3eba67e68ab69de2093c689060a7bb881"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",

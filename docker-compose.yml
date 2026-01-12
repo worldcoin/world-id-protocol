@@ -31,7 +31,7 @@ services:
       - SERVICES=secretsmanager
       - DEBUG=1
   oprf-key-gen0:
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v0.1.0-beta.0
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-e58e29a3eba67e68ab69de2093c689060a7bb881
     network_mode: "host"
     environment:
       OPRF_NODE_ENVIRONMENT: dev
@@ -43,7 +43,7 @@ services:
       OPRF_NODE_KEY_GEN_ZKEY: /app/OPRFKeyGen.13.arks.zkey
       OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
   oprf-key-gen1:
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v0.1.0-beta.0
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-e58e29a3eba67e68ab69de2093c689060a7bb881
     network_mode: "host"
     environment:
       OPRF_NODE_ENVIRONMENT: dev
@@ -55,7 +55,7 @@ services:
       OPRF_NODE_KEY_GEN_ZKEY: /app/OPRFKeyGen.13.arks.zkey
       OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
   oprf-key-gen2:
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v0.1.0-beta.0
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:sha-e58e29a3eba67e68ab69de2093c689060a7bb881
     network_mode: "host"
     environment:
       OPRF_NODE_ENVIRONMENT: dev

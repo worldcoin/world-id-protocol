@@ -95,7 +95,7 @@ pub struct OprfDevClientConfig {
     #[clap(
         long,
         env = "OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT",
-        default_value = "0x17946e3536aC12f22ebaad76F53Aa3A30e6BfA62"
+        default_value = "0xB235407CA24410938A90890D9e218Bb60e8A65b6"
     )]
     pub world_id_registry_contract: Address,
 

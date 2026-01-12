@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use eyre::Context;
 use secrecy::ExposeSecret;
-use taceo_oprf_service::secret_manager::SecretManagerService;
+use taceo_oprf_service::{secret_manager::SecretManagerService, StartedServices};
 
 use crate::{
     auth::{merkle_watcher::MerkleWatcher, WorldOprfRequestAuthenticator},
@@ -58,6 +58,7 @@ pub async fn start(
         node_config,
         secret_manager,
         oprf_req_auth_service,
+        StartedServices::default(),
         cancellation_token.clone(),
     )
     .await?;

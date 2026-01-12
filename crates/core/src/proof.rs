@@ -39,17 +39,17 @@ const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "13b45db435c30d2edbef1bd7f8f4ee3c0d7b3629382e4727acaca69510136c2d";
+    "ee106cc2d213cca77cf7372c69851ca330f4f3fc7bff481ec2285a9f9494c041";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "0d582137dacb60437a0fb3d67abe38ba7d3c4c55025b53c9997f35cedf27efae";
+    "b570ceef9c8c71f5559da8d3fd03a09ae27d93634d8dff1eec24235dc61e660f";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
-    "163da65cc418b640db0dc91816f8e60cc889251793c561582224ff08f6c76db0";
+    "a22f17b20d65c88ffe6cca14863c42933ce6bbf28a56c902197e187d0e1268ef";
 /// The SHA-256 fingerprint of the `OPRFNullifier` witness graph.
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
-    "0a2f5aa1e29781bbb608319b5e21046aea49956b9c7e2083b3ca56fb823af383";
+    "5472d0b875f5145f66fd75d94fa24dd34bd54feb130ff96e4a323ca68cfc0c2e";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
