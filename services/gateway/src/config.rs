@@ -16,14 +16,31 @@ pub enum SignerConfig {
 pub struct SignerArgs {
     /// The signer wallet private key (hex) that will submit transactions (pays for gas)
     #[arg(long, env = "WALLET_PRIVATE_KEY")]
-    pub wallet_private_key: Option<String>,
+    wallet_private_key: Option<String>,
 
     /// AWS KMS Key ID for signing transactions
     #[arg(long, env = "AWS_KMS_KEY_ID")]
-    pub aws_kms_key_id: Option<String>,
+    aws_kms_key_id: Option<String>,
 }
 
 impl SignerArgs {
+    /// Create a new `SignerArgs` with the provided wallet private key.
+    pub fn new_wallet(wallet_private_key: String) -> Self {
+        Self {
+            wallet_private_key: Some(wallet_private_key),
+            aws_kms_key_id: None,
+        }
+    }
+
+    /// Create a new `SignerArgs` with the provided aws kms key id
+    pub fn new_aws(aws_kms_key_id: String) -> Self {
+        Self {
+            wallet_private_key: None,
+            aws_kms_key_id: Some(aws_kms_key_id),
+        }
+    }
+
+    /// Create and return a `SignerConfig`.
     pub fn signer_config(&self) -> SignerConfig {
         match (&self.wallet_private_key, &self.aws_kms_key_id) {
             (Some(pk), None) => SignerConfig::PrivateKey(pk.clone()),

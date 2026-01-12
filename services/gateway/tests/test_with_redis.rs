@@ -41,10 +41,7 @@ async fn redis_integration() {
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
-    let signer_args = SignerArgs {
-        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
-        aws_kms_key_id: None,
-    };
+    let signer_args = SignerArgs::new_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.to_string(),

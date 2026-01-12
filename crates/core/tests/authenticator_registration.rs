@@ -23,10 +23,7 @@ async fn test_authenticator_registration() {
         .unwrap();
 
     // Spawn gateway pointing to the same anvil instance
-    let signer_args = SignerArgs {
-        wallet_private_key: Some(hex::encode(deployer.to_bytes())),
-        aws_kms_key_id: None,
-    };
+    let signer_args = SignerArgs::new_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
         rpc_url: anvil.endpoint().to_string(),
