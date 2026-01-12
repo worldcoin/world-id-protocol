@@ -23,6 +23,7 @@ use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
+use backon::{ExponentialBuilder, Retryable};
 use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use rustls::{ClientConfig, RootCertStore};
@@ -177,45 +178,42 @@ impl Authenticator {
             Self::create_account(seed, &config, recovery_address, &http_client).await?;
 
         // Poll for confirmation with exponential backoff
-        let start = std::time::Instant::now();
-        let mut delay_ms = 100u64; // Start with 100ms
+        let backoff = ExponentialBuilder::default()
+            .with_min_delay(Duration::from_millis(100))
+            .with_max_delay(Duration::from_secs(5));
 
-        loop {
-            // Check if we've exceeded the timeout
-            if start.elapsed().as_secs() >= MAX_POLL_TIMEOUT_SECS {
-                return Err(AuthenticatorError::Timeout(MAX_POLL_TIMEOUT_SECS));
-            }
-
-            // Wait before polling
-            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-
-            // Poll the gateway status
+        let poll_and_init = || async {
             match Self::poll_gateway_status(&config, &request_id, &http_client).await {
                 Ok(GatewayRequestState::Finalized { .. }) => {
-                    let result = Self::init(seed, config.clone()).await;
-                    match result {
-                        Ok(authenticator) => return Ok(authenticator),
-                        Err(e) => {
-                            if matches!(e, AuthenticatorError::AccountDoesNotExist) {
-                                // continue polling, as the indexer may take a while
-                                delay_ms = (delay_ms * 2).min(5000); // Cap at 5 seconds
-                                continue;
-                            }
-                            return Err(e);
+                    // Gateway confirmed, but indexer might lag behind
+                    Self::init(seed, config.clone()).await.map_err(|e| {
+                        if matches!(e, AuthenticatorError::AccountDoesNotExist) {
+                            // Indexer hasn't caught up yet, retry
+                            AuthenticatorError::AccountDoesNotExist
+                        } else {
+                            e
                         }
-                    }
+                    })
                 }
-                Ok(GatewayRequestState::Failed { error, .. }) => {
-                    return Err(AuthenticatorError::Generic(format!(
-                        "Account creation failed: {error}"
-                    )));
-                }
+                Ok(GatewayRequestState::Failed { error, .. }) => Err(AuthenticatorError::Generic(
+                    format!("Account creation failed: {error}"),
+                )),
                 Ok(_) => {
-                    // Still pending, continue polling with exponential backoff
-                    delay_ms = (delay_ms * 2).min(5000); // Cap at 5 seconds
+                    // Still pending
+                    Err(AuthenticatorError::AccountDoesNotExist)
                 }
-                Err(e) => return Err(e),
+                Err(e) => Err(e),
             }
+        };
+
+        let retry_future = poll_and_init
+            .retry(backoff)
+            .sleep(tokio::time::sleep)
+            .when(|e| matches!(e, AuthenticatorError::AccountDoesNotExist));
+
+        match tokio::time::timeout(Duration::from_secs(MAX_POLL_TIMEOUT_SECS), retry_future).await {
+            Ok(result) => result,
+            Err(_) => Err(AuthenticatorError::Timeout(MAX_POLL_TIMEOUT_SECS)),
         }
     }
 

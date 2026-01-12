@@ -33,6 +33,7 @@ required-features = ["issuer", "cli"]
 [dependencies]
 alloy = { workspace = true, features = ["sol-types", "rpc"] }
 ark-babyjubjub = { workspace = true }
+backon = { workspace = true, optional = true }
 ark-bn254 = { workspace = true }
 poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
@@ -73,6 +74,7 @@ authenticator = [
     "alloy/contract",
     "alloy/signer-local",
     "alloy/reqwest-rustls-tls",
+    "dep:backon",
     "dep:circom-types",
     "dep:reqwest",
     "dep:secrecy",

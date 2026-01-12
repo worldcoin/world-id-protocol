@@ -22,6 +22,7 @@ rust-version = "1.87"
 [workspace.dependencies]
 alloy = { version = "1", default-features = false }
 anyhow = "1"
+backon = "1.6"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
 ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false, features = ["babyjubjub"] }
