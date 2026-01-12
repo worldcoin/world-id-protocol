@@ -14,7 +14,7 @@ use test_utils::{
 };
 use world_id_core::types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_core::{Authenticator, AuthenticatorError};
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
 use world_id_primitives::{merkle::AccountInclusionProof, Config, TREE_DEPTH};
 
 const GW_PORT: u16 = 4105;
@@ -102,11 +102,14 @@ async fn e2e_authenticator_insert_update_remove() {
         .await
         .unwrap();
 
+    let signer_args = SignerArgs {
+        wallet_private_key: Some(hex::encode(deployer.to_bytes())),
+        aws_kms_key_id: None,
+    };
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
         rpc_url: anvil.endpoint().to_string(),
-        wallet_private_key: Some(hex::encode(deployer.to_bytes())),
-        aws_kms_key_id: None,
+        signer_args,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,

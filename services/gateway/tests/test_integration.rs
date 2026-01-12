@@ -13,7 +13,7 @@ use world_id_core::world_id_registry::{
     domain as ag_domain, sign_insert_authenticator, sign_recover_account,
     sign_remove_authenticator, sign_update_authenticator, WorldIdRegistry,
 };
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
 
 use crate::common::{wait_for_finalized, wait_http_ready};
 
@@ -74,11 +74,14 @@ async fn e2e_gateway_full_flow() {
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
+    let signer_args = SignerArgs {
+        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
+        aws_kms_key_id: None,
+    };
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.clone(),
-        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
-        aws_kms_key_id: None,
+        signer_args,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
@@ -452,11 +455,14 @@ async fn test_authenticator_already_exists_error_code() {
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
+    let signer_args = SignerArgs {
+        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
+        aws_kms_key_id: None,
+    };
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.clone(),
-        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
-        aws_kms_key_id: None,
+        signer_args,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4102).into(),
         max_create_batch_size: 10,
@@ -581,11 +587,14 @@ async fn test_same_authenticator_different_accounts() {
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
+    let signer_args = SignerArgs {
+        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
+        aws_kms_key_id: None,
+    };
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.clone(),
-        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
-        aws_kms_key_id: None,
+        signer_args,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
         max_create_batch_size: 10,

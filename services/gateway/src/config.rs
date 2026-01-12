@@ -16,11 +16,11 @@ pub enum SignerConfig {
 pub struct SignerArgs {
     /// The signer wallet private key (hex) that will submit transactions (pays for gas)
     #[arg(long, env = "WALLET_PRIVATE_KEY")]
-    wallet_private_key: Option<String>,
+    pub wallet_private_key: Option<String>,
 
     /// AWS KMS Key ID for signing transactions
     #[arg(long, env = "AWS_KMS_KEY_ID")]
-    aws_kms_key_id: Option<String>,
+    pub aws_kms_key_id: Option<String>,
 }
 
 impl SignerArgs {

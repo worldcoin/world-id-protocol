@@ -25,7 +25,7 @@ use world_id_core::types::{
 };
 use world_id_core::world_id_registry::WorldIdRegistry;
 
-pub use crate::config::{GatewayConfig, SignerConfig};
+pub use crate::config::{GatewayConfig, SignerArgs, SignerConfig};
 pub use crate::error::ErrorResponse;
 
 /// Maximum number of authenticators per account (matches contract default).
