@@ -62,7 +62,7 @@ groth16-material = { workspace = true, features = ["circom"], optional = true }
 taceo-oprf-client = { workspace = true, optional = true }
 taceo-oprf-core = { workspace = true, optional = true }
 taceo-oprf-types = { workspace = true, optional = true }
-k256 = { workspace = true, features = ["ecdsa","serde"] }
+k256 = { workspace = true, features = ["ecdsa", "serde"] }
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
 
@@ -81,7 +81,7 @@ authenticator = [
     "dep:taceo-oprf-core",
     "dep:taceo-oprf-types",
     "dep:rustls",
-    "dep:webpki-roots"
+    "dep:webpki-roots",
 ]
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
@@ -109,4 +109,4 @@ world-id-gateway = { path = "../../services/gateway" }
 axum = { version = "0.8", features = ["macros", "json"] }
 taceo-oprf-core = { workspace = true }
 mockito = "1.6"
-taceo-oprf-service = { workspace  = true }
+taceo-oprf-service = { workspace = true }

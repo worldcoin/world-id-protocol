@@ -20,4 +20,8 @@ logs/
 .claude
 .cursor
 
+# Ignore generated contract ABIs except WorldIDRegistry and CredentialSchemaIssuerRegistry
+crates/core/contracts/out/*.sol/*.json
+!crates/core/contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json
+!crates/core/contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
 CLAUDE.md

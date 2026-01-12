@@ -234,7 +234,7 @@ mod tests {
 
         let merkle_watcher = MerkleWatcher::init(
             registry_address,
-            &anvil.ws_endpoint(),
+            anvil.ws_endpoint(),
             100,
             cancellation_token,
         )
