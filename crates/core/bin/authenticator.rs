@@ -41,7 +41,8 @@ async fn main() -> Result<()> {
         Ok(authenticator) => authenticator,
         Err(err) => {
             if matches!(err, AuthenticatorError::AccountDoesNotExist) {
-                let initializing_account = Authenticator::register(seed, config.clone(), None).await?;
+                let initializing_account =
+                    Authenticator::register(seed, config.clone(), None).await?;
                 let poller = || async {
                     match initializing_account.poll_status().await {
                         Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
