@@ -1,7 +1,11 @@
 use std::fs::File;
 
+use backon::{ExponentialBuilder, Retryable};
 use eyre::Result;
-use world_id_core::{primitives::Config, requests::ProofRequest, Authenticator, Credential};
+use world_id_core::{
+    primitives::Config, requests::ProofRequest, types::GatewayRequestState, Authenticator,
+    AuthenticatorError, Credential,
+};
 
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
@@ -31,7 +35,32 @@ async fn main() -> Result<()> {
     let config = Config::from_json(&json_config).unwrap();
 
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
-    let authenticator = Authenticator::init_or_create_blocking(seed, config, None).await?;
+    let authenticator = Authenticator::init(seed, config.clone()).await;
+
+    let authenticator = match authenticator {
+        Ok(authenticator) => authenticator,
+        Err(err) => {
+            if matches!(err, AuthenticatorError::AccountDoesNotExist) {
+                let initializing_account = Authenticator::register(seed, config.clone(), None).await?;
+                let poller = || async {
+                    match initializing_account.poll_status().await {
+                        Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
+                        _ => Err("not finalized"),
+                    }
+                };
+
+                poller
+                    .retry(ExponentialBuilder::default())
+                    .sleep(tokio::time::sleep)
+                    .await
+                    .map_err(|_| eyre::eyre!("failed to poll for account creation"))?;
+
+                Authenticator::init(seed, config.clone()).await?
+            } else {
+                return Err(err.into());
+            }
+        }
+    };
 
     let credential_path = std::env::args()
         .nth(1)
