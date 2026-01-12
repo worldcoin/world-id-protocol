@@ -5,6 +5,7 @@ use std::time::Duration;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::signers::local::PrivateKeySigner;
+use backon::{ExponentialBuilder, Retryable};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::Client;
 use test_utils::{
@@ -139,10 +140,27 @@ async fn e2e_authenticator_insert_update_remove() {
         Err(AuthenticatorError::AccountDoesNotExist)
     ));
 
-    let primary =
-        Authenticator::init_or_create_blocking(&primary_seed, config, Some(recovery_address))
+    let initializing_account =
+        Authenticator::register(&primary_seed, config.clone(), Some(recovery_address))
             .await
             .unwrap();
+
+    let poller = || async {
+        match initializing_account.poll_status().await {
+            Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
+            _ => Err(""),
+        }
+    };
+
+    poller
+        .retry(ExponentialBuilder::default())
+        .sleep(tokio::time::sleep)
+        .await
+        .unwrap();
+
+    let primary = Authenticator::init(&primary_seed, config.clone())
+        .await
+        .unwrap();
     assert_eq!(primary.leaf_index(), U256::from(1));
     assert_eq!(primary.signing_nonce().await.unwrap(), U256::from(0));
 

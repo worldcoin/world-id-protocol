@@ -6,6 +6,7 @@ use std::{
 };
 
 use alloy::primitives::U256;
+use backon::{ExponentialBuilder, Retryable};
 use eyre::{eyre, Context as _, Result};
 use taceo_oprf_types::ShareEpoch;
 use test_utils::{
@@ -17,6 +18,7 @@ use test_utils::{
 };
 use world_id_core::{
     requests::{ProofRequest, RequestItem, RequestVersion},
+    types::GatewayRequestState,
     Authenticator, AuthenticatorError, HashableCredential,
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
@@ -103,13 +105,27 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     );
 
     // Create the account via the gateway, blocking until confirmed.
-    let authenticator = Authenticator::init_or_create_blocking(
-        &seed,
-        creation_config.clone(),
-        Some(recovery_address),
-    )
-    .await
-    .wrap_err("failed to initialize or create authenticator")?;
+    let initializing_account =
+        Authenticator::register(&seed, creation_config.clone(), Some(recovery_address))
+            .await
+            .unwrap();
+
+    let poller = || async {
+        match initializing_account.poll_status().await {
+            Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
+            _ => Err(""),
+        }
+    };
+
+    poller
+        .retry(ExponentialBuilder::default())
+        .sleep(tokio::time::sleep)
+        .await
+        .unwrap();
+
+    let authenticator = Authenticator::init(&seed, creation_config.clone())
+        .await
+        .unwrap();
 
     assert_eq!(authenticator.leaf_index(), U256::from(1u64));
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);

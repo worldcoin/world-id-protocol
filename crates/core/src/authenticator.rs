@@ -3,7 +3,6 @@
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::requests::ProofRequest;
 use crate::types::{
@@ -41,9 +40,6 @@ static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
-
-/// Maximum timeout for polling account creation status (30 seconds)
-const MAX_POLL_TIMEOUT_SECS: u64 = 30;
 
 type UniquenessProof = (Proof<Bn254>, FieldElement);
 
@@ -124,128 +120,20 @@ impl Authenticator {
         })
     }
 
-    /// Initialize an Authenticator from a seed and config, creating the account if it doesn't exist.
+    /// Registers a new World ID in the `WorldIDRegistry`.
     ///
-    /// If the account does not exist, it will automatically create it. Since account creation
-    /// is asynchronous (requires on-chain transaction confirmation), this method will return `None`
-    /// and you should poll.
+    /// Given the registration process is asynchronous, this method will return a `InitializingAuthenticator`
+    /// object.
     ///
     /// # Errors
     /// - See `init` for additional error details.
-    pub async fn init_or_create(
+    pub async fn register(
         seed: &[u8],
         config: Config,
         recovery_address: Option<Address>,
-    ) -> Result<Option<Self>, AuthenticatorError> {
-        // First try to initialize normally
-        match Self::init(seed, config.clone()).await {
-            Ok(authenticator) => Ok(Some(authenticator)),
-            Err(AuthenticatorError::AccountDoesNotExist) => {
-                let http_client = reqwest::Client::new();
-                Self::create_account(seed, &config, recovery_address, &http_client).await?;
-                Ok(None)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Initialize an Authenticator from a seed and config, creating the account if it doesn't exist
-    /// and blocking until the account is confirmed on-chain.
-    ///
-    /// # Errors
-    /// - Will error with `Timeout` if account creation takes longer than 30 seconds.
-    /// - Will error if the gateway reports the account creation as failed.
-    /// - See `init` for additional error details.
-    pub async fn init_or_create_blocking(
-        seed: &[u8],
-        config: Config,
-        recovery_address: Option<Address>,
-    ) -> Result<Self, AuthenticatorError> {
-        match Self::init(seed, config.clone()).await {
-            Ok(authenticator) => return Ok(authenticator),
-            Err(AuthenticatorError::AccountDoesNotExist) => {
-                // Account doesn't exist, create it and poll for confirmation
-            }
-            Err(e) => return Err(e),
-        }
-
-        // Create HTTP client for account creation and polling
+    ) -> Result<InitializingAuthenticator, AuthenticatorError> {
         let http_client = reqwest::Client::new();
-
-        // Create the account and get the request ID
-        let request_id =
-            Self::create_account(seed, &config, recovery_address, &http_client).await?;
-
-        // Poll for confirmation with exponential backoff
-        let start = std::time::Instant::now();
-        let mut delay_ms = 100u64; // Start with 100ms
-
-        loop {
-            // Check if we've exceeded the timeout
-            if start.elapsed().as_secs() >= MAX_POLL_TIMEOUT_SECS {
-                return Err(AuthenticatorError::Timeout(MAX_POLL_TIMEOUT_SECS));
-            }
-
-            // Wait before polling
-            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-
-            // Poll the gateway status
-            match Self::poll_gateway_status(&config, &request_id, &http_client).await {
-                Ok(GatewayRequestState::Finalized { .. }) => {
-                    let result = Self::init(seed, config.clone()).await;
-                    match result {
-                        Ok(authenticator) => return Ok(authenticator),
-                        Err(e) => {
-                            if matches!(e, AuthenticatorError::AccountDoesNotExist) {
-                                // continue polling, as the indexer may take a while
-                                delay_ms = (delay_ms * 2).min(5000); // Cap at 5 seconds
-                                continue;
-                            }
-                            return Err(e);
-                        }
-                    }
-                }
-                Ok(GatewayRequestState::Failed { error, .. }) => {
-                    return Err(AuthenticatorError::Generic(format!(
-                        "Account creation failed: {error}"
-                    )));
-                }
-                Ok(_) => {
-                    // Still pending, continue polling with exponential backoff
-                    delay_ms = (delay_ms * 2).min(5000); // Cap at 5 seconds
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    /// Poll the gateway for the status of a request.
-    ///
-    /// # Errors
-    /// - Will error if the network request fails.
-    /// - Will error if the gateway returns an error response.
-    async fn poll_gateway_status(
-        config: &Config,
-        request_id: &str,
-        http_client: &reqwest::Client,
-    ) -> Result<GatewayRequestState, AuthenticatorError> {
-        let resp = http_client
-            .get(format!("{}/status/{}", config.gateway_url(), request_id))
-            .send()
-            .await?;
-
-        let status = resp.status();
-
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.status)
-        } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
-            Err(AuthenticatorError::GatewayError {
-                status: status.as_u16(),
-                body: body_text,
-            })
-        }
+        InitializingAuthenticator::new(seed, config, recovery_address, http_client).await
     }
 
     /// Returns the packed account data for the holder's World ID.
@@ -512,10 +400,10 @@ impl Authenticator {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
-        let old_offchain_signer_commitment = Self::leaf_hash(&key_set);
+        let old_offchain_signer_commitment = key_set.leaf_hash();
         key_set.try_push(new_authenticator_pubkey.clone())?;
         let index = key_set.len() - 1;
-        let new_offchain_signer_commitment = Self::leaf_hash(&key_set);
+        let new_offchain_signer_commitment = key_set.leaf_hash();
 
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
@@ -597,9 +485,9 @@ impl Authenticator {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = Self::leaf_hash(&key_set).into();
+        let old_commitment: U256 = key_set.leaf_hash().into();
         key_set.try_set_at_index(index as usize, new_authenticator_pubkey.clone())?;
-        let new_commitment: U256 = Self::leaf_hash(&key_set).into();
+        let new_commitment: U256 = key_set.leaf_hash().into();
 
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
@@ -679,7 +567,7 @@ impl Authenticator {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
-        let old_commitment: U256 = Self::leaf_hash(&key_set).into();
+        let old_commitment: U256 = key_set.leaf_hash().into();
         let existing_pubkey = key_set
             .get(index as usize)
             .ok_or(AuthenticatorError::PublicKeyNotFound)?;
@@ -689,7 +577,7 @@ impl Authenticator {
         key_set[index as usize] = EdDSAPublicKey {
             pk: EdwardsAffine::default(),
         };
-        let new_commitment: U256 = Self::leaf_hash(&key_set).into();
+        let new_commitment: U256 = key_set.leaf_hash().into();
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
@@ -748,18 +636,6 @@ impl Authenticator {
             })
         }
     }
-
-    /// Computes the Merkle leaf (i.e. the commitment to the public key set) for a given public key set.
-    ///
-    /// TODO: move to primitives
-    ///
-    /// # Errors
-    /// Will error if the provided public key set is not valid.
-    #[allow(clippy::missing_panics_doc)]
-    #[must_use]
-    pub fn leaf_hash(key_set: &AuthenticatorPublicKeySet) -> ark_babyjubjub::Fq {
-        key_set.leaf_hash()
-    }
 }
 
 impl ProtocolSigner for Authenticator {
@@ -793,29 +669,31 @@ impl OnchainKeyRepresentable for EdDSAPublicKey {
     }
 }
 
-/// Represents an account being initialized.
-pub struct InitializingAccount {
+/// Represents an account in the process of being initialized,
+/// i.e. it is not yet registered in the `WorldIDRegistry` contract.
+pub struct InitializingAuthenticator {
     request_id: String,
     http_client: reqwest::Client,
+    config: Config,
 }
 
-impl InitializingAccount {
+impl InitializingAuthenticator {
     /// Creates a new World ID account by adding it to the registry using the gateway.
     ///
     /// # Errors
     /// - See `Signer::from_seed_bytes` for additional error details.
     /// - Will error if the gateway rejects the request or a network error occurs.
-    async fn create_account(
+    async fn new(
         seed: &[u8],
-        config: &Config,
+        config: Config,
         recovery_address: Option<Address>,
-        http_client: &reqwest::Client,
-    ) -> Result<String, AuthenticatorError> {
+        http_client: reqwest::Client,
+    ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let mut key_set = AuthenticatorPublicKeySet::new(None)?;
         key_set.try_push(signer.offchain_signer_pubkey())?;
-        let leaf_hash = Self::leaf_hash(&key_set);
+        let leaf_hash = key_set.leaf_hash();
 
         let offchain_pubkey_compressed = {
             let pk = signer.offchain_signer_pubkey().pk;
@@ -841,7 +719,41 @@ impl InitializingAccount {
         let status = resp.status();
         if status.is_success() {
             let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.request_id)
+            Ok(Self {
+                request_id: body.request_id,
+                http_client,
+                config,
+            })
+        } else {
+            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            Err(AuthenticatorError::GatewayError {
+                status: status.as_u16(),
+                body: body_text,
+            })
+        }
+    }
+
+    /// Poll the status of the World ID creation request.
+    ///
+    /// # Errors
+    /// - Will error if the network request fails.
+    /// - Will error if the gateway returns an error response.
+    pub async fn poll_status(&self) -> Result<GatewayRequestState, AuthenticatorError> {
+        let resp = self
+            .http_client
+            .get(format!(
+                "{}/status/{}",
+                self.config.gateway_url(),
+                self.request_id
+            ))
+            .send()
+            .await?;
+
+        let status = resp.status();
+
+        if status.is_success() {
+            let body: GatewayStatusResponse = resp.json().await?;
+            Ok(body.status)
         } else {
             let body_text = resp.text().await.unwrap_or_else(|_| String::new());
             Err(AuthenticatorError::GatewayError {

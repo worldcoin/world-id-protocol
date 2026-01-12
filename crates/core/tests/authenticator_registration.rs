@@ -1,8 +1,9 @@
 #![cfg(feature = "authenticator")]
 
 use alloy::primitives::U256;
+use backon::{ExponentialBuilder, Retryable};
 use test_utils::anvil::TestAnvil;
-use world_id_core::{Authenticator, AuthenticatorError};
+use world_id_core::{types::GatewayRequestState, Authenticator, AuthenticatorError};
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
 use world_id_primitives::Config;
 
@@ -61,10 +62,25 @@ async fn test_authenticator_registration() {
 
     // Create the account (awaits until creation)
     let start = std::time::Instant::now();
-    let authenticator =
-        Authenticator::init_or_create_blocking(&seed, config.clone(), Some(recovery_address))
+    let initializing_account =
+        Authenticator::register(&seed, config.clone(), Some(recovery_address))
             .await
             .unwrap();
+
+    let poller = || async {
+        match initializing_account.poll_status().await {
+            Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
+            _ => Err(""),
+        }
+    };
+
+    poller
+        .retry(ExponentialBuilder::default())
+        .sleep(tokio::time::sleep)
+        .await
+        .unwrap();
+
+    let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
     let elapsed = start.elapsed();
     println!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), U256::from(1));

@@ -19,7 +19,9 @@ pub mod world_id_registry;
 #[cfg(feature = "authenticator")]
 mod authenticator;
 #[cfg(feature = "authenticator")]
-pub use crate::authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
+pub use crate::authenticator::{
+    Authenticator, AuthenticatorError, InitializingAuthenticator, OnchainKeyRepresentable,
+};
 
 pub use world_id_primitives::{Credential, CredentialVersion};
 
