@@ -180,7 +180,8 @@ impl Authenticator {
         // Poll for confirmation with exponential backoff
         let backoff = ExponentialBuilder::default()
             .with_min_delay(Duration::from_millis(100))
-            .with_max_delay(Duration::from_secs(5));
+            .with_max_delay(Duration::from_secs(5))
+            .without_max_times();
 
         let poll_and_init = || async {
             match Self::poll_gateway_status(&config, &request_id, &http_client).await {
