@@ -74,7 +74,7 @@ async fn e2e_gateway_full_flow() {
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
-    let signer_args = SignerArgs::new_wallet(GW_PRIVATE_KEY.to_string());
+    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.clone(),
@@ -452,7 +452,7 @@ async fn test_authenticator_already_exists_error_code() {
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
-    let signer_args = SignerArgs::new_wallet(GW_PRIVATE_KEY.to_string());
+    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.clone(),
@@ -581,7 +581,7 @@ async fn test_same_authenticator_different_accounts() {
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
-    let signer_args = SignerArgs::new_wallet(GW_PRIVATE_KEY.to_string());
+    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.clone(),

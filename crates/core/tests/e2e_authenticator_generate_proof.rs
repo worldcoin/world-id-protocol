@@ -62,7 +62,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .await?;
 
     // Spawn the gateway wired to this Anvil instance.
-    let signer_args = SignerArgs::new_wallet(hex::encode(deployer.to_bytes()));
+    let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
         rpc_url: anvil.endpoint().to_string(),

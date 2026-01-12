@@ -25,7 +25,7 @@ pub struct SignerArgs {
 
 impl SignerArgs {
     /// Create a new `SignerArgs` with the provided wallet private key.
-    pub fn new_wallet(wallet_private_key: String) -> Self {
+    pub fn from_wallet(wallet_private_key: String) -> Self {
         Self {
             wallet_private_key: Some(wallet_private_key),
             aws_kms_key_id: None,
@@ -33,7 +33,7 @@ impl SignerArgs {
     }
 
     /// Create a new `SignerArgs` with the provided aws kms key id
-    pub fn new_aws(aws_kms_key_id: String) -> Self {
+    pub fn from_aws(aws_kms_key_id: String) -> Self {
         Self {
             wallet_private_key: None,
             aws_kms_key_id: Some(aws_kms_key_id),
