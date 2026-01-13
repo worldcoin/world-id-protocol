@@ -44,6 +44,9 @@ COPY . .
 # build the contracts to have the ABIs available
 RUN make sol-build
 
+ARG GIT_HASH
+ENV GIT_HASH=$GIT_HASH
+
 RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME
 
 RUN mv target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin

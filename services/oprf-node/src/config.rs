@@ -1,6 +1,6 @@
 //! Configuration types and CLI/environment parsing for the OPRF node.
 
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{net::SocketAddr, time::Duration};
 
 use alloy::primitives::Address;
 use clap::Parser;
@@ -28,10 +28,6 @@ pub struct WorldOprfNodeConfig {
     /// The address of the WorldIDRegistry smart contract
     #[clap(long, env = "OPRF_NODE_WORLD_ID_REGISTRY_CONTRACT")]
     pub world_id_registry_contract: Address,
-
-    /// Path to the verification key used to verify the proof provided by the user during session initialization.
-    #[clap(long, env = "OPRF_NODE_USER_PROOF_VERIFICATION_KEY_PATH")]
-    pub user_verification_key_path: PathBuf,
 
     /// The maximum size of the merkle store.
     ///
