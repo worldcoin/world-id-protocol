@@ -35,12 +35,14 @@ pub async fn start(
     tracing::info!("starting oprf-node with config: {config:#?}");
     let node_config = config.node_config;
     let cancellation_token = taceo_nodes_common::spawn_shutdown_task(shutdown_signal);
+    let mut started_services = StartedServices::default();
 
     tracing::info!("init merkle watcher..");
     let merkle_watcher = MerkleWatcher::init(
         config.world_id_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_merkle_store_size,
+        started_services.new_service(),
         cancellation_token.clone(),
     )
     .await
@@ -58,7 +60,7 @@ pub async fn start(
         node_config,
         secret_manager,
         oprf_req_auth_service,
-        StartedServices::default(),
+        started_services,
         cancellation_token.clone(),
     )
     .await?;

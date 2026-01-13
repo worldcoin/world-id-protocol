@@ -7,7 +7,14 @@
 //! - alloy (uses the alloy crate to interact with smart contracts)
 //! - test (contains initially provided merkle roots)
 
-use std::{collections::HashMap, sync::Arc, time::SystemTime};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::SystemTime,
+};
 
 use alloy::{
     eips::BlockNumberOrTag,
@@ -55,6 +62,7 @@ impl MerkleWatcher {
         contract_address: Address,
         ws_rpc_url: &str,
         max_merkle_store_size: usize,
+        started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
         tracing::info!("creating provider...");
@@ -82,6 +90,10 @@ impl MerkleWatcher {
             .event_signature(RootRecorded::SIGNATURE_HASH);
         let sub = provider.subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
+
+        // indicate that the merkle watcher has started
+        started.store(true, Ordering::Relaxed);
+
         tokio::spawn(async move {
             // shutdown service if merkle watcher encounters an error and drops this guard
             let _drop_guard = cancellation_token.drop_guard();
@@ -217,6 +229,7 @@ impl MerkleRootStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use taceo_oprf_service::StartedServices;
     use test_utils::anvil::TestAnvil;
     use tokio_util::sync::CancellationToken;
 
@@ -230,12 +243,15 @@ mod tests {
             .await
             .expect("failed to deploy WorldIDRegistry");
 
+        let mut started_services = StartedServices::default();
+
         let cancellation_token = CancellationToken::new();
 
         let merkle_watcher = MerkleWatcher::init(
             registry_address,
             anvil.ws_endpoint(),
             100,
+            started_services.new_service(),
             cancellation_token,
         )
         .await
