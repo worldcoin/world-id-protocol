@@ -43,20 +43,47 @@ async fn main() -> Result<()> {
             if matches!(err, AuthenticatorError::AccountDoesNotExist) {
                 let initializing_account =
                     Authenticator::register(seed, config.clone(), None).await?;
+
+                // Poll gateway until finalized, then retry init until indexer catches up (max 15s)
+                let start_time = std::time::Instant::now();
+                let max_duration = std::time::Duration::from_secs(15);
+
                 let poller = || async {
+                    // Check timeout
+                    if start_time.elapsed() > max_duration {
+                        return Err(eyre::eyre!("timeout after 15 seconds"));
+                    }
+
                     match initializing_account.poll_status().await {
-                        Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
-                        _ => Err("not finalized"),
+                        Ok(GatewayRequestState::Finalized { .. }) => {
+                            // Gateway finalized, now check if indexer has synced
+                            match Authenticator::init(seed, config.clone()).await {
+                                Ok(auth) => Ok(auth),
+                                Err(AuthenticatorError::AccountDoesNotExist) => {
+                                    Err(eyre::eyre!("indexer not yet synced"))
+                                }
+                                Err(e) => Err(e.into()),
+                            }
+                        }
+                        Ok(GatewayRequestState::Failed { error, .. }) => {
+                            Err(eyre::eyre!("account creation failed: {error}"))
+                        }
+                        _ => Err(eyre::eyre!("gateway not finalized")),
                     }
                 };
 
                 poller
-                    .retry(ExponentialBuilder::default())
+                    .retry(
+                        ExponentialBuilder::default()
+                            .with_max_delay(std::time::Duration::from_secs(2)),
+                    )
+                    .when(|e| {
+                        // Only retry on transient errors, stop on permanent failures
+                        let msg = e.to_string();
+                        msg.contains("not yet synced") || msg.contains("not finalized")
+                    })
                     .sleep(tokio::time::sleep)
-                    .await
-                    .map_err(|_| eyre::eyre!("failed to poll for account creation"))?;
-
-                Authenticator::init(seed, config.clone()).await?
+                    .await?
             } else {
                 return Err(err.into());
             }
