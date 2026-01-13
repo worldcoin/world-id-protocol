@@ -95,7 +95,7 @@ async fn redis_integration() {
     };
 
     // Wait for the request to be processed
-    let tx_hash = wait_for_finalized(&client, 4103, &request_id).await;
+    let tx_hash = wait_for_finalized(&client, base, &request_id).await;
     assert!(!tx_hash.is_empty());
 
     // Verify status was updated in Redis
