@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
-use world_id_core::account_registry::AccountRegistry;
+use world_id_core::world_id_registry::WorldIdRegistry;
 
 use crate::GLOBAL_TREE;
 
@@ -13,7 +13,7 @@ pub async fn root_sanity_check_loop(
     interval_secs: u64,
 ) -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-    let contract = AccountRegistry::new(registry, provider.clone());
+    let contract = WorldIdRegistry::new(registry, provider.clone());
 
     tracing::info!(
         registry = %registry,

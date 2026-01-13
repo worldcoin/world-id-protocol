@@ -3,12 +3,11 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use taceo_oprf_types::crypto::OprfPublicKey;
 
 use crate::{
-    authenticator::AuthenticatorPublicKeySet,
-    merkle::MerkleInclusionProof,
-    rp::{RpId, RpNullifierKey},
-    Credential, FieldElement, PrimitiveError,
+    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId, Credential,
+    FieldElement, PrimitiveError,
 };
 
 /// Represents a base World ID proof.
@@ -16,13 +15,13 @@ use crate::{
 /// Both the Query Proof (π1) and the Nullifier Proof (π2) are World ID Proofs.
 ///
 /// Internally, the World ID Proofs are Groth16 ZKPs. In the World ID Protocol,
-/// the Merkle Root that proves inclusion into the set of World ID accounts (`AccountRegistry`)
+/// the Merkle Root that proves inclusion into the set of World ID accounts (`WorldIDRegistry`)
 /// is also encoded as part of the proof.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct WorldIdProof {
     /// The Groth16 ZKP
     pub zkp: ark_groth16::Proof<Bn254>,
-    /// The hash of the root of the Merkle tree that proves inclusion into the set of World ID accounts (`AccountRegistry`).
+    /// The hash of the root of the Merkle tree that proves inclusion into the set of World ID accounts (`WorldIDRegistry`).
     pub merkle_root: FieldElement,
 }
 
@@ -128,7 +127,7 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     // SECTION: User Inputs
     /// The credential of the user which will be proven in the World ID Proof.
     pub credential: Credential,
-    /// The Merkle inclusion proof which proves ownership of the user's account in the `AccountRegistry` contract.
+    /// The Merkle inclusion proof which proves ownership of the user's account in the `WorldIDRegistry` contract.
     pub inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     /// The complete set of authenticator public keys for the World ID Account.
     pub key_set: AuthenticatorPublicKeySet,
@@ -160,10 +159,10 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     ///
     /// TODO: Refactor what is actually signed.
     pub rp_signature: k256::ecdsa::Signature,
-    /// The public key of the RP used to verify the computed nullifier.
+    /// The public key used to verify the computed nullifier. It can be retrieved from the `OprfKeyRegistry` contract.
     ///
     /// TODO: This requires more details.
-    pub rp_nullifier_key: RpNullifierKey,
+    pub oprf_public_key: OprfPublicKey,
     /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
     /// to ensure the integrity of the proof. For example, in a voting application, the signal could
     /// be used to encode the user's vote.
@@ -185,7 +184,10 @@ mod tests {
         assert_eq!(compressed_bytes.len(), 160);
 
         let encoded = serde_json::to_string(&proof).unwrap();
-        assert_eq!(encoded, "\"00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000\"");
+        assert_eq!(
+            encoded,
+            "\"00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000\""
+        );
 
         let proof_from = WorldIdProof::from_compressed_bytes(&compressed_bytes).unwrap();
 

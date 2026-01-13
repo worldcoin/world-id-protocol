@@ -22,7 +22,9 @@ pub struct OprfRequestAuthV1 {
     #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
     pub merkle_root: ark_babyjubjub::Fq,
     /// The credential public key
-    pub cred_pk: EdDSAPublicKey, // TODO maybe remove and get from chain
+    pub cred_pk: EdDSAPublicKey, // TODO  remove and get from chain
+    /// The issuerSchemaId
+    pub cred_type_id: u64, // TODO remove and get from chain
     /// The current time stamp (unix secs)
     pub current_time_stamp: u64,
     /// The signature of the nonce || timestamp

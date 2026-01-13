@@ -32,10 +32,14 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     error InvalidPubkey();
 
     modifier onlyInitialized() {
+        _onlyInitialized();
+        _;
+    }
+
+    function _onlyInitialized() internal view {
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-        _;
     }
 
     ////////////////////////////////////////////////////////////

@@ -2,18 +2,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
     network::EthereumWallet,
-    primitives::{Address, U256},
+    primitives::{Address, U160, U256},
     providers::ProviderBuilder,
     sol_types::SolEvent,
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, PrimeField, UniformRand};
+use ark_ff::{PrimeField, UniformRand};
+use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{eyre, Context as _, Result};
 use k256::ecdsa::{signature::Signer, Signature, SigningKey};
-use oprf_types::{RpId as OprfRpId, ShareEpoch};
 use rand::{thread_rng, Rng};
+use taceo_oprf_types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, credential::Credential, merkle::MerkleInclusionProof,
     rp::RpId as WorldRpId, FieldElement, TREE_DEPTH,
@@ -27,7 +28,7 @@ use crate::{
 /// Holds the default on-chain environment used by the E2E tests
 pub struct RegistryTestContext {
     pub anvil: TestAnvil,
-    pub account_registry: Address,
+    pub world_id_registry: Address,
     pub credential_registry: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
@@ -35,21 +36,21 @@ pub struct RegistryTestContext {
 }
 
 impl RegistryTestContext {
-    /// Spawns Anvil, deploys the AccountRegistry and CredentialSchemaIssuerRegistry,
+    /// Spawns Anvil, deploys the WorldIDRegistry and CredentialSchemaIssuerRegistry,
     /// and registers a random issuer.
     pub async fn new() -> Result<Self> {
         let anvil = TestAnvil::spawn().wrap_err("failed to spawn anvil")?;
         let deployer = anvil
             .signer(0)
             .wrap_err("failed to acquire default anvil signer")?;
-        let account_registry = anvil
-            .deploy_account_registry(deployer.clone())
+        let world_id_registry = anvil
+            .deploy_world_id_registry(deployer.clone())
             .await
-            .wrap_err("failed to deploy account registry")?;
+            .wrap_err("failed to deploy WorldIDRegistry")?;
         let credential_registry = anvil
             .deploy_credential_schema_issuer_registry(deployer.clone())
             .await
-            .wrap_err("failed to deploy credential registry")?;
+            .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer.clone()))
@@ -91,7 +92,7 @@ impl RegistryTestContext {
 
         Ok(Self {
             anvil,
-            account_registry,
+            world_id_registry,
             credential_registry,
             issuer_private_key,
             issuer_public_key,
@@ -147,13 +148,12 @@ pub fn single_leaf_merkle_fixture(
 
 pub struct RpFixture {
     pub world_rp_id: WorldRpId,
-    pub oprf_rp_id: OprfRpId,
+    pub oprf_rp_id: OprfKeyId,
     pub share_epoch: ShareEpoch,
     pub action: Fq,
     pub nonce: Fq,
     pub current_timestamp: u64,
     pub signature: Signature,
-    pub signal_hash: FieldElement,
     pub rp_session_id_r_seed: FieldElement,
     pub signing_key: SigningKey,
     pub rp_secret: Fr,
@@ -163,9 +163,9 @@ pub struct RpFixture {
 /// Generates RP identifiers, signatures, and ancillary inputs shared across tests.
 pub fn generate_rp_fixture() -> RpFixture {
     let mut rng = thread_rng();
-    let rp_id_value: u128 = rng.gen();
+    let rp_id_value: U160 = rng.gen();
     let world_rp_id = WorldRpId::new(rp_id_value);
-    let oprf_rp_id = OprfRpId::new(rp_id_value);
+    let oprf_rp_id = OprfKeyId::new(rp_id_value);
 
     let action = Fq::rand(&mut rng);
     let nonce = Fq::rand(&mut rng);
@@ -175,12 +175,11 @@ pub fn generate_rp_fixture() -> RpFixture {
         .as_secs();
 
     let mut msg = Vec::new();
-    msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_timestamp.to_le_bytes());
+    nonce.serialize_compressed(&mut msg).unwrap();
+    msg.extend(current_timestamp.to_be_bytes());
     let signing_key = SigningKey::random(&mut rng);
     let signature = signing_key.sign(&msg);
 
-    let signal_hash = FieldElement::from(Fq::rand(&mut rng));
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
 
     let rp_secret = Fr::rand(&mut rng);
@@ -194,7 +193,6 @@ pub fn generate_rp_fixture() -> RpFixture {
         nonce,
         current_timestamp,
         signature,
-        signal_hash,
         rp_session_id_r_seed,
         signing_key,
         rp_secret,

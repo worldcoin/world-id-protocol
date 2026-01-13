@@ -3,9 +3,10 @@ use std::time::Duration;
 use alloy::primitives::{address, Address, Bytes, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
-use world_id_core::account_registry::AccountRegistry;
+use world_id_core::world_id_registry::WorldIdRegistry;
 
-use crate::{GatewayError, RequestState, RequestTracker};
+use crate::error::{parse_contract_error, ErrorCode};
+use crate::{RequestState, RequestTracker};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
@@ -108,7 +109,7 @@ impl OpsBatcherRunner {
 
     /// Simulate an operation to check if it would revert without spending gas
     async fn simulate_operation(
-        contract: &AccountRegistry::AccountRegistryInstance<DynProvider>,
+        contract: &WorldIdRegistry::WorldIdRegistryInstance<DynProvider>,
         kind: &OpKind,
     ) -> Result<(), String> {
         match kind {
@@ -221,7 +222,7 @@ impl OpsBatcherRunner {
 
     pub async fn run(mut self) {
         let provider = self.provider.clone();
-        let contract = AccountRegistry::new(self.registry, provider.clone());
+        let contract = WorldIdRegistry::new(self.registry, provider.clone());
         let mc = Multicall3::new(MULTICALL3_ADDR, provider);
 
         loop {
@@ -234,13 +235,14 @@ impl OpsBatcherRunner {
             if let Err(sim_error) = Self::simulate_operation(&contract, &first.kind).await {
                 tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
                 // Parse the error to get a specific error code if possible
-                let err = GatewayError::from_contract_error(&sim_error);
-                let err = match err {
-                    GatewayError::Unknown(msg) => GatewayError::PreFlightFailed(msg),
-                    specific => specific,
+                let code = parse_contract_error(&sim_error);
+                let error_msg = if matches!(code, ErrorCode::BadRequest) {
+                    format!("pre-flight check failed: {sim_error}")
+                } else {
+                    code.to_string()
                 };
                 self.tracker
-                    .set_status(&first.id, RequestState::failed_from_error(err))
+                    .set_status(&first.id, RequestState::failed(error_msg, Some(code)))
                     .await;
                 continue; // Skip this operation and wait for the next one
             }
@@ -259,13 +261,14 @@ impl OpsBatcherRunner {
                         {
                             tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
                             // Parse the error to get a specific error code if possible
-                            let err = GatewayError::from_contract_error(&sim_error);
-                            let err = match err {
-                                GatewayError::Unknown(msg) => GatewayError::PreFlightFailed(msg),
-                                specific => specific,
+                            let code = parse_contract_error(&sim_error);
+                            let error_msg = if matches!(code, ErrorCode::BadRequest) {
+                                format!("pre-flight check failed: {sim_error}")
+                            } else {
+                                code.to_string()
                             };
                             self.tracker
-                                .set_status(&req.id, RequestState::failed_from_error(err))
+                                .set_status(&req.id, RequestState::failed(error_msg, Some(code)))
                                 .await;
                             // Skip this operation but continue batching
                         } else {
@@ -420,21 +423,27 @@ impl OpsBatcherRunner {
                                         )
                                         .await;
                                 } else {
-                                    let err = GatewayError::TransactionReverted(hash.clone());
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::failed_from_error(err),
+                                            RequestState::failed(
+                                                format!(
+                                                    "transaction reverted on-chain (tx: {hash})"
+                                                ),
+                                                Some(ErrorCode::TransactionReverted),
+                                            ),
                                         )
                                         .await;
                                 }
                             }
                             Err(err) => {
-                                let err = GatewayError::ConfirmationError(err.to_string());
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::failed_from_error(err),
+                                        RequestState::failed(
+                                            format!("transaction confirmation error: {err}"),
+                                            Some(ErrorCode::ConfirmationError),
+                                        ),
                                     )
                                     .await;
                             }
@@ -443,9 +452,10 @@ impl OpsBatcherRunner {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "multicall3 send failed");
-                    let err = GatewayError::Unknown(e.to_string());
+                    let error_str = e.to_string();
+                    let code = parse_contract_error(&error_str);
                     self.tracker
-                        .set_status_batch(&ids, RequestState::failed_from_error(err))
+                        .set_status_batch(&ids, RequestState::failed(error_str, Some(code)))
                         .await;
                 }
             }

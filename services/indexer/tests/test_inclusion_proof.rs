@@ -100,7 +100,14 @@ async fn test_backfill_and_live_sync() {
 
     let client = reqwest::Client::new();
     let resp = client
-        .get("http://127.0.0.1:8080/proof/1")
+        .post("http://127.0.0.1:8080/inclusion-proof")
+        .header("Content-Type", "application/json")
+        .body(
+            serde_json::json!({
+                "leaf_index": "0x1"
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
@@ -182,7 +189,14 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get("http://127.0.0.1:8082/proof/1")
+        .post("http://127.0.0.1:8082/inclusion-proof")
+        .header("Content-Type", "application/json")
+        .body(
+            serde_json::json!({
+                "leaf_index": "0x1"
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
@@ -192,7 +206,14 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let resp = client
-        .get("http://127.0.0.1:8082/proof/1")
+        .post("http://127.0.0.1:8082/inclusion-proof")
+        .header("Content-Type", "application/json")
+        .body(
+            serde_json::json!({
+                "leaf_index": "0x1"
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
@@ -200,7 +221,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     let proof: serde_json::Value = resp.json().await.unwrap();
     assert!(proof["root"].is_string());
-    assert_eq!(proof["leaf_index"].as_u64().unwrap(), 1);
+    assert_eq!(proof["leaf_index"].as_str().unwrap(), "0x1");
 
     http_task.abort();
 }

@@ -81,7 +81,7 @@ jobs:
 
       - name: Run services
         run: |
-          docker compose -f services/indexer/docker-compose.tests.yml up -d
+          docker compose -f docker-compose.yml up -d
           sleep 5
 
       - name: Run tests
@@ -91,7 +91,7 @@ jobs:
 
       - name: Clean up services
         run: |
-          docker compose -f services/indexer/docker-compose.tests.yml down
+          docker compose -f docker-compose.yml down
 
       - name: Build non-default features
         run: |
@@ -114,7 +114,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.13
+      - uses: EmbarkStudios/cargo-deny-action@v2.0.14
         with:
           command: check ${{ matrix.checks }}
 

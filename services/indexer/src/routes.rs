@@ -1,11 +1,13 @@
 use axum::{response::IntoResponse, Json, Router};
 use utoipa::OpenApi;
 use world_id_core::types::{
-    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerSignatureNonceRequest,
+    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerQueryRequest,
     IndexerSignatureNonceResponse,
 };
 
-use crate::{config::AppState, error::ErrorBody};
+use crate::{
+    config::AppState, error::ErrorBody, routes::inclusion_proof::AccountInclusionProofSchema,
+};
 mod get_packed_account;
 mod get_signature_nonce;
 mod health;
@@ -16,16 +18,18 @@ mod inclusion_proof;
     paths(
         get_packed_account::handler,
         get_signature_nonce::handler,
+        inclusion_proof::handler,
     ),
     components(schemas(
         IndexerPackedAccountRequest,
         IndexerPackedAccountResponse,
-        IndexerSignatureNonceRequest,
+        IndexerQueryRequest,
         IndexerSignatureNonceResponse,
+        AccountInclusionProofSchema,
         ErrorBody,
     )),
     tags(
-        (name = "indexer", description = "World ID Indexer. Provides Merkle inclusion proofs and packed account indices from the on-chain registry.")
+        (name = "indexer", description = "World ID Indexer. Provides Merkle inclusion proofs and account information from the on-chain registry.")
     )
 )]
 struct ApiDoc;
@@ -37,15 +41,15 @@ async fn openapi() -> impl IntoResponse {
 pub(crate) fn handler(state: AppState) -> Router {
     Router::new()
         .route(
-            "/proof/:leaf_index",
-            axum::routing::get(inclusion_proof::handler),
+            "/inclusion-proof",
+            axum::routing::post(inclusion_proof::handler),
         )
         .route(
-            "/packed_account",
+            "/packed-account",
             axum::routing::post(get_packed_account::handler),
         )
         .route(
-            "/signature_nonce",
+            "/signature-nonce",
             axum::routing::post(get_signature_nonce::handler),
         )
         .route("/health", axum::routing::get(health::handler))

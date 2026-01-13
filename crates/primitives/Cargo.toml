@@ -26,7 +26,7 @@ circom-types = { workspace = true, features = ["groth16"] }
 groth16-material = { workspace = true, features = ["circom"] }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
-oprf-core = { workspace = true }
+taceo-oprf-types = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
@@ -34,6 +34,8 @@ thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 poseidon2 = { workspace = true }
+sha3 = { version = "0.10", default-features = false }
+rand.workspace = true
 
 [dev-dependencies]
 ciborium = "0.2.2"

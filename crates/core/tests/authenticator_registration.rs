@@ -3,32 +3,36 @@
 use alloy::primitives::U256;
 use test_utils::anvil::TestAnvil;
 use world_id_core::{Authenticator, AuthenticatorError};
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
 use world_id_primitives::Config;
 
 const GW_PORT: u16 = 4102;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_authenticator_registration() {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("can install");
     let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
 
     let deployer = anvil.signer(0).unwrap();
 
     let registry_address = anvil
-        .deploy_account_registry(deployer.clone())
+        .deploy_world_id_registry(deployer.clone())
         .await
-        .expect("failed to deploy account registry");
+        .unwrap();
 
     // Spawn gateway pointing to the same anvil instance
+    let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
         rpc_url: anvil.endpoint().to_string(),
-        wallet_private_key: Some(hex::encode(deployer.to_bytes())),
-        aws_kms_key_id: None,
+        signer_args,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        redis_url: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await

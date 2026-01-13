@@ -5,16 +5,16 @@ use std::sync::Arc;
 use alloy::primitives::Address;
 use alloy::providers::DynProvider;
 use sqlx::PgPool;
-use world_id_core::account_registry::AccountRegistry::AccountRegistryInstance;
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub registry: Arc<AccountRegistryInstance<DynProvider>>,
+    pub registry: Arc<WorldIdRegistryInstance<DynProvider>>,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, registry: Arc<AccountRegistryInstance<DynProvider>>) -> Self {
+    pub fn new(pool: PgPool, registry: Arc<WorldIdRegistryInstance<DynProvider>>) -> Self {
         Self { pool, registry }
     }
 }
@@ -37,9 +37,16 @@ impl RunMode {
         let str = std::env::var("RUN_MODE").unwrap_or_else(|_| "both".to_string());
 
         match str.to_lowercase().as_str() {
-            "indexer" | "indexer-only" => Self::IndexerOnly { indexer_config: IndexerConfig::from_env() },
-            "http" | "http-only" => Self::HttpOnly { http_config: HttpConfig::from_env() },
-            "both" | "all" => Self::Both { indexer_config: IndexerConfig::from_env(), http_config: HttpConfig::from_env() },
+            "indexer" | "indexer-only" => Self::IndexerOnly {
+                indexer_config: IndexerConfig::from_env(),
+            },
+            "http" | "http-only" => Self::HttpOnly {
+                http_config: HttpConfig::from_env(),
+            },
+            "both" | "all" => Self::Both {
+                indexer_config: IndexerConfig::from_env(),
+                http_config: HttpConfig::from_env(),
+            },
             _ => panic!(
                 "Invalid run mode: '{str}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
             ),
@@ -62,7 +69,9 @@ impl FromStr for Environment {
             "production" => Ok(Self::Production),
             "staging" => Ok(Self::Staging),
             "development" => Ok(Self::Development),
-            _ => Err(format!("Invalid environment: '{s}'. Valid options are: 'production', 'staging', or 'development'")),
+            _ => Err(format!(
+                "Invalid environment: '{s}'. Valid options are: 'production', 'staging', or 'development'"
+            )),
         }
     }
 }
@@ -82,7 +91,7 @@ pub struct HttpConfig {
     pub db_poll_interval_secs: u64,
     /// Optional sanity check interval in seconds. If not set, the sanity check will not be run.
     ///
-    /// The sanity check calls the `isValidRoot` function on the `AccountRegistry` contract to ensure the local Merkle root is valid.
+    /// The sanity check calls the `isValidRoot` function on the `WorldIDRegistry` contract to ensure the local Merkle root is valid.
     pub sanity_check_interval_secs: Option<u64>,
 }
 
@@ -110,7 +119,9 @@ impl HttpConfig {
         };
 
         if config.http_addr.port() != 8080 {
-            tracing::warn!("Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)");
+            tracing::warn!(
+                "Indexer is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)"
+            );
         }
 
         tracing::info!(

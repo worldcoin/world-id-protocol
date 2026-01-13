@@ -18,11 +18,11 @@ pub struct Config {
     ///
     /// When not available, other services will be used (e.g. the indexer to fetch packed account index).
     rpc_url: Option<Url>,
-    /// The chain ID of the network where the `AccountRegistry` contract is deployed.
+    /// The chain ID of the network where the `WorldIDRegistry` contract is deployed.
     chain_id: u64,
-    /// The address of the `AccountRegistry` contract
+    /// The address of the `WorldIDRegistry` contract
     registry_address: Address,
-    /// Base URL of a deployed `world-id-indexer`. Used to fetch inclusion proofs from the `AccountRegistry`.
+    /// Base URL of a deployed `world-id-indexer`. Used to fetch inclusion proofs from the `WorldIDRegistry`.
     indexer_url: String,
     /// Base URL of a deployed `world-id-gateway`. Used to submit management operations on authenticators.
     gateway_url: String,
@@ -83,25 +83,25 @@ impl Config {
         self.rpc_url.as_ref()
     }
 
-    /// The chain ID of the network where the `AccountRegistry` contract is deployed.
+    /// The chain ID of the network where the `WorldIDRegistry` contract is deployed.
     #[must_use]
     pub const fn chain_id(&self) -> u64 {
         self.chain_id
     }
 
-    /// The address of the `AccountRegistry` contract.
+    /// The address of the `WorldIDRegistry` contract.
     #[must_use]
     pub const fn registry_address(&self) -> &Address {
         &self.registry_address
     }
 
-    /// The URL of the `world-id-indexer` service to use. The indexer is used to fetch inclusion proofs from the `AccountRegistry` contract.
+    /// The URL of the `world-id-indexer` service to use. The indexer is used to fetch inclusion proofs from the `WorldIDRegistry` contract.
     #[must_use]
     pub const fn indexer_url(&self) -> &String {
         &self.indexer_url
     }
 
-    /// The URL of the `world-id-gateway` service to use. The gateway is used to perform operations on the `AccountRegistry` contract
+    /// The URL of the `world-id-gateway` service to use. The gateway is used to perform operations on the `WorldIDRegistry` contract
     /// without leaking a wallet address.
     #[must_use]
     pub const fn gateway_url(&self) -> &String {

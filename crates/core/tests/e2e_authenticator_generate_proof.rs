@@ -2,30 +2,39 @@
 
 use std::{
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use alloy::primitives::U256;
 use eyre::{eyre, Context as _, Result};
-use oprf_types::crypto::RpNullifierKey;
+use taceo_oprf_types::ShareEpoch;
 use test_utils::{
     fixtures::{
         build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
         RegistryTestContext,
     },
-    stubs::{spawn_indexer_stub, spawn_oprf_stub},
+    stubs::spawn_indexer_stub,
 };
-use world_id_core::{Authenticator, AuthenticatorError, HashableCredential};
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
-use world_id_primitives::{merkle::AccountInclusionProof, Config, FieldElement, TREE_DEPTH};
+use world_id_core::{
+    requests::{ProofRequest, RequestItem, RequestVersion},
+    Authenticator, AuthenticatorError, HashableCredential,
+};
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
+use world_id_primitives::{
+    merkle::AccountInclusionProof, rp::RpId, Config, FieldElement, TREE_DEPTH,
+};
 
 const GW_PORT: u16 = 4104;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("can install");
+
     let RegistryTestContext {
         anvil,
-        account_registry: registry_address,
+        world_id_registry: registry_address,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,
@@ -40,16 +49,29 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
 
+    // deploy the OprfKeyRegistry
+    let oprf_registry = anvil.deploy_oprf_key_registry(deployer.clone()).await?;
+    // signers must match the ones used in the TestSecretManager
+    let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
+    anvil
+        .register_oprf_nodes(
+            oprf_registry,
+            deployer.clone(),
+            oprf_node_signers.iter().map(|s| s.address()).collect(),
+        )
+        .await?;
+
     // Spawn the gateway wired to this Anvil instance.
+    let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
         rpc_url: anvil.endpoint().to_string(),
-        wallet_private_key: Some(hex::encode(deployer.to_bytes())),
-        aws_kms_key_id: None,
+        signer_args,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        redis_url: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -106,7 +128,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let MerkleFixture {
         key_set,
         inclusion_proof: merkle_inclusion_proof,
-        root,
+        root: _,
         ..
     } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index_u64)
         .wrap_err("failed to construct merkle fixture")?;
@@ -121,17 +143,39 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    // Local OPRF peer stub setup
-    let rp_verifying_key = rp_fixture.signing_key.verifying_key();
-    let oprf_server = spawn_oprf_stub(
-        root,
-        *rp_verifying_key,
-        rp_fixture.oprf_rp_id,
-        rp_fixture.share_epoch,
-        rp_fixture.rp_secret,
+    let secret_managers = test_utils::taceo_oprf_test::create_3_secret_managers();
+    // OPRF key-gen instances
+    let oprf_key_gens = test_utils::stubs::spawn_key_gens(
+        anvil.ws_endpoint(),
+        secret_managers.clone(),
+        oprf_registry,
     )
-    .await
-    .wrap_err("failed to start OPRF stub")?;
+    .await;
+    // OPRF nodes
+    let nodes = test_utils::stubs::spawn_oprf_nodes(
+        anvil.ws_endpoint(),
+        secret_managers.clone(),
+        oprf_registry,
+        registry_address,
+    )
+    .await;
+
+    test_utils::taceo_oprf_test::health_checks::services_health_check(
+        &oprf_key_gens,
+        Duration::from_secs(60),
+    )
+    .await?;
+
+    // init key gen for a new RP, wait until its done and fetch the public key
+    let oprf_key_id = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;
+    let oprf_public_key =
+        test_utils::taceo_oprf_test::health_checks::oprf_public_key_from_services(
+            oprf_key_id,
+            ShareEpoch::default(),
+            &nodes,
+            Duration::from_secs(60),
+        )
+        .await?;
 
     // Config for proof generation uses the indexer + OPRF stubs.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -144,7 +188,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         registry_address,
         indexer_url.clone(),
         format!("http://127.0.0.1:{GW_PORT}"),
-        vec![oprf_server.base_url.clone()],
+        nodes.to_vec(),
         2,
     )
     .unwrap();
@@ -166,23 +210,34 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to hash credential prior to signing")?;
     credential.signature = Some(issuer_sk.sign(*credential_hash));
 
-    let rp_request = world_id_core::types::RpRequest {
-        rp_id: rp_fixture.oprf_rp_id.into_inner().to_string(),
-        rp_nullifier_key: RpNullifierKey::new(rp_fixture.rp_nullifier_point),
+    // Create a ProofRequest
+    let proof_request = ProofRequest {
+        id: "test_request".to_string(),
+        version: RequestVersion::V1,
+        created_at: rp_fixture.current_timestamp,
+        expires_at: rp_fixture.current_timestamp + 300, // 5 minutes from now
+        rp_id: RpId::from(oprf_key_id.into_inner()),
+        action: rp_fixture.action.into(),
+        oprf_public_key,
         signature: rp_fixture.signature,
-        current_time_stamp: rp_fixture.current_timestamp,
-        action_id: rp_fixture.action.into(),
         nonce: rp_fixture.nonce.into(),
+        requests: vec![RequestItem {
+            identifier: "test_credential".to_string(),
+            issuer_schema_id: issuer_schema_id_u64.into(),
+            signal: Some("my_signal".to_string()),
+        }],
+        constraints: None,
     };
 
     // Call generate_proof and ensure a nullifier is produced.
     let (_proof, nullifier) = authenticator
-        .generate_proof(rp_fixture.signal_hash, rp_request, credential)
+        .generate_proof(proof_request, credential)
         .await
         .wrap_err("failed to generate proof")?;
     assert_ne!(nullifier, FieldElement::ZERO);
 
+    // FIXME: verify proof with verifier contract
+
     indexer_handle.abort();
-    oprf_server.join_handle.abort();
     Ok(())
 }

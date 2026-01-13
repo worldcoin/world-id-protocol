@@ -1,14 +1,6 @@
-use std::{
-    net::SocketAddr,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{net::SocketAddr, time::Duration};
 
 use alloy::network::{EthereumWallet, TxSigner};
-use alloy::sol_types::SolError;
 use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
@@ -19,34 +11,36 @@ use aws_config::BehaviorVersion;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::TraceLayer;
 use utoipa::{IntoParams, OpenApi, ToSchema};
-use utoipa_swagger_ui::SwaggerUi;
-use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::{
     CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
+use world_id_core::world_id_registry::WorldIdRegistry;
 
-use world_id_core::account_registry::AccountRegistry::{
-    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
-    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
-};
+pub use crate::config::{GatewayConfig, SignerArgs, SignerConfig};
+pub use crate::error::ErrorResponse;
 
-pub use crate::config::{GatewayConfig, SignerConfig};
+/// Maximum number of authenticators per account (matches contract default).
+const MAX_AUTHENTICATORS: u32 = 7;
 
 mod config;
 mod create_batcher;
+mod error;
 mod ops_batcher;
+mod request_tracker;
 
 use create_batcher::{CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope};
+use error::{ErrorBody, ErrorCode, ErrorResponse as ApiError};
 use ops_batcher::{OpEnvelope, OpKind, OpsBatcherHandle, OpsBatcherRunner};
+use request_tracker::{RequestKind, RequestState, RequestTracker};
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -74,160 +68,6 @@ struct AppState {
     provider: DynProvider,
     batcher: CreateBatcherHandle,
     ops_batcher: OpsBatcherHandle,
-    tracker: RequestTracker,
-}
-
-#[derive(Clone)]
-pub(crate) struct RequestTracker {
-    inner: Arc<RwLock<std::collections::HashMap<String, RequestRecord>>>,
-    seq: Arc<AtomicU64>,
-}
-
-impl RequestTracker {
-    pub(crate) fn new() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            seq: Arc::new(AtomicU64::new(1)),
-        }
-    }
-
-    pub(crate) async fn new_request(&self, kind: RequestKind) -> String {
-        let id = self.seq.fetch_add(1, Ordering::Relaxed);
-        let id = format!("{id:016x}");
-        let record = RequestRecord {
-            kind,
-            status: RequestState::Queued,
-        };
-        self.inner.write().await.insert(id.clone(), record);
-        id
-    }
-
-    pub(crate) async fn set_status_batch(&self, ids: &[String], status: RequestState) {
-        let mut map = self.inner.write().await;
-        for id in ids {
-            if let Some(rec) = map.get_mut(id) {
-                rec.status = status.clone();
-            }
-        }
-    }
-
-    pub(crate) async fn set_status(&self, id: &str, status: RequestState) {
-        self.set_status_batch(&[id.to_string()], status).await;
-    }
-
-    pub(crate) async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
-        self.inner.read().await.get(id).cloned()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-enum RequestKind {
-    CreateAccount,
-    UpdateAuthenticator,
-    InsertAuthenticator,
-    RemoveAuthenticator,
-    RecoverAccount,
-}
-
-#[derive(Debug, Clone, thiserror::Error, ToSchema, strum::AsRefStr)]
-#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum GatewayError {
-    #[error("Authenticator already exists")]
-    AuthenticatorAlreadyExists,
-    #[error("Authenticator does not exist")]
-    AuthenticatorDoesNotExist,
-    #[error("Mismatched signature nonce")]
-    MismatchedSignatureNonce,
-    #[error("Pubkey ID is already in use")]
-    PubkeyIdInUse,
-    #[error("Pubkey ID is out of bounds")]
-    PubkeyIdOutOfBounds,
-    #[error("Authenticator does not belong to account")]
-    AuthenticatorDoesNotBelongToAccount,
-    #[error("Transaction reverted on-chain (tx: {0})")]
-    TransactionReverted(String),
-    #[error("Transaction confirmation error: {0}")]
-    ConfirmationError(String),
-    #[error("Batcher unavailable")]
-    BatcherUnavailable,
-    #[error("Pre-flight check failed: {0}")]
-    PreFlightFailed(String),
-    #[error("{0}")]
-    Unknown(String),
-}
-
-impl Serialize for GatewayError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.as_ref())
-    }
-}
-
-/// Helper to format a selector as a hex string for matching in error messages
-fn selector_hex(selector: [u8; 4]) -> String {
-    format!("0x{}", hex::encode(selector))
-}
-
-impl GatewayError {
-    pub(crate) fn from_contract_error(error: &str) -> Self {
-        // Use the generated selectors from the AccountRegistry contract
-        if error.contains(&selector_hex(AuthenticatorAddressAlreadyInUse::SELECTOR)) {
-            return GatewayError::AuthenticatorAlreadyExists;
-        }
-        if error.contains(&selector_hex(AuthenticatorDoesNotExist::SELECTOR)) {
-            return GatewayError::AuthenticatorDoesNotExist;
-        }
-        if error.contains(&selector_hex(MismatchedSignatureNonce::SELECTOR)) {
-            return GatewayError::MismatchedSignatureNonce;
-        }
-        if error.contains(&selector_hex(PubkeyIdInUse::SELECTOR)) {
-            return GatewayError::PubkeyIdInUse;
-        }
-        if error.contains(&selector_hex(PubkeyIdOutOfBounds::SELECTOR)) {
-            return GatewayError::PubkeyIdOutOfBounds;
-        }
-        if error.contains(&selector_hex(AuthenticatorDoesNotBelongToAccount::SELECTOR)) {
-            return GatewayError::AuthenticatorDoesNotBelongToAccount;
-        }
-
-        GatewayError::Unknown(error.to_string())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub(crate) enum RequestState {
-    Queued,
-    Batching,
-    Submitted {
-        tx_hash: String,
-    },
-    Finalized {
-        tx_hash: String,
-    },
-    Failed {
-        error: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error_code: Option<GatewayError>,
-    },
-}
-
-impl RequestState {
-    pub(crate) fn failed_from_error(err: GatewayError) -> Self {
-        RequestState::Failed {
-            error: err.to_string(),
-            error_code: Some(err),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-struct RequestRecord {
-    kind: RequestKind,
-    status: RequestState,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -285,50 +125,11 @@ fn build_provider(rpc_url: &str, ethereum_wallet: EthereumWallet) -> anyhow::Res
     Ok(provider.erased())
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ApiError {
-    #[error("{0}")]
-    BadRequest(String),
-    #[error("{0}")]
-    Internal(String),
-    #[error("{0}")]
-    NotFound(String),
-}
-
-impl ApiError {
-    fn bad_req(field: &str, msg: impl ToString) -> Self {
-        Self::BadRequest(format!("invalid {field}: {}", msg.to_string()))
-    }
-
-    /// Convert a contract simulation error to an API error.
-    /// Parses the error to extract a specific error code if possible.
-    fn from_simulation_error(e: impl std::fmt::Display) -> Self {
-        let error_str = e.to_string();
-        let gateway_error = GatewayError::from_contract_error(&error_str);
-        Self::BadRequest(gateway_error.to_string())
-    }
-}
-
-#[derive(Serialize, ToSchema)]
-struct ErrorBody {
-    error: String,
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let (status, msg) = match self {
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-        };
-        (status, Json(ErrorBody { error: msg })).into_response()
-    }
-}
-
 type ApiResult<T> = Result<T, ApiError>;
 
-fn req_u256(field: &str, s: &str) -> ApiResult<U256> {
-    s.parse().map_err(|e| ApiError::bad_req(field, e))
+fn req_u256(_field: &str, s: &str) -> ApiResult<U256> {
+    s.parse()
+        .map_err(|e| ApiError::bad_request(format!("invalid value: {}", e)))
 }
 
 async fn build_app(
@@ -338,11 +139,13 @@ async fn build_app(
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
+    redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
     let ethereum_wallet = build_wallet(signer_config, &rpc_url).await?;
     let provider = build_provider(&rpc_url, ethereum_wallet)?;
     tracing::info!("RPC Provider built");
-    let tracker = RequestTracker::new();
+
+    let tracker = RequestTracker::new(redis_url).await;
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
@@ -375,7 +178,6 @@ async fn build_app(
         provider,
         batcher,
         ops_batcher,
-        tracker,
     };
 
     Ok(Router::new()
@@ -390,8 +192,9 @@ async fn build_app(
         .route("/recover-account", post(recover_account))
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
+        .route("/openapi.json", get(openapi))
         .with_state(state)
-        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(axum::Extension(tracker))
         .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
@@ -400,7 +203,7 @@ async fn build_app(
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
-    let signer_config = cfg.signer_config()?;
+    let signer_config = cfg.signer_config();
     let app = build_app(
         cfg.registry_addr,
         cfg.rpc_url,
@@ -408,6 +211,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
+        cfg.redis_url,
     )
     .await?;
 
@@ -429,7 +233,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> anyhow::Result<()> {
     let cfg = GatewayConfig::from_env();
-    let signer_config = cfg.signer_config()?;
+    let signer_config = cfg.signer_config();
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
         cfg.registry_addr,
@@ -438,6 +242,7 @@ pub async fn run() -> anyhow::Result<()> {
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
+        cfg.redis_url,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
@@ -460,23 +265,29 @@ async fn health() -> impl IntoResponse {
 
 async fn create_account(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Simulate the account creation BEFORE queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
-    let sim_result = contract
-        .createManyAccounts(
-            vec![req.recovery_address.unwrap_or(Address::ZERO)],
-            vec![req.authenticator_addresses.clone()],
-            vec![req.authenticator_pubkeys.clone()],
-            vec![req.offchain_signer_commitment],
+    if req.authenticator_addresses.iter().any(|a| a.is_zero()) {
+        return Err(ApiError::bad_request(
+            "authenticator address cannot be zero".to_string(),
+        ));
+    }
+
+    // Simulate the account creation before queueing to catch errors early
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
+    contract
+        .createAccount(
+            req.recovery_address.unwrap_or(Address::ZERO),
+            req.authenticator_addresses.clone(),
+            req.authenticator_pubkeys.clone(),
+            req.offchain_signer_commitment,
         )
         .call()
-        .await;
+        .await
+        .map_err(ApiError::from_simulation_error)?;
 
-    sim_result.map_err(ApiError::from_simulation_error)?;
-
-    let id = state.tracker.new_request(RequestKind::CreateAccount).await;
+    let (id, record) = tracker.new_request(RequestKind::CreateAccount).await?;
 
     let env = CreateReqEnvelope {
         id: id.clone(),
@@ -484,21 +295,14 @@ async fn create_account(
     };
 
     if state.batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
-                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
             )
             .await;
-        return Err(ApiError::Internal("batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -511,19 +315,34 @@ async fn create_account(
 
 async fn update_authenticator(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<UpdateAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    if req.leaf_index.is_zero() {
+        return Err(ApiError::bad_request(
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if req.pubkey_id >= MAX_AUTHENTICATORS {
+        return Err(ApiError::bad_request(format!(
+            "pubkey_id must be less than {MAX_AUTHENTICATORS}"
+        )));
+    }
+    if req.new_authenticator_address.is_zero() {
+        return Err(ApiError::bad_request(
+            "new_authenticator_address cannot be zero".to_string(),
+        ));
+    }
+
     // Simulate the operation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
-    let pubkey_id = req.pubkey_id.unwrap_or(0);
-    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .updateAuthenticator(
             req.leaf_index,
             req.old_authenticator_address,
             req.new_authenticator_address,
-            pubkey_id,
-            new_pubkey,
+            req.pubkey_id,
+            req.new_authenticator_pubkey,
             req.old_offchain_signer_commitment,
             req.new_offchain_signer_commitment,
             Bytes::from(req.signature.clone()),
@@ -534,10 +353,9 @@ async fn update_authenticator(
         .await
         .map_err(ApiError::from_simulation_error)?;
 
-    let id = state
-        .tracker
+    let (id, record) = tracker
         .new_request(RequestKind::UpdateAuthenticator)
-        .await;
+        .await?;
 
     let env = OpEnvelope {
         id: id.clone(),
@@ -550,27 +368,20 @@ async fn update_authenticator(
             sibling_nodes: req.sibling_nodes.clone(),
             signature: Bytes::from(req.signature.clone()),
             nonce: req.nonce,
-            pubkey_id,
-            new_pubkey,
+            pubkey_id: req.pubkey_id,
+            new_pubkey: req.new_authenticator_pubkey,
         },
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
-                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
             )
             .await;
-        return Err(ApiError::Internal("ops batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -583,10 +394,27 @@ async fn update_authenticator(
 
 async fn insert_authenticator(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    if req.leaf_index.is_zero() {
+        return Err(ApiError::bad_request(
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if req.pubkey_id >= MAX_AUTHENTICATORS {
+        return Err(ApiError::bad_request(format!(
+            "pubkey_id must be less than {MAX_AUTHENTICATORS}"
+        )));
+    }
+    if req.new_authenticator_address.is_zero() {
+        return Err(ApiError::bad_request(
+            "new_authenticator_address cannot be zero".to_string(),
+        ));
+    }
+
     // Simulate the operation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .insertAuthenticator(
             req.leaf_index,
@@ -603,10 +431,9 @@ async fn insert_authenticator(
         .await
         .map_err(ApiError::from_simulation_error)?;
 
-    let id = state
-        .tracker
+    let (id, record) = tracker
         .new_request(RequestKind::InsertAuthenticator)
-        .await;
+        .await?;
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Insert {
@@ -623,21 +450,14 @@ async fn insert_authenticator(
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
-                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
             )
             .await;
-        return Err(ApiError::Internal("ops batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -650,12 +470,30 @@ async fn insert_authenticator(
 
 async fn remove_authenticator(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RemoveAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Simulate the operation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let pubkey_id = req.pubkey_id.unwrap_or(0);
     let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::from(0u64));
+
+    if req.leaf_index.is_zero() {
+        return Err(ApiError::bad_request(
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if pubkey_id >= MAX_AUTHENTICATORS {
+        return Err(ApiError::bad_request(format!(
+            "pubkey_id must be less than {MAX_AUTHENTICATORS}"
+        )));
+    }
+    if req.authenticator_address.is_zero() {
+        return Err(ApiError::bad_request(
+            "authenticator_address cannot be zero".to_string(),
+        ));
+    }
+
+    // Simulate the operation before queueing to catch errors early
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .removeAuthenticator(
             req.leaf_index,
@@ -672,10 +510,9 @@ async fn remove_authenticator(
         .await
         .map_err(ApiError::from_simulation_error)?;
 
-    let id = state
-        .tracker
+    let (id, record) = tracker
         .new_request(RequestKind::RemoveAuthenticator)
-        .await;
+        .await?;
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Remove {
@@ -692,21 +529,14 @@ async fn remove_authenticator(
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
-                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
             )
             .await;
-        return Err(ApiError::Internal("ops batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -719,11 +549,24 @@ async fn remove_authenticator(
 
 async fn recover_account(
     State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Simulate the operation before queueing to catch errors early
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
+
+    if req.leaf_index.is_zero() {
+        return Err(ApiError::bad_request(
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if req.new_authenticator_address.is_zero() {
+        return Err(ApiError::bad_request(
+            "new_authenticator_address cannot be zero".to_string(),
+        ));
+    }
+
+    // Simulate the operation before queueing to catch errors early
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
         .recoverAccount(
             req.leaf_index,
@@ -739,7 +582,7 @@ async fn recover_account(
         .await
         .map_err(ApiError::from_simulation_error)?;
 
-    let id = state.tracker.new_request(RequestKind::RecoverAccount).await;
+    let (id, record) = tracker.new_request(RequestKind::RecoverAccount).await?;
     let env = OpEnvelope {
         id: id.clone(),
         kind: OpKind::Recover {
@@ -755,21 +598,14 @@ async fn recover_account(
     };
 
     if state.ops_batcher.tx.send(env).await.is_err() {
-        state
-            .tracker
+        tracker
             .set_status(
                 &id,
-                RequestState::failed_from_error(GatewayError::BatcherUnavailable),
+                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
             )
             .await;
-        return Err(ApiError::Internal("ops batcher unavailable".into()));
+        return Err(ApiError::batcher_unavailable());
     }
-
-    let record = state
-        .tracker
-        .snapshot(&id)
-        .await
-        .expect("request must exist immediately after insertion");
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -781,14 +617,13 @@ async fn recover_account(
 }
 
 async fn request_status(
-    State(state): State<AppState>,
+    axum::Extension(tracker): axum::Extension<RequestTracker>,
     Path(id): Path<String>,
 ) -> ApiResult<impl IntoResponse> {
-    let record = state
-        .tracker
+    let record = tracker
         .snapshot(&id)
         .await
-        .ok_or_else(|| ApiError::NotFound("request not found".into()))?;
+        .ok_or_else(ApiError::not_found)?;
 
     let body = RequestStatusResponse {
         request_id: id,
@@ -801,7 +636,7 @@ async fn request_status(
 
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 struct IsValidRootQuery {
-    #[schema(value_type = String, format = "decimal")]
+    #[schema(value_type = String, format = "hex")]
     root: String,
 }
 
@@ -815,12 +650,12 @@ async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
-    let contract = AccountRegistry::new(state.registry_addr, state.provider.clone());
+    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
         .call()
         .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
 }
 
@@ -924,6 +759,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
     ),
     components(schemas(
         ErrorBody,
+        ErrorCode,
         RequestKind,
         RequestState,
         RequestStatusResponse,
@@ -939,3 +775,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
     tags((name = "Gateway", description = "TODO"))
 )]
 struct ApiDoc;
+
+async fn openapi() -> impl IntoResponse {
+    Json(ApiDoc::openapi())
+}

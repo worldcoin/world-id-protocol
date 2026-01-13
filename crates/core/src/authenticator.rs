@@ -1,18 +1,20 @@
 //! This module contains all the base functionality to support Authenticators in World ID.
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::account_registry::AccountRegistry::{self, AccountRegistryInstance};
-use crate::account_registry::{
-    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
-};
+use crate::requests::ProofRequest;
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-    IndexerSignatureNonceRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
-    RemoveAuthenticatorRequest, RpRequest, ServiceApiError, UpdateAuthenticatorRequest,
+    IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
+    RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+};
+use crate::world_id_registry::WorldIdRegistry::{self, WorldIdRegistryInstance};
+use crate::world_id_registry::{
+    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
 use crate::{Credential, FieldElement, Signer};
 use alloy::primitives::{Address, U256};
@@ -23,8 +25,10 @@ use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
 use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use oprf_types::ShareEpoch;
+use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
+use taceo_oprf_client::Connector;
+use taceo_oprf_types::ShareEpoch;
 use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
 use world_id_primitives::merkle::MerkleInclusionProof;
 use world_id_primitives::proof::SingleProofInput;
@@ -44,16 +48,27 @@ const MAX_POLL_TIMEOUT_SECS: u64 = 30;
 type UniquenessProof = (Proof<Bn254>, FieldElement);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
-#[derive(Debug)]
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
-    /// The packed account data for the holder's World ID is a `uint256` defined in the `AccountRegistry` contract as:
+    /// The packed account data for the holder's World ID is a `uint256` defined in the `WorldIDRegistry` contract as:
     /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
     pub packed_account_data: U256,
     signer: Signer,
-    registry: Option<Arc<AccountRegistryInstance<DynProvider>>>,
+    registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
+    ws_connector: Connector,
+}
+
+#[expect(clippy::missing_fields_in_debug)]
+impl std::fmt::Debug for Authenticator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Authenticator")
+            .field("config", &self.config)
+            .field("packed_account_data", &self.packed_account_data)
+            .field("signer", &self.signer)
+            .finish()
+    }
 }
 
 impl Authenticator {
@@ -75,7 +90,7 @@ impl Authenticator {
                 let provider = ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(AccountRegistry::new(
+                Some(WorldIdRegistry::new(
                     *config.registry_address(),
                     provider.erased(),
                 ))
@@ -92,12 +107,20 @@ impl Authenticator {
         )
         .await?;
 
+        let mut root_store = RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let rustls_config = ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        let ws_connector = Connector::Rustls(Arc::new(rustls_config));
+
         Ok(Self {
             packed_account_data,
             signer,
             config,
             registry: registry.map(Arc::new),
             http_client,
+            ws_connector,
         })
     }
 
@@ -169,9 +192,20 @@ impl Authenticator {
             // Poll the gateway status
             match Self::poll_gateway_status(&config, &request_id, &http_client).await {
                 Ok(GatewayRequestState::Finalized { .. }) => {
-                    return Self::init(seed, config).await;
+                    let result = Self::init(seed, config.clone()).await;
+                    match result {
+                        Ok(authenticator) => return Ok(authenticator),
+                        Err(e) => {
+                            if matches!(e, AuthenticatorError::AccountDoesNotExist) {
+                                // continue polling, as the indexer may take a while
+                                delay_ms = (delay_ms * 2).min(5000); // Cap at 5 seconds
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
-                Ok(GatewayRequestState::Failed { error }) => {
+                Ok(GatewayRequestState::Failed { error, .. }) => {
                     return Err(AuthenticatorError::Generic(format!(
                         "Account creation failed: {error}"
                     )));
@@ -223,7 +257,7 @@ impl Authenticator {
     /// Will error if the network call fails or if the account does not exist.
     pub async fn get_packed_account_data(
         onchain_signer_address: Address,
-        registry: Option<&AccountRegistryInstance<DynProvider>>,
+        registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,
         http_client: &reqwest::Client,
     ) -> Result<U256, AuthenticatorError> {
@@ -234,7 +268,7 @@ impl Authenticator {
                 .call()
                 .await?
         } else {
-            let url = format!("{}/packed_account", config.indexer_url());
+            let url = format!("{}/packed-account", config.indexer_url());
             let req = IndexerPackedAccountRequest {
                 authenticator_address: onchain_signer_address,
             };
@@ -272,7 +306,7 @@ impl Authenticator {
     }
 
     /// Returns the k256 public key of the Authenticator signer which is used to verify on-chain operations,
-    /// chiefly with the `AccountRegistry` contract.
+    /// chiefly with the `WorldIdRegistry` contract.
     #[must_use]
     pub const fn onchain_address(&self) -> Address {
         self.signer.onchain_signer_address()
@@ -297,9 +331,9 @@ impl Authenticator {
         Ok(U256::from_le_slice(&compressed_bytes))
     }
 
-    /// Returns a reference to the `AccountRegistry` contract instance.
+    /// Returns a reference to the `WorldIdRegistry` contract instance.
     #[must_use]
-    pub fn registry(&self) -> Option<Arc<AccountRegistryInstance<DynProvider>>> {
+    pub fn registry(&self) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
         self.registry.clone()
     }
 
@@ -338,11 +372,14 @@ impl Authenticator {
         &self,
     ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
     {
-        let url = format!("{}/proof/{}", self.config.indexer_url(), self.leaf_index());
-        let response = reqwest::get(url).await?;
+        let url = format!("{}/inclusion-proof", self.config.indexer_url());
+        let req = IndexerQueryRequest {
+            leaf_index: self.leaf_index(),
+        };
+        let response = self.http_client.post(&url).json(&req).send().await?;
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        Ok((response.proof, response.authenticator_pubkeys))
+        Ok((response.inclusion_proof, response.authenticator_pubkeys))
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -358,8 +395,8 @@ impl Authenticator {
                 .await?;
             Ok(nonce)
         } else {
-            let url = format!("{}/signature_nonce", self.config.indexer_url());
-            let req = IndexerSignatureNonceRequest {
+            let url = format!("{}/signature-nonce", self.config.indexer_url());
+            let req = IndexerQueryRequest {
                 leaf_index: self.leaf_index(),
             };
             let resp = self.http_client.post(&url).json(&req).send().await?;
@@ -380,7 +417,10 @@ impl Authenticator {
         }
     }
 
-    /// Generates a World ID Uniqueness Proof given a provided context.
+    /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`.
+    ///
+    /// This assumes the Authenticator has already parsed the `[ProofRequest]` and determined
+    /// which `[Credential]` is appropriate for the request.
     ///
     /// # Errors
     /// - Will error if the any of the provided parameters are not valid.
@@ -389,8 +429,7 @@ impl Authenticator {
     #[allow(clippy::future_not_send)]
     pub async fn generate_proof(
         &self,
-        message_hash: FieldElement,
-        rp_request: RpRequest,
+        proof_request: ProofRequest,
         credential: Credential,
     ) -> Result<UniquenessProof, AuthenticatorError> {
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
@@ -403,16 +442,9 @@ impl Authenticator {
         let query_material = crate::proof::load_embedded_query_material();
         let nullifier_material = crate::proof::load_embedded_nullifier_material();
 
-        // TODO: convert rp_request to primitives types
-        let primitives_rp_id =
-            world_id_primitives::rp::RpId::new(rp_request.rp_id.parse::<u128>().map_err(|e| {
-                PrimitiveError::InvalidInput {
-                    attribute: "RP ID".to_string(),
-                    reason: format!("invalid RP ID: {e}"),
-                }
-            })?);
-        let primitives_rp_nullifier_key =
-            world_id_primitives::rp::RpNullifierKey::new(rp_request.rp_nullifier_key.inner());
+        let request_item = proof_request
+            .find_request_by_issuer_schema_id(credential.issuer_schema_id.into())
+            .ok_or(AuthenticatorError::InvalidCredentialForProofRequest)?;
 
         let args = SingleProofInput::<TREE_DEPTH> {
             credential,
@@ -420,14 +452,14 @@ impl Authenticator {
             key_set,
             key_index,
             rp_session_id_r_seed: FieldElement::ZERO, // FIXME: expose properly (was id_commitment_r)
-            rp_id: primitives_rp_id,
-            share_epoch: ShareEpoch::default().into_inner(), // TODO
-            action: rp_request.action_id,
-            nonce: rp_request.nonce,
-            current_timestamp: rp_request.current_time_stamp, // TODO
-            rp_signature: rp_request.signature,
-            rp_nullifier_key: primitives_rp_nullifier_key,
-            signal_hash: message_hash,
+            rp_id: proof_request.rp_id,
+            share_epoch: ShareEpoch::default().into_inner(),
+            action: proof_request.action,
+            nonce: proof_request.nonce,
+            current_timestamp: proof_request.created_at,
+            rp_signature: proof_request.signature,
+            oprf_public_key: proof_request.oprf_public_key,
+            signal_hash: request_item.signal_hash(),
         };
 
         let private_key = self.signer.offchain_signer_private_key().expose_secret();
@@ -455,6 +487,7 @@ impl Authenticator {
             &nullifier_material,
             args,
             private_key,
+            self.ws_connector.clone(),
             &mut rng,
         )
         .await
@@ -603,8 +636,8 @@ impl Authenticator {
             sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
-            pubkey_id: Some(index),
-            new_authenticator_pubkey: Some(encoded_offchain_pubkey),
+            pubkey_id: index,
+            new_authenticator_pubkey: encoded_offchain_pubkey,
         };
 
         let resp = self
@@ -791,7 +824,7 @@ impl ProtocolSigner for Authenticator {
 
 /// A trait for types that can be represented as a `U256` on-chain.
 pub trait OnchainKeyRepresentable {
-    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `AccountRegistry` contract.
+    /// Converts an off-chain public key into a `U256` representation for on-chain use in the `WorldIDRegistry` contract.
     ///
     /// The `U256` representation is a 32-byte little-endian encoding of the **compressed** (single point) public key.
     ///
@@ -870,6 +903,10 @@ pub enum AuthenticatorError {
         reason: String,
     },
 
+    /// The provided credential is not valid for the provided proof request.
+    #[error("The provided credential is not valid for the provided proof request")]
+    InvalidCredentialForProofRequest,
+
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
@@ -891,7 +928,7 @@ mod tests {
         let expected_packed_index = U256::from(42);
 
         let mock = server
-            .mock("POST", "/packed_account")
+            .mock("POST", "/packed-account")
             .match_header("content-type", "application/json")
             .match_body(mockito::Matcher::JsonString(
                 serde_json::json!({
@@ -945,7 +982,7 @@ mod tests {
         let test_address = address!("0x0000000000000000000000000000000000000099");
 
         let mock = server
-            .mock("POST", "/packed_account")
+            .mock("POST", "/packed-account")
             .with_status(400)
             .with_header("content-type", "application/json")
             .with_body(
@@ -991,7 +1028,7 @@ mod tests {
         let expected_nonce = U256::from(5);
 
         let mock = server
-            .mock("POST", "/signature_nonce")
+            .mock("POST", "/signature-nonce")
             .match_header("content-type", "application/json")
             .match_body(mockito::Matcher::JsonString(
                 serde_json::json!({
@@ -1027,6 +1064,7 @@ mod tests {
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
         };
 
         let nonce = authenticator.signing_nonce().await.unwrap();
@@ -1042,7 +1080,7 @@ mod tests {
         let indexer_url = server.url();
 
         let mock = server
-            .mock("POST", "/signature_nonce")
+            .mock("POST", "/signature-nonce")
             .with_status(400)
             .with_header("content-type", "application/json")
             .with_body(
@@ -1072,6 +1110,7 @@ mod tests {
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
         };
 
         let result = authenticator.signing_nonce().await;

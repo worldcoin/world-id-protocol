@@ -6,8 +6,7 @@ git_release_enable = true
 git_release_type = "auto"
 # Don't update workspace-level changelog - each package has its own
 changelog_update = false
-# Custom label names for overriding version bumps
-pr_labels = ["release-major", "release-minor", "release-patch"]
+pr_labels = ["release"]
 
 # Publish only specific packages to crates.io
 # Services (indexer, gateway) are not published to crates.io
@@ -35,4 +34,12 @@ publish = false
 
 [[package]]
 name = "world-id-gateway"
+publish = false
+
+[[package]]
+name = "world-id-oprf-node"
+publish = false
+
+[[package]]
+name = "world-id-oprf-dev-client"
 publish = false

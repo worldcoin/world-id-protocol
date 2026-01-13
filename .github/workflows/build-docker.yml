@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,6 +19,7 @@ jobs:
         service:
           - indexer
           - gateway
+          - oprf-node
     permissions:
       contents: read
       id-token: write
@@ -34,7 +36,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
             type=sha
 
       - name: Set up Docker Buildx
@@ -57,7 +59,9 @@ jobs:
           cache-from: type=gha
           cache-to: "type=gha,mode=max"
           platforms: linux/amd64
-          build-args: SERVICE_NAME=world-id-${{ matrix.service }}
+          build-args: |
+            SERVICE_NAME=world-id-${{ matrix.service }}
+            GIT_HASH=${{ github.sha }}
 
       - name: Attest
         uses: actions/attest-build-provenance@v1

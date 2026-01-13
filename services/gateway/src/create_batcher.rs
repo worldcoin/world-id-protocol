@@ -3,10 +3,11 @@ use std::time::Duration;
 use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
-use world_id_core::account_registry::AccountRegistry;
 use world_id_core::types::CreateAccountRequest;
+use world_id_core::world_id_registry::WorldIdRegistry;
 
-use crate::{GatewayError, RequestState, RequestTracker};
+use crate::error::{parse_contract_error, ErrorCode};
+use crate::{RequestState, RequestTracker};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
@@ -49,7 +50,7 @@ impl CreateBatcherRunner {
 
     pub async fn run(mut self) {
         let provider = self.provider.clone();
-        let contract = AccountRegistry::new(self.registry, provider);
+        let contract = WorldIdRegistry::new(self.registry, provider);
 
         loop {
             let Some(first) = self.rx.recv().await else {
@@ -119,21 +120,27 @@ impl CreateBatcherRunner {
                                         )
                                         .await;
                                 } else {
-                                    let err = GatewayError::TransactionReverted(hash.clone());
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::failed_from_error(err),
+                                            RequestState::failed(
+                                                format!(
+                                                    "transaction reverted on-chain (tx: {hash})"
+                                                ),
+                                                Some(ErrorCode::TransactionReverted),
+                                            ),
                                         )
                                         .await;
                                 }
                             }
                             Err(err) => {
-                                let err = GatewayError::ConfirmationError(err.to_string());
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::failed_from_error(err),
+                                        RequestState::failed(
+                                            format!("transaction confirmation error: {err}"),
+                                            Some(ErrorCode::ConfirmationError),
+                                        ),
                                     )
                                     .await;
                             }
@@ -142,9 +149,10 @@ impl CreateBatcherRunner {
                 }
                 Err(err) => {
                     tracing::error!(error = %err, "create batch send failed");
-                    let err = GatewayError::Unknown(err.to_string());
+                    let error_str = err.to_string();
+                    let code = parse_contract_error(&error_str);
                     self.tracker
-                        .set_status_batch(&ids, RequestState::failed_from_error(err))
+                        .set_status_batch(&ids, RequestState::failed(error_str, Some(code)))
                         .await;
                 }
             }

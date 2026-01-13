@@ -1,36 +1,42 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+import {Types} from "oprf-key-registry/src/Types.sol";
+import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {CredentialSchemaIssuerRegistry} from "./CredentialSchemaIssuerRegistry.sol";
-import {AccountRegistry} from "./AccountRegistry.sol";
+import {WorldIDRegistry} from "./WorldIDRegistry.sol";
 import {Groth16Verifier as Groth16VerifierNullifier} from "./Groth16VerifierNullifier.sol";
-import {IRpRegistry, Types} from "./interfaces/RpRegistry.sol";
 
 /**
  * @title Verifier
  * @notice Verifies nullifier proofs for World ID credentials
- * @dev Coordinates verification between credential issuer registry, account registry, and RP registry
+ * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
  */
 contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     error ImplementationNotInitialized();
 
     modifier onlyInitialized() {
+        _onlyInitialized();
+        _;
+    }
+
+    function _onlyInitialized() internal view {
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-        _;
     }
+
     /// @notice Registry for credential schema and issuer management
     CredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
 
-    /// @notice Registry for account and authenticator management
-    AccountRegistry public accountRegistry;
+    /// @notice Registry for World IDs and authenticator management
+    WorldIDRegistry public worldIDRegistry;
 
-    /// @notice Registry for relying party key management
-    IRpRegistry public rpRegistry;
+    /// @notice Registry for OPRF key management
+    OprfKeyRegistry public oprfKeyRegistry;
 
     /// @notice Contract for nullifier proof verification
     Groth16VerifierNullifier public groth16VerifierNullifier;
@@ -49,23 +55,23 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     /**
      * @notice Initializes the Verifier contract with required registries
      * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
-     * @param _accountRegistry Address of the AccountRegistry contract
+     * @param _worldIDRegistry Address of the WorldIDRegistry contract
      * @param _groth16VerifierNullifier Address of the Groth16Verifier contract for the nullifier circuit.
      * @param _proofTimestampDelta uint256 Allowed delta for proof timestamps.
      */
     function initialize(
         address _credentialIssuerRegistry,
-        address _accountRegistry,
+        address _worldIDRegistry,
         address _groth16VerifierNullifier,
         uint256 _proofTimestampDelta
     ) public virtual initializer {
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
-        accountRegistry = AccountRegistry(_accountRegistry);
+        worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
         groth16VerifierNullifier = Groth16VerifierNullifier(_groth16VerifierNullifier);
         proofTimestampDelta = _proofTimestampDelta;
-        treeDepth = accountRegistry.treeDepth();
+        treeDepth = worldIDRegistry.treeDepth();
     }
 
     /**
@@ -88,18 +94,18 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     );
 
     /**
-     * @notice Emitted when the account registry is updated
-     * @param oldAccountRegistry Previous registry address
-     * @param newAccountRegistry New registry address
+     * @notice Emitted when the World ID Registry is updated
+     * @param oldWorldIDRegistry Previous registry address
+     * @param newWorldIDRegistry New registry address
      */
-    event AccountRegistryUpdated(address oldAccountRegistry, address newAccountRegistry);
+    event WorldIDRegistryUpdated(address oldWorldIDRegistry, address newWorldIDRegistry);
 
     /**
-     * @notice Emitted when the RP registry is updated
-     * @param oldRpRegistry Previous registry address
-     * @param newRpRegistry New registry address
+     * @notice Emitted when the OPRF key registry is updated
+     * @param oldOprfKeyRegistry Previous registry address
+     * @param newOprfKeyRegistry New registry address
      */
-    event RpRegistryUpdated(address oldRpRegistry, address newRpRegistry);
+    event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
 
     /**
      * @notice Emitted when the Groth16Verifier is updated
@@ -117,7 +123,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
 
     /**
      * @notice Verifies a nullifier proof for a World ID credential
-     * @dev Validates the authenticator root, credential issuer registration, and delegates to RP registry for proof verification
+     * @dev Validates the authenticator root, credential issuer registration, and delegates to Groth16VerifierNullifier for proof verification
      * @param nullifier The nullifier hash to verify uniqueness
      * @param action The action identifier
      * @param rpId The relying party identifier
@@ -133,7 +139,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     function verify(
         uint256 nullifier,
         uint256 action,
-        uint128 rpId,
+        uint160 rpId,
         uint256 accountCommitment,
         uint256 nonce,
         uint256 signalHash,
@@ -142,14 +148,16 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 credentialIssuerId,
         Types.Groth16Proof calldata proof
     ) external view virtual onlyProxy onlyInitialized returns (bool) {
-        require(accountRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
+        require(worldIDRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
 
         CredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =
             credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(credentialIssuerId);
         require(credentialIssuerPubkey.x != 0 && credentialIssuerPubkey.y != 0, "Credential issuer not registered");
 
-        require(address(rpRegistry) != address(0), "RP Registry not set");
-        Types.BabyJubJubElement memory rpKey = rpRegistry.getRpNullifierKey(rpId);
+        require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
+        // TODO get from rpId -> oprfKeyId mapping?
+        uint160 oprfKeyId = rpId;
+        Types.BabyJubJubElement memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
         require(address(groth16VerifierNullifier) != address(0), "Groth16Verifier not set");
 
@@ -172,12 +180,12 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         pubSignals[6] = treeDepth;
         pubSignals[7] = uint256(rpId);
         pubSignals[8] = action;
-        pubSignals[9] = rpKey.x;
-        pubSignals[10] = rpKey.y;
+        pubSignals[9] = oprfPublicKey.x;
+        pubSignals[10] = oprfPublicKey.y;
         pubSignals[11] = signalHash;
         pubSignals[12] = nonce;
 
-        return groth16VerifierNullifier.verifyProof(proof.a, proof.b, proof.c, pubSignals);
+        return groth16VerifierNullifier.verifyProof(proof.pA, proof.pB, proof.pC, pubSignals);
     }
 
     /**
@@ -198,31 +206,31 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     }
 
     /**
-     * @notice Updates the account registry address
+     * @notice Updates the World ID registry address
      * @dev Only callable by the contract owner
-     * @param _accountRegistry The new account registry address
+     * @param _worldIDRegistry The new World ID Registry address
      */
-    function updateAccountRegistry(address _accountRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
-        address oldAccountRegistry = address(accountRegistry);
-        accountRegistry = AccountRegistry(_accountRegistry);
-        emit AccountRegistryUpdated(oldAccountRegistry, _accountRegistry);
+    function updateWorldIDRegistry(address _worldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        address oldWorldIDRegistry = address(worldIDRegistry);
+        worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
+        emit WorldIDRegistryUpdated(oldWorldIDRegistry, _worldIDRegistry);
     }
 
     /**
-     * @notice Updates the RP registry address
+     * @notice Updates the OPRF key registry address
      * @dev Only callable by the contract owner
-     * @param _rpRegistry The new RP registry address
+     * @param _oprfKeyRegistry The new OPRF key registry address
      */
-    function updateRpRegistry(address _rpRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
-        address oldRpRegistry = address(rpRegistry);
-        rpRegistry = IRpRegistry(_rpRegistry);
-        emit RpRegistryUpdated(oldRpRegistry, _rpRegistry);
+    function updateOprfKeyRegistry(address _oprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        address oldOprfKeyRegistry = address(oprfKeyRegistry);
+        oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
+        emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, _oprfKeyRegistry);
     }
 
     /**
      * @notice Updates the Groth16 Verifier address
      * @dev Only callable by the contract owner
-     * @param _groth16Verifier The new RP registry address
+     * @param _groth16Verifier The new Groth16 Verifier address
      */
     function updateGroth16Verifier(address _groth16Verifier) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldVerifier = address(groth16VerifierNullifier);

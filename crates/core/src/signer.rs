@@ -8,7 +8,7 @@ use world_id_primitives::PrimitiveError;
 /// Both keys are zeroized on drop.
 #[derive(Debug)]
 pub struct Signer {
-    /// An on-chain `SECP256K1` private key. This key is used to sign operations that are validated on-chain (see `AccountRegistry` or `CredentialSchemaIssuerRegistry`).
+    /// An on-chain `SECP256K1` private key. This key is used to sign operations that are validated on-chain (see `WorldIDRegistry` or `CredentialSchemaIssuerRegistry`).
     onchain_signer: PrivateKeySigner,
     /// An off-chain `EdDSA` private key. This key is used to sign operations that are validated off-chain, primarily within Zero-Knowledge Circuits.
     offchain_signer: SecretBox<EdDSAPrivateKey>,

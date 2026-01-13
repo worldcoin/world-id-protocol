@@ -7,7 +7,7 @@ killall -9 world-id-gateway
 anvil &
 sleep 1
 cd contracts
-TREE_DEPTH=30 forge script script/AccountRegistry.s.sol --broadcast --rpc-url 127.0.0.1:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+TREE_DEPTH=30 forge script script/WorldIDRegistry.s.sol --broadcast --rpc-url 127.0.0.1:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 cd ..
 cargo run --release -p world-id-indexer -- --http --indexer > /tmp/world-id-indexer.log 2>&1 &
 until curl -sSf http://localhost:8080 2>&1 | grep -vq "Failed to connect"; do
@@ -15,4 +15,4 @@ until curl -sSf http://localhost:8080 2>&1 | grep -vq "Failed to connect"; do
   sleep 1
 done
 # FIXME: use .env file
-REGISTRY_ADDRESS=0xd66aFbf92d684B4404B1ed3e9aDA85353c178dE2 WALLET_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 cargo run --release -p world-id-gateway &
+REGISTRY_ADDRESS=0xc9A0165FA64fD336035C7D9183C211034E8021B3 WALLET_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 cargo run --release -p world-id-gateway &

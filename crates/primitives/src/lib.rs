@@ -10,11 +10,15 @@
     missing_docs,
     dead_code
 )]
+#![allow(clippy::option_if_let_else)]
 
+use alloy_primitives::Keccak256;
+
+pub mod serde_utils;
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ruint::aliases::U256;
+use ruint::aliases::{U160, U256};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fmt,
@@ -34,6 +38,9 @@ pub use config::Config;
 ///
 /// These types are used to prepare the inputs for the Groth16 circuits.
 pub mod circuit_inputs;
+
+/// SAFE-style sponge utilities and helpers.
+pub mod sponge;
 
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
@@ -57,7 +64,7 @@ pub mod rp;
 /// This is the scalar field of the `BabyJubJub` curve.
 pub type ScalarField = ark_babyjubjub::Fr;
 
-/// The depth of the Merkle tree used in the World ID Protocol for the `AccountRegistry` contract.
+/// The depth of the Merkle tree used in the World ID Protocol for the `WorldIDRegistry` contract.
 pub const TREE_DEPTH: usize = 30;
 
 /// Represents a field element of the base field (`Fq`) in the World ID Protocol.
@@ -101,6 +108,31 @@ impl FieldElement {
     pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
+    }
+
+    /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
+    /// and reduces it to a field element.
+    ///
+    #[must_use]
+    pub fn from_arbitrary_raw_bytes(bytes: &[u8]) -> Self {
+        let mut hasher = Keccak256::new();
+        hasher.update(bytes);
+        let output: [u8; 32] = hasher.finalize().into();
+
+        let n = U256::from_be_bytes(output);
+        // Shift right one byte to make it fit in the field
+        let n: U256 = n >> 8;
+
+        let field_element = Fq::from_bigint(n.into());
+
+        match field_element {
+            Some(element) => Self(element),
+            None => unreachable!(
+                "due to the byte reduction, the value is guaranteed to be within the field"
+            ),
+        }
+
+        // FIXME: add unit tests
     }
 }
 
@@ -148,6 +180,16 @@ impl TryFrom<U256> for FieldElement {
         Ok(Self(
             value.try_into().map_err(|_| PrimitiveError::NotInField)?,
         ))
+    }
+}
+
+// safe because U160 is guaranteed to be less than the field modulus.
+impl From<U160> for FieldElement {
+    fn from(value: U160) -> Self {
+        // convert U160 to U256 to reuse existing implementations
+        let u256 = U256::from(value);
+        let big_int = ark_ff::BigInt(u256.into_limbs());
+        Self(ark_babyjubjub::Fq::new(big_int))
     }
 }
 

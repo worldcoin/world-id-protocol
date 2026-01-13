@@ -5,51 +5,23 @@ use alloy::providers::Provider;
 use alloy::signers::local::PrivateKeySigner;
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
-use world_id_core::account_registry::{
-    domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator, AccountRegistry,
-};
 use world_id_core::types::{
-    GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
+use world_id_core::world_id_registry::{
+    domain as ag_domain, sign_insert_authenticator, sign_recover_account,
+    sign_remove_authenticator, sign_update_authenticator, WorldIdRegistry,
+};
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
+
+use crate::common::{wait_for_finalized, wait_http_ready};
+
+mod common;
 
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-
-async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let resp = client
-            .get(format!("{base}/status/{request_id}"))
-            .send()
-            .await
-            .unwrap();
-        let status_code = resp.status();
-        if status_code == StatusCode::NOT_FOUND {
-            panic!("request {request_id} not found");
-        }
-        if !status_code.is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
-            panic!("status check for {request_id} failed: {status_code} body={body_text}",);
-        }
-        let body: GatewayStatusResponse = resp.json().await.unwrap();
-        match body.status {
-            GatewayRequestState::Finalized { tx_hash } => return tx_hash,
-            GatewayRequestState::Failed { error } => {
-                panic!("request {request_id} failed: {error}");
-            }
-            _ => {
-                if std::time::Instant::now() > deadline {
-                    panic!("timeout waiting for request {request_id} to finalize");
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        }
-    }
-}
 
 fn default_sibling_nodes() -> Vec<String> {
     vec![
@@ -89,22 +61,6 @@ fn default_sibling_nodes() -> Vec<String> {
     .collect()
 }
 
-async fn wait_http_ready(client: &Client, port: u16) {
-    let base = format!("http://127.0.0.1:{port}");
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Ok(resp) = client.get(format!("{base}/health")).send().await {
-            if resp.status().is_success() {
-                break;
-            }
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("gateway not ready");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
 struct TestGateway {
     client: Client,
     base_url: String,
@@ -118,20 +74,21 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
     let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
-        .deploy_account_registry(deployer)
+        .deploy_world_id_registry(deployer)
         .await
-        .expect("failed to deploy AccountRegistry");
+        .expect("failed to deploy WorldIDRegistry");
     let rpc_url = anvil.endpoint().to_string();
 
+    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.clone(),
-        wallet_private_key: Some(GW_PRIVATE_KEY.to_string()),
-        aws_kms_key_id: None,
+        signer_args,
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        redis_url: None, // Use in-memory storage for tests
     };
     let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
@@ -159,14 +116,14 @@ async fn e2e_gateway_full_flow() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = AccountRegistry::new(gw.registry_addr, provider.clone());
+    let contract = WorldIdRegistry::new(gw.registry_addr, provider.clone());
 
     // First, create the initial account through the API so tree depth stays 0 for following ops
     let body_create = serde_json::json!({
         "recovery_address": wallet_addr.to_string(),
         "authenticator_addresses": [wallet_addr.to_string()],
-        "authenticator_pubkeys": ["100"],
-        "offchain_signer_commitment": "1",
+        "authenticator_pubkeys": ["0x64"],
+        "offchain_signer_commitment": "0x1",
     });
     let resp = gw
         .client
@@ -209,7 +166,7 @@ async fn e2e_gateway_full_flow() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = AccountRegistry::new(gw.registry_addr, provider.clone());
+    let contract = WorldIdRegistry::new(gw.registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
         .authenticatorAddressToPackedAccountData(wallet_addr)
@@ -459,8 +416,8 @@ async fn e2e_gateway_full_flow() {
             .collect(),
         signature: sig_upd.as_bytes().to_vec(),
         nonce,
-        pubkey_id: Some(0),
-        new_authenticator_pubkey: Some(U256::from(400)),
+        pubkey_id: 0,
+        new_authenticator_pubkey: U256::from(400),
     };
     let resp = gw
         .client
@@ -517,7 +474,7 @@ async fn test_authenticator_already_exists_error_code() {
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = AccountRegistry::new(gw.registry_addr, provider.clone());
+    let contract = WorldIdRegistry::new(gw.registry_addr, provider.clone());
 
     let body_create = serde_json::json!({
         "recovery_address": wallet_addr.to_string(),
@@ -598,15 +555,18 @@ async fn test_authenticator_already_exists_error_code() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
     let error_body: serde_json::Value = resp.json().await.unwrap();
+    // Check either the message field or the code field for the error
     let error_msg = error_body
-        .get("error")
+        .get("message")
         .and_then(|e| e.as_str())
+        .or_else(|| error_body.get("code").and_then(|e| e.as_str()))
         .unwrap_or("");
     assert!(
         error_msg
             .to_lowercase()
+            .replace('_', " ")
             .contains("authenticator already exists"),
-        "Error message should mention 'authenticator already exists', got: {error_msg}"
+        "Error should indicate 'authenticator already exists', got: {error_msg}"
     );
 }
 
@@ -651,14 +611,21 @@ async fn test_same_authenticator_different_accounts() {
         .await
         .unwrap();
 
+    // Simulation should fail synchronously and return 400 immediately
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
     let error_body: serde_json::Value = resp.json().await.unwrap();
+    // Check either the message field or the code field for the error
     let error_msg = error_body
-        .get("error")
+        .get("message")
         .and_then(|e| e.as_str())
+        .or_else(|| error_body.get("code").and_then(|e| e.as_str()))
         .unwrap_or("");
-    assert!(error_msg
-        .to_lowercase()
-        .contains("authenticator already exists"));
+    assert!(
+        error_msg
+            .to_lowercase()
+            .replace('_', " ")
+            .contains("authenticator already exists"),
+        "Error should indicate 'authenticator already exists', got: {error_msg}"
+    );
 }
