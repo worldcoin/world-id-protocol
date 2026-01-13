@@ -160,14 +160,16 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .as_secs();
     let expires_at = genesis_issued_at + 86_400;
 
-    let credential = build_base_credential(
+    let (credential, credential_sub_blinding_factor) = build_base_credential(
         issuer_schema_id_u64,
         leaf_index,
         genesis_issued_at,
         expires_at,
-    )
-    .sign(&issuer_sk)
-    .wrap_err("failed to sign credential with issuer key")?;
+    );
+
+    let credential = credential
+        .sign(&issuer_sk)
+        .wrap_err("failed to sign credential with issuer key")?;
 
     // Prepare Merkle membership witness for πR (query proof)
     let rp_fixture = generate_rp_fixture();
@@ -182,12 +184,12 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     // Build OPRF query context (RP id, action, nonce, timestamp)
     let oprf_public_key = OprfPublicKey::new(rp_fixture.rp_nullifier_point);
 
-    let proof_args = SingleProofInput::<TREE_DEPTH> {
+    let args = SingleProofInput::<TREE_DEPTH> {
         credential,
         inclusion_proof,
         key_set,
         key_index: 0,
-        rp_session_id_r_seed: rp_fixture.rp_session_id_r_seed,
+        credential_sub_blinding_factor,
         rp_id: rp_fixture.world_rp_id,
         share_epoch: rp_fixture.share_epoch.into_inner(),
         action: rp_fixture.action.into(),
@@ -196,17 +198,15 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         rp_signature: rp_fixture.signature,
         oprf_public_key,
         signal_hash,
+        session_id_r_seed: rp_fixture.rp_session_id_r_seed,
     };
 
     // Produce πR (signed OPRF query) — blinded request + query inputs
-    let query_hash = world_id_core::proof::query_hash(
-        proof_args.inclusion_proof.leaf_index,
-        proof_args.rp_id,
-        proof_args.action,
-    );
+    let query_hash =
+        world_id_core::proof::query_hash(args.inclusion_proof.leaf_index, args.rp_id, args.action);
     let blinding_factor = BlindingFactor::rand(&mut rng);
     let (_, query_input) = proof::oprf_request_auth(
-        &proof_args,
+        &args,
         &query_material,
         &user_sk,
         query_hash,
@@ -229,16 +229,36 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     // Create and check Chaum‑Pedersen DLog equality proof for (K, C)
     let dlog_proof = DLogEqualityProof::proof(blinded_query, rp_fixture.rp_secret, &mut rng);
 
+    let cred_signature = args
+        .credential
+        .signature
+        .clone()
+        .ok_or_else(|| eyre::eyre!("Credential not signed"))?;
+
     // Build nullifier proof input (π2 witness payload)
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
         query_input,
+        issuer_schema_id: args.credential.issuer_schema_id.into(),
+        cred_pk: args.credential.issuer.pk,
+        cred_hashes: [
+            *args.credential.claims_hash()?,
+            *args.credential.associated_data_hash,
+        ],
+        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
+        cred_genesis_issued_at_min: args.credential.genesis_issued_at_min.into(),
+        cred_expires_at: args.credential.expires_at.into(),
+        cred_id: args.credential.id.into(),
+        cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
+        cred_s: cred_signature.s,
+        cred_r: cred_signature.r,
+        id_commitment_r: *args.session_id_r_seed,
         dlog_e: dlog_proof.e,
         dlog_s: dlog_proof.s,
-        oprf_pk: oprf_public_key.inner(),
+        oprf_pk: args.oprf_public_key.inner(),
         oprf_response_blinded: blinded_response,
         oprf_response: unblinded_response,
-        signal_hash: *signal_hash,
-        id_commitment_r: *rp_fixture.rp_session_id_r_seed,
+        signal_hash: *args.signal_hash,
+        current_timestamp: args.current_timestamp.into(),
     };
 
     // Generate witness JSON and create the Groth16 proof offline
