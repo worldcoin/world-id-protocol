@@ -22,7 +22,11 @@ aws-config = "1"
 aws-sdk-kms = "1"
 axum = { version = "0.8", features = ["macros", "json"] }
 clap = { version = "4", features = ["derive", "env"] }
-world-id-core = { workspace = true, features = ["authenticator", "openapi", "embed-zkeys"] }
+world-id-core = { workspace = true, features = [
+    "authenticator",
+    "openapi",
+    "embed-zkeys",
+] }
 dotenvy = "0.15"
 hex = "0.4"
 once_cell = "1"
@@ -30,6 +34,7 @@ parking_lot = "0.12"
 redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+strum = { version = "0.26", features = ["derive"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tower-http = { version = "0.5", features = ["trace", "timeout"] }

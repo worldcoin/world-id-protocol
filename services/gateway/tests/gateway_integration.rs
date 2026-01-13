@@ -61,8 +61,16 @@ fn default_sibling_nodes() -> Vec<String> {
     .collect()
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn e2e_gateway_full_flow() {
+struct TestGateway {
+    client: Client,
+    base_url: String,
+    registry_addr: Address,
+    rpc_url: String,
+    _handle: world_id_gateway::GatewayHandle,
+    _anvil: TestAnvil,
+}
+
+async fn spawn_test_gateway(port: u16) -> TestGateway {
     let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
@@ -71,32 +79,44 @@ async fn e2e_gateway_full_flow() {
         .expect("failed to deploy WorldIDRegistry");
     let rpc_url = anvil.endpoint().to_string();
 
-    let signer = PrivateKeySigner::random();
-    let wallet_addr: Address = signer.address();
-
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
         rpc_url: rpc_url.clone(),
         signer_args,
         batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: None, // Use in-memory storage for tests
     };
-    let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
-    // HTTP client
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, GW_PORT).await;
-    let base = format!("http://127.0.0.1:{GW_PORT}");
+    wait_http_ready(&client, port).await;
+
+    TestGateway {
+        client,
+        base_url: format!("http://127.0.0.1:{port}"),
+        registry_addr,
+        rpc_url,
+        _handle: handle,
+        _anvil: anvil,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_gateway_full_flow() {
+    let gw = spawn_test_gateway(GW_PORT).await;
+
+    let signer = PrivateKeySigner::random();
+    let wallet_addr: Address = signer.address();
 
     // Build Alloy provider for on-chain assertions and chain id
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = WorldIdRegistry::new(registry_addr, provider.clone());
+        .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
+    let contract = WorldIdRegistry::new(gw.registry_addr, provider.clone());
 
     // First, create the initial account through the API so tree depth stays 0 for following ops
     let body_create = serde_json::json!({
@@ -105,8 +125,9 @@ async fn e2e_gateway_full_flow() {
         "authenticator_pubkeys": ["0x64"],
         "offchain_signer_commitment": "0x1",
     });
-    let resp = client
-        .post(format!("{}/create-account", base))
+    let resp = gw
+        .client
+        .post(format!("{}/create-account", gw.base_url))
         .json(&body_create)
         .send()
         .await
@@ -118,7 +139,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let create_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, GW_PORT, &create_request_id).await;
+    let tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &create_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "create-account should return a finalized tx hash"
@@ -144,8 +165,8 @@ async fn e2e_gateway_full_flow() {
     // Sanity: build provider and contract for on-chain assertions
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = WorldIdRegistry::new(registry_addr, provider.clone());
+        .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
+    let contract = WorldIdRegistry::new(gw.registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
         .authenticatorAddressToPackedAccountData(wallet_addr)
@@ -160,7 +181,7 @@ async fn e2e_gateway_full_flow() {
     let chain_id = provider.get_chain_id().await.unwrap();
 
     // EIP-712 domain via common helpers
-    let domain = ag_domain(chain_id, registry_addr);
+    let domain = ag_domain(chain_id, gw.registry_addr);
 
     // Nonce tracker
     let mut nonce = U256::from(0);
@@ -194,8 +215,9 @@ async fn e2e_gateway_full_flow() {
         new_authenticator_pubkey: U256::from(200),
     };
     // Issue request to gateway
-    let resp = client
-        .post(format!("{}/insert-authenticator", base))
+    let resp = gw
+        .client
+        .post(format!("{}/insert-authenticator", gw.base_url))
         .json(&body_ins)
         .send()
         .await
@@ -210,7 +232,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let insert_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, GW_PORT, &insert_request_id).await;
+    let tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &insert_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "insert-authenticator should return a finalized tx hash"
@@ -261,8 +283,9 @@ async fn e2e_gateway_full_flow() {
         pubkey_id: Some(1),
         authenticator_pubkey: Some(U256::from(200)),
     };
-    let resp = client
-        .post(format!("{base}/remove-authenticator"))
+    let resp = gw
+        .client
+        .post(format!("{}/remove-authenticator", gw.base_url))
         .json(&body_rem)
         .send()
         .await
@@ -274,7 +297,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let remove_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, GW_PORT, &remove_request_id).await;
+    let tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &remove_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "remove-authenticator should return a finalized tx hash"
@@ -325,8 +348,9 @@ async fn e2e_gateway_full_flow() {
         nonce,
         new_authenticator_pubkey: Some(U256::from(300)),
     };
-    let resp = client
-        .post(format!("{}/recover-account", base))
+    let resp = gw
+        .client
+        .post(format!("{}/recover-account", gw.base_url))
         .json(&body_rec)
         .send()
         .await
@@ -342,7 +366,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let recover_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, GW_PORT, &recover_request_id).await;
+    let tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &recover_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "recover-account should return a finalized tx hash"
@@ -395,8 +419,9 @@ async fn e2e_gateway_full_flow() {
         pubkey_id: 0,
         new_authenticator_pubkey: U256::from(400),
     };
-    let resp = client
-        .post(format!("{}/update-authenticator", base))
+    let resp = gw
+        .client
+        .post(format!("{}/update-authenticator", gw.base_url))
         .json(&body_upd)
         .send()
         .await
@@ -411,7 +436,7 @@ async fn e2e_gateway_full_flow() {
     }
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let update_request_id = accepted.request_id.clone();
-    let tx_hash = wait_for_finalized(&client, GW_PORT, &update_request_id).await;
+    let tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &update_request_id).await;
     assert!(
         !tx_hash.is_empty(),
         "update-authenticator should return a finalized tx hash"
@@ -437,53 +462,29 @@ async fn e2e_gateway_full_flow() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-
-    // Cleanup
-    let _ = gw.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_authenticator_already_exists_error_code() {
-    let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
-    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
-    let rpc_url = anvil.endpoint().to_string();
+    let gw = spawn_test_gateway(4102).await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
 
-    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-    let cfg = GatewayConfig {
-        registry_addr,
-        rpc_url: rpc_url.clone(),
-        signer_args,
-        batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4102).into(),
-        max_create_batch_size: 10,
-        max_ops_batch_size: 10,
-        redis_url: None,
-    };
-    let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
-
-    let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4102).await;
-    let base = "http://127.0.0.1:4102".to_string();
-
     let provider = alloy::providers::ProviderBuilder::new()
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-    let contract = WorldIdRegistry::new(registry_addr, provider.clone());
+        .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
+    let contract = WorldIdRegistry::new(gw.registry_addr, provider.clone());
 
-    // Create account with wallet_addr as authenticator
     let body_create = serde_json::json!({
         "recovery_address": wallet_addr.to_string(),
         "authenticator_addresses": [wallet_addr.to_string()],
         "authenticator_pubkeys": ["100"],
         "offchain_signer_commitment": "1",
     });
-
-    let resp = client
-        .post(format!("{}/create-account", base))
+    let resp = gw
+        .client
+        .post(format!("{}/create-account", gw.base_url))
         .json(&body_create)
         .send()
         .await
@@ -491,7 +492,7 @@ async fn test_authenticator_already_exists_error_code() {
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let create_request_id = accepted.request_id.clone();
-    let _tx_hash = wait_for_finalized(&client, 4102, &create_request_id).await;
+    let _tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &create_request_id).await;
 
     // Wait until createManyAccounts is reflected on-chain
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
@@ -511,7 +512,7 @@ async fn test_authenticator_already_exists_error_code() {
     }
 
     let chain_id = provider.get_chain_id().await.unwrap();
-    let domain = ag_domain(chain_id, registry_addr);
+    let domain = ag_domain(chain_id, gw.registry_addr);
 
     // Try to insert the same authenticator again (wallet_addr is already an authenticator)
     let nonce = U256::from(0);
@@ -527,7 +528,6 @@ async fn test_authenticator_already_exists_error_code() {
     )
     .await
     .unwrap();
-
     let body_ins = InsertAuthenticatorRequest {
         leaf_index: U256::from(1),
         new_authenticator_address: wallet_addr,
@@ -543,8 +543,9 @@ async fn test_authenticator_already_exists_error_code() {
         new_authenticator_pubkey: U256::from(100),
     };
 
-    let resp = client
-        .post(format!("{}/insert-authenticator", base))
+    let resp = gw
+        .client
+        .post(format!("{}/insert-authenticator", gw.base_url))
         .json(&body_ins)
         .send()
         .await
@@ -567,36 +568,14 @@ async fn test_authenticator_already_exists_error_code() {
             .contains("authenticator already exists"),
         "Error should indicate 'authenticator already exists', got: {error_msg}"
     );
-
-    let _ = gw.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_same_authenticator_different_accounts() {
-    let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
-    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
-    let rpc_url = anvil.endpoint().to_string();
+    let gw = spawn_test_gateway(4103).await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
-
-    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-    let cfg = GatewayConfig {
-        registry_addr,
-        rpc_url: rpc_url.clone(),
-        signer_args,
-        batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
-        max_create_batch_size: 10,
-        max_ops_batch_size: 10,
-        redis_url: None,
-    };
-    let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
-
-    let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4103).await;
-    let base = "http://127.0.0.1:4103".to_string();
 
     // Create first account with wallet_addr as authenticator
     let body_create1 = serde_json::json!({
@@ -605,9 +584,9 @@ async fn test_same_authenticator_different_accounts() {
         "authenticator_pubkeys": ["100"],
         "offchain_signer_commitment": "1",
     });
-
-    let resp = client
-        .post(format!("{}/create-account", base))
+    let resp = gw
+        .client
+        .post(format!("{}/create-account", gw.base_url))
         .json(&body_create1)
         .send()
         .await
@@ -615,7 +594,7 @@ async fn test_same_authenticator_different_accounts() {
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let request_id_1 = accepted.request_id.clone();
-    let _tx_hash_1 = wait_for_finalized(&client, 4103, &request_id_1).await;
+    let _tx_hash_1 = wait_for_finalized(&gw.client, &gw.base_url, &request_id_1).await;
 
     // Try to create second account with the SAME wallet_addr as authenticator
     let body_create2 = serde_json::json!({
@@ -624,9 +603,9 @@ async fn test_same_authenticator_different_accounts() {
         "authenticator_pubkeys": ["200"],
         "offchain_signer_commitment": "2",
     });
-
-    let resp = client
-        .post(format!("{}/create-account", base))
+    let resp = gw
+        .client
+        .post(format!("{}/create-account", gw.base_url))
         .json(&body_create2)
         .send()
         .await
@@ -649,6 +628,4 @@ async fn test_same_authenticator_different_accounts() {
             .contains("authenticator already exists"),
         "Error should indicate 'authenticator already exists', got: {error_msg}"
     );
-
-    let _ = gw.shutdown().await;
 }
