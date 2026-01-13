@@ -1,5 +1,6 @@
 use ark_babyjubjub::EdwardsAffine;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T3_PARAMS};
 use rand::Rng;
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -100,15 +101,10 @@ pub struct Credential {
     /// The `issuer_schema_id` is registered in the `CredentialSchemaIssuerRegistry`. With this
     /// identifier, the RPs lookup the authorized keys that can sign the credential.
     pub issuer_schema_id: u64,
-    /// The subject (World ID) for which the credential is issued.
+    /// The blinded subject (World ID) for which the credential is issued.
     ///
     /// This ID comes from the `WorldIDRegistry` and it's the `leaf_index` of the World ID on the Merkle tree.
-    pub sub: u64,
-    /// The blinding factor used to blind the subject identifier.
-    ///
-    /// This blinding factor is used to compute the `blinded_user_id` which
-    /// is included in the credential hash.
-    pub sub_blinding_factor: FieldElement,
+    pub blinded_sub: FieldElement,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
     /// this timestamp should stay constant.
@@ -159,8 +155,7 @@ impl Credential {
             id: rng.gen(),
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
-            sub: 0,
-            sub_blinding_factor: FieldElement::ZERO,
+            blinded_sub: FieldElement::ZERO,
             genesis_issued_at: 0,
             genesis_issued_at_min: 0,
             expires_at: 0,
@@ -194,17 +189,13 @@ impl Credential {
         self
     }
 
-    /// Set the `sub` of the credential.
+    /// Set the `blinded_sub` for the credential computed from `sub` and a `blinding_factor`.
     #[must_use]
-    pub const fn sub(mut self, sub: u64) -> Self {
-        self.sub = sub;
-        self
-    }
-
-    /// Set the `sub_blinding_factor` of the credential.
-    #[must_use]
-    pub const fn sub_blinding_factor(mut self, sub_blinding_factor: FieldElement) -> Self {
-        self.sub_blinding_factor = sub_blinding_factor;
+    pub fn blinded_sub(mut self, sub: u64, blinding_factor: FieldElement) -> Self {
+        let hasher = Poseidon2::new(&POSEIDON2_BN254_T3_PARAMS);
+        let mut input = [*self.get_sub_ds(), sub.into(), *blinding_factor];
+        hasher.permutation_in_place(&mut input);
+        self.blinded_sub = input[1].into();
         self
     }
 

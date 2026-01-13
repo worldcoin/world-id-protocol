@@ -37,13 +37,18 @@ async fn main() -> Result<()> {
         .nth(1)
         .expect("credential file path is required as first argument");
     let credential: Credential = serde_json::from_reader(File::open(credential_path)?)?;
-    let cred_sub_blinding_factor = credential.sub_blinding_factor;
 
     let proof_request_path = std::env::args()
         .nth(2)
         .expect("proof request file path is required as second argument");
     let proof_request: ProofRequest =
         ProofRequest::from_json(&std::fs::read_to_string(proof_request_path)?)?;
+
+    // TODO change this if it should come from elsewhere
+    let cred_sub_blinding_factor = std::env::args()
+        .nth(3)
+        .expect("credential sub blinding factor is required as third argument")
+        .parse()?;
 
     let (proof, nullifier) = authenticator
         .generate_proof(proof_request, credential, cred_sub_blinding_factor)
