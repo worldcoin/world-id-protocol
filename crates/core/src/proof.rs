@@ -9,13 +9,13 @@
 //! 2. Signing OPRF queries and generating a Query Proof `π1`
 //! 3. Interacting with OPRF services to obtain challenge responses
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
-//! 5. Generating the final Nullifier Proof `π2`
+//! 5. Generating the final Uniqueness Proof `π2`
 
 use ark_ff::PrimeField as _;
 use circom_types::ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use groth16_material::Groth16Error;
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
+use poseidon2::Poseidon2;
 use rand::{CryptoRng, Rng};
 use std::io::Read;
 use std::path::Path;
@@ -26,28 +26,30 @@ use world_id_primitives::circuit_inputs::QueryProofCircuitInput;
 use world_id_primitives::oprf::OprfRequestAuthV1;
 use world_id_primitives::rp::RpId;
 use world_id_primitives::{circuit_inputs::NullifierProofCircuitInput, proof::SingleProofInput};
-use world_id_primitives::{Credential, FieldElement, TREE_DEPTH};
+use world_id_primitives::{FieldElement, TREE_DEPTH};
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
 };
+
+use crate::HashableCredential;
 
 const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "2e44038bb851348a3f41b6b543fc5b389f2b977418dae642fad03d4b91fd65b4";
+    "ee106cc2d213cca77cf7372c69851ca330f4f3fc7bff481ec2285a9f9494c041";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "fb470229d0c0b08fd4a5b0dacfba7b1967ac1bae49e1047dac891905b6003c8f";
+    "b570ceef9c8c71f5559da8d3fd03a09ae27d93634d8dff1eec24235dc61e660f";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
-    "eaa8e09b3e6703ca0b264faa252662f11e617ddc925e09302d9d1a35554d85b4";
+    "a22f17b20d65c88ffe6cca14863c42933ce6bbf28a56c902197e187d0e1268ef";
 /// The SHA-256 fingerprint of the `OPRFNullifier` witness graph.
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
-    "33cf2a11a65a7a2ed847c3839ae6b99c69722cf1e19e9dafcf5692589d45efb4";
+    "5472d0b875f5145f66fd75d94fa24dd34bd54feb130ff96e4a323ca68cfc0c2e";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
@@ -79,7 +81,8 @@ pub enum ProofError {
 // Circuit Material Loaders
 // ============================================================================
 
-/// Loads the [`CircomGroth16Material`] for the nullifier proof from the embedded keys in the binary.
+/// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also nullifier proof)
+/// from the embedded keys in the binary.
 ///
 /// # Panics
 /// Will panic if the embedded material cannot be loaded or verified.
@@ -103,7 +106,8 @@ pub fn load_embedded_query_material() -> CircomGroth16Material {
         .expect("works when loading embedded groth16-material")
 }
 
-/// Loads the [`CircomGroth16Material`] for the nullifier proof from the embedded keys in the binary.
+/// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also nullifier proof)
+/// from the embedded keys in the binary.
 #[cfg(docsrs)]
 #[must_use]
 pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
@@ -192,7 +196,7 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 }
 
 // ============================================================================
-// Nullifier Proof Generation
+// Uniqueness Proof (internally also called nullifier proof) Generation
 // ============================================================================
 
 /// Generates a nullifier proof for a given query.
@@ -250,6 +254,11 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     // TODO get from rp_id -> oprf_key_id mapping?
     let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
     let share_epoch = ShareEpoch::new(args.share_epoch);
+    let cred_signature = args
+        .credential
+        .signature
+        .clone()
+        .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
     let query_hash = query_hash(args.inclusion_proof.leaf_index, args.rp_id, args.action);
     let blinding_factor = BlindingFactor::rand(rng);
 
@@ -278,16 +287,29 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
         query_input,
+        issuer_schema_id: args.credential.issuer_schema_id.into(),
+        cred_pk: args.credential.issuer.pk,
+        cred_hashes: [
+            *args.credential.claims_hash()?,
+            *args.credential.associated_data_hash,
+        ],
+        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
+        cred_genesis_issued_at_min: args.genesis_issued_at_min.into(),
+        cred_expires_at: args.credential.expires_at.into(),
+        cred_id: args.credential.id.into(),
+        cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
+        cred_s: cred_signature.s,
+        cred_r: cred_signature.r,
+        id_commitment_r: *args.session_id_r_seed,
         dlog_e: verifiable_oprf_output.dlog_proof.e,
         dlog_s: verifiable_oprf_output.dlog_proof.s,
         oprf_pk: args.oprf_public_key.inner(),
         oprf_response_blinded: verifiable_oprf_output.blinded_response,
         oprf_response: verifiable_oprf_output.unblinded_response,
         signal_hash: *args.signal_hash,
-        id_commitment_r: *args.rp_session_id_r_seed,
+        current_timestamp: args.current_timestamp.into(),
     };
 
-    tracing::debug!("generate nullifier proof");
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
     nullifier_material.verify_proof(&proof, &public)?;
 
@@ -336,16 +358,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
     blinding_factor: &BlindingFactor,
     rng: &mut R,
 ) -> Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>), ProofError> {
-    let cred_signature = args
-        .credential
-        .signature
-        .clone()
-        .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
-
     let signature = private_key.sign(query_hash);
-
-    // Compute claims hash from credential
-    let claims_hash = compute_claims_hash(&args.credential)?;
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = args.inclusion_proof.siblings.map(|s| *s);
 
@@ -354,14 +367,6 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         pk_index: args.key_index.into(),
         s: signature.s,
         r: signature.r,
-        cred_type_id: args.credential.issuer_schema_id.into(),
-        cred_pk: args.credential.issuer.pk,
-        cred_hashes: [claims_hash, *args.credential.associated_data_hash],
-        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
-        cred_expires_at: args.credential.expires_at.into(),
-        cred_s: cred_signature.s,
-        cred_r: cred_signature.r,
-        current_timestamp: args.current_timestamp.into(),
         merkle_root: *args.inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
         mt_index: args.inclusion_proof.leaf_index.into(),
@@ -381,8 +386,6 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         action: *args.action,
         nonce: *args.nonce,
         merkle_root: *args.inclusion_proof.root,
-        cred_type_id: args.credential.issuer_schema_id,
-        cred_pk: args.credential.issuer.clone(),
         current_time_stamp: args.current_timestamp,
         signature: args.rp_signature,
     };
@@ -401,22 +404,4 @@ pub fn query_hash(leaf_index: u64, rp_id: RpId, action: FieldElement) -> ark_bab
     ];
     let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
     poseidon2_4.permutation(&input)[1]
-}
-
-/// Helper function to compute the claims hash for a credential.
-/// TODO: Move to primitives.
-fn compute_claims_hash(credential: &Credential) -> Result<ark_babyjubjub::Fq, ProofError> {
-    let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
-    if credential.claims.len() > Credential::MAX_CLAIMS {
-        return Err(ProofError::InternalError(eyre::eyre!(
-            "There can be at most {} claims",
-            Credential::MAX_CLAIMS
-        )));
-    }
-    let mut input = [*FieldElement::ZERO; Credential::MAX_CLAIMS];
-    for (i, claim) in credential.claims.iter().enumerate() {
-        input[i] = **claim;
-    }
-    hasher.permutation_in_place(&mut input);
-    Ok(input[1])
 }

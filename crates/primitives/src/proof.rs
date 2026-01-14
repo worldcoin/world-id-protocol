@@ -119,9 +119,9 @@ impl<'de> Deserialize<'de> for WorldIdProof {
     }
 }
 
-/// The arguments required to generate a World ID Uniqueness Proof (also called a "Presentation").
+/// The arguments required to generate a World ID Uniqueness Proof.
 ///
-/// This request results in a final Nullifier Proof (π2), but a Query Proof (π1) must be
+/// This request results in a final Uniqueness Proof (π2), but a Query Proof (π1) must be
 /// generated in the process.
 pub struct SingleProofInput<const TREE_DEPTH: usize> {
     // SECTION: User Inputs
@@ -133,10 +133,14 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     pub key_set: AuthenticatorPublicKeySet,
     /// The index of the public key which will be used to sign from the set of public keys.
     pub key_index: u64,
-    /// The `r_seed` is a random seed used to generate the `rpSessionId`. The `rpSessionId` is a unique identifier
-    /// for the RP+User pair for a particular action, and it lets the user prove they are still the same
-    /// person in future proofs if the RP already has an `rpSessionId` for them.
-    pub rp_session_id_r_seed: FieldElement,
+    /// The `r_seed` is a random seed used to generate the `session_id`. The `session_id` is a unique identifier
+    /// for the RP+User+Action, and it lets prove the same World ID is being used
+    /// in future proofs if the RP provides the valid `session_id`.
+    pub session_id_r_seed: FieldElement,
+    /// The factor used to blind the subject of the credential to avoid issuer correlation.
+    ///
+    /// This factor is hashed with the `leaf_index` to get the credential's `sub`.
+    pub credential_sub_blinding_factor: FieldElement,
 
     /// SECTION: RP Inputs
 
@@ -167,6 +171,12 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     /// to ensure the integrity of the proof. For example, in a voting application, the signal could
     /// be used to encode the user's vote.
     pub signal_hash: FieldElement,
+
+    /// The minimum genesis issued at (unix seconds) of the credential.
+    ///
+    /// This minimum allows RPs to require that the credential was first issued
+    /// after a certain time (`genesis_issued_at` in the `Credential` must be >= `genesis_issued_at_min`)
+    pub genesis_issued_at_min: u64,
 }
 
 #[cfg(test)]

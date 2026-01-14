@@ -151,10 +151,6 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         let public = [
             request.blinded_query.x,
             request.blinded_query.y,
-            request.auth.cred_type_id.into(),
-            request.auth.cred_pk.pk.x,
-            request.auth.cred_pk.pk.y,
-            request.auth.current_time_stamp.into(),
             request.auth.merkle_root,
             ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
             request.share_identifier.oprf_key_id.into(),
@@ -168,7 +164,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
             &request.auth.proof.clone().into(),
             &public,
         )
-        .unwrap();
+        .expect("We expect that we loaded the correct key");
         if valid {
             tracing::debug!("proof valid");
             Ok(())

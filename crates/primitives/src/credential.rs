@@ -1,5 +1,6 @@
 use ark_babyjubjub::EdwardsAffine;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use poseidon2::{Poseidon2, POSEIDON2_BN254_T3_PARAMS};
 use rand::Rng;
 use ruint::aliases::U256;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -100,10 +101,13 @@ pub struct Credential {
     /// The `issuer_schema_id` is registered in the `CredentialSchemaIssuerRegistry`. With this
     /// identifier, the RPs lookup the authorized keys that can sign the credential.
     pub issuer_schema_id: u64,
-    /// The subject (World ID) for which the credential is issued.
+    /// The blinded subject (World ID) for which the credential is issued.
     ///
-    /// This ID comes from the `WorldIDRegistry` and it's the `leaf_index` of the World ID on the Merkle tree.
-    pub sub: u64,
+    /// The underlying identifier comes from the `WorldIDRegistry` and is
+    /// the `leaf_index` of the World ID on the Merkle tree. However, this is blinded
+    /// for each `issuer_schema_id` with a blinding factor to prevent correlation of credentials
+    /// by malicious issuers.
+    pub sub: FieldElement,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
     /// this timestamp should stay constant.
@@ -149,7 +153,7 @@ impl Credential {
             id: rng.gen(),
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
-            sub: 0,
+            sub: FieldElement::ZERO,
             genesis_issued_at: 0,
             expires_at: 0,
             claims: vec![FieldElement::ZERO; Self::MAX_CLAIMS],
@@ -182,10 +186,13 @@ impl Credential {
         self
     }
 
-    /// Set the `sub` of the credential.
+    /// Set the `sub` for the credential computed from `leaf_index` and a `blinding_factor`.
     #[must_use]
-    pub const fn sub(mut self, sub: u64) -> Self {
-        self.sub = sub;
+    pub fn sub(mut self, leaf_index: u64, blinding_factor: FieldElement) -> Self {
+        let hasher = Poseidon2::new(&POSEIDON2_BN254_T3_PARAMS);
+        let mut input = [*self.get_sub_ds(), leaf_index.into(), *blinding_factor];
+        hasher.permutation_in_place(&mut input);
+        self.sub = input[1].into();
         self
     }
 
@@ -266,6 +273,14 @@ impl Credential {
     pub fn get_cred_ds(&self) -> FieldElement {
         match self.version {
             CredentialVersion::V1 => FieldElement::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
+        }
+    }
+
+    /// Get the sub domain separator for the given version.
+    #[must_use]
+    pub fn get_sub_ds(&self) -> FieldElement {
+        match self.version {
+            CredentialVersion::V1 => FieldElement::from_be_bytes_mod_order(b"H_CS(id, r)"),
         }
     }
 }

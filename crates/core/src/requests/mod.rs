@@ -96,6 +96,18 @@ pub struct RequestItem {
     /// particular action.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
+
+    /// An optional constraint on the minimum genesis issued at timestamp on the used credential.
+    ///
+    /// If present, the proof will include a constraint that the credential's genesis issued at timestamp
+    /// is greater than or equal to this value. This is useful for migration from previous protocol versions.
+    pub genesis_issued_at_min: Option<u64>,
+
+    /// If provided, a Session Proof will be generated instead of a Uniqueness Proof.
+    ///
+    /// The proof will only be valid if the session ID is meant for this context and this
+    /// particular World ID holder.
+    pub session_id: Option<FieldElement>,
 }
 
 impl RequestItem {
@@ -105,11 +117,15 @@ impl RequestItem {
         identifier: String,
         issuer_schema_id: FieldElement,
         signal: Option<String>,
+        genesis_issued_at_min: Option<u64>,
+        session_id: Option<FieldElement>,
     ) -> Self {
         Self {
             identifier,
             issuer_schema_id,
             signal,
+            genesis_issued_at_min,
+            session_id,
         }
     }
 
@@ -547,6 +563,8 @@ mod tests {
                 identifier: "orb".into(),
                 issuer_schema_id: test_field_element(1),
                 signal: Some("test_signal".into()),
+                genesis_issued_at_min: None,
+                session_id: None,
             }],
             constraints: None,
         };
@@ -585,11 +603,15 @@ mod tests {
                     identifier: "orb".into(),
                     issuer_schema_id: test_field_element(1),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "document".into(),
                     issuer_schema_id: test_field_element(2),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
             ],
             constraints: None,
@@ -660,6 +682,8 @@ mod tests {
                 identifier: "orb".into(),
                 issuer_schema_id: test_field_element(1),
                 signal: None,
+                genesis_issued_at_min: None,
+                session_id: None,
             }],
             constraints: Some(deep),
         };
@@ -733,46 +757,64 @@ mod tests {
                     identifier: "test_req_10".into(),
                     issuer_schema_id: id10,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_11".into(),
                     issuer_schema_id: id11,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_12".into(),
                     issuer_schema_id: id12,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_13".into(),
                     issuer_schema_id: id13,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_14".into(),
                     issuer_schema_id: id14,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_15".into(),
                     issuer_schema_id: id15,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_16".into(),
                     issuer_schema_id: id16,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_17".into(),
                     issuer_schema_id: id17,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_18".into(),
                     issuer_schema_id: id18,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
             ],
             constraints: Some(expr),
@@ -815,6 +857,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn constraint_node_limit_exceeded_fails() {
         // Root All with: 1 Type + Any(4) + Any(5)
         // Node count = root(1) + type(1) + any(1+4) + any(1+5) = 13 (> 12)
@@ -856,51 +899,71 @@ mod tests {
                     identifier: "test_req_20".into(),
                     issuer_schema_id: test_field_element(20),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_21".into(),
                     issuer_schema_id: test_field_element(21),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_22".into(),
                     issuer_schema_id: test_field_element(22),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_23".into(),
                     issuer_schema_id: test_field_element(23),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_24".into(),
                     issuer_schema_id: test_field_element(24),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_25".into(),
                     issuer_schema_id: test_field_element(25),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_26".into(),
                     issuer_schema_id: test_field_element(26),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_27".into(),
                     issuer_schema_id: test_field_element(27),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_28".into(),
                     issuer_schema_id: test_field_element(28),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_29".into(),
                     issuer_schema_id: test_field_element(29),
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
             ],
             constraints: Some(expr),
@@ -940,6 +1003,8 @@ mod tests {
                 identifier: "test_req_1".into(),
                 issuer_schema_id: test_field_element(1),
                 signal: Some("abcd-efgh-ijkl".into()),
+                genesis_issued_at_min: Some(1_725_381_192),
+                session_id: Some(test_field_element(55)),
             }],
             constraints: None,
         };
@@ -980,11 +1045,15 @@ mod tests {
                     identifier: "test_req_1".into(),
                     issuer_schema_id: test_field_element(1),
                     signal: Some("abcd-efgh-ijkl".into()),
+                    genesis_issued_at_min: Some(1_725_381_192),
+                    session_id: Some(test_field_element(100)),
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: test_field_element(2),
                     signal: Some("abcd-efgh-ijkl".into()),
+                    genesis_issued_at_min: Some(1_725_381_192),
+                    session_id: Some(test_field_element(12)),
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1040,16 +1109,22 @@ mod tests {
                     identifier: "test_req_1".into(),
                     issuer_schema_id: test_field_element(1),
                     signal: Some("abcd-efgh-ijkl".into()),
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: test_field_element(2),
                     signal: Some("mnop-qrst-uvwx".into()),
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_3".into(),
                     issuer_schema_id: test_field_element(3),
                     signal: Some("abcd-efgh-ijkl".into()),
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1170,11 +1245,15 @@ mod tests {
                     identifier: "test_req_1".into(),
                     issuer_schema_id: id1,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: id1, // Duplicate!
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
             ],
             constraints: None,
@@ -1210,11 +1289,15 @@ mod tests {
                     identifier: "orb".into(),
                     issuer_schema_id: orb_id,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
                     issuer_schema_id: passport_id,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
             ],
             constraints: None,
@@ -1254,16 +1337,22 @@ mod tests {
                     identifier: "orb".into(),
                     issuer_schema_id: orb_id,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
                     issuer_schema_id: passport_id,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
                 RequestItem {
                     identifier: "national_id".into(),
                     issuer_schema_id: national_id_id,
                     signal: None,
+                    genesis_issued_at_min: None,
+                    session_id: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {

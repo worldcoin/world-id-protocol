@@ -1,7 +1,6 @@
 use ark_bn254::Bn254;
 use ark_serde_compat::babyjubjub;
 use circom_types::groth16::Proof;
-use eddsa_babyjubjub::EdDSAPublicKey;
 use serde::{Deserialize, Serialize};
 
 /// A request sent by a client to perform an OPRF evaluation.
@@ -21,10 +20,6 @@ pub struct OprfRequestAuthV1 {
     #[serde(serialize_with = "babyjubjub::serialize_fq")]
     #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
     pub merkle_root: ark_babyjubjub::Fq,
-    /// The credential public key
-    pub cred_pk: EdDSAPublicKey, // TODO  remove and get from chain
-    /// The issuerSchemaId
-    pub cred_type_id: u64, // TODO remove and get from chain
     /// The current time stamp (unix secs)
     pub current_time_stamp: u64,
     /// The signature of the nonce || timestamp
