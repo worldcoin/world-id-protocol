@@ -103,19 +103,17 @@ pub struct Credential {
     pub issuer_schema_id: u64,
     /// The blinded subject (World ID) for which the credential is issued.
     ///
-    /// This ID comes from the `WorldIDRegistry` and it's the `leaf_index` of the World ID on the Merkle tree.
-    pub blinded_sub: FieldElement,
+    /// The underlying identifier comes from the `WorldIDRegistry` and is
+    /// the `leaf_index` of the World ID on the Merkle tree. However, this is blinded
+    /// for each `issuer_schema_id` with a blinding factor to prevent correlation of credentials
+    /// by malicious issuers.
+    pub sub: FieldElement,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
     /// this timestamp should stay constant.
     ///
     /// This timestamp can be queried (only as a minimum value) by RPs.
     pub genesis_issued_at: u64,
-    /// Minimum for genesis issued at (unix seconds)
-    ///
-    /// This minimum allows RPs to require that the credential was first issued
-    /// after a certain time (`genesis_issued_at` must be >= `genesis_issued_at_min`)
-    pub genesis_issued_at_min: u64,
     /// Expiration timestamp (unix seconds)
     pub expires_at: u64,
     /// **For Future Use**. Concrete statements that the issuer attests about the receiver.
@@ -155,9 +153,8 @@ impl Credential {
             id: rng.gen(),
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
-            blinded_sub: FieldElement::ZERO,
+            sub: FieldElement::ZERO,
             genesis_issued_at: 0,
-            genesis_issued_at_min: 0,
             expires_at: 0,
             claims: vec![FieldElement::ZERO; Self::MAX_CLAIMS],
             associated_data_hash: FieldElement::ZERO,
@@ -189,13 +186,13 @@ impl Credential {
         self
     }
 
-    /// Set the `blinded_sub` for the credential computed from `sub` and a `blinding_factor`.
+    /// Set the `sub` for the credential computed from `leaf_index` and a `blinding_factor`.
     #[must_use]
-    pub fn blinded_sub(mut self, sub: u64, blinding_factor: FieldElement) -> Self {
+    pub fn sub(mut self, leaf_index: u64, blinding_factor: FieldElement) -> Self {
         let hasher = Poseidon2::new(&POSEIDON2_BN254_T3_PARAMS);
-        let mut input = [*self.get_sub_ds(), sub.into(), *blinding_factor];
+        let mut input = [*self.get_sub_ds(), leaf_index.into(), *blinding_factor];
         hasher.permutation_in_place(&mut input);
-        self.blinded_sub = input[1].into();
+        self.sub = input[1].into();
         self
     }
 
@@ -203,13 +200,6 @@ impl Credential {
     #[must_use]
     pub const fn genesis_issued_at(mut self, genesis_issued_at: u64) -> Self {
         self.genesis_issued_at = genesis_issued_at;
-        self
-    }
-
-    /// Set the genesis issued at min of the credential.
-    #[must_use]
-    pub const fn genesis_issued_at_min(mut self, genesis_issued_at_min: u64) -> Self {
-        self.genesis_issued_at_min = genesis_issued_at_min;
         self
     }
 

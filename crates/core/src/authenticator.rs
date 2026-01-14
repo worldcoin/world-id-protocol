@@ -466,6 +466,7 @@ impl Authenticator {
             rp_signature: proof_request.signature,
             oprf_public_key: proof_request.oprf_public_key,
             signal_hash: request_item.signal_hash(),
+            genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0), // When not provided, the minimum is set to 0 to "ignore" the constraint
         };
 
         let private_key = self.signer.offchain_signer_private_key().expose_secret();

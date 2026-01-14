@@ -291,6 +291,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         oprf_public_key,
         signal_hash: signal_hash.into(),
         credential_sub_blinding_factor,
+        genesis_issued_at_min: 0,
     };
 
     let query_hash =
@@ -492,7 +493,7 @@ async fn stress_test(
                         cred_s: cred_signature.s,
                         cred_r: cred_signature.r,
                         current_timestamp: args.current_timestamp.into(),
-                        cred_genesis_issued_at_min: args.credential.genesis_issued_at_min.into(),
+                        cred_genesis_issued_at_min: args.genesis_issued_at_min.into(),
                         cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
                         cred_id: args.credential.id.into(),
                     };

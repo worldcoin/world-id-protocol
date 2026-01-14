@@ -171,6 +171,12 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     /// to ensure the integrity of the proof. For example, in a voting application, the signal could
     /// be used to encode the user's vote.
     pub signal_hash: FieldElement,
+
+    /// The minimum genesis issued at (unix seconds) of the credential.
+    ///
+    /// This minimum allows RPs to require that the credential was first issued
+    /// after a certain time (`genesis_issued_at` in the `Credential` must be >= `genesis_issued_at_min`)
+    pub genesis_issued_at_min: u64,
 }
 
 #[cfg(test)]

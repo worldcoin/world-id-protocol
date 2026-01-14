@@ -199,6 +199,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         oprf_public_key,
         signal_hash,
         session_id_r_seed: rp_fixture.rp_session_id_r_seed,
+        genesis_issued_at_min: 0,
     };
 
     // Produce πR (signed OPRF query) — blinded request + query inputs
@@ -245,7 +246,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
             *args.credential.associated_data_hash,
         ],
         cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
-        cred_genesis_issued_at_min: args.credential.genesis_issued_at_min.into(),
+        cred_genesis_issued_at_min: args.genesis_issued_at_min.into(),
         cred_expires_at: args.credential.expires_at.into(),
         cred_id: args.credential.id.into(),
         cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
