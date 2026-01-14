@@ -4,8 +4,14 @@ use crate::{
     request_tracker::{RequestKind, RequestState},
     ErrorResponse as ApiError,
 };
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::{
+    primitives::{Address, U256},
+    providers::DynProvider,
+};
+use lru::LruCache;
+use parking_lot::Mutex;
 use serde::Serialize;
+use std::sync::Arc;
 use utoipa::ToSchema;
 
 /// Maximum number of authenticators per account (matches contract default).
@@ -17,6 +23,7 @@ pub(crate) struct AppState {
     pub(crate) provider: DynProvider,
     pub(crate) batcher: CreateBatcherHandle,
     pub(crate) ops_batcher: OpsBatcherHandle,
+    pub(crate) root_cache: Arc<Mutex<LruCache<U256, bool>>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

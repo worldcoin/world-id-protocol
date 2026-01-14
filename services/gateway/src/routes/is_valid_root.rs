@@ -29,11 +29,15 @@ pub(crate) async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
+    if let Some(valid) = state.root_cache.lock().get(&root) {
+        return Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))));
+    }
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
         .call()
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    state.root_cache.lock().put(root, valid);
     Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
 }
