@@ -294,7 +294,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
             *args.credential.associated_data_hash,
         ],
         cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
-        cred_genesis_issued_at_min: args.credential.genesis_issued_at_min.into(),
+        cred_genesis_issued_at_min: args.genesis_issued_at_min.into(),
         cred_expires_at: args.credential.expires_at.into(),
         cred_id: args.credential.id.into(),
         cred_sub_blinding_factor: *args.credential_sub_blinding_factor,

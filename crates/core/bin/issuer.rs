@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
     let cred_sub_blinding_factor = FieldElement::random(&mut rng);
     let current_timestamp = Utc::now().timestamp() as u64;
     let credential = Credential::new()
-        .blinded_sub(leaf_index, cred_sub_blinding_factor)
+        .sub(leaf_index, cred_sub_blinding_factor)
         .issuer_schema_id(ISSUER_SCHEMA_ID)
         .genesis_issued_at(current_timestamp)
         .expires_at(current_timestamp + EXPIRATION_TIME)

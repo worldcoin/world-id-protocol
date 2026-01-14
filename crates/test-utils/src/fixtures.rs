@@ -118,7 +118,7 @@ pub fn build_base_credential(
     let credential_sub_blinding_factor = FieldElement::random(&mut rng);
     let credential = Credential::new()
         .issuer_schema_id(issuer_schema_id)
-        .blinded_sub(leaf_index, credential_sub_blinding_factor)
+        .sub(leaf_index, credential_sub_blinding_factor)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at);
 

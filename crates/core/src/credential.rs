@@ -65,7 +65,7 @@ impl HashableCredential for Credential {
                 let mut input = [
                     *self.get_cred_ds(),
                     self.issuer_schema_id.into(),
-                    *self.blinded_sub,
+                    *self.sub,
                     self.genesis_issued_at.into(),
                     self.expires_at.into(),
                     *self.claims_hash()?,
@@ -114,7 +114,7 @@ mod tests {
         let credential = Credential::new()
             .version(CredentialVersion::V1)
             .issuer_schema_id(123)
-            .blinded_sub(456, FieldElement::random(&mut rand::thread_rng()))
+            .sub(456, FieldElement::random(&mut rand::thread_rng()))
             .genesis_issued_at(1234567890)
             .expires_at(1234567890 + 86_400)
             .claim_hash(0, U256::from(999))
