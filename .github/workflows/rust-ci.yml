@@ -81,7 +81,7 @@ jobs:
   test:
     name: Tests
     runs-on: 
-      group: arc-public-large-amd64-runner
+      group: arc-public-8xlarge-amd64-runner
     permissions:
       contents: read
 
