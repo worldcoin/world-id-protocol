@@ -53,6 +53,11 @@ impl ValidateRequest for CreateAccountRequest {
                 "authenticator address cannot be zero".to_string(),
             ));
         }
+        if self.offchain_signer_commitment.is_zero() {
+            return Err(ApiError::bad_request(
+                "offchain signer commitment cannot be zero".to_string(),
+            ));
+        }
         Ok(())
     }
 }
