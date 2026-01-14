@@ -1,5 +1,5 @@
 use crate::{
-    types::{ApiResult, AppState, RootCacheEntry},
+    types::{ApiResult, AppState},
     ErrorResponse as ApiError,
 };
 use alloy::{primitives::U256, providers::DynProvider};
@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use utoipa::{IntoParams, ToSchema};
 use world_id_core::world_id_registry::WorldIdRegistry;
+
+/// Default root validity window for LRU cache.
+///
+/// Set to 1 hour.
+const DEFAULT_CACHE_TTL_SECS: u64 = 60 * 60;
 
 /// Query params for the `/is-valid-root` endpoint.
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
@@ -38,24 +43,28 @@ fn now_timestamp() -> ApiResult<U256> {
     Ok(U256::from(duration.as_secs()))
 }
 
+fn is_expired(expires_at: U256, now: U256) -> bool {
+    expires_at <= now
+}
+
 /// Return a cached validity value when present and not expired.
-fn get_cached_root(state: &AppState, root: U256, now: U256) -> Option<bool> {
+fn get_cached_root(state: &AppState, root: U256, now: U256) -> bool {
     let mut cache = state.root_cache.lock();
-    let needs_evict = match cache.get(&root) {
-        Some(entry) if entry.is_fresh(now) => return Some(entry.valid),
-        Some(_) => true,
-        None => false,
+    let expires_at = match cache.get(&root) {
+        Some(ts) => *ts,
+        None => return false,
     };
-    if needs_evict {
+    if is_expired(expires_at, now) {
         // Expired entries are removed so future lookups fall through.
         cache.pop(&root);
+        return false;
     }
-    None
+    true
 }
 
 /// Cache decision for a valid root.
 enum CachePolicy {
-    Cache(Option<U256>),
+    Cache(U256),
     Skip,
 }
 
@@ -65,16 +74,6 @@ async fn cache_policy_for_root(
     root: U256,
     now: U256,
 ) -> ApiResult<CachePolicy> {
-    let latest_root = contract
-        .latestRoot()
-        .call()
-        .await
-        .map_err(|e| ApiError::bad_request(e.to_string()))?;
-    if root == latest_root {
-        // latestRoot can change at any time, so we avoid caching it.
-        return Ok(CachePolicy::Skip);
-    }
-
     let ts = contract
         .rootToTimestamp(root)
         .call()
@@ -91,17 +90,19 @@ async fn cache_policy_for_root(
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
     if validity_window == U256::ZERO {
-        return Ok(CachePolicy::Cache(None));
+        // The WorldIdRegistry contract considers the root valid forever if
+        // validity_window == 0, we set a default expiration to 1 hour in the future.
+        return Ok(CachePolicy::Cache(now + U256::from(DEFAULT_CACHE_TTL_SECS)));
     }
 
     let expiration = ts + validity_window;
-    if expiration <= now {
-        // Expired roots may flip validity if they become the latest root.
+    if is_expired(expiration, now) {
+        // Expired roots may still be valid if they are the latest root.
         return Ok(CachePolicy::Skip);
     }
 
     // Only cache valid roots until the on-chain expiration boundary.
-    Ok(CachePolicy::Cache(Some(expiration)))
+    Ok(CachePolicy::Cache(expiration))
 }
 
 /// Validate whether a root is currently valid according to the registry contract.
@@ -111,8 +112,8 @@ pub(crate) async fn is_valid_root(
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
     let now = now_timestamp()?;
-    if let Some(valid) = get_cached_root(&state, root, now) {
-        return Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))));
+    if get_cached_root(&state, root, now) {
+        return Ok((StatusCode::OK, Json(serde_json::json!({"valid": true}))));
     }
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
@@ -124,10 +125,7 @@ pub(crate) async fn is_valid_root(
         // Cache only valid roots to avoid serving stale negatives indefinitely.
         match cache_policy_for_root(&contract, root, now).await? {
             CachePolicy::Cache(expires_at) => {
-                state
-                    .root_cache
-                    .lock()
-                    .put(root, RootCacheEntry::new(valid, expires_at));
+                state.root_cache.lock().put(root, expires_at);
             }
             CachePolicy::Skip => {}
         }

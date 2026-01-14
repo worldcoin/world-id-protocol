@@ -17,27 +17,6 @@ use utoipa::ToSchema;
 /// Maximum number of authenticators per account (matches contract default).
 pub(crate) const MAX_AUTHENTICATORS: u32 = 7;
 
-/// Cached root validity with optional expiration.
-#[derive(Clone, Debug)]
-pub(crate) struct RootCacheEntry {
-    /// Whether the root was valid when cached.
-    pub(crate) valid: bool,
-    /// Optional unix timestamp (seconds) after which the cache entry is stale.
-    pub(crate) expires_at: Option<U256>,
-}
-
-impl RootCacheEntry {
-    /// Build a new cache entry.
-    pub(crate) fn new(valid: bool, expires_at: Option<U256>) -> Self {
-        Self { valid, expires_at }
-    }
-
-    /// Returns true when the cache entry should be considered fresh (not expired).
-    pub(crate) fn is_fresh(&self, now: U256) -> bool {
-        self.expires_at.map(|ts| ts > now).unwrap_or(true)
-    }
-}
-
 /// Shared application state for gateway handlers.
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -49,8 +28,8 @@ pub(crate) struct AppState {
     pub(crate) batcher: CreateBatcherHandle,
     /// Background batcher for ops (insert/remove/recover/update).
     pub(crate) ops_batcher: OpsBatcherHandle,
-    /// LRU cache of roots with optional expiration.
-    pub(crate) root_cache: Arc<Mutex<LruCache<U256, RootCacheEntry>>>,
+    /// LRU cache of valid roots to their expiration timestamps.
+    pub(crate) root_cache: Arc<Mutex<LruCache<U256, U256>>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
