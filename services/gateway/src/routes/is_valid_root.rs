@@ -6,6 +6,7 @@ use alloy::{primitives::U256, providers::DynProvider};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::warn;
 use utoipa::{IntoParams, ToSchema};
 use world_id_core::world_id_registry::WorldIdRegistry;
 
@@ -128,11 +129,17 @@ pub(crate) async fn is_valid_root(
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
     if valid {
         // Cache only valid roots to avoid serving stale negatives indefinitely.
-        match cache_policy_for_root(&contract, root, now).await? {
-            CachePolicy::Cache(expires_at) => {
+        match cache_policy_for_root(&contract, root, now).await {
+            Ok(CachePolicy::Cache(expires_at)) => {
                 state.root_cache.lock().put(root, expires_at);
             }
-            CachePolicy::Skip => {}
+            Ok(CachePolicy::Skip) => {}
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    "root cache policy failed; skipping cache fill"
+                );
+            }
         }
     }
     Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
