@@ -16,9 +16,10 @@ pub(crate) async fn insert_authenticator(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    if req.leaf_index.is_zero() {
+    // Input validation
+    if req.new_authenticator_address.is_zero() {
         return Err(ApiError::bad_request(
-            "leaf_index cannot be zero".to_string(),
+            "new_authenticator_address cannot be zero".to_string(),
         ));
     }
     if req.pubkey_id >= MAX_AUTHENTICATORS {
@@ -26,9 +27,26 @@ pub(crate) async fn insert_authenticator(
             "pubkey_id must be less than {MAX_AUTHENTICATORS}"
         )));
     }
-    if req.new_authenticator_address.is_zero() {
+    if req.leaf_index.is_zero() {
         return Err(ApiError::bad_request(
-            "new_authenticator_address cannot be zero".to_string(),
+            "leaf_index cannot be zero".to_string(),
+        ));
+    }
+    if req.old_offchain_signer_commitment.is_zero() || req.new_offchain_signer_commitment.is_zero()
+    {
+        return Err(ApiError::bad_request(
+            "offchain signer commitment cannot be zero".to_string(),
+        ));
+    }
+    if req.signature.len() != 65 {
+        return Err(ApiError::bad_request(
+            // 65 is the standard ECDSA signature length.
+            "ECDSA signature must be exactly 65 bytes long".to_string(),
+        ));
+    }
+    if req.signature.iter().all(|byte| *byte == 0) {
+        return Err(ApiError::bad_request(
+            "ECDSA signature cannot be all zeros".to_string(),
         ));
     }
 
