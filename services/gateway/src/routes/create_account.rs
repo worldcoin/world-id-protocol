@@ -1,6 +1,7 @@
 use crate::{
     create_batcher::CreateReqEnvelope,
     request_tracker::{RequestKind, RequestState, RequestTracker},
+    routes::validation::ValidateRequest,
     types::{ApiResult, AppState, RequestStatusResponse},
     ErrorResponse as ApiError,
 };
@@ -16,11 +17,8 @@ pub(crate) async fn create_account(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    if req.authenticator_addresses.iter().any(|a| a.is_zero()) {
-        return Err(ApiError::bad_request(
-            "authenticator address cannot be zero".to_string(),
-        ));
-    }
+    // Input validation
+    req.validate()?;
 
     // Simulate the account creation before queueing to catch errors early
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());

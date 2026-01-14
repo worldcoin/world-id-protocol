@@ -1,7 +1,8 @@
 use crate::{
     ops_batcher::{OpEnvelope, OpKind},
     request_tracker::{RequestKind, RequestState, RequestTracker},
-    types::{ApiResult, AppState, RequestStatusResponse, MAX_AUTHENTICATORS},
+    routes::validation::ValidateRequest,
+    types::{ApiResult, AppState, RequestStatusResponse},
     ErrorResponse as ApiError,
 };
 use alloy::primitives::{Bytes, U256};
@@ -17,23 +18,10 @@ pub(crate) async fn remove_authenticator(
     Json(req): Json<RemoveAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
     let pubkey_id = req.pubkey_id.unwrap_or(0);
-    let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::from(0u64));
+    let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::ZERO);
 
-    if req.leaf_index.is_zero() {
-        return Err(ApiError::bad_request(
-            "leaf_index cannot be zero".to_string(),
-        ));
-    }
-    if pubkey_id >= MAX_AUTHENTICATORS {
-        return Err(ApiError::bad_request(format!(
-            "pubkey_id must be less than {MAX_AUTHENTICATORS}"
-        )));
-    }
-    if req.authenticator_address.is_zero() {
-        return Err(ApiError::bad_request(
-            "authenticator_address cannot be zero".to_string(),
-        ));
-    }
+    // Input validation
+    req.validate()?;
 
     // Simulate the operation before queueing to catch errors early
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());

@@ -1,6 +1,7 @@
 use crate::{
     ops_batcher::{OpEnvelope, OpKind},
     request_tracker::{RequestKind, RequestState, RequestTracker},
+    routes::validation::ValidateRequest,
     types::{ApiResult, AppState, RequestStatusResponse},
     ErrorResponse as ApiError,
 };
@@ -16,19 +17,10 @@ pub(crate) async fn recover_account(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
+    // Input validation
+    req.validate()?;
 
-    if req.leaf_index.is_zero() {
-        return Err(ApiError::bad_request(
-            "leaf_index cannot be zero".to_string(),
-        ));
-    }
-    if req.new_authenticator_address.is_zero() {
-        return Err(ApiError::bad_request(
-            "new_authenticator_address cannot be zero".to_string(),
-        ));
-    }
-
+    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::ZERO);
     // Simulate the operation before queueing to catch errors early
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract

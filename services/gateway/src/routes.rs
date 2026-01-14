@@ -41,6 +41,7 @@ mod recover_account;
 mod remove_authenticator;
 mod request_status;
 mod update_authenticator;
+mod validation;
 
 pub(crate) async fn build_app(
     registry_addr: Address,
