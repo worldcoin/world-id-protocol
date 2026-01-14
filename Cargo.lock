@@ -6940,7 +6940,7 @@ dependencies = [
 
 [[package]]
 name = "test-utils"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
@@ -8167,7 +8167,7 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 
 [[package]]
 name = "world-id-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
@@ -8340,7 +8340,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "alloy-primitives",
  "ark-bn254 0.5.0",
