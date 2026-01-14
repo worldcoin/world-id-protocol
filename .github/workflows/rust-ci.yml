@@ -203,8 +203,7 @@ jobs:
 
   docs:
     name: Check docs
-    runs-on: 
-      group: arc-public-large-amd64-runner
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
