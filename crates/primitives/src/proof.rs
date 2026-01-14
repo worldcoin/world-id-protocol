@@ -162,7 +162,7 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     /// The signature is computed over `H(nonce || timestamp)`, ECDSA on the `secp256k1` curve.
     ///
     /// TODO: Refactor what is actually signed.
-    pub rp_signature: k256::ecdsa::Signature,
+    pub rp_signature: alloy_primitives::Signature,
     /// The public key used to verify the computed nullifier. It can be retrieved from the `OprfKeyRegistry` contract.
     ///
     /// TODO: This requires more details.

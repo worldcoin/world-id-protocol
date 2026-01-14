@@ -7,7 +7,7 @@ use alloy::sol_types::SolCall;
 use alloy::{sol, uint};
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
-use taceo_oprf_types::OprfKeyId;
+use world_id_primitives::rp::RpId;
 
 /// Canonical Multicall3 address (same on all EVM chains).
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
@@ -97,6 +97,26 @@ sol!(
     concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/out/ERC1967Proxy.sol/ERC1967Proxy.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    RpRegistry,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/RpRegistry.sol/RpRegistry.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    ERC20Mock,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/ERC20Mock.sol/ERC20Mock.json"
     )
 );
 
@@ -303,6 +323,42 @@ impl TestAnvil {
         Ok(*proxy.address())
     }
 
+    /// Deploys the `RpRegistry` contract using the supplied signer.
+    #[allow(dead_code)]
+    pub async fn deploy_rp_registry(
+        &self,
+        signer: PrivateKeySigner,
+        oprf_key_registry_contract: Address,
+    ) -> Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+
+        let erc20_mock = ERC20Mock::deploy(provider.clone())
+            .await
+            .context("failed to deploy ERC20Mock contract")?;
+
+        let rp_registry = RpRegistry::deploy(provider.clone())
+            .await
+            .context("failed to deploy RpRegistry contract")?;
+
+        let init_data = Bytes::from(
+            RpRegistry::initializeCall {
+                feeRecipient: signer.address(),
+                feeToken: *erc20_mock.address(),
+                registrationFee: uint!(0_U256),
+                oprfKeyRegistry: oprf_key_registry_contract,
+            }
+            .abi_encode(),
+        );
+
+        let proxy = ERC1967Proxy::deploy(provider, *rp_registry.address(), init_data)
+            .await
+            .context("failed to deploy RpRegistry proxy")?;
+
+        Ok(*proxy.address())
+    }
+
     /// Deploys the `OprfKeyRegistry` contract using the supplied signer.
     #[allow(dead_code)]
     pub async fn deploy_oprf_key_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
@@ -366,27 +422,54 @@ impl TestAnvil {
         Ok(())
     }
 
-    /// Init a key gen at the `OprfKeyRegistry` contract using the supplied signer.
-    pub async fn init_oprf_key_gen(
+    /// Adds an admin at the `OprfKeyRegistry` contract using the supplied signer.
+    pub async fn add_oprf_key_registry_admin(
         &self,
         oprf_key_registry_contract: Address,
         signer: PrivateKeySigner,
-    ) -> Result<OprfKeyId> {
+        admin: Address,
+    ) -> Result<()> {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
         let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
-        let oprf_key_id = OprfKeyId::new(rand::random());
         let receipt = oprf_key_registry
-            .initKeyGen(oprf_key_id.into_inner())
+            .addKeyGenAdmin(admin)
             .send()
             .await?
             .get_receipt()
             .await?;
         if !receipt.status() {
-            eyre::bail!("failed to init oprf key gen");
+            eyre::bail!("failed to add OprfKeyRegistry admin");
         }
-        Ok(oprf_key_id)
+        Ok(())
+    }
+
+    /// Register a new `RP` at the `OprfKeyRegistry` contract using the supplied signer.
+    pub async fn register_rp(
+        &self,
+        rp_registry_contract: Address,
+        signer: PrivateKeySigner,
+        rp_id: RpId,
+        rp_manager: Address,
+        rp_signer: Address,
+        rp_domain: String,
+    ) -> Result<()> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let rp_registry = RpRegistry::new(rp_registry_contract, provider);
+        let receipt = rp_registry
+            .register(rp_id.into_inner(), rp_manager, rp_signer, rp_domain.clone())
+            .gas(10000000) // FIXME
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+        if !receipt.status() {
+            eyre::bail!("failed to register RP");
+        }
+        Ok(())
     }
 
     /// Links a library address into contract bytecode by replacing all placeholder references.

@@ -388,6 +388,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         merkle_root: *args.inclusion_proof.root,
         current_time_stamp: args.current_timestamp,
         signature: args.rp_signature,
+        rp_id: args.rp_id,
     };
 
     Ok((auth, query_input))

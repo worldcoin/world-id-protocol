@@ -11,7 +11,10 @@ use secrecy::ExposeSecret;
 use taceo_oprf_service::{secret_manager::SecretManagerService, StartedServices};
 
 use crate::{
-    auth::{merkle_watcher::MerkleWatcher, WorldOprfRequestAuthenticator},
+    auth::{
+        merkle_watcher::MerkleWatcher, rp_registry_watcher::RpRegistryWatcher,
+        WorldOprfRequestAuthenticator,
+    },
     config::WorldOprfNodeConfig,
 };
 
@@ -48,9 +51,20 @@ pub async fn start(
     .await
     .context("while starting merkle watcher")?;
 
+    tracing::info!("init RpRegistry watcher..");
+    let rp_registry_watcher = RpRegistryWatcher::init(
+        config.rp_registry_contract,
+        node_config.chain_ws_rpc_url.expose_secret(),
+        config.max_rp_registry_store_size,
+        cancellation_token.clone(),
+    )
+    .await
+    .context("while starting merkle watcher")?;
+
     tracing::info!("init oprf request auth service..");
     let oprf_req_auth_service = Arc::new(WorldOprfRequestAuthenticator::init(
         merkle_watcher,
+        rp_registry_watcher,
         config.current_time_stamp_max_difference,
         config.signature_history_cleanup_interval,
     ));

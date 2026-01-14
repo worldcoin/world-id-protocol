@@ -66,7 +66,7 @@ pub struct ProofRequest {
     /// The nullifier key of the RP (FIXME: documentation & serialization after #129)
     pub oprf_public_key: OprfPublicKey,
     /// The RP's ECDSA signature over the request
-    pub signature: k256::ecdsa::Signature,
+    pub signature: alloy::signers::Signature,
     /// Unique nonce for this request (serialized as hex string)
     pub nonce: FieldElement,
     /// Specific credential requests. This defines which credentials to ask for.
@@ -461,13 +461,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::uint;
-    use k256::ecdsa::{signature::Signer, SigningKey};
+    use alloy::{signers::local::PrivateKeySigner, signers::SignerSync, uint};
+    use k256::ecdsa::SigningKey;
 
     // Test helpers
-    fn test_signature() -> k256::ecdsa::Signature {
-        let signing_key = SigningKey::from_bytes(&[1u8; 32].into()).unwrap();
-        signing_key.sign(b"test")
+    fn test_signature() -> alloy::signers::Signature {
+        let signer =
+            PrivateKeySigner::from_signing_key(SigningKey::from_bytes(&[1u8; 32].into()).unwrap());
+        signer.sign_message_sync(b"test").expect("can sign")
     }
 
     fn test_oprf_public_key() -> OprfPublicKey {

@@ -4,15 +4,15 @@ use alloy::{
     network::EthereumWallet,
     primitives::{Address, U160, U256},
     providers::ProviderBuilder,
+    signers::{local::PrivateKeySigner, Signature, SignerSync},
     sol_types::SolEvent,
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{PrimeField, UniformRand};
-use ark_serialize::CanonicalSerialize;
+use ark_ff::{BigInteger as _, PrimeField, UniformRand};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{eyre, Context as _, Result};
-use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+use k256::ecdsa::SigningKey;
 use rand::{thread_rng, Rng};
 use taceo_oprf_types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{
@@ -152,7 +152,7 @@ pub fn single_leaf_merkle_fixture(
 
 pub struct RpFixture {
     pub world_rp_id: WorldRpId,
-    pub oprf_rp_id: OprfKeyId,
+    pub oprf_key_id: OprfKeyId,
     pub share_epoch: ShareEpoch,
     pub action: Fq,
     pub nonce: Fq,
@@ -168,6 +168,7 @@ pub struct RpFixture {
 pub fn generate_rp_fixture() -> RpFixture {
     let mut rng = thread_rng();
     let rp_id_value: U160 = rng.gen();
+    // Atm we use the same value for both WorldRpId and OprfKeyId, this is also done line this in the RpRegistry contract
     let world_rp_id = WorldRpId::new(rp_id_value);
     let oprf_rp_id = OprfKeyId::new(rp_id_value);
 
@@ -178,11 +179,13 @@ pub fn generate_rp_fixture() -> RpFixture {
         .expect("system time after epoch")
         .as_secs();
 
-    let mut msg = Vec::new();
-    nonce.serialize_compressed(&mut msg).unwrap();
-    msg.extend(current_timestamp.to_be_bytes());
     let signing_key = SigningKey::random(&mut rng);
-    let signature = signing_key.sign(&msg);
+    let signer = PrivateKeySigner::from_signing_key(signing_key.clone());
+
+    let mut msg = Vec::new();
+    msg.extend(nonce.into_bigint().to_bytes_le());
+    msg.extend(current_timestamp.to_le_bytes());
+    let signature = signer.sign_message_sync(&msg).expect("can sign");
 
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
 
@@ -191,7 +194,7 @@ pub fn generate_rp_fixture() -> RpFixture {
 
     RpFixture {
         world_rp_id,
-        oprf_rp_id,
+        oprf_key_id: oprf_rp_id,
         share_epoch: ShareEpoch::default(),
         action,
         nonce,

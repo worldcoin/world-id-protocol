@@ -29,11 +29,21 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_WORLD_ID_REGISTRY_CONTRACT")]
     pub world_id_registry_contract: Address,
 
+    /// The address of the RpRegistry smart contract
+    #[clap(long, env = "OPRF_NODE_RP_REGISTRY_CONTRACT")]
+    pub rp_registry_contract: Address,
+
     /// The maximum size of the merkle store.
     ///
     /// Will drop old merkle roots if this capacity is reached.
     #[clap(long, env = "OPRF_NODE_MERKLE_STORE_SIZE", default_value = "100")]
     pub max_merkle_store_size: usize,
+
+    /// The maximum size of the RpRegistry store.
+    ///
+    /// Will drop old Rps if this capacity is reached.
+    #[clap(long, env = "OPRF_NODE_MERKLE_STORE_SIZE", default_value = "1000")]
+    pub max_rp_registry_store_size: usize,
 
     /// The maximum delta between the received current_time_stamp the node current_time_stamp
     #[clap(

@@ -3,6 +3,8 @@ use ark_serde_compat::babyjubjub;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
 
+use crate::rp::RpId;
+
 /// A request sent by a client to perform an OPRF evaluation.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OprfRequestAuthV1 {
@@ -23,5 +25,7 @@ pub struct OprfRequestAuthV1 {
     /// The current time stamp (unix secs)
     pub current_time_stamp: u64,
     /// The signature of the nonce || timestamp
-    pub signature: k256::ecdsa::Signature,
+    pub signature: alloy_primitives::Signature,
+    /// The `rp_id`
+    pub rp_id: RpId,
 }
