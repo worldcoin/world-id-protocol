@@ -13,6 +13,8 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 ///
 /// Set to 1 hour.
 const DEFAULT_CACHE_TTL_SECS: u64 = 60 * 60;
+/// Safety buffer for expirations, so we expire a bit early relative to chain time.
+const CACHE_SKEW_SECS: u64 = 120;
 
 /// Query params for the `/is-valid-root` endpoint.
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
@@ -95,7 +97,10 @@ async fn cache_policy_for_root(
         return Ok(CachePolicy::Cache(now + U256::from(DEFAULT_CACHE_TTL_SECS)));
     }
 
-    let expiration = ts + validity_window;
+    // Subtract a small skew allowance to avoid serving expired roots if local time lags chain time.
+    let expiration = ts
+        .saturating_add(validity_window)
+        .saturating_sub(U256::from(CACHE_SKEW_SECS));
     if is_expired(expiration, now) {
         // Expired roots may still be valid if they are the latest root.
         return Ok(CachePolicy::Skip);
