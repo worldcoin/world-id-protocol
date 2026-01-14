@@ -36,8 +36,8 @@ pub(crate) struct RelyingParty {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RpRegistryWatcherError {
     /// Error communicating with the chain.
-    #[error("chain communication error: {0}")]
-    ChainCommunicationError(String),
+    #[error("alloy error: {0}")]
+    AlloyError(alloy::contract::Error),
 
     /// Unknown RP.
     #[error("unknown rp: {0}")]
@@ -136,7 +136,7 @@ impl RpRegistryWatcher {
             .getRp(rp_id.into_inner())
             .call()
             .await
-            .map_err(|err| RpRegistryWatcherError::ChainCommunicationError(err.to_string()))?;
+            .map_err(RpRegistryWatcherError::AlloyError)?;
 
         if rp.initialized {
             let relying_party = RelyingParty {

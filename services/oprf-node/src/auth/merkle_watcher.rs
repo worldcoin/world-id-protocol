@@ -33,8 +33,8 @@ use world_id_primitives::FieldElement;
 
 /// Error returned by the [`MerkleWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
-#[error("chain communication error: {0}")]
-pub(crate) struct MerkleWatcherError(pub String);
+#[error("alloy error: {0}")]
+pub(crate) struct MerkleWatcherError(alloy::contract::Error);
 
 /// Monitors merkle roots from an on-chain AccountRegistry contract.
 ///
@@ -144,7 +144,7 @@ impl MerkleWatcher {
             .isValidRoot(root.into())
             .call()
             .await
-            .map_err(|err| MerkleWatcherError(err.to_string()))?;
+            .map_err(MerkleWatcherError)?;
 
         if valid {
             tracing::debug!("add root to store");
