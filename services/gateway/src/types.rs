@@ -17,13 +17,19 @@ use utoipa::ToSchema;
 /// Maximum number of authenticators per account (matches contract default).
 pub(crate) const MAX_AUTHENTICATORS: u32 = 7;
 
+#[derive(Clone, Debug)]
+pub(crate) struct RootCacheEntry {
+    pub(crate) valid: bool,
+    pub(crate) expires_at: Option<U256>,
+}
+
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) registry_addr: Address,
     pub(crate) provider: DynProvider,
     pub(crate) batcher: CreateBatcherHandle,
     pub(crate) ops_batcher: OpsBatcherHandle,
-    pub(crate) root_cache: Arc<Mutex<LruCache<U256, bool>>>,
+    pub(crate) root_cache: Arc<Mutex<LruCache<U256, RootCacheEntry>>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
