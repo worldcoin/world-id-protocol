@@ -53,19 +53,26 @@ fn get_cached_root(state: &AppState, root: U256, now: U256) -> Option<bool> {
     None
 }
 
-/// Compute the cache expiration time for a valid root.
-async fn compute_root_expiration(
+/// Cache decision for a valid root.
+enum CachePolicy {
+    Cache(Option<U256>),
+    Skip,
+}
+
+/// Decide whether and for how long to cache a valid root.
+async fn cache_policy_for_root(
     contract: &WorldIdRegistry::WorldIdRegistryInstance<DynProvider>,
     root: U256,
     now: U256,
-) -> ApiResult<Option<U256>> {
-    let validity_window = contract
-        .rootValidityWindow()
+) -> ApiResult<CachePolicy> {
+    let latest_root = contract
+        .latestRoot()
         .call()
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
-    if validity_window == U256::ZERO {
-        return Ok(None);
+    if root == latest_root {
+        // latestRoot can change at any time, so we avoid caching it.
+        return Ok(CachePolicy::Skip);
     }
 
     let ts = contract
@@ -74,16 +81,27 @@ async fn compute_root_expiration(
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
     if ts == U256::ZERO {
-        return Ok(None);
+        // Unknown roots can become valid later; don't cache.
+        return Ok(CachePolicy::Skip);
+    }
+
+    let validity_window = contract
+        .rootValidityWindow()
+        .call()
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    if validity_window == U256::ZERO {
+        return Ok(CachePolicy::Cache(None));
+    }
+
+    let expiration = ts + validity_window;
+    if expiration <= now {
+        // Expired roots may flip validity if they become the latest root.
+        return Ok(CachePolicy::Skip);
     }
 
     // Only cache valid roots until the on-chain expiration boundary.
-    let expiration = ts + validity_window;
-    if expiration > now {
-        Ok(Some(expiration))
-    } else {
-        Ok(None)
-    }
+    Ok(CachePolicy::Cache(Some(expiration)))
 }
 
 /// Validate whether a root is currently valid according to the registry contract.
@@ -104,11 +122,15 @@ pub(crate) async fn is_valid_root(
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
     if valid {
         // Cache only valid roots to avoid serving stale negatives indefinitely.
-        let expires_at = compute_root_expiration(&contract, root, now).await?;
-        state
-            .root_cache
-            .lock()
-            .put(root, RootCacheEntry::new(valid, expires_at));
+        match cache_policy_for_root(&contract, root, now).await? {
+            CachePolicy::Cache(expires_at) => {
+                state
+                    .root_cache
+                    .lock()
+                    .put(root, RootCacheEntry::new(valid, expires_at));
+            }
+            CachePolicy::Skip => {}
+        }
     }
     Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
 }
