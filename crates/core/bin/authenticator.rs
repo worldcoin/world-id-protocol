@@ -44,8 +44,14 @@ async fn main() -> Result<()> {
     let proof_request: ProofRequest =
         ProofRequest::from_json(&std::fs::read_to_string(proof_request_path)?)?;
 
+    // TODO change this if it should come from elsewhere
+    let cred_sub_blinding_factor = std::env::args()
+        .nth(3)
+        .expect("credential sub blinding factor is required as third argument")
+        .parse()?;
+
     let (proof, nullifier) = authenticator
-        .generate_proof(proof_request, credential)
+        .generate_proof(proof_request, credential, cred_sub_blinding_factor)
         .await?;
 
     println!("proof: {proof:?}");

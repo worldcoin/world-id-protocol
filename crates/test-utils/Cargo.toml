@@ -37,3 +37,4 @@ taceo-oprf-service = { workspace = true }
 world-id-oprf-node = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
+semver = { workspace = true }
