@@ -61,6 +61,7 @@ async fn test_authenticator_registration() {
     ),);
 
     // Create the account (awaits until creation)
+    // NOTE how we use `register()` instead of `init_or_register()` to test this specific flow.
     let start = std::time::Instant::now();
     let initializing_account =
         Authenticator::register(&seed, config.clone(), Some(recovery_address))
@@ -74,11 +75,7 @@ async fn test_authenticator_registration() {
         }
     };
 
-    poller
-        .retry(ExponentialBuilder::default())
-        .sleep(tokio::time::sleep)
-        .await
-        .unwrap();
+    poller.retry(ExponentialBuilder::default()).await.unwrap();
 
     let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
     let elapsed = start.elapsed();

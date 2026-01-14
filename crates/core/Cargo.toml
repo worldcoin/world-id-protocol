@@ -34,7 +34,7 @@ required-features = ["issuer", "cli"]
 alloy = { workspace = true, features = ["sol-types", "rpc"] }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
-backon = { workspace = true, optional = true }
+backon = { workspace = true, optional = true, features = ["tokio-sleep"] }
 poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }

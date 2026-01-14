@@ -3,6 +3,7 @@
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::requests::ProofRequest;
 use crate::types::{
@@ -22,8 +23,10 @@ use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
+use backon::{ExponentialBuilder, Retryable};
 use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use reqwest::StatusCode;
 use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use taceo_oprf_client::Connector;
@@ -136,6 +139,91 @@ impl Authenticator {
         InitializingAuthenticator::new(seed, config, recovery_address, http_client).await
     }
 
+    /// Initializes (if the World ID already exists in the registry) or registers a new World ID.
+    ///
+    /// The registration process is asynchronous and may take some time. This method will block
+    /// the thread until the registration is in a final state (success or terminal error). For better
+    /// user experience in end authenticator clients, it is recommended to implement custom polling logic.
+    ///
+    /// Explicit `init` or `register` calls are also recommended as the authenticator should know
+    /// if a new World ID should be truly created. For example, an authenticator may have been revoked
+    /// access to an existing World ID.
+    ///
+    /// # Errors
+    /// - See `init` for additional error details.
+    pub async fn init_or_register(
+        seed: &[u8],
+        config: Config,
+        recovery_address: Option<Address>,
+    ) -> Result<Self, AuthenticatorError> {
+        match Self::init(seed, config.clone()).await {
+            Ok(authenticator) => Ok(authenticator),
+            Err(AuthenticatorError::AccountDoesNotExist) => {
+                // Authenticator is not registered, create it.
+                let http_client = reqwest::Client::new();
+                let initializing_authenticator = InitializingAuthenticator::new(
+                    seed,
+                    config.clone(),
+                    recovery_address,
+                    http_client,
+                )
+                .await?;
+
+                let backoff = ExponentialBuilder::default()
+                    .with_min_delay(Duration::from_millis(800))
+                    .with_factor(1.5)
+                    .without_max_times()
+                    .with_total_delay(Some(Duration::from_secs(120)));
+
+                let poller = || async {
+                    let poll_status = initializing_authenticator.poll_status().await;
+                    let result = match poll_status {
+                        Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
+                        Ok(GatewayRequestState::Failed { error_code, error }) => Err(
+                            PollResult::TerminalError(AuthenticatorError::RegistrationError {
+                                error_code: error_code.map(|v| v.to_string()).unwrap_or_default(),
+                                error_message: error,
+                            }),
+                        ),
+                        Err(AuthenticatorError::GatewayError { status, body }) => {
+                            if status.is_client_error() {
+                                Err(PollResult::TerminalError(
+                                    AuthenticatorError::GatewayError { status, body },
+                                ))
+                            } else {
+                                Err(PollResult::Retryable)
+                            }
+                        }
+                        _ => Err(PollResult::Retryable),
+                    };
+
+                    match result {
+                        Ok(()) => match Self::init(seed, config.clone()).await {
+                            Ok(auth) => Ok(auth),
+                            Err(AuthenticatorError::AccountDoesNotExist) => {
+                                Err(PollResult::Retryable)
+                            }
+                            Err(e) => Err(PollResult::TerminalError(e)),
+                        },
+                        Err(e) => Err(e),
+                    }
+                };
+
+                let result = poller
+                    .retry(backoff)
+                    .when(|e| matches!(e, PollResult::Retryable))
+                    .await;
+
+                match result {
+                    Ok(authenticator) => Ok(authenticator),
+                    Err(PollResult::TerminalError(e)) => Err(e),
+                    Err(PollResult::Retryable) => Err(AuthenticatorError::Timeout),
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Returns the packed account data for the holder's World ID.
     ///
     /// The packed account data is a 256 bit integer which includes the World ID's leaf index, their recovery counter,
@@ -171,13 +259,13 @@ impl Authenticator {
                             Err(AuthenticatorError::AccountDoesNotExist)
                         }
                         _ => Err(AuthenticatorError::IndexerError {
-                            status: status.as_u16(),
+                            status,
                             body: error_resp.message,
                         }),
                     };
                 }
                 return Err(AuthenticatorError::IndexerError {
-                    status: status.as_u16(),
+                    status,
                     body: "Failed to parse indexer error response".to_string(),
                 });
             }
@@ -292,7 +380,7 @@ impl Authenticator {
             let status = resp.status();
             if !status.is_success() {
                 return Err(AuthenticatorError::IndexerError {
-                    status: status.as_u16(),
+                    status,
                     body: resp
                         .json()
                         .await
@@ -461,7 +549,7 @@ impl Authenticator {
         } else {
             let body_text = resp.text().await.unwrap_or_else(|_| String::new());
             Err(AuthenticatorError::GatewayError {
-                status: status.as_u16(),
+                status,
                 body: body_text,
             })
         }
@@ -545,7 +633,7 @@ impl Authenticator {
         } else {
             let body_text = resp.text().await.unwrap_or_else(|_| String::new());
             Err(AuthenticatorError::GatewayError {
-                status: status.as_u16(),
+                status,
                 body: body_text,
             })
         }
@@ -631,7 +719,7 @@ impl Authenticator {
         } else {
             let body_text = resp.text().await.unwrap_or_else(|_| String::new());
             Err(AuthenticatorError::GatewayError {
-                status: status.as_u16(),
+                status,
                 body: body_text,
             })
         }
@@ -696,7 +784,7 @@ impl InitializingAuthenticator {
         } else {
             let body_text = resp.text().await.unwrap_or_else(|_| String::new());
             Err(AuthenticatorError::GatewayError {
-                status: status.as_u16(),
+                status,
                 body: body_text,
             })
         }
@@ -726,7 +814,7 @@ impl InitializingAuthenticator {
         } else {
             let body_text = resp.text().await.unwrap_or_else(|_| String::new());
             Err(AuthenticatorError::GatewayError {
-                status: status.as_u16(),
+                status,
                 body: body_text,
             })
         }
@@ -796,7 +884,7 @@ pub enum AuthenticatorError {
     #[error("Gateway error (status {status}): {body}")]
     GatewayError {
         /// HTTP status code
-        status: u16,
+        status: StatusCode,
         /// Response body
         body: String,
     },
@@ -805,14 +893,14 @@ pub enum AuthenticatorError {
     #[error("Indexer error (status {status}): {body}")]
     IndexerError {
         /// HTTP status code
-        status: u16,
+        status: StatusCode,
         /// Response body
         body: String,
     },
 
     /// Account creation timed out while polling for confirmation.
-    #[error("Account creation timed out after {0} seconds")]
-    Timeout(u64),
+    #[error("Account creation timed out")]
+    Timeout,
 
     /// Configuration is invalid or missing required values.
     #[error("Invalid configuration for {attribute}: {reason}")]
@@ -827,9 +915,26 @@ pub enum AuthenticatorError {
     #[error("The provided credential is not valid for the provided proof request")]
     InvalidCredentialForProofRequest,
 
+    /// Error during the World ID registration process.
+    ///
+    /// This usually occurs from an on-chain revert.
+    #[error("Registration error ({error_code}): {error_message}")]
+    RegistrationError {
+        /// Error code from the registration process.
+        error_code: String,
+        /// Detailed error message.
+        error_message: String,
+    },
+
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
+}
+
+#[derive(Debug)]
+enum PollResult {
+    Retryable,
+    TerminalError(AuthenticatorError),
 }
 
 #[cfg(test)]

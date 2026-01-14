@@ -9,7 +9,6 @@ use alloy::{
     signers::k256::ecdsa::{signature::Signer as _, SigningKey},
 };
 use ark_ff::{BigInteger as _, PrimeField as _, UniformRand as _};
-use backon::{ExponentialBuilder, Retryable};
 use clap::{Parser, Subcommand};
 use eyre::Context as _;
 use rand::SeedableRng;
@@ -28,7 +27,6 @@ use uuid::Uuid;
 use world_id_core::{
     proof::CircomGroth16Material,
     requests::{ProofRequest, RequestItem, RequestVersion},
-    types::GatewayRequestState,
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, FieldElement,
     HashableCredential,
 };
@@ -558,33 +556,7 @@ async fn main() -> eyre::Result<()> {
 
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = match Authenticator::init(&seed, world_config.clone()).await {
-        Ok(authenticator) => authenticator,
-        Err(AuthenticatorError::AccountDoesNotExist) => {
-            tracing::info!("Account does not exist, registering...");
-            let initializing_account = Authenticator::register(&seed, world_config.clone(), None)
-                .await
-                .context("failed to register authenticator")?;
-
-            let poller = || async {
-                match initializing_account.poll_status().await {
-                    Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
-                    _ => Err("not finalized"),
-                }
-            };
-
-            poller
-                .retry(ExponentialBuilder::default())
-                .sleep(tokio::time::sleep)
-                .await
-                .map_err(|_| eyre::eyre!("failed to poll for account creation"))?;
-
-            Authenticator::init(&seed, world_config.clone())
-                .await
-                .context("failed to initialize authenticator after registration")?
-        }
-        Err(e) => return Err(e).context("failed to initialize authenticator"),
-    };
+    let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None).await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
 
     // setup TLS config - even if we are http

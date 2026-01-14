@@ -6,7 +6,6 @@ use std::{
 };
 
 use alloy::primitives::U256;
-use backon::{ExponentialBuilder, Retryable};
 use eyre::{eyre, Context as _, Result};
 use taceo_oprf_types::ShareEpoch;
 use test_utils::{
@@ -18,7 +17,6 @@ use test_utils::{
 };
 use world_id_core::{
     requests::{ProofRequest, RequestItem, RequestVersion},
-    types::GatewayRequestState,
     Authenticator, AuthenticatorError, HashableCredential,
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
@@ -32,7 +30,7 @@ const GW_PORT: u16 = 4104;
 async fn e2e_authenticator_generate_proof() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
-        .expect("can install");
+        .unwrap();
 
     let RegistryTestContext {
         anvil,
@@ -97,7 +95,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
 
-    // Account should not yet exist.
+    // World ID should not yet exist.
     let init_result = Authenticator::init(&seed, creation_config.clone()).await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
@@ -105,27 +103,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     );
 
     // Create the account via the gateway, blocking until confirmed.
-    let initializing_account =
-        Authenticator::register(&seed, creation_config.clone(), Some(recovery_address))
+    let start = SystemTime::now();
+    let authenticator =
+        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
             .await
             .unwrap();
-
-    let poller = || async {
-        match initializing_account.poll_status().await {
-            Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
-            _ => Err(""),
-        }
-    };
-
-    poller
-        .retry(ExponentialBuilder::default())
-        .sleep(tokio::time::sleep)
-        .await
-        .unwrap();
-
-    let authenticator = Authenticator::init(&seed, creation_config.clone())
-        .await
-        .unwrap();
+    println!(
+        "Authentication creation took: {}ms",
+        SystemTime::now().duration_since(start).unwrap().as_millis(),
+    );
 
     assert_eq!(authenticator.leaf_index(), U256::from(1u64));
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
