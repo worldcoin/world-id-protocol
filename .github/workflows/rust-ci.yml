@@ -15,7 +15,7 @@ jobs:
   lint:
     name: Format, Clippy & Build
     runs-on: 
-      group: arc-public-large-amd64-runner
+      group: arc-public-4xlarge-amd64-runner
     permissions:
       contents: read
 
@@ -146,7 +146,7 @@ jobs:
   docker:
     name: Test Docker build
     runs-on: 
-      group: arc-public-large-amd64-runner
+      group: arc-public-8xlarge-amd64-runner
     strategy:
       matrix:
         service:
