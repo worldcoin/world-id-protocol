@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
     eips::BlockNumberOrTag,
-    primitives::{Address, U160},
+    primitives::Address,
     providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
     rpc::types::Filter,
     sol_types::SolEvent,
@@ -17,22 +17,13 @@ use world_id_primitives::rp::RpId;
 use crate::auth::rp_registry_watcher::RpRegistry::RpUpdated;
 
 alloy::sol! {
-    #[allow(missing_docs)]
+    #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc)]
-    contract RpRegistry {
-        struct RelyingParty {
-            bool initialized;
-            bool active;
-            address manager;
-            address signer;
-            uint160 oprfKeyId;
-            string unverifiedWellKnownDomain;
-        }
-
-        event RpUpdated(uint160 indexed rpId, bool active, address manager, address signer, string unverifiedWellKnownDomain);
-
-        function getRp(uint160 rpId) external view returns (RelyingParty memory);
-    }
+    RpRegistry,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/RpRegistry.sol/RpRegistry.json"
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -94,7 +85,7 @@ impl RpRegistryWatcher {
                 while let Some(log) = stream.next().await {
                     match RpUpdated::decode_log(log.as_ref()) {
                         Ok(event) => {
-                            let rp_id = RpId::new(U160::from(event.rpId));
+                            let rp_id = RpId::new(event.rpId);
                             tracing::info!("got rp-update event for rp: {rp_id}");
                             if event.active {
                                 if let Some(rp) = rp_store.lock().get_mut(&rp_id) {

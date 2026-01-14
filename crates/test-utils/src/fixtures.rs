@@ -167,10 +167,10 @@ pub struct RpFixture {
 /// Generates RP identifiers, signatures, and ancillary inputs shared across tests.
 pub fn generate_rp_fixture() -> RpFixture {
     let mut rng = thread_rng();
-    let rp_id_value: U160 = rng.gen();
+    let rp_id_value: u64 = rng.gen();
     // Atm we use the same value for both WorldRpId and OprfKeyId, this is also done line this in the RpRegistry contract
     let world_rp_id = WorldRpId::new(rp_id_value);
-    let oprf_rp_id = OprfKeyId::new(rp_id_value);
+    let oprf_key_id = OprfKeyId::new(U160::from(rp_id_value));
 
     let action = Fq::rand(&mut rng);
     let nonce = Fq::rand(&mut rng);
@@ -194,7 +194,7 @@ pub fn generate_rp_fixture() -> RpFixture {
 
     RpFixture {
         world_rp_id,
-        oprf_key_id: oprf_rp_id,
+        oprf_key_id,
         share_epoch: ShareEpoch::default(),
         action,
         nonce,

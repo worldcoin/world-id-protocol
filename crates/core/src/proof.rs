@@ -21,7 +21,7 @@ use std::io::Read;
 use std::path::Path;
 use taceo_oprf_client::Connector;
 use taceo_oprf_core::oprf::BlindingFactor;
-use taceo_oprf_types::{OprfKeyId, ShareEpoch};
+use taceo_oprf_types::ShareEpoch;
 use world_id_primitives::circuit_inputs::QueryProofCircuitInput;
 use world_id_primitives::oprf::OprfRequestAuthV1;
 use world_id_primitives::rp::RpId;
@@ -251,8 +251,6 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     ),
     ProofError,
 > {
-    // TODO get from rp_id -> oprf_key_id mapping?
-    let oprf_key_id = OprfKeyId::new(args.rp_id.into_inner());
     let share_epoch = ShareEpoch::new(args.share_epoch);
     let cred_signature = args
         .credential
@@ -275,7 +273,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         services,
         threshold,
         args.oprf_public_key,
-        oprf_key_id,
+        args.oprf_key_id,
         share_epoch,
         query_hash,
         blinding_factor,

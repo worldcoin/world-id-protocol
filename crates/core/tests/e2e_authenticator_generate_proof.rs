@@ -239,6 +239,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.current_timestamp + 300, // 5 minutes from now
         rp_id: rp_fixture.world_rp_id,
+        oprf_key_id: rp_fixture.oprf_key_id,
         action: rp_fixture.action.into(),
         oprf_public_key,
         signature: rp_fixture.signature,

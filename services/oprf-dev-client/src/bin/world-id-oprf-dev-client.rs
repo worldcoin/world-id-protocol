@@ -29,8 +29,8 @@ use taceo_oprf_types::{
     crypto::OprfPublicKey,
     OprfKeyId, ShareEpoch,
 };
-use test_utils::fixtures::build_base_credential;
 use test_utils::anvil::RpRegistry;
+use test_utils::fixtures::build_base_credential;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 use world_id_core::{
@@ -138,8 +138,8 @@ pub struct OprfDevClientConfig {
     pub gateway_url: String,
 
     /// rp id of already registered rp
-    #[clap(long, env = "OPRF_DEV_CLIENT_OPRF_KEY_ID")]
-    pub oprf_key_id: Option<U160>,
+    #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
+    pub rp_id: Option<u64>,
 
     /// max wait time for init key-gen to succeed.
     #[clap(long, env = "OPRF_DEV_CLIENT_KEY_GEN_WAIT_TIME", default_value="2min", value_parser=humantime::parse_duration)]
@@ -172,6 +172,7 @@ fn create_and_sign_credential(
 
 async fn run_nullifier(
     authenticator: &Authenticator,
+    rp_id: RpId,
     oprf_key_id: OprfKeyId,
     oprf_public_key: OprfPublicKey,
     signer: &LocalSigner<SigningKey>,
@@ -206,7 +207,8 @@ async fn run_nullifier(
         version: RequestVersion::V1,
         created_at: current_timestamp,
         expires_at: current_timestamp + 300, // 5 minutes from now
-        rp_id: RpId::new(oprf_key_id.into_inner()),
+        rp_id,
+        oprf_key_id,
         action: FieldElement::from(action),
         oprf_public_key,
         signature,
@@ -233,6 +235,7 @@ async fn run_nullifier(
 fn prepare_nullifier_stress_test_oprf_request(
     authenticator: &Authenticator,
     authenticator_private_key: &EdDSAPrivateKey,
+    rp_id: RpId,
     oprf_key_id: OprfKeyId,
     oprf_public_key: OprfPublicKey,
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
@@ -259,9 +262,6 @@ fn prepare_nullifier_stress_test_oprf_request(
             .expect("leaf_index fits into u64"),
     )?;
 
-    // TODO: convert rp_request to primitives types
-    let primitives_rp_id = world_id_primitives::rp::RpId::new(oprf_key_id.into_inner());
-
     let action = ark_babyjubjub::Fq::rand(&mut rng);
     let nonce = ark_babyjubjub::Fq::rand(&mut rng);
     let current_timestamp = SystemTime::now()
@@ -286,7 +286,8 @@ fn prepare_nullifier_stress_test_oprf_request(
         key_set,
         key_index,
         session_id_r_seed: FieldElement::random(&mut rng),
-        rp_id: primitives_rp_id,
+        rp_id,
+        oprf_key_id,
         share_epoch: ShareEpoch::default().into_inner(),
         action: action.into(),
         nonce: nonce.into(),
@@ -337,9 +338,11 @@ fn avg(durations: &[Duration]) -> Duration {
     }
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn stress_test(
     authenticator: &Authenticator,
     authenticator_private_key: EdDSAPrivateKey,
+    rp_id: RpId,
     oprf_key_id: OprfKeyId,
     oprf_public_key: OprfPublicKey,
     cmd: StressTestCommand,
@@ -368,6 +371,7 @@ async fn stress_test(
         let (args, query_input, blinding_factor, req) = prepare_nullifier_stress_test_oprf_request(
             authenticator,
             &authenticator_private_key,
+            rp_id,
             oprf_key_id,
             oprf_public_key,
             inclusion_proof.clone(),
@@ -551,8 +555,10 @@ async fn main() -> eyre::Result<()> {
         .context("while connecting to RPC")?
         .erased();
 
-    let (oprf_key_id, oprf_public_key) = if let Some(oprf_key_id) = config.oprf_key_id {
-        let oprf_key_id = OprfKeyId::new(oprf_key_id);
+    let (rp_id, oprf_key_id, oprf_public_key) = if let Some(rp_id) = config.rp_id {
+        // TODO should maybe check if the oprf key id matches the registered one in case it was changed
+        // in case they are not the same, we return them both
+        let oprf_key_id = OprfKeyId::new(U160::from(rp_id));
         let oprf_public_key = taceo_oprf_test::health_checks::oprf_public_key_from_services(
             oprf_key_id,
             ShareEpoch::default(),
@@ -560,11 +566,11 @@ async fn main() -> eyre::Result<()> {
             Duration::from_secs(10), // should already be there
         )
         .await?;
-        (oprf_key_id, oprf_public_key)
+        (RpId::new(rp_id), oprf_key_id, oprf_public_key)
     } else {
         let rp_registry = RpRegistry::new(config.rp_registry_contract, provider);
         let rp_id = RpId::new(rand::random());
-        let oprf_key_id = OprfKeyId::new(rp_id.into_inner());
+        let oprf_key_id = OprfKeyId::new(U160::from(rp_id.into_inner()));
         tracing::info!("registering new RP");
         let receipt = rp_registry
             .register(
@@ -589,7 +595,7 @@ async fn main() -> eyre::Result<()> {
             config.max_wait_time_key_gen,
         )
         .await?;
-        (oprf_key_id, oprf_public_key)
+        (rp_id, oprf_key_id, oprf_public_key)
     };
 
     let world_config = Config::new(
@@ -619,7 +625,14 @@ async fn main() -> eyre::Result<()> {
     match config.command {
         Command::Test => {
             tracing::info!("running single nullifier");
-            run_nullifier(&authenticator, oprf_key_id, oprf_public_key, &private_key).await?;
+            run_nullifier(
+                &authenticator,
+                rp_id,
+                oprf_key_id,
+                oprf_public_key,
+                &private_key,
+            )
+            .await?;
             tracing::info!("nullifier successful");
         }
         Command::StressTest(cmd) => {
@@ -627,6 +640,7 @@ async fn main() -> eyre::Result<()> {
             stress_test(
                 &authenticator,
                 authenticator_private_key,
+                rp_id,
                 oprf_key_id,
                 oprf_public_key,
                 cmd,

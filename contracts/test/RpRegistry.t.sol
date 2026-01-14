@@ -60,8 +60,8 @@ contract RpRegistryTest is Test {
     }
 
     function testRegister() public {
-        uint160 rpId = 12345;
-        uint160 oprfKeyId = rpId;
+        uint64 rpId = 12345;
+        uint160 oprfKeyId = uint160(rpId);
         string memory wellKnownDomain = "example.world.org";
 
         vm.expectEmit(true, true, false, true);
@@ -71,8 +71,8 @@ contract RpRegistryTest is Test {
     }
 
     function testRegisterMultipleRps() public {
-        uint160 rpId1 = 1;
-        uint160 rpId2 = 2;
+        uint64 rpId1 = 1;
+        uint64 rpId2 = 2;
         string memory domain1 = "app1.world.org";
         string memory domain2 = "app2.world.org";
 
@@ -83,7 +83,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotRegisterDuplicateRpId() public {
-        uint160 rpId = 12345;
+        uint64 rpId = 12345;
         string memory wellKnownDomain = "example.world.org";
 
         registry.register(rpId, manager1, signer1, wellKnownDomain);
@@ -93,7 +93,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotRegisterWithZeroAddressManager() public {
-        uint160 rpId = 12345;
+        uint64 rpId = 12345;
         string memory wellKnownDomain = "example.world.org";
 
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.ManagerCannotBeZeroAddress.selector));
@@ -101,7 +101,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotRegisterWithZeroAddressSigner() public {
-        uint160 rpId = 12345;
+        uint64 rpId = 12345;
         string memory wellKnownDomain = "example.world.org";
 
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.SignerCannotBeZeroAddress.selector));
@@ -109,7 +109,7 @@ contract RpRegistryTest is Test {
     }
 
     function testRegisterMany() public {
-        uint160[] memory rpIds = new uint160[](3);
+        uint64[] memory rpIds = new uint64[](3);
         rpIds[0] = 1;
         rpIds[1] = 2;
         rpIds[2] = 3;
@@ -135,7 +135,7 @@ contract RpRegistryTest is Test {
     }
 
     function testRegisterManyWithEmptyArrays() public {
-        uint160[] memory rpIds = new uint160[](0);
+        uint64[] memory rpIds = new uint64[](0);
         address[] memory managers = new address[](0);
         address[] memory signers = new address[](0);
         string[] memory domains = new string[](0);
@@ -145,7 +145,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotRegisterManyWithMismatchedArrayLengths() public {
-        uint160[] memory rpIds = new uint160[](2);
+        uint64[] memory rpIds = new uint64[](2);
         rpIds[0] = 1;
         rpIds[1] = 2;
 
@@ -165,7 +165,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotRegisterManyWithMismatchedManagersLength() public {
-        uint160[] memory rpIds = new uint160[](2);
+        uint64[] memory rpIds = new uint64[](2);
         rpIds[0] = 1;
         rpIds[1] = 2;
 
@@ -185,7 +185,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotRegisterManyWithMismatchedSignersLength() public {
-        uint160[] memory rpIds = new uint160[](2);
+        uint64[] memory rpIds = new uint64[](2);
         rpIds[0] = 1;
         rpIds[1] = 2;
 
@@ -205,7 +205,7 @@ contract RpRegistryTest is Test {
     }
 
     function testRegisterManyValidatesEachRegistration() public {
-        uint160[] memory rpIds = new uint160[](2);
+        uint64[] memory rpIds = new uint64[](2);
         rpIds[0] = 1;
         rpIds[1] = 1; // Duplicate rpId
 
@@ -226,7 +226,7 @@ contract RpRegistryTest is Test {
     }
 
     function testRegisterManyValidatesManagerNotZero() public {
-        uint160[] memory rpIds = new uint160[](2);
+        uint64[] memory rpIds = new uint64[](2);
         rpIds[0] = 1;
         rpIds[1] = 2;
 
@@ -247,7 +247,7 @@ contract RpRegistryTest is Test {
     }
 
     function testRegisterManyValidatesSignerNotZero() public {
-        uint160[] memory rpIds = new uint160[](2);
+        uint64[] memory rpIds = new uint64[](2);
         rpIds[0] = 1;
         rpIds[1] = 2;
 
@@ -276,7 +276,7 @@ contract RpRegistryTest is Test {
 
     function _signUpdateRp(
         uint256 pk,
-        uint160 rpId,
+        uint64 rpId,
         address manager,
         address signer,
         bool toggleActive,
@@ -304,7 +304,7 @@ contract RpRegistryTest is Test {
     // UpdateRp Tests
 
     function testUpdateRpSuccess() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP
@@ -331,7 +331,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpPartialUpdate() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP
@@ -354,7 +354,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpToggleActive() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP (starts active)
@@ -379,7 +379,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpWithNoUpdate() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP
@@ -402,7 +402,7 @@ contract RpRegistryTest is Test {
         address walletOwner = vm.addr(walletOwnerPk);
         MockERC1271Wallet wallet = new MockERC1271Wallet(walletOwner);
 
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP with wallet as manager
@@ -423,7 +423,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpInvalidSignature() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP
@@ -445,7 +445,7 @@ contract RpRegistryTest is Test {
         address walletOwner = vm.addr(walletOwnerPk);
         MockERC1271Wallet wallet = new MockERC1271Wallet(walletOwner);
 
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP with wallet as manager
@@ -462,7 +462,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpNonceMismatch() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP
@@ -480,7 +480,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpNonExistentRp() public {
-        uint160 nonExistentRpId = 999;
+        uint64 nonExistentRpId = 999;
         string memory noUpdate = registry.NO_UPDATE();
 
         bytes memory sig = _signUpdateRp(manager1Pk, nonExistentRpId, address(0), signer2, false, noUpdate, 0);
@@ -490,7 +490,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpNonceIncrementsOnEachUpdate() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP
@@ -518,7 +518,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpCannotReplayOldSignature() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP
@@ -536,7 +536,7 @@ contract RpRegistryTest is Test {
     }
 
     function testUpdateRpManagerTransfer() public {
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory initialDomain = "app1.world.org";
 
         // Register an RP
@@ -641,7 +641,7 @@ contract RpRegistryTest is Test {
         uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory domain = "example.world.org";
 
         // Mint tokens to manager1 and approve registry
@@ -662,7 +662,7 @@ contract RpRegistryTest is Test {
         uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory domain = "example.world.org";
 
         // Mint more tokens than required and approve registry
@@ -684,7 +684,7 @@ contract RpRegistryTest is Test {
         uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
-        uint160 rpId = 1;
+        uint64 rpId = 1;
         string memory domain = "example.world.org";
 
         // Mint insufficient tokens
@@ -701,7 +701,7 @@ contract RpRegistryTest is Test {
         uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
-        uint160[] memory rpIds = new uint160[](3);
+        uint64[] memory rpIds = new uint64[](3);
         rpIds[0] = 1;
         rpIds[1] = 2;
         rpIds[2] = 3;
@@ -739,7 +739,7 @@ contract RpRegistryTest is Test {
         uint256 fee = 100e18;
         registry.setRegistrationFee(fee);
 
-        uint160[] memory rpIds = new uint160[](3);
+        uint64[] memory rpIds = new uint64[](3);
         rpIds[0] = 1;
         rpIds[1] = 2;
         rpIds[2] = 3;
