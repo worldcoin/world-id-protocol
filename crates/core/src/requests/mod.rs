@@ -857,6 +857,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn constraint_node_limit_exceeded_fails() {
         // Root All with: 1 Type + Any(4) + Any(5)
         // Node count = root(1) + type(1) + any(1+4) + any(1+5) = 13 (> 12)
