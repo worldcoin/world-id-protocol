@@ -26,7 +26,7 @@ services:
     image: localstack/localstack
     container_name: localstack
     ports:
-      - "4566:4566"            
+      - "4566:4566"
     environment:
       - SERVICES=secretsmanager
       - DEBUG=1
@@ -37,7 +37,7 @@ services:
     environment:
       OPRF_NODE_ENVIRONMENT: dev
       OPRF_NODE_BIND_ADDR: 0.0.0.0:20000
-      OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT: 0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6
+      OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT:
       OPRF_NODE_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
       OPRF_NODE_RP_SECRET_ID_PREFIX: oprf/rp/n0
       OPRF_NODE_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n0
