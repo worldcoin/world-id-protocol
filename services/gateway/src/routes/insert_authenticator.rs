@@ -1,7 +1,8 @@
 use crate::{
     ops_batcher::{OpEnvelope, OpKind},
     request_tracker::{RequestKind, RequestState, RequestTracker},
-    types::{ApiResult, AppState, RequestStatusResponse, MAX_AUTHENTICATORS},
+    routes::validation::ValidateRequest,
+    types::{ApiResult, AppState, RequestStatusResponse},
     ErrorResponse as ApiError,
 };
 use alloy::primitives::Bytes;
@@ -17,38 +18,7 @@ pub(crate) async fn insert_authenticator(
     Json(req): Json<InsertAuthenticatorRequest>,
 ) -> ApiResult<impl IntoResponse> {
     // Input validation
-    if req.new_authenticator_address.is_zero() {
-        return Err(ApiError::bad_request(
-            "new_authenticator_address cannot be zero".to_string(),
-        ));
-    }
-    if req.pubkey_id >= MAX_AUTHENTICATORS {
-        return Err(ApiError::bad_request(format!(
-            "pubkey_id must be less than {MAX_AUTHENTICATORS}"
-        )));
-    }
-    if req.leaf_index.is_zero() {
-        return Err(ApiError::bad_request(
-            "leaf_index cannot be zero".to_string(),
-        ));
-    }
-    if req.old_offchain_signer_commitment.is_zero() || req.new_offchain_signer_commitment.is_zero()
-    {
-        return Err(ApiError::bad_request(
-            "offchain signer commitment cannot be zero".to_string(),
-        ));
-    }
-    if req.signature.len() != 65 {
-        return Err(ApiError::bad_request(
-            // 65 is the standard ECDSA signature length.
-            "ECDSA signature must be exactly 65 bytes long".to_string(),
-        ));
-    }
-    if req.signature.iter().all(|byte| *byte == 0) {
-        return Err(ApiError::bad_request(
-            "ECDSA signature cannot be all zeros".to_string(),
-        ));
-    }
+    req.validate()?;
 
     // Simulate the operation before queueing to catch errors early
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
