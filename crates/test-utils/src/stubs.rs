@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use alloy::primitives::{Address, U256};
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use eyre::{Context as _, Result};
+use semver::VersionReq;
 use taceo_oprf_test::{
     test_secret_manager::TestSecretManager, OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1,
     OPRF_PEER_ADDRESS_2,
@@ -161,6 +162,7 @@ async fn spawn_orpf_node(
             wallet_address,
             get_oprf_key_material_timeout: Duration::from_secs(60),
             start_block: Some(0),
+            version_req: VersionReq::STAR,
         },
     };
     let never = async { futures::future::pending::<()>().await };

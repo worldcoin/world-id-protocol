@@ -1969,9 +1969,9 @@ dependencies = [
 
 [[package]]
 name = "axum"
-version = "0.8.7"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b098575ebe77cb6d14fc7f32749631a6e44edbef6b796f89b020e99ba20d425"
+checksum = "8b52af3cb4058c895d37317bb27508dccc8e5f2d39454016b297bf4a400597b8"
 dependencies = [
  "axum-core 0.5.5",
  "axum-macros 0.5.0",
@@ -2039,6 +2039,28 @@ dependencies = [
  "mime",
  "pin-project-lite",
  "sync_wrapper",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "axum-extra"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fef252edff26ddba56bbcdf2ee3307b8129acb86f5749b68990c168a6fcc9c76"
+dependencies = [
+ "axum 0.8.8",
+ "axum-core 0.5.5",
+ "bytes",
+ "futures-core",
+ "futures-util",
+ "headers",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "mime",
+ "pin-project-lite",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -3519,6 +3541,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.5",
+]
+
+[[package]]
+name = "headers"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3314d5adb5d94bcdf56771f2e50dbbc80bb4bdf88967526706205ac9eff24eb"
+dependencies = [
+ "base64",
+ "bytes",
+ "headers-core",
+ "http 1.4.0",
+ "httpdate",
+ "mime",
+ "sha1",
+]
+
+[[package]]
+name = "headers-core"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54b4a22553d4242c49fddb9ba998a99962b5cc6f22cb5a3482bec22522403ce4"
+dependencies = [
+ "http 1.4.0",
 ]
 
 [[package]]
@@ -6568,8 +6614,8 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=2ada8ad#2ada8ad32ffed952071b51431c9a8f613a7f5bce"
+version = "0.2.0"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84eb145b69d4c5f887673e0b1ca48a57167"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -6589,7 +6635,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-client-example"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=2ada8ad#2ada8ad32ffed952071b51431c9a8f613a7f5bce"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84eb145b69d4c5f887673e0b1ca48a57167"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -6603,8 +6649,8 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-core"
-version = "0.2.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=2ada8ad#2ada8ad32ffed952071b51431c9a8f613a7f5bce"
+version = "0.3.0"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84eb145b69d4c5f887673e0b1ca48a57167"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -6625,7 +6671,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-key-gen"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=2ada8ad#2ada8ad32ffed952071b51431c9a8f613a7f5bce"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84eb145b69d4c5f887673e0b1ca48a57167"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -6634,7 +6680,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
- "axum 0.8.7",
+ "axum 0.8.8",
  "clap",
  "eyre",
  "futures",
@@ -6661,14 +6707,15 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=2ada8ad#2ada8ad32ffed952071b51431c9a8f613a7f5bce"
+version = "0.2.0"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84eb145b69d4c5f887673e0b1ca48a57167"
 dependencies = [
  "alloy",
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
- "axum 0.8.7",
+ "axum 0.8.8",
+ "axum-extra",
  "ciborium",
  "clap",
  "eyre",
@@ -6679,6 +6726,7 @@ dependencies = [
  "parking_lot",
  "rand 0.8.5",
  "secrecy",
+ "semver 1.0.27",
  "serde",
  "serde_json",
  "taceo-ark-babyjubjub",
@@ -6696,11 +6744,11 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-service-example"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=2ada8ad#2ada8ad32ffed952071b51431c9a8f613a7f5bce"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84eb145b69d4c5f887673e0b1ca48a57167"
 dependencies = [
  "async-trait",
  "aws-config",
- "axum 0.8.7",
+ "axum 0.8.8",
  "clap",
  "eyre",
  "humantime",
@@ -6719,20 +6767,20 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-test"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=2ada8ad#2ada8ad32ffed952071b51431c9a8f613a7f5bce"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84eb145b69d4c5f887673e0b1ca48a57167"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "async-trait",
  "eyre",
- "futures",
  "itertools 0.14.0",
  "parking_lot",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "regex",
  "reqwest",
+ "semver 1.0.27",
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-oprf-client-example",
@@ -6748,12 +6796,13 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-types"
-version = "0.2.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=2ada8ad#2ada8ad32ffed952071b51431c9a8f613a7f5bce"
+version = "0.3.0"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84eb145b69d4c5f887673e0b1ca48a57167"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
  "eyre",
+ "http 1.4.0",
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
@@ -6862,13 +6911,14 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
- "axum 0.8.7",
+ "axum 0.8.8",
  "eyre",
  "futures",
  "hex",
  "k256",
  "rand 0.8.5",
  "reqwest",
+ "semver 1.0.27",
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
@@ -8090,7 +8140,7 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
- "axum 0.8.7",
+ "axum 0.8.8",
  "chrono",
  "ciborium",
  "eyre",
@@ -8133,7 +8183,7 @@ dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-kms",
- "axum 0.8.7",
+ "axum 0.8.8",
  "clap",
  "dotenvy",
  "hex",
@@ -8224,7 +8274,7 @@ dependencies = [
  "ark-groth16 0.5.0",
  "async-trait",
  "aws-config",
- "axum 0.8.7",
+ "axum 0.8.8",
  "clap",
  "eyre",
  "futures",
