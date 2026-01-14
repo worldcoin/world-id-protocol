@@ -164,7 +164,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
             &request.auth.proof.clone().into(),
             &public,
         )
-        .unwrap();
+        .expect("We expect that we loaded the correct key");
         if valid {
             tracing::debug!("proof valid");
             Ok(())

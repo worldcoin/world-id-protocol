@@ -386,8 +386,6 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
         action: *args.action,
         nonce: *args.nonce,
         merkle_root: *args.inclusion_proof.root,
-        cred_type_id: args.credential.issuer_schema_id,
-        cred_pk: args.credential.issuer.clone(),
         current_time_stamp: args.current_timestamp,
         signature: args.rp_signature,
     };
