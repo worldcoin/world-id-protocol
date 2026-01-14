@@ -573,9 +573,7 @@ async fn main() -> eyre::Result<()> {
 
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_create_blocking(&seed, world_config, None)
-        .await
-        .context("failed to initialize or create authenticator")?;
+    let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None).await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
 
     // setup TLS config - even if we are http

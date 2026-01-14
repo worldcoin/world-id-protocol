@@ -1,7 +1,10 @@
 use std::fs::File;
 
 use eyre::Result;
-use world_id_core::{primitives::Config, requests::ProofRequest, Authenticator, Credential};
+use world_id_core::{
+    primitives::Config, requests::ProofRequest, types::GatewayRequestState, Authenticator,
+    AuthenticatorError, Credential,
+};
 
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
@@ -31,7 +34,7 @@ async fn main() -> Result<()> {
     let config = Config::from_json(&json_config).unwrap();
 
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
-    let authenticator = Authenticator::init_or_create_blocking(seed, config, None).await?;
+    let authenticator = Authenticator::init_or_register(seed, config.clone(), None).await?;
 
     let credential_path = std::env::args()
         .nth(1)

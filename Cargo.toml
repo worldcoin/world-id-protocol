@@ -30,6 +30,7 @@ ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
+backon = "1"
 circom-witness-rs = "0.2.1"
 circom-types = { package="taceo-circom-types", version = "0.1", default-features = false }
 criterion = "0.7"

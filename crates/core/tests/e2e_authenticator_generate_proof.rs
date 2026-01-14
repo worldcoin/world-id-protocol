@@ -30,7 +30,7 @@ const GW_PORT: u16 = 4104;
 async fn e2e_authenticator_generate_proof() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
-        .expect("can install");
+        .unwrap();
 
     let RegistryTestContext {
         anvil,
@@ -95,7 +95,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
 
-    // Account should not yet exist.
+    // World ID should not yet exist.
     let init_result = Authenticator::init(&seed, creation_config.clone()).await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
@@ -103,13 +103,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     );
 
     // Create the account via the gateway, blocking until confirmed.
-    let authenticator = Authenticator::init_or_create_blocking(
-        &seed,
-        creation_config.clone(),
-        Some(recovery_address),
-    )
-    .await
-    .wrap_err("failed to initialize or create authenticator")?;
+    let start = SystemTime::now();
+    let authenticator =
+        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
+            .await
+            .unwrap();
+    println!(
+        "Authentication creation took: {}ms",
+        SystemTime::now().duration_since(start).unwrap().as_millis(),
+    );
 
     assert_eq!(authenticator.leaf_index(), U256::from(1u64));
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);

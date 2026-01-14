@@ -140,9 +140,10 @@ async fn e2e_authenticator_insert_update_remove() {
     ));
 
     let primary =
-        Authenticator::init_or_create_blocking(&primary_seed, config, Some(recovery_address))
+        Authenticator::init_or_register(&primary_seed, config.clone(), Some(recovery_address))
             .await
             .unwrap();
+
     assert_eq!(primary.leaf_index(), U256::from(1));
     assert_eq!(primary.signing_nonce().await.unwrap(), U256::from(0));
 

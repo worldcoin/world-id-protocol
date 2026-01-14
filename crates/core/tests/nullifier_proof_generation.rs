@@ -19,9 +19,7 @@ use test_utils::{
     merkle::first_leaf_merkle_path,
 };
 
-use world_id_core::{
-    proof, Authenticator, FieldElement, HashableCredential, OnchainKeyRepresentable,
-};
+use world_id_core::{proof, FieldElement, HashableCredential, OnchainKeyRepresentable};
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
     merkle::MerkleInclusionProof, proof::SingleProofInput, TREE_DEPTH,
@@ -98,7 +96,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     // Create user's off‑chain BabyJubJub key batch and compute leaf commitment
     let user_sk = EdDSAPrivateKey::random(&mut rng);
     let key_set = AuthenticatorPublicKeySet::new(Some(vec![user_sk.public().clone()]))?;
-    let leaf_commitment_fq = Authenticator::leaf_hash(&key_set);
+    let leaf_commitment_fq = key_set.leaf_hash();
     let leaf_commitment = U256::from_limbs(leaf_commitment_fq.into_bigint().0);
     let (merkle_siblings, expected_root_fq) = first_leaf_merkle_path(leaf_commitment_fq);
     let expected_root_u256 = U256::from_limbs(expected_root_fq.into_bigint().0);
