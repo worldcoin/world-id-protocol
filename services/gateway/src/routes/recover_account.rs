@@ -16,8 +16,7 @@ pub(crate) async fn recover_account(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::from(0u64));
-
+    // Input validation
     if req.leaf_index.is_zero() {
         return Err(ApiError::bad_request(
             "leaf_index cannot be zero".to_string(),
@@ -28,7 +27,25 @@ pub(crate) async fn recover_account(
             "new_authenticator_address cannot be zero".to_string(),
         ));
     }
+    if req.old_offchain_signer_commitment.is_zero() || req.new_offchain_signer_commitment.is_zero()
+    {
+        return Err(ApiError::bad_request(
+            "offchain signer commitment cannot be zero".to_string(),
+        ));
+    }
+    if req.signature.len() != 65 {
+        return Err(ApiError::bad_request(
+            // 65 is the standard ECDSA signature length.
+            "ECDSA signature must be exactly 65 bytes long".to_string(),
+        ));
+    }
+    if req.signature.iter().all(|byte| *byte == 0) {
+        return Err(ApiError::bad_request(
+            "ECDSA signature cannot be all zeros".to_string(),
+        ));
+    }
 
+    let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::ZERO);
     // Simulate the operation before queueing to catch errors early
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     contract
