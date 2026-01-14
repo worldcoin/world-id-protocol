@@ -41,10 +41,12 @@ fn now_timestamp() -> ApiResult<U256> {
 /// Return a cached validity value when present and not expired.
 fn get_cached_root(state: &AppState, root: U256, now: U256) -> Option<bool> {
     let mut cache = state.root_cache.lock();
-    if let Some(entry) = cache.get(&root).cloned() {
-        if entry.is_fresh(now) {
-            return Some(entry.valid);
-        }
+    let needs_evict = match cache.get(&root) {
+        Some(entry) if entry.is_fresh(now) => return Some(entry.valid),
+        Some(_) => true,
+        None => false,
+    };
+    if needs_evict {
         // Expired entries are removed so future lookups fall through.
         cache.pop(&root);
     }
