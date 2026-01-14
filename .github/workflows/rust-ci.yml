@@ -14,7 +14,8 @@ env:
 jobs:
   lint:
     name: Format, Clippy & Build
-    runs-on: ubuntu-latest
+    runs-on: 
+          group: arc-public-2xlarge-amd64-runner
     permissions:
       contents: read
 
