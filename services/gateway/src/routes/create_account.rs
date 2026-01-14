@@ -1,10 +1,10 @@
 use crate::{
     create_batcher::CreateReqEnvelope,
     request_tracker::{RequestKind, RequestState, RequestTracker},
-    types::{ApiResult, AppState, RequestStatusResponse},
+    types::{ApiResult, AppState, RequestStatusResponse, MAX_AUTHENTICATORS},
     ErrorResponse as ApiError,
 };
-use alloy::primitives::Address;
+use alloy::{eips::eip6110::MAINNET_DEPOSIT_CONTRACT_ADDRESS, primitives::Address};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use world_id_core::{
     types::{CreateAccountRequest, GatewayErrorCode as ErrorCode},
@@ -16,6 +16,22 @@ pub(crate) async fn create_account(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Input validation
+    if req.authenticator_addresses.len() > MAX_AUTHENTICATORS as usize {
+        return Err(ApiError::bad_request(
+            "authenticators cannot be more than {MAX_AUTHENTICATORS}".to_string(),
+        ));
+    }
+    if req.authenticator_addresses.is_empty() {
+        return Err(ApiError::bad_request(
+            "authenticators cannot be empty".to_string(),
+        ));
+    }
+    if req.authenticator_addresses.len() != req.authenticator_pubkeys.len() {
+        return Err(ApiError::bad_request(
+            "authenticators addresses must be equal to authenticators pubkeys".to_string(),
+        ));
+    }
     if req.authenticator_addresses.iter().any(|a| a.is_zero()) {
         return Err(ApiError::bad_request(
             "authenticator address cannot be zero".to_string(),
