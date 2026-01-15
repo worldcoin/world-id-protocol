@@ -30,7 +30,9 @@ use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::types::{
-    CreateAccountRequest, GatewayErrorCode, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest
+    CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 
 mod create_account;
@@ -198,7 +200,7 @@ async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>
     params(IsValidRootQuery),
     responses(
         (status = 200, description = "TODO", body = IsValidRootResponse),
-        (status = 400, description = "TODO", body = ErrorBody)
+        (status = 400, description = "TODO", body = GatewayErrorCode)
     ),
     tag = "Gateway"
 )]
@@ -217,11 +219,10 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         _doc_is_valid_root
     ),
     components(schemas(
-        ErrorBody,
-        ErrorCode,
-        RequestKind,
-        RequestState,
-        RequestStatusResponse,
+        GatewayErrorCode,
+        GatewayRequestKind,
+        GatewayRequestState,
+        GatewayStatusResponse,
         HealthResponse,
         IsValidRootQuery,
         IsValidRootResponse,

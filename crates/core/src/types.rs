@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use alloy::primitives::Address;
 #[cfg(feature = "authenticator")]
 use strum::EnumString;
-use tokio::time::Instant;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
@@ -212,7 +211,7 @@ pub struct RecoverAccountRequest {
 }
 
 /// Response returned by the registry gateway for state-changing requests.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GatewayStatusResponse {
     /// Identifier assigned by the gateway to the submitted request.
@@ -443,31 +442,6 @@ pub struct AccountInclusionProofSchema {
     /// The compressed authenticator public keys for the account (array of hex strings)
     #[schema(value_type = Vec<String>, format = "hex")]
     pub authenticator_pubkeys: Vec<String>,
-}
-
-/// Error object returned by the services APIs (indexer, gateway).
-#[cfg(feature = "authenticator")]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct ServiceApiError<T>
-where
-    T: Clone,
-{
-    /// The error code.
-    pub code: T,
-    /// Human-readable error message.
-    pub message: String,
-}
-
-#[cfg(feature = "authenticator")]
-impl<T> ServiceApiError<T>
-where
-    T: Clone,
-{
-    /// Creates a new error object.
-    pub const fn new(code: T, message: String) -> Self {
-        Self { code, message }
-    }
 }
 
 /// Helper to format a selector as a hex string for matching in error messages.
