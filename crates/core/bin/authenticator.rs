@@ -1,10 +1,7 @@
 use std::fs::File;
 
 use eyre::Result;
-use world_id_core::{
-    primitives::Config, requests::ProofRequest, types::GatewayRequestState, Authenticator,
-    AuthenticatorError, Credential,
-};
+use world_id_core::{primitives::Config, requests::ProofRequest, Authenticator, Credential};
 
 fn install_tracing() {
     use tracing_subscriber::prelude::*;
