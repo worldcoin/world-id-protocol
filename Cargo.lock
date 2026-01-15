@@ -8263,6 +8263,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
  "ark-groth16 0.5.0",
  "async-trait",
  "aws-config",

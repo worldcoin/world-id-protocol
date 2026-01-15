@@ -11,6 +11,7 @@ license.workspace = true
 alloy = { workspace = true, features = ["full", "rpc", "rpc-client-ws"] }
 ark-babyjubjub = { workspace = true }
 ark-bn254.workspace = true
+ark-ff.workspace = true
 ark-groth16.workspace = true
 async-trait = "0.1"
 aws-config = { version = "1", features = ["behavior-version-latest"] }
@@ -20,14 +21,14 @@ clap = { version = "4", features = ["derive", "env"] }
 eyre.workspace = true
 futures = { workspace = true }
 humantime = "2"
-taceo-nodes-common = "0.1"
-taceo-nodes-observability = "0.1"
-taceo-oprf-service = { workspace = true }
-taceo-oprf-types = { workspace = true }
 parking_lot = "0.12"
 rustls = "0.23"
 secrecy = "0.10"
 serde_json.workspace = true
+taceo-nodes-common = "0.1"
+taceo-nodes-observability = "0.1"
+taceo-oprf-service = { workspace = true }
+taceo-oprf-types = { workspace = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = [
   "net",

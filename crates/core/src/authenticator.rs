@@ -435,6 +435,7 @@ impl Authenticator {
             session_id_r_seed,
             credential_sub_blinding_factor,
             rp_id: proof_request.rp_id,
+            oprf_key_id: proof_request.oprf_key_id,
             share_epoch: ShareEpoch::default().into_inner(),
             action: proof_request.action,
             nonce: proof_request.nonce,

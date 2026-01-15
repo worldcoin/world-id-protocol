@@ -9,6 +9,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
 
 contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
@@ -63,12 +64,24 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     // the token used to pay registration fees
     IERC20 private _feeToken;
 
+    // the OPRF key registry contract, used to init OPRF key gen for RPs
+    IOprfKeyRegistry public _oprfKeyRegistry;
+
     ////////////////////////////////////////////////////////////
     //                        Events                          //
     ////////////////////////////////////////////////////////////
 
     event RpRegistered(
         uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, string unverifiedWellKnownDomain
+    );
+
+    event RpUpdated(
+        uint64 indexed rpId,
+        uint160 indexed oprfKeyId,
+        bool active,
+        address manager,
+        address signer,
+        string unverifiedWellKnownDomain
     );
 
     event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
@@ -89,7 +102,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     string public constant EIP712_VERSION = "1.0";
 
     bytes32 public constant UPDATE_RP_TYPEHASH = keccak256(
-        "UpdateRp(uint64 rpId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
+        "UpdateRp(uint64 rpId,uint160 oprfKeyId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
     );
 
     ////////////////////////////////////////////////////////////
@@ -165,9 +178,13 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @dev Initializes the contract.
      */
-    function initialize(address feeRecipient, address feeToken, uint256 registrationFee) public initializer {
+    function initialize(address feeRecipient, address feeToken, uint256 registrationFee, address oprfKeyRegistry)
+        public
+        initializer
+    {
         require(feeRecipient != address(0), "initialize a fee recipient");
         require(feeToken != address(0), "initialize a fee token");
+        require(oprfKeyRegistry != address(0), "initialize a OprfKeyRegistry");
 
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
@@ -176,6 +193,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         _feeRecipient = feeRecipient;
         _feeToken = IERC20(feeToken);
         _registrationFee = registrationFee;
+        _oprfKeyRegistry = IOprfKeyRegistry(oprfKeyRegistry);
     }
 
     ////////////////////////////////////////////////////////////
@@ -298,6 +316,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @dev Partially update a Relying Party record. Must be signed by the manager.
      * @param rpId the id of the relying party to update
+     * @param oprfKeyId the new oprf key id of the relying party. set to zero to maintain current oprfKeyId.
      * @param manager the new manager of the relying party. set to zero address to maintain current manager.
      * @param signer the new signer of the relying party. set to zero address to maintain current signer.
      * @param toggleActive whether to toggle the active status of the relying party
@@ -307,6 +326,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      */
     function updateRp(
         uint64 rpId,
+        uint160 oprfKeyId,
         address manager,
         address signer,
         bool toggleActive,
@@ -323,6 +343,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
                 abi.encode(
                     UPDATE_RP_TYPEHASH,
                     rpId,
+                    oprfKeyId,
                     manager,
                     signer,
                     toggleActive,
@@ -334,6 +355,10 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
 
         if (!SignatureChecker.isValidSignatureNow(_relyingParties[rpId].manager, messageHash, signature)) {
             revert InvalidSignature();
+        }
+
+        if (oprfKeyId != 0) {
+            _relyingParties[rpId].oprfKeyId = oprfKeyId;
         }
 
         if (manager != address(0)) {
@@ -353,6 +378,14 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         }
 
         _rpIdToSignatureNonce[rpId]++;
+        emit RpUpdated(
+            rpId,
+            _relyingParties[rpId].oprfKeyId,
+            _relyingParties[rpId].active,
+            _relyingParties[rpId].manager,
+            _relyingParties[rpId].signer,
+            _relyingParties[rpId].unverifiedWellKnownDomain
+        );
     }
 
     ////////////////////////////////////////////////////////////
@@ -366,18 +399,21 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
 
         if (signer == address(0)) revert SignerCannotBeZeroAddress();
 
+        uint160 oprfKeyId = uint160(rpId);
+        _oprfKeyRegistry.initKeyGen(oprfKeyId);
+
         RelyingParty memory rp = RelyingParty({
             initialized: true,
             active: true,
             manager: manager,
             signer: signer,
-            oprfKeyId: 0, // FIXME: register key with OprfKeyRegistry contract
+            oprfKeyId: oprfKeyId,
             unverifiedWellKnownDomain: unverifiedWellKnownDomain
         });
 
         _relyingParties[rpId] = rp;
 
-        emit RpRegistered(rpId, 0, manager, unverifiedWellKnownDomain);
+        emit RpRegistered(rpId, oprfKeyId, manager, unverifiedWellKnownDomain);
 
         if (_registrationFee > 0) {
             _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);

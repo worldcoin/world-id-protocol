@@ -140,8 +140,9 @@ async fn spawn_orpf_node(
     id: usize,
     chain_ws_rpc_url: &str,
     secret_manager: TestSecretManager,
-    rp_registry_contract: Address,
+    oprf_key_registry_contract: Address,
     world_id_registry_contract: Address,
+    rp_registry_contract: Address,
     wallet_address: Address,
 ) -> String {
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
@@ -149,13 +150,15 @@ async fn spawn_orpf_node(
         bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
         max_wait_time_shutdown: Duration::from_secs(10),
         max_merkle_store_size: 10,
+        max_rp_registry_store_size: 1000,
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         signature_history_cleanup_interval: Duration::from_secs(30),
         world_id_registry_contract,
+        rp_registry_contract,
         node_config: taceo_oprf_service::config::OprfNodeConfig {
             environment: taceo_oprf_service::config::Environment::Dev,
             rp_secret_id_prefix: format!("oprf/rp/n{id}"),
-            oprf_key_registry_contract: rp_registry_contract,
+            oprf_key_registry_contract,
             chain_ws_rpc_url: chain_ws_rpc_url.into(),
             ws_max_message_size: 512 * 1024,
             session_lifetime: Duration::from_secs(5 * 60),
@@ -190,6 +193,7 @@ pub async fn spawn_oprf_nodes(
     secret_manager: [TestSecretManager; 3],
     key_gen_contract: Address,
     world_id_registry_contract: Address,
+    rp_registry_contract: Address,
 ) -> [String; 3] {
     let [secret_manager0, secret_manager1, secret_manager2] = secret_manager;
     [
@@ -199,6 +203,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager0,
             key_gen_contract,
             world_id_registry_contract,
+            rp_registry_contract,
             OPRF_PEER_ADDRESS_0,
         )
         .await,
@@ -208,6 +213,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager1,
             key_gen_contract,
             world_id_registry_contract,
+            rp_registry_contract,
             OPRF_PEER_ADDRESS_1,
         )
         .await,
@@ -217,6 +223,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager2,
             key_gen_contract,
             world_id_registry_contract,
+            rp_registry_contract,
             OPRF_PEER_ADDRESS_2,
         )
         .await,

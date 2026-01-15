@@ -189,6 +189,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         key_index: 0,
         credential_sub_blinding_factor,
         rp_id: rp_fixture.world_rp_id,
+        oprf_key_id: rp_fixture.oprf_key_id,
         share_epoch: rp_fixture.share_epoch.into_inner(),
         action: rp_fixture.action.into(),
         nonce: rp_fixture.nonce.into(),

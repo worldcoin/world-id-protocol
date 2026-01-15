@@ -10,6 +10,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use taceo_oprf_types::crypto::OprfPublicKey;
+use taceo_oprf_types::OprfKeyId;
 use world_id_primitives::rp::RpId;
 use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof};
 
@@ -58,6 +59,8 @@ pub struct ProofRequest {
     pub expires_at: u64,
     /// Registered RP id
     pub rp_id: RpId,
+    /// `OprfKeyId` of the RP
+    pub oprf_key_id: OprfKeyId,
     /// The raw representation of the action. This must be already a field element.
     ///
     /// When dealing with strings or bytes, such value can be hashed e.g. with a byte-friendly
@@ -66,7 +69,7 @@ pub struct ProofRequest {
     /// The nullifier key of the RP (FIXME: documentation & serialization after #129)
     pub oprf_public_key: OprfPublicKey,
     /// The RP's ECDSA signature over the request
-    pub signature: k256::ecdsa::Signature,
+    pub signature: alloy::signers::Signature,
     /// Unique nonce for this request (serialized as hex string)
     pub nonce: FieldElement,
     /// Specific credential requests. This defines which credentials to ask for.
@@ -461,13 +464,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::uint;
-    use k256::ecdsa::{signature::Signer, SigningKey};
+    use alloy::{signers::local::PrivateKeySigner, signers::SignerSync, uint};
+    use k256::ecdsa::SigningKey;
 
     // Test helpers
-    fn test_signature() -> k256::ecdsa::Signature {
-        let signing_key = SigningKey::from_bytes(&[1u8; 32].into()).unwrap();
-        signing_key.sign(b"test")
+    fn test_signature() -> alloy::signers::Signature {
+        let signer =
+            PrivateKeySigner::from_signing_key(SigningKey::from_bytes(&[1u8; 32].into()).unwrap());
+        signer.sign_message_sync(b"test").expect("can sign")
     }
 
     fn test_oprf_public_key() -> OprfPublicKey {
@@ -554,7 +558,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_700_000_000,
             expires_at: 1_700_100_000,
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: FieldElement::ZERO,
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -593,7 +598,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: FieldElement::ZERO,
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -673,7 +679,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -747,7 +754,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -889,7 +897,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -994,7 +1003,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -1035,7 +1045,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -1099,7 +1110,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -1235,7 +1247,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -1279,7 +1292,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
@@ -1327,7 +1341,8 @@ mod tests {
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
-            rp_id: RpId::from(uint!(1_U160)),
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
             oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
