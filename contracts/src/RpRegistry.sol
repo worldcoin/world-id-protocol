@@ -79,7 +79,12 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     );
 
     event RpUpdated(
-        uint64 indexed rpId, bool active, address manager, address signer, string unverifiedWellKnownDomain
+        uint64 indexed rpId,
+        uint160 indexed oprfKeyId,
+        bool active,
+        address manager,
+        address signer,
+        string unverifiedWellKnownDomain
     );
 
     event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
@@ -100,7 +105,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     string public constant EIP712_VERSION = "1.0";
 
     bytes32 public constant UPDATE_RP_TYPEHASH = keccak256(
-        "UpdateRp(uint64 rpId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
+        "UpdateRp(uint64 rpId,uint160 oprfKeyId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
     );
 
     ////////////////////////////////////////////////////////////
@@ -314,6 +319,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @dev Partially update a Relying Party record. Must be signed by the manager.
      * @param rpId the id of the relying party to update
+     * @param oprfKeyId the new oprf key id of the relying party. set to zero to maintain current oprfKeyId.
      * @param manager the new manager of the relying party. set to zero address to maintain current manager.
      * @param signer the new signer of the relying party. set to zero address to maintain current signer.
      * @param toggleActive whether to toggle the active status of the relying party
@@ -323,6 +329,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      */
     function updateRp(
         uint64 rpId,
+        uint160 oprfKeyId,
         address manager,
         address signer,
         bool toggleActive,
@@ -339,6 +346,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
                 abi.encode(
                     UPDATE_RP_TYPEHASH,
                     rpId,
+                    oprfKeyId,
                     manager,
                     signer,
                     toggleActive,
@@ -350,6 +358,10 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
 
         if (!SignatureChecker.isValidSignatureNow(_relyingParties[rpId].manager, messageHash, signature)) {
             revert InvalidSignature();
+        }
+
+        if (oprfKeyId != 0) {
+            _relyingParties[rpId].oprfKeyId = oprfKeyId;
         }
 
         if (manager != address(0)) {
@@ -369,7 +381,14 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         }
 
         _rpIdToSignatureNonce[rpId]++;
-        emit RpUpdated(rpId, _relyingParties[rpId].active, manager, signer, unverifiedWellKnownDomain);
+        emit RpUpdated(
+            rpId,
+            _relyingParties[rpId].oprfKeyId,
+            _relyingParties[rpId].active,
+            _relyingParties[rpId].manager,
+            _relyingParties[rpId].signer,
+            _relyingParties[rpId].unverifiedWellKnownDomain
+        );
     }
 
     ////////////////////////////////////////////////////////////

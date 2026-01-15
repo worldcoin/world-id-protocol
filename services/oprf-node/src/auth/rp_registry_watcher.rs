@@ -101,6 +101,7 @@ impl RpRegistryWatcher {
                                 if let Some(rp) = rp_store.lock().get_mut(&rp_id) {
                                     tracing::debug!("updating rp {rp_id} in store");
                                     rp.signer = event.signer;
+                                    rp.oprf_key_id = OprfKeyId::new(event.oprfKeyId);
                                 } else {
                                     tracing::debug!(
                                         "rp {rp_id} not found in store, ignoring update"
