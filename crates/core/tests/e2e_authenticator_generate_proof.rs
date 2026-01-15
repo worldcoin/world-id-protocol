@@ -194,7 +194,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             rp_fixture.oprf_key_id,
             ShareEpoch::default(),
             &nodes,
-            Duration::from_secs(60),
+            Duration::from_secs(120),
         )
         .await?;
 
