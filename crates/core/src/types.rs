@@ -352,7 +352,7 @@ pub struct HealthResponse {
 #[cfg_attr(feature = "openapi", derive(IntoParams, ToSchema))]
 pub struct IsValidRootQuery {
     /// Root to validate (hex string).
-    #[schema(value_type = String, format = "hex")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub root: String,
 }
 
@@ -448,16 +448,22 @@ where
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct AccountInclusionProofSchema {
     /// The root hash of the Merkle tree (hex string)
-    #[schema(value_type = String, format = "hex", example = "0x1a2b3c4d5e6f7890")]
+    #[cfg_attr(
+        feature = "openapi",
+        schema(value_type = String, format = "hex", example = "0x1a2b3c4d5e6f7890")
+    )]
     pub root: String,
     /// The World ID's leaf position in the Merkle tree
-    #[schema(value_type = String, format = "hex", example = "0x2a")]
+    #[cfg_attr(
+        feature = "openapi",
+        schema(value_type = String, format = "hex", example = "0x2a")
+    )]
     pub leaf_index: String,
     /// The sibling path up to the Merkle root (array of hex strings)
-    #[schema(value_type = Vec<String>, format = "hex")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub siblings: Vec<String>,
     /// The compressed authenticator public keys for the account (array of hex strings)
-    #[schema(value_type = Vec<String>, format = "hex")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_pubkeys: Vec<String>,
 }
 
