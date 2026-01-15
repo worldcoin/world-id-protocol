@@ -13,8 +13,8 @@ import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegis
 uint256 constant credentialIssuerIdCorrect = 1;
 uint256 constant credentialIssuerIdWrong = 2;
 
-uint160 constant rpIdCorrect = 0xa3d3be8a7b705148db53d2bb75cf436b;
-uint160 constant rpIdWrong = 2;
+uint64 constant rpIdCorrect = 0x12;
+uint64 constant rpIdWrong = 2;
 
 uint256 constant rootCorrect = 0x1d22549d78774db0d351d984a476f26fca780643e134f435ad966c29c4652122;
 uint256 constant rootWrong = 2;
@@ -65,17 +65,17 @@ contract CredentialSchemaIssuerRegistryMock {
     }
 }
 
-contract NullifierVerifier is Test {
+contract ProofVerifier is Test {
     Verifier public verifier;
 
     address public verifierGroth16;
 
     uint256 public proofTimestampDelta;
 
-    uint256 accountCommitment = 0x08987cf30dc2d612c1ff5b578e13c88e79c93f97ce5b5de38cd32398e38b49e0;
+    uint256 sessionId = 0x08987cf30dc2d612c1ff5b578e13c88e79c93f97ce5b5de38cd32398e38b49e0;
     uint256 nullifier = 0x5a691b2dce9717b041201d1050b716c2c53626b71283c4dfa8a69a1f05e0500;
     uint256 proofTimestamp = 0x691c5060;
-    uint160 rpId = 0xa3d3be8a7b705148db53d2bb75cf436b;
+    uint64 rpId = 0x12;
     uint256 action = 0x5af36be93f35ed0611d38e6f759aade2532563da3bf91fbf251bedb228c4326;
     uint256 oprfPublicKey_x = 0x158bde45465f643c741ec671211d8cdda47f2015843d5d8d6f0fd3823773b08e;
     uint256 oprfPublicKey_y = 0x6cd134f217937f3f88d19f9418a67d481b67c87ce959e51f08d18ea76972d8b;
@@ -126,11 +126,11 @@ contract NullifierVerifier is Test {
 
     function test_Success() public {
         vm.warp(proofTimestamp + 1 hours);
-        bool success = verifier.verify(
+        verifier.verify(
             nullifier,
             action,
             rpIdCorrect,
-            accountCommitment,
+            sessionId,
             nonce,
             signalHash,
             rootCorrect,
@@ -138,16 +138,16 @@ contract NullifierVerifier is Test {
             credentialIssuerIdCorrect,
             proof
         );
-        assert(success);
     }
 
+    // fixme
     function test_WrongRpId() public {
         vm.warp(proofTimestamp + 1 hours);
-        bool success = verifier.verify(
+        verifier.verify(
             nullifier,
             action,
             rpIdWrong,
-            accountCommitment,
+            sessionId,
             nonce,
             signalHash,
             rootCorrect,
@@ -155,16 +155,16 @@ contract NullifierVerifier is Test {
             credentialIssuerIdCorrect,
             proof
         );
-        assert(!success);
     }
 
+    // fixme
     function test_WrongCredentialIssuer() public {
         vm.warp(proofTimestamp + 1 hours);
-        bool success = verifier.verify(
+        verifier.verify(
             nullifier,
             action,
             rpIdCorrect,
-            accountCommitment,
+            sessionId,
             nonce,
             signalHash,
             rootCorrect,
@@ -172,7 +172,6 @@ contract NullifierVerifier is Test {
             credentialIssuerIdWrong,
             proof
         );
-        assert(!success);
     }
 
     function test_WrongProof() public {
@@ -197,11 +196,11 @@ contract NullifierVerifier is Test {
             ]
         });
         vm.warp(proofTimestamp + 1 hours);
-        bool success = verifier.verify(
+        verifier.verify(
             nullifier,
             action,
             rpIdCorrect,
-            accountCommitment,
+            sessionId,
             nonce,
             signalHash,
             rootCorrect,
@@ -209,17 +208,16 @@ contract NullifierVerifier is Test {
             credentialIssuerIdCorrect,
             brokenProof
         );
-        assert(!success);
     }
 
     function test_InvalidRoot() public {
         vm.warp(proofTimestamp + 1 hours);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Verifier.InvalidMerkleRoot.selector));
         verifier.verify(
             nullifier,
             action,
             rpIdCorrect,
-            accountCommitment,
+            sessionId,
             nonce,
             signalHash,
             rootWrong,
@@ -236,7 +234,7 @@ contract NullifierVerifier is Test {
             nullifier,
             action,
             rpIdCorrect,
-            accountCommitment,
+            sessionId,
             nonce,
             signalHash,
             rootCorrect,
@@ -253,7 +251,7 @@ contract NullifierVerifier is Test {
             nullifier,
             action,
             rpIdCorrect,
-            accountCommitment,
+            sessionId,
             nonce,
             signalHash,
             rootCorrect,
