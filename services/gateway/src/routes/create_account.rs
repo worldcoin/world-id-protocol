@@ -1,13 +1,14 @@
 use crate::{
-    create_batcher::CreateReqEnvelope,
-    request_tracker::{RequestKind, RequestState, RequestTracker},
-    routes::validation::ValidateRequest,
-    types::AppState,
+    create_batcher::CreateReqEnvelope, request_tracker::RequestTracker,
+    routes::validation::ValidateRequest, types::AppState,
 };
 use alloy::primitives::Address;
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, Json};
 use world_id_core::{
-    types::{CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse},
+    types::{
+        CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse,
+        GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
+    },
     world_id_registry::WorldIdRegistry,
 };
 
@@ -15,7 +16,7 @@ pub(crate) async fn create_account(
     State(state): State<AppState>,
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
-) -> Result<Json, GatewayErrorResponse> {
+) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     // Input validation
     req.validate()?;
 
@@ -32,7 +33,9 @@ pub(crate) async fn create_account(
         .await
         .map_err(GatewayErrorResponse::from_simulation_error)?;
 
-    let (id, record) = tracker.new_request(RequestKind::CreateAccount).await?;
+    let (id, record) = tracker
+        .new_request(GatewayRequestKind::CreateAccount)
+        .await?;
 
     let env = CreateReqEnvelope {
         id: id.clone(),
@@ -43,17 +46,17 @@ pub(crate) async fn create_account(
         tracker
             .set_status(
                 &id,
-                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
+                GatewayRequestState::failed_from_code(ErrorCode::BatcherUnavailable),
             )
             .await;
         return Err(GatewayErrorResponse::batcher_unavailable());
     }
 
-    let body = RequestStatusResponse {
+    let body = GatewayStatusResponse {
         request_id: id,
         kind: record.kind,
         status: record.status,
     };
 
-    Ok((StatusCode::ACCEPTED, Json(body)))
+    Ok(Json(body))
 }

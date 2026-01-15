@@ -1,13 +1,13 @@
 use std::time::Duration;
 
+use crate::RequestTracker;
 use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
-use world_id_core::types::CreateAccountRequest;
+use world_id_core::types::{
+    parse_contract_error, CreateAccountRequest, GatewayErrorCode, GatewayRequestState,
+};
 use world_id_core::world_id_registry::WorldIdRegistry;
-
-use crate::error::{parse_contract_error, ErrorCode};
-use crate::{RequestState, RequestTracker};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
@@ -77,7 +77,7 @@ impl CreateBatcherRunner {
 
             let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
             self.tracker
-                .set_status_batch(&ids, RequestState::Batching)
+                .set_status_batch(&ids, GatewayRequestState::Batching)
                 .await;
 
             let mut recovery_addresses: Vec<Address> = Vec::new();
@@ -99,7 +99,7 @@ impl CreateBatcherRunner {
                     self.tracker
                         .set_status_batch(
                             &ids,
-                            RequestState::Submitted {
+                            GatewayRequestState::Submitted {
                                 tx_hash: hash.clone(),
                             },
                         )
@@ -114,7 +114,7 @@ impl CreateBatcherRunner {
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::Finalized {
+                                            GatewayRequestState::Finalized {
                                                 tx_hash: hash.clone(),
                                             },
                                         )
@@ -123,11 +123,11 @@ impl CreateBatcherRunner {
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::failed(
+                                            GatewayRequestState::failed(
                                                 format!(
                                                     "transaction reverted on-chain (tx: {hash})"
                                                 ),
-                                                Some(ErrorCode::TransactionReverted),
+                                                Some(GatewayErrorCode::TransactionReverted),
                                             ),
                                         )
                                         .await;
@@ -137,9 +137,9 @@ impl CreateBatcherRunner {
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::failed(
+                                        GatewayRequestState::failed(
                                             format!("transaction confirmation error: {err}"),
-                                            Some(ErrorCode::ConfirmationError),
+                                            Some(GatewayErrorCode::ConfirmationError),
                                         ),
                                     )
                                     .await;
@@ -152,7 +152,7 @@ impl CreateBatcherRunner {
                     let error_str = err.to_string();
                     let code = parse_contract_error(&error_str);
                     self.tracker
-                        .set_status_batch(&ids, RequestState::failed(error_str, Some(code)))
+                        .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
                         .await;
                 }
             }

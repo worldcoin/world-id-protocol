@@ -1,14 +1,14 @@
-use crate::{
-    types::{ApiResult, AppState},
-    ErrorResponse as ApiError,
-};
+use crate::types::AppState;
 use alloy::{primitives::U256, providers::DynProvider};
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 use utoipa::{IntoParams, ToSchema};
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_core::{
+    types::{GatewayErrorCode, GatewayErrorResponse},
+    world_id_registry::WorldIdRegistry,
+};
 
 /// Default root validity window for LRU cache.
 ///
@@ -33,16 +33,20 @@ pub(crate) struct IsValidRootResponse {
 }
 
 /// Parse a hex string into a `U256`.
-pub(crate) fn req_u256(_field: &str, s: &str) -> ApiResult<U256> {
-    s.parse()
-        .map_err(|e| ApiError::bad_request(format!("invalid value: {}", e)))
+pub(crate) fn req_u256(_field: &str, s: &str) -> Result<U256, GatewayErrorResponse> {
+    s.parse().map_err(|e| {
+        GatewayErrorResponse::bad_request(GatewayErrorCode::BadRequest(format!(
+            "invalid value: {}",
+            e
+        )))
+    })
 }
 
 /// Return the current timestamp in seconds since the UNIX_EPOCH.
-fn now_timestamp() -> ApiResult<U256> {
+fn now_timestamp() -> Result<U256, GatewayErrorResponse> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| ApiError::internal_server_error())?;
+        .map_err(|_| GatewayErrorResponse::internal_server_error())?;
     Ok(U256::from(duration.as_secs()))
 }
 
@@ -76,12 +80,12 @@ async fn cache_policy_for_root(
     contract: &WorldIdRegistry::WorldIdRegistryInstance<DynProvider>,
     root: U256,
     now: U256,
-) -> ApiResult<CachePolicy> {
+) -> Result<CachePolicy, GatewayErrorResponse> {
     let ts = contract
         .rootToTimestamp(root)
         .call()
         .await
-        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
     if ts == U256::ZERO {
         // Unknown roots can become valid later; don't cache.
         return Ok(CachePolicy::Skip);
@@ -91,7 +95,7 @@ async fn cache_policy_for_root(
         .rootValidityWindow()
         .call()
         .await
-        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
     if validity_window == U256::ZERO {
         // The WorldIdRegistry contract considers the root valid forever if
         // validity_window == 0, we set a default expiration to 1 hour in the future.
@@ -115,18 +119,18 @@ async fn cache_policy_for_root(
 pub(crate) async fn is_valid_root(
     State(state): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
-) -> ApiResult<impl IntoResponse> {
+) -> Result<Json<serde_json::Value>, GatewayErrorResponse> {
     let root = req_u256("root", &q.root)?;
     let now = now_timestamp()?;
     if get_cached_root(&state, root, now) {
-        return Ok((StatusCode::OK, Json(serde_json::json!({"valid": true}))));
+        return Ok(Json(serde_json::json!({"valid": true})));
     }
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
         .call()
         .await
-        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
     if valid {
         // Cache only valid roots to avoid serving stale negatives indefinitely.
         match cache_policy_for_root(&contract, root, now).await {
@@ -142,5 +146,5 @@ pub(crate) async fn is_valid_root(
             }
         }
     }
-    Ok((StatusCode::OK, Json(serde_json::json!({"valid": valid}))))
+    Ok(Json(serde_json::json!({"valid": valid})))
 }

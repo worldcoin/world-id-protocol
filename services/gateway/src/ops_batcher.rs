@@ -1,12 +1,11 @@
 use std::time::Duration;
 
+use crate::RequestTracker;
 use alloy::primitives::{address, Address, Bytes, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
+use world_id_core::types::{parse_contract_error, GatewayErrorCode, GatewayRequestState};
 use world_id_core::world_id_registry::WorldIdRegistry;
-
-use crate::error::{parse_contract_error, ErrorCode};
-use crate::{RequestState, RequestTracker};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
@@ -236,13 +235,16 @@ impl OpsBatcherRunner {
                 tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
                 // Parse the error to get a specific error code if possible
                 let code = parse_contract_error(&sim_error);
-                let error_msg = if matches!(code, ErrorCode::BadRequest) {
+                let error_msg = if matches!(code, GatewayErrorCode::BadRequest(_)) {
                     format!("pre-flight check failed: {sim_error}")
                 } else {
                     code.to_string()
                 };
                 self.tracker
-                    .set_status(&first.id, RequestState::failed(error_msg, Some(code)))
+                    .set_status(
+                        &first.id,
+                        GatewayRequestState::failed(error_msg, Some(code)),
+                    )
                     .await;
                 continue; // Skip this operation and wait for the next one
             }
@@ -262,13 +264,16 @@ impl OpsBatcherRunner {
                             tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
                             // Parse the error to get a specific error code if possible
                             let code = parse_contract_error(&sim_error);
-                            let error_msg = if matches!(code, ErrorCode::BadRequest) {
+                            let error_msg = if matches!(code, GatewayErrorCode::BadRequest(_)) {
                                 format!("pre-flight check failed: {sim_error}")
                             } else {
                                 code.to_string()
                             };
                             self.tracker
-                                .set_status(&req.id, RequestState::failed(error_msg, Some(code)))
+                                .set_status(
+                                    &req.id,
+                                    GatewayRequestState::failed(error_msg, Some(code)),
+                                )
                                 .await;
                             // Skip this operation but continue batching
                         } else {
@@ -285,7 +290,7 @@ impl OpsBatcherRunner {
 
             let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
             self.tracker
-                .set_status_batch(&ids, RequestState::Batching)
+                .set_status_batch(&ids, GatewayRequestState::Batching)
                 .await;
 
             let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
@@ -402,7 +407,7 @@ impl OpsBatcherRunner {
                     self.tracker
                         .set_status_batch(
                             &ids,
-                            RequestState::Submitted {
+                            GatewayRequestState::Submitted {
                                 tx_hash: hash.clone(),
                             },
                         )
@@ -417,7 +422,7 @@ impl OpsBatcherRunner {
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::Finalized {
+                                            GatewayRequestState::Finalized {
                                                 tx_hash: hash.clone(),
                                             },
                                         )
@@ -426,11 +431,11 @@ impl OpsBatcherRunner {
                                     tracker
                                         .set_status_batch(
                                             &ids_for_receipt,
-                                            RequestState::failed(
+                                            GatewayRequestState::failed(
                                                 format!(
                                                     "transaction reverted on-chain (tx: {hash})"
                                                 ),
-                                                Some(ErrorCode::TransactionReverted),
+                                                Some(GatewayErrorCode::TransactionReverted),
                                             ),
                                         )
                                         .await;
@@ -440,9 +445,9 @@ impl OpsBatcherRunner {
                                 tracker
                                     .set_status_batch(
                                         &ids_for_receipt,
-                                        RequestState::failed(
+                                        GatewayRequestState::failed(
                                             format!("transaction confirmation error: {err}"),
-                                            Some(ErrorCode::ConfirmationError),
+                                            Some(GatewayErrorCode::ConfirmationError),
                                         ),
                                     )
                                     .await;
@@ -455,7 +460,7 @@ impl OpsBatcherRunner {
                     let error_str = e.to_string();
                     let code = parse_contract_error(&error_str);
                     self.tracker
-                        .set_status_batch(&ids, RequestState::failed(error_str, Some(code)))
+                        .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
                         .await;
                 }
             }

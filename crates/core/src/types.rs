@@ -9,19 +9,20 @@ use serde::{Deserialize, Serialize};
 use alloy::primitives::Address;
 #[cfg(feature = "authenticator")]
 use strum::EnumString;
+use tokio::time::Instant;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
+#[cfg(feature = "authenticator")]
+use crate::world_id_registry::WorldIdRegistry::{
+    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
+    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
+};
 #[cfg(feature = "authenticator")]
 use axum::{http::StatusCode, response::IntoResponse};
 #[cfg(feature = "authenticator")]
 use world_id_primitives::serde_utils::{
     hex_u256, hex_u256_opt, hex_u256_vec, hex_u32, hex_u32_opt,
-};
-#[cfg(feature = "authenticator")]
-use crate::world_id_registry::WorldIdRegistry::{
-    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
-    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
 
 pub use world_id_primitives::merkle::AccountInclusionProof;
@@ -212,6 +213,7 @@ pub struct RecoverAccountRequest {
 
 /// Response returned by the registry gateway for state-changing requests.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GatewayStatusResponse {
     /// Identifier assigned by the gateway to the submitted request.
     pub request_id: String,
@@ -222,7 +224,8 @@ pub struct GatewayStatusResponse {
 }
 
 /// Kind of request tracked by the registry gateway.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayRequestKind {
     /// Account creation request.
@@ -238,7 +241,8 @@ pub enum GatewayRequestKind {
 }
 
 /// Tracking state for a registry gateway request.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum GatewayRequestState {
     /// Request queued but not yet batched.
@@ -263,6 +267,24 @@ pub enum GatewayRequestState {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         error_code: Option<GatewayErrorCode>,
     },
+}
+
+impl GatewayRequestState {
+    /// Creates a failed state with an error message and optional error code.
+    pub fn failed(error: impl Into<String>, error_code: Option<GatewayErrorCode>) -> Self {
+        Self::Failed {
+            error: error.into(),
+            error_code,
+        }
+    }
+
+    /// Creates a failed state from an error code (uses the code's display as the message).
+    pub fn failed_from_code(code: GatewayErrorCode) -> Self {
+        Self::Failed {
+            error: code.to_string(),
+            error_code: Some(code),
+        }
+    }
 }
 
 /// Request to fetch a packed account index from the indexer.
@@ -363,8 +385,8 @@ pub enum GatewayErrorCode {
     #[error("The pubkey ID slot is already in use.")]
     /// The pubkey ID slot is already in use.
     PubkeyIdInUse,
-    #[error("The pubkey ID is out of bounds (max 4 authenticators).")]
-    /// The pubkey ID is out of bounds (max 4 authenticators).
+    #[error("The pubkey ID is out of bounds (max 7 authenticators).")]
+    /// The pubkey ID is out of bounds (max 7 authenticators).
     PubkeyIdOutOfBounds,
     #[error("The authenticator does not belong to the specified account.")]
     /// The authenticator does not belong to the specified account.
@@ -378,6 +400,30 @@ pub enum GatewayErrorCode {
     #[error("Pre-flight simulation failed.")]
     /// Pre-flight simulation failed.
     PreFlightFailed,
+    #[error("ECDSA signature must be exactly 65 bytes long.")]
+    /// Signature length mismatch.
+    SignatureLengthMismatch,
+    #[error("ECDSA signature cannot be all zeros.")]
+    /// Signature all zeros.
+    SignatureAllZeros,
+    #[error("Authenticators cannot be empty")]
+    /// Empty authenticators.
+    EmptyAuthenticators,
+    #[error("Authenticators addresses must be equal to authenticators pubkeys.")]
+    /// Authenticators addresses pubkeys mismatch
+    AuthenticatorsAddressPubkeyMismatch,
+    #[error("Authenticator address cannot be zero.")]
+    /// Authenticator address cannot be zero.
+    AuthenticatorAddressCannotBeZero,
+    #[error("Offchain signer commitment cannot be zero.")]
+    /// Offchain signer commitment cannot be zero.
+    OffchainSignerCommitmentCannotBeZero,
+    #[error("New authenticator address cannot be zero.")]
+    /// New authenticator address cannot be zero.
+    NewAuthenticatorAddressCannotBeZero,
+    #[error("Leaf index cannot be zero.")]
+    /// Leaf index cannot be zero.
+    LeafIndexCannotBeZero,
 }
 
 /// OpenAPI schema representation of the `AccountInclusionProof` response.
