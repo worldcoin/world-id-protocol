@@ -13,7 +13,6 @@ use crate::auth::{
     signature_history::{DuplicateSignatureError, SignatureHistory},
 };
 use ark_bn254::Bn254;
-use ark_ff::{BigInteger as _, PrimeField as _};
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
 use circom_types::groth16::VerificationKey;
@@ -172,9 +171,10 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         }
 
         // check the RP nonce signature
-        let mut msg = Vec::new();
-        msg.extend(request.auth.nonce.into_bigint().to_bytes_le());
-        msg.extend(request.auth.current_time_stamp.to_le_bytes());
+        let msg = world_id_primitives::oprf::compute_rp_signature_msg(
+            request.auth.nonce,
+            request.auth.current_time_stamp,
+        );
 
         let recovered = request.auth.signature.recover_address_from_msg(&msg)?;
         if recovered != rp.signer {

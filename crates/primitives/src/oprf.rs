@@ -1,4 +1,5 @@
 use ark_bn254::Bn254;
+use ark_ff::{BigInteger as _, PrimeField as _};
 use ark_serde_compat::babyjubjub;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
@@ -28,4 +29,13 @@ pub struct OprfRequestAuthV1 {
     pub signature: alloy_primitives::Signature,
     /// The `rp_id`
     pub rp_id: RpId,
+}
+
+/// Computes the message to be signed for the RP signature over the nonce and timestamp.
+#[must_use]
+pub fn compute_rp_signature_msg(nonce: ark_babyjubjub::Fq, timestamp: u64) -> Vec<u8> {
+    let mut msg = Vec::new();
+    msg.extend(nonce.into_bigint().to_bytes_be());
+    msg.extend(timestamp.to_be_bytes());
+    msg
 }

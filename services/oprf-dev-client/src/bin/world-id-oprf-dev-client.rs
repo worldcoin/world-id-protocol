@@ -15,7 +15,7 @@ use alloy::{
         SignerSync as _,
     },
 };
-use ark_ff::{BigInteger as _, PrimeField as _, UniformRand as _};
+use ark_ff::UniformRand as _;
 use clap::{Parser, Subcommand};
 use eyre::Context as _;
 use rand::SeedableRng;
@@ -197,9 +197,7 @@ async fn run_nullifier(
         .expect("system time after epoch")
         .as_secs();
 
-    let mut msg = Vec::new();
-    msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_timestamp.to_le_bytes());
+    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
     let signature = signer.sign_message_sync(&msg)?;
 
     let proof_request = ProofRequest {
@@ -269,9 +267,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         .expect("system time after epoch")
         .as_secs();
 
-    let mut msg = Vec::new();
-    msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_timestamp.to_le_bytes());
+    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
     let signature = signer.sign_message_sync(&msg)?;
 
     let signal_hash = ark_babyjubjub::Fq::rand(&mut rng);

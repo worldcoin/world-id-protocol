@@ -9,7 +9,7 @@ use alloy::{
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger as _, PrimeField, UniformRand};
+use ark_ff::{PrimeField, UniformRand};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{eyre, Context as _, Result};
 use k256::ecdsa::SigningKey;
@@ -182,9 +182,7 @@ pub fn generate_rp_fixture() -> RpFixture {
     let signing_key = SigningKey::random(&mut rng);
     let signer = PrivateKeySigner::from_signing_key(signing_key.clone());
 
-    let mut msg = Vec::new();
-    msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_timestamp.to_le_bytes());
+    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
     let signature = signer.sign_message_sync(&msg).expect("can sign");
 
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
