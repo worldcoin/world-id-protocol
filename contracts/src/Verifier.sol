@@ -86,6 +86,11 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     error NullifierFromFuture();
 
     /**
+     * @notice The provided World ID proof is invalid
+     */
+    error InvalidProof();
+
+    /**
      * @notice Emitted when the credential schema issuer registry is updated
      * @param oldCredentialSchemaIssuerRegistry Previous registry address
      * @param newCredentialSchemaIssuerRegistry New registry address
@@ -123,32 +128,31 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     event ProofTimestampDeltaUpdated(uint256 oldProofTimestampDelta, uint256 newProofTimestampDelta);
 
     /**
-     * @notice Verifies a nullifier proof for a World ID credential
+     * @notice Verifies a Uniqueness Proof for a specific World ID.
      * @dev Validates the authenticator root, credential issuer registration, and delegates to Groth16VerifierNullifier for proof verification
      * @param nullifier The nullifier hash to verify uniqueness
      * @param action The action identifier
      * @param rpId The relying party identifier
-     * @param accountCommitment The account commitment from the World ID
+     * @param sessionId The identifier for a specific RP<>World ID session.
      * @param nonce The nonce used in the proof
      * @param signalHash The hash of the signal being signed
      * @param authenticatorRoot The merkle root of the authenticator set
      * @param proofTimestamp The timestamp when the proof was generated
      * @param credentialIssuerId The ID of the credential issuer
      * @param proof The Groth16 proof
-     * @return bool True if the proof is valid, false otherwise
      */
     function verify(
         uint256 nullifier,
         uint256 action,
         uint160 rpId,
-        uint256 accountCommitment,
+        uint256 sessionId,
         uint256 nonce,
         uint256 signalHash,
         uint256 authenticatorRoot,
         uint256 proofTimestamp,
         uint256 credentialIssuerId,
         OprfKeyGen.Groth16Proof calldata proof
-    ) external view virtual onlyProxy onlyInitialized returns (bool) {
+    ) external view virtual onlyProxy onlyInitialized {
         require(worldIDRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
 
         CredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =
@@ -156,7 +160,8 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         require(credentialIssuerPubkey.x != 0 && credentialIssuerPubkey.y != 0, "Credential issuer not registered");
 
         require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
-        // TODO get from rpId -> oprfKeyId mapping?
+
+        // NOTICE: Currently the `oprfKeyId` is the same as the `rpId`. This may change in the future in the `RpRegistry` contract
         uint160 oprfKeyId = rpId;
         BabyJubJub.Affine memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
@@ -172,7 +177,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         }
         uint256[13] memory pubSignals;
 
-        pubSignals[0] = accountCommitment;
+        pubSignals[0] = sessionId;
         pubSignals[1] = nullifier;
         pubSignals[2] = credentialIssuerPubkey.x;
         pubSignals[3] = credentialIssuerPubkey.y;
@@ -186,7 +191,9 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         pubSignals[11] = signalHash;
         pubSignals[12] = nonce;
 
-        return groth16VerifierNullifier.verifyProof(proof.pA, proof.pB, proof.pC, pubSignals);
+        if (!groth16VerifierNullifier.verifyProof(proof.pA, proof.pB, proof.pC, pubSignals)) {
+            revert InvalidProof();
+        }
     }
 
     /**
