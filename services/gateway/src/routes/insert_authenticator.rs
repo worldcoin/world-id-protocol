@@ -5,7 +5,7 @@ use crate::{
     types::AppState,
 };
 use alloy::primitives::Bytes;
-use axum::{extract::State, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use world_id_core::{
     types::{
         GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
@@ -18,7 +18,7 @@ pub(crate) async fn insert_authenticator(
     State(state): State<AppState>,
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<InsertAuthenticatorRequest>,
-) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
+) -> Result<(StatusCode, Json<GatewayStatusResponse>), GatewayErrorResponse> {
     // Input validation
     req.validate()?;
 
@@ -74,5 +74,5 @@ pub(crate) async fn insert_authenticator(
         status: record.status,
     };
 
-    Ok(Json(body))
+    Ok((StatusCode::ACCEPTED, Json(body)))
 }

@@ -5,7 +5,7 @@ use crate::{
     types::AppState,
 };
 use alloy::primitives::{Bytes, U256};
-use axum::{extract::State, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use world_id_core::{
     types::{
         GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
@@ -18,7 +18,7 @@ pub(crate) async fn recover_account(
     State(state): State<AppState>,
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<RecoverAccountRequest>,
-) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
+) -> Result<(StatusCode, Json<GatewayStatusResponse>), GatewayErrorResponse> {
     // Input validation
     req.validate()?;
 
@@ -73,5 +73,5 @@ pub(crate) async fn recover_account(
         status: record.status,
     };
 
-    Ok(Json(body))
+    Ok((StatusCode::ACCEPTED, Json(body)))
 }
