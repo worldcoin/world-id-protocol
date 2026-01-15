@@ -9,10 +9,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
-interface IOprfKeyRegistry {
-    function initKeyGen(uint160 oprfKeyId) external;
-}
+import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
 
 contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
