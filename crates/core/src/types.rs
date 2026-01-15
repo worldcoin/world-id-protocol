@@ -279,6 +279,7 @@ impl GatewayRequestState {
     }
 
     /// Creates a failed state from an error code (uses the code's display as the message).
+    #[must_use]
     pub fn failed_from_code(code: GatewayErrorCode) -> Self {
         Self::Failed {
             error: code.to_string(),
@@ -452,7 +453,7 @@ pub enum GatewayErrorCode {
     LeafIndexCannotBeZero,
 }
 
-/// OpenAPI schema representation of the `AccountInclusionProof` response.
+/// `OpenAPI` schema representation of the `AccountInclusionProof` response.
 #[cfg(feature = "authenticator")]
 #[derive(serde::Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -479,6 +480,7 @@ fn selector_hex(selector: [u8; 4]) -> String {
 
 /// Parses a contract error string and returns a specific error code if recognized.
 #[cfg(feature = "authenticator")]
+#[must_use]
 pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
     if error.contains(&selector_hex(AuthenticatorAddressAlreadyInUse::SELECTOR)) {
         return GatewayErrorCode::AuthenticatorAlreadyExists;
@@ -513,14 +515,15 @@ pub struct GatewayErrorResponse {
 }
 
 impl GatewayErrorResponse {
-    /// Create a new [GatewayErrorResponse] with the provided error and status.
-    pub fn new(error: GatewayErrorCode, status: StatusCode) -> Self {
+    /// Create a new [`GatewayErrorResponse`] with the provided error and status.
+    #[must_use]
+    pub const fn new(error: GatewayErrorCode, status: StatusCode) -> Self {
         Self { status, error }
     }
 
     #[must_use]
     /// Create a `GatewayErrorCode::InternalServeError`.
-    pub fn internal_server_error() -> Self {
+    pub const fn internal_server_error() -> Self {
         Self::new(
             GatewayErrorCode::InternalServerError,
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -529,19 +532,19 @@ impl GatewayErrorResponse {
 
     #[must_use]
     /// Create a `GatewayErrorCode::NotFound`.
-    pub fn not_found() -> Self {
+    pub const fn not_found() -> Self {
         Self::new(GatewayErrorCode::NotFound, StatusCode::NOT_FOUND)
     }
 
     #[must_use]
-    /// Create a [GatewayErrorCode] with `BAD_REQUEST` http status code.
-    pub fn bad_request(code: GatewayErrorCode) -> Self {
+    /// Create a [`GatewayErrorCode`] with `BAD_REQUEST` http status code.
+    pub const fn bad_request(code: GatewayErrorCode) -> Self {
         Self::new(code, StatusCode::BAD_REQUEST)
     }
 
     #[must_use]
     /// Create a `GatewayErrorCode::BatcherUnavailable`.
-    pub fn batcher_unavailable() -> Self {
+    pub const fn batcher_unavailable() -> Self {
         Self::new(
             GatewayErrorCode::BatcherUnavailable,
             StatusCode::SERVICE_UNAVAILABLE,
@@ -583,14 +586,15 @@ pub struct IndexerErrorResponse {
 }
 
 impl IndexerErrorResponse {
-    /// Create a new [IndexerErrorCode] with the provided error and status.
-    pub fn new(error: IndexerErrorCode, status: StatusCode) -> Self {
+    /// Create a new [`IndexerErrorCode`] with the provided error and status.
+    #[must_use]
+    pub const fn new(error: IndexerErrorCode, status: StatusCode) -> Self {
         Self { status, error }
     }
 
     #[must_use]
     /// Create a `IndexerErrorCode::InternalServeError`.
-    pub fn internal_server_error() -> Self {
+    pub const fn internal_server_error() -> Self {
         Self::new(
             IndexerErrorCode::InternalServerError,
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -599,13 +603,13 @@ impl IndexerErrorResponse {
 
     #[must_use]
     /// Create a `IndexerErrorCode::NotFound`.
-    pub fn not_found() -> Self {
+    pub const fn not_found() -> Self {
         Self::new(IndexerErrorCode::NotFound, StatusCode::NOT_FOUND)
     }
 
     #[must_use]
-    /// Create a [IndexerErrorCode] with `BAD_REQUEST` http status code.
-    pub fn bad_request(code: IndexerErrorCode) -> Self {
+    /// Create a [`IndexerErrorCode`] with `BAD_REQUEST` http status code.
+    pub const fn bad_request(code: IndexerErrorCode) -> Self {
         Self::new(code, StatusCode::BAD_REQUEST)
     }
 }
