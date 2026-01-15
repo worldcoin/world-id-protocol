@@ -71,7 +71,8 @@ struct TestGateway {
 }
 
 async fn spawn_test_gateway(port: u16) -> TestGateway {
-    let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
+    let fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or(RPC_FORK_URL);
+    let anvil = TestAnvil::spawn_fork(fork_url).expect("failed to spawn forked anvil");
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
         .deploy_world_id_registry(deployer)

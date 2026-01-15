@@ -120,17 +120,19 @@ jobs:
 
       - name: Run services
         run: |
-          docker compose -f docker-compose.yml up -d
+          docker compose up -d
           sleep 5
 
       - name: Run tests
+        env:
+          TESTS_RPC_FORK_URL: ${{ secrets.TESTS_RPC_FORK_URL }}
         run: |
           cargo test --all --all-features
           cargo test -p world-id-core --no-default-features
 
       - name: Clean up services
         run: |
-          docker compose -f docker-compose.yml down
+          docker compose down
 
   deny:
     name: Cargo deny
@@ -174,14 +176,6 @@ jobs:
         service:
           - indexer
           - gateway
-    services:
-      postgres:
-        image: ghcr.io/cloudnative-pg/postgresql:17
-        ports:
-          - 5432:5432
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
     permissions:
       contents: read
 
@@ -215,6 +209,11 @@ jobs:
           platforms: linux/amd64
           build-args: SERVICE_NAME=world-id-${{ matrix.service }}
 
+      - name: Run services
+        run: |
+          docker compose up -d
+          sleep 5
+
       - name: Run Docker container
         run: |
           # We run the http-only mode to avoid having to set up the RPC provider
@@ -233,6 +232,7 @@ jobs:
         run: |
           docker stop ${{ matrix.service }}-container
           docker rm ${{ matrix.service }}-container
+          docker compose down
 
   docs:
     name: Check docs
