@@ -36,7 +36,7 @@ use world_id_primitives::FieldElement;
 #[error("chain communication error: {0}")]
 pub(crate) struct MerkleWatcherError(pub String);
 
-/// Monitors merkle roots from an on-chain AccountRegistry contract.
+/// Monitors merkle roots from an on-chain `WorldIDRegistry` contract.
 ///
 /// Subscribes to blockchain events and maintains a store of valid merkle roots.
 #[derive(Clone)]
@@ -53,7 +53,7 @@ impl MerkleWatcher {
     /// and spawns a background task to monitor for new `RootRecorded` events.
     ///
     /// # Arguments
-    /// * `contract_address` - Address of the AccountRegistry contract
+    /// * `contract_address` - Address of the `WorldIDRegistry` contract
     /// * `ws_rpc_url` - WebSocket RPC URL for blockchain connection
     /// * `max_merkle_store_size` - Maximum number of merkle roots to store
     /// * `cancellation_token` - CancellationToken to cancel the service in case of an error
@@ -107,7 +107,7 @@ impl MerkleWatcher {
                                 timestamp,
                             );
                         } else {
-                            tracing::warn!("AccountRegistry send root with timestamp > u64");
+                            tracing::warn!("WorldIDRegistry send root with timestamp > u64");
                         }
                     }
                     Err(err) => {
