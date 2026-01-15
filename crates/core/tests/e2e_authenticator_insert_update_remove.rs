@@ -183,7 +183,7 @@ async fn e2e_authenticator_insert_update_remove() {
     let provider = ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let contract = WorldIDRegistry::new(registry_address, provider);
     let packed = contract
-        .authenticatorAddressToPackedAccountData(secondary_address)
+        .getPackedAccountData(secondary_address)
         .call()
         .await
         .unwrap();
@@ -222,7 +222,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Primary authenticator is now invalid, query contract directly
     let nonce = contract
-        .leafIndexToSignatureNonce(U256::from(1))
+        .getSignatureNonce(U256::from(1))
         .call()
         .await
         .unwrap();
@@ -230,7 +230,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify updated authenticator is registered and old primary is cleared
     let packed = contract
-        .authenticatorAddressToPackedAccountData(updated_address)
+        .getPackedAccountData(updated_address)
         .call()
         .await
         .unwrap();
@@ -240,7 +240,7 @@ async fn e2e_authenticator_insert_update_remove() {
         "updated authenticator should be registered after update"
     );
     let packed = contract
-        .authenticatorAddressToPackedAccountData(primary_address)
+        .getPackedAccountData(primary_address)
         .call()
         .await
         .unwrap();
@@ -273,7 +273,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify updated authenticator is cleared after removal
     let packed = contract
-        .authenticatorAddressToPackedAccountData(updated_address)
+        .getPackedAccountData(updated_address)
         .call()
         .await
         .unwrap();
@@ -285,7 +285,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify secondary authenticator is still registered (it was the signer for removal)
     let packed = contract
-        .authenticatorAddressToPackedAccountData(secondary_address)
+        .getPackedAccountData(secondary_address)
         .call()
         .await
         .unwrap();

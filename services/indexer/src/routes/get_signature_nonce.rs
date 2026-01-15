@@ -34,7 +34,7 @@ pub(crate) async fn handler(
 
     let signature_nonce = state
         .registry
-        .leafIndexToSignatureNonce(req.leaf_index)
+        .getSignatureNonce(req.leaf_index)
         .call()
         .await
         .map_err(|e| {
