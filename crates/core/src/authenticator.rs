@@ -1017,7 +1017,13 @@ mod tests {
             .mock("POST", "/packed-account")
             .with_status(400)
             .with_header("content-type", "application/json")
-            .with_body(serde_json::json!("account_does_not_exist").to_string())
+            .with_body(
+                serde_json::json!({
+                    "code": "account_does_not_exist",
+                    "message": "There is no account for this authenticator address"
+                })
+                .to_string(),
+            )
             .create_async()
             .await;
 
