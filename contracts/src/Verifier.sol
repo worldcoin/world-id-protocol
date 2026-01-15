@@ -71,7 +71,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
         groth16VerifierNullifier = Groth16VerifierNullifier(_groth16VerifierNullifier);
         proofTimestampDelta = _proofTimestampDelta;
-        treeDepth = worldIDRegistry.treeDepth();
+        treeDepth = worldIDRegistry.getTreeDepth();
     }
 
     /**
@@ -88,6 +88,13 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @notice The provided World ID proof is invalid
      */
     error InvalidProof();
+
+    /**
+     *
+     * @notice The provided Merkle Root is invalid which likely signals an
+     * old inclusion proof was used when generating the World ID Proof.
+     */
+    error InvalidMerkleRoot();
 
     /**
      * @notice Emitted when the credential schema issuer registry is updated
@@ -143,7 +150,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     function verify(
         uint256 nullifier,
         uint256 action,
-        uint160 rpId,
+        uint64 rpId,
         uint256 sessionId,
         uint256 nonce,
         uint256 signalHash,
@@ -152,7 +159,9 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 credentialIssuerId,
         Types.Groth16Proof calldata proof
     ) external view virtual onlyProxy onlyInitialized {
-        require(worldIDRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
+        if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
+            revert InvalidMerkleRoot();
+        }
 
         CredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =
             credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(credentialIssuerId);
@@ -161,7 +170,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
 
         // NOTICE: Currently the `oprfKeyId` is the same as the `rpId`. This may change in the future in the `RpRegistry` contract
-        uint160 oprfKeyId = rpId;
+        uint160 oprfKeyId = uint160(rpId);
         Types.BabyJubJubElement memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
         require(address(groth16VerifierNullifier) != address(0), "Groth16Verifier not set");
