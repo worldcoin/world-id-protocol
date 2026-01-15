@@ -14,7 +14,7 @@ env:
 jobs:
   lint:
     name: Format, Clippy & Build
-    runs-on: 
+    runs-on:
       group: arc-public-4xlarge-amd64-runner
     permissions:
       contents: read
@@ -54,7 +54,7 @@ jobs:
 
   build:
     name: Test Build
-    runs-on: 
+    runs-on:
       group: arc-public-large-amd64-runner
     permissions:
       contents: read
@@ -80,10 +80,14 @@ jobs:
 
   test:
     name: Tests
-    runs-on: 
+    runs-on:
       group: arc-public-8xlarge-amd64-runner
     permissions:
       contents: read
+
+    # Log in to Docker Hub if a token is provided to avoid public rate limiting
+    env:
+      IS_DOCKER_TOKEN_SET: ${{ (secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN != '' && secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME != '') && 'true' || 'false' }}
 
     strategy:
       matrix:
@@ -93,6 +97,13 @@ jobs:
           - 1.87 # MSRV (see rust-version.workspace in Cargo.toml)
 
     steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
+        with:
+          username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
+
       - name: Checkout code
         uses: actions/checkout@v5
 
@@ -123,7 +134,7 @@ jobs:
 
   deny:
     name: Cargo deny
-    runs-on: 
+    runs-on:
       group: arc-public-large-amd64-runner
     permissions:
       contents: read
@@ -145,7 +156,7 @@ jobs:
 
   docker:
     name: Test Docker build
-    runs-on: 
+    runs-on:
       group: arc-public-8xlarge-amd64-runner
     strategy:
       matrix:
@@ -163,7 +174,18 @@ jobs:
     permissions:
       contents: read
 
+    # Log in to Docker Hub if a token is provided to avoid public rate limiting
+    env:
+      IS_DOCKER_TOKEN_SET: ${{ (secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN != '' && secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME != '') && 'true' || 'false' }}
+
     steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
+        with:
+          username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
+
       - name: Checkout code
         uses: actions/checkout@v5
 
