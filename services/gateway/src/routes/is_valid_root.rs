@@ -1,12 +1,10 @@
 use crate::types::AppState;
 use alloy::{primitives::U256, providers::DynProvider};
 use axum::{extract::State, Json};
-use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
-use utoipa::{IntoParams, ToSchema};
 use world_id_core::{
-    types::{GatewayErrorCode, GatewayErrorResponse},
+    types::{GatewayErrorCode, GatewayErrorResponse, IsValidRootQuery, IsValidRootResponse},
     world_id_registry::WorldIdRegistry,
 };
 
@@ -16,21 +14,6 @@ use world_id_core::{
 const DEFAULT_CACHE_TTL_SECS: u64 = 60 * 60;
 /// Safety buffer for expirations, so we expire a bit early relative to chain time.
 const CACHE_SKEW_SECS: u64 = 120;
-
-/// Query params for the `/is-valid-root` endpoint.
-#[derive(Debug, Deserialize, IntoParams, ToSchema)]
-pub(crate) struct IsValidRootQuery {
-    /// Root to validate (hex string).
-    #[schema(value_type = String, format = "hex")]
-    root: String,
-}
-
-/// Response payload for root validity checks.
-#[derive(Debug, Serialize, ToSchema)]
-pub(crate) struct IsValidRootResponse {
-    /// Whether the root is currently valid on-chain.
-    valid: bool,
-}
 
 /// Parse a hex string into a `U256`.
 pub(crate) fn req_u256(_field: &str, s: &str) -> Result<U256, GatewayErrorResponse> {
@@ -119,11 +102,11 @@ async fn cache_policy_for_root(
 pub(crate) async fn is_valid_root(
     State(state): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
-) -> Result<Json<serde_json::Value>, GatewayErrorResponse> {
+) -> Result<Json<IsValidRootResponse>, GatewayErrorResponse> {
     let root = req_u256("root", &q.root)?;
     let now = now_timestamp()?;
     if get_cached_root(&state, root, now) {
-        return Ok(Json(serde_json::json!({"valid": true})));
+        return Ok(Json(IsValidRootResponse { valid: true }));
     }
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
@@ -146,5 +129,5 @@ pub(crate) async fn is_valid_root(
             }
         }
     }
-    Ok(Json(serde_json::json!({"valid": valid})))
+    Ok(Json(IsValidRootResponse { valid }))
 }

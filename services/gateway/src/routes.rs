@@ -7,9 +7,9 @@ use crate::{
     request_tracker::RequestTracker,
     routes::{
         create_account::create_account,
-        health::{health, HealthResponse, __path_health},
+        health::{__path_health, health},
         insert_authenticator::insert_authenticator,
-        is_valid_root::{is_valid_root, IsValidRootQuery, IsValidRootResponse},
+        is_valid_root::is_valid_root,
         recover_account::recover_account,
         remove_authenticator::remove_authenticator,
         request_status::request_status,
@@ -31,8 +31,9 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::types::{
     CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
-    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
+    IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+    UpdateAuthenticatorRequest,
 };
 
 mod create_account;

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use alloy::primitives::Address;
 #[cfg(feature = "authenticator")]
 use strum::EnumString;
+use utoipa::IntoParams;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
@@ -337,6 +338,21 @@ pub struct IndexerSignatureNonceResponse {
 pub struct HealthResponse {
     /// Success value.
     pub success: bool,
+}
+
+/// Query params for the `/is-valid-root` endpoint.
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct IsValidRootQuery {
+    /// Root to validate (hex string).
+    #[schema(value_type = String, format = "hex")]
+    pub root: String,
+}
+
+/// Response payload for root validity checks.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct IsValidRootResponse {
+    /// Whether the root is currently valid on-chain.
+    pub valid: bool,
 }
 
 /// Indexer error codes.

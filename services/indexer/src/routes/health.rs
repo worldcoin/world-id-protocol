@@ -1,6 +1,6 @@
+use crate::config::AppState;
 use axum::{extract::State, Json};
 use world_id_core::types::{HealthResponse, IndexerErrorResponse};
-use crate::config::AppState;
 
 pub(crate) async fn handler(
     State(state): State<AppState>,
