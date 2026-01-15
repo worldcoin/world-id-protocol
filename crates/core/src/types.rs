@@ -415,24 +415,6 @@ pub enum GatewayErrorCode {
     TransactionReverted,
     /// Error while waiting for transaction confirmation.
     ConfirmationError,
-    /// Pre-flight simulation failed.
-    PreFlightFailed,
-    /// Signature length mismatch.
-    SignatureLengthMismatch,
-    /// Signature all zeros.
-    SignatureAllZeros,
-    /// Empty authenticators.
-    EmptyAuthenticators,
-    /// Authenticators addresses pubkeys mismatch
-    AuthenticatorsAddressPubkeyMismatch,
-    /// Authenticator address cannot be zero.
-    AuthenticatorAddressCannotBeZero,
-    /// Offchain signer commitment cannot be zero.
-    OffchainSignerCommitmentCannotBeZero,
-    /// New authenticator address cannot be zero.
-    NewAuthenticatorAddressCannotBeZero,
-    /// Leaf index cannot be zero.
-    LeafIndexCannotBeZero,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).
