@@ -1,7 +1,7 @@
 use alloy::primitives::U256;
 use axum::{extract::State, Json};
 use world_id_core::types::{
-    IndexerErrorCode, IndexerErrorResponse, IndexerPackedAccountRequest,
+    IndexerErrorBody, IndexerErrorCode, IndexerErrorResponse, IndexerPackedAccountRequest,
     IndexerPackedAccountResponse,
 };
 
@@ -17,7 +17,7 @@ use crate::config::AppState;
     request_body = IndexerPackedAccountRequest,
     responses(
         (status = 200, body = IndexerPackedAccountResponse),
-        (status = 400, description = "Account does not exist for the given authenticator address", body = IndexerErrorCode),
+        (status = 400, description = "Account does not exist for the given authenticator address", body = IndexerErrorBody),
     ),
     tag = "indexer"
 )]
@@ -38,6 +38,7 @@ pub(crate) async fn handler(
     if packed_account_data == U256::ZERO {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::AccountDoesNotExist,
+            "There is no account for this authenticator address".to_string(),
         ));
     }
 

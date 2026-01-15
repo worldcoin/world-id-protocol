@@ -27,7 +27,8 @@ pub(crate) async fn handler(
 ) -> Result<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
     if req.leaf_index == U256::ZERO {
         return Err(IndexerErrorResponse::bad_request(
-            IndexerErrorCode::InvalidLeafIndex(req.leaf_index.to_string()),
+            IndexerErrorCode::InvalidLeafIndex,
+            "Account index cannot be zero".to_string(),
         ));
     }
 

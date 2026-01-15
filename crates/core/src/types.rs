@@ -1,5 +1,4 @@
 #![allow(clippy::option_if_let_else)]
-use alloy::sol_types::SolError;
 #[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
@@ -18,6 +17,7 @@ use crate::world_id_registry::WorldIdRegistry::{
     AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
     AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
+use alloy::sol_types::SolError;
 #[cfg(feature = "authenticator")]
 use axum::{http::StatusCode, response::IntoResponse};
 #[cfg(feature = "authenticator")]
@@ -361,96 +361,97 @@ pub struct IsValidRootResponse {
 
 /// Indexer error codes.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Clone, EnumString, Serialize, Deserialize, thiserror::Error)]
+#[derive(Debug, Clone, EnumString, Serialize, Deserialize, strum::Display)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerErrorCode {
-    #[error("Internal server error occurred in the indexer.")]
     /// Internal server error occurred in the indexer.
     InternalServerError,
-    #[error("Requested resource was not found.")]
     /// Requested resource was not found.
     NotFound,
-    #[error("The provided leaf index is invalid: {0}.")]
     /// The provided leaf index is invalid.
-    InvalidLeafIndex(String),
-    #[error("The resource is locked and cannot be accessed.")]
+    InvalidLeafIndex,
     /// The resource is locked and cannot be accessed.
     Locked,
-    #[error("The account does not exist.")]
     /// The account does not exist.
     AccountDoesNotExist,
 }
 
 /// Gateway error codes.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Clone, Deserialize, Serialize, thiserror::Error)]
+#[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayErrorCode {
-    #[error("Internal server error occurred in the gateway.")]
     /// Internal server error occurred in the gateway.
     InternalServerError,
-    #[error("Requested resource was not found.")]
     /// Requested resource was not found.
     NotFound,
-    #[error("Bad request - {0}")]
     /// Bad request - invalid input.
-    BadRequest(String),
-    #[error("Batcher service unavailable.")]
+    BadRequest,
     /// Batcher service unavailable.
     BatcherUnavailable,
-    #[error("Authenticator address is already in use by another account.")]
     /// Authenticator address is already in use by another account.
     AuthenticatorAlreadyExists,
-    #[error("Authenticator does not exist on the account.")]
     /// Authenticator does not exist on the account.
     AuthenticatorDoesNotExist,
-    #[error("The signature nonce does not match the expected value.")]
     /// The signature nonce does not match the expected value.
     MismatchedSignatureNonce,
-    #[error("The pubkey ID slot is already in use.")]
     /// The pubkey ID slot is already in use.
     PubkeyIdInUse,
-    #[error("The pubkey ID is out of bounds (max 7 authenticators).")]
     /// The pubkey ID is out of bounds (max 7 authenticators).
     PubkeyIdOutOfBounds,
-    #[error("The authenticator does not belong to the specified account.")]
     /// The authenticator does not belong to the specified account.
     AuthenticatorDoesNotBelongToAccount,
-    #[error("Transaction was submitted but reverted on-chain.")]
     /// Transaction was submitted but reverted on-chain.
     TransactionReverted,
-    #[error("Error while waiting for transaction confirmation.")]
     /// Error while waiting for transaction confirmation.
     ConfirmationError,
-    #[error("Pre-flight simulation failed.")]
     /// Pre-flight simulation failed.
     PreFlightFailed,
-    #[error("ECDSA signature must be exactly 65 bytes long.")]
     /// Signature length mismatch.
     SignatureLengthMismatch,
-    #[error("ECDSA signature cannot be all zeros.")]
     /// Signature all zeros.
     SignatureAllZeros,
-    #[error("Authenticators cannot be empty")]
     /// Empty authenticators.
     EmptyAuthenticators,
-    #[error("Authenticators addresses must be equal to authenticators pubkeys.")]
     /// Authenticators addresses pubkeys mismatch
     AuthenticatorsAddressPubkeyMismatch,
-    #[error("Authenticator address cannot be zero.")]
     /// Authenticator address cannot be zero.
     AuthenticatorAddressCannotBeZero,
-    #[error("Offchain signer commitment cannot be zero.")]
     /// Offchain signer commitment cannot be zero.
     OffchainSignerCommitmentCannotBeZero,
-    #[error("New authenticator address cannot be zero.")]
     /// New authenticator address cannot be zero.
     NewAuthenticatorAddressCannotBeZero,
-    #[error("Leaf index cannot be zero.")]
     /// Leaf index cannot be zero.
     LeafIndexCannotBeZero,
+}
+
+/// Error object returned by the services APIs (indexer, gateway).
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct ServiceApiError<T>
+where
+    T: Clone,
+{
+    /// The error code.
+    pub code: T,
+    /// Human-readable error message.
+    pub message: String,
+}
+
+#[cfg(feature = "authenticator")]
+impl<T> ServiceApiError<T>
+where
+    T: Clone,
+{
+    /// Creates a new error object.
+    pub const fn new(code: T, message: String) -> Self {
+        Self { code, message }
+    }
 }
 
 /// `OpenAPI` schema representation of the `AccountInclusionProof` response.
@@ -501,8 +502,12 @@ pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
         return GatewayErrorCode::AuthenticatorDoesNotBelongToAccount;
     }
 
-    GatewayErrorCode::BadRequest(error.to_string())
+    GatewayErrorCode::BadRequest
 }
+
+/// Error response body used by the gateway APIs.
+#[cfg(feature = "authenticator")]
+pub type GatewayErrorBody = ServiceApiError<GatewayErrorCode>;
 
 /// Error response used by the gateway APIs.
 #[cfg(feature = "authenticator")]
@@ -511,42 +516,58 @@ pub struct GatewayErrorResponse {
     /// Http status code.
     status: StatusCode,
     /// The specific error.
-    error: GatewayErrorCode,
+    error: GatewayErrorBody,
 }
 
 impl GatewayErrorResponse {
     /// Create a new [`GatewayErrorResponse`] with the provided error and status.
     #[must_use]
-    pub const fn new(error: GatewayErrorCode, status: StatusCode) -> Self {
-        Self { status, error }
+    pub fn new(code: GatewayErrorCode, message: String, status: StatusCode) -> Self {
+        Self {
+            status,
+            error: ServiceApiError::new(code, message),
+        }
     }
 
     #[must_use]
     /// Create a `GatewayErrorCode::InternalServeError`.
-    pub const fn internal_server_error() -> Self {
-        Self::new(
-            GatewayErrorCode::InternalServerError,
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )
+    pub fn internal_server_error() -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: ServiceApiError::new(
+                GatewayErrorCode::InternalServerError,
+                "Internal server error. Please try again.".to_string(),
+            ),
+        }
     }
 
     #[must_use]
     /// Create a `GatewayErrorCode::NotFound`.
-    pub const fn not_found() -> Self {
-        Self::new(GatewayErrorCode::NotFound, StatusCode::NOT_FOUND)
+    pub fn not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            error: ServiceApiError::new(GatewayErrorCode::NotFound, "Not found.".to_string()),
+        }
     }
 
     #[must_use]
     /// Create a [`GatewayErrorCode`] with `BAD_REQUEST` http status code.
-    pub const fn bad_request(code: GatewayErrorCode) -> Self {
-        Self::new(code, StatusCode::BAD_REQUEST)
+    pub fn bad_request(code: GatewayErrorCode) -> Self {
+        Self::new(code.clone(), code.to_string(), StatusCode::BAD_REQUEST)
+    }
+
+    #[must_use]
+    /// Create a `GatewayErrorCode::BadRequest` with a custom message.
+    pub fn bad_request_message(message: String) -> Self {
+        Self::new(GatewayErrorCode::BadRequest, message, StatusCode::BAD_REQUEST)
     }
 
     #[must_use]
     /// Create a `GatewayErrorCode::BatcherUnavailable`.
-    pub const fn batcher_unavailable() -> Self {
+    pub fn batcher_unavailable() -> Self {
         Self::new(
             GatewayErrorCode::BatcherUnavailable,
+            "Batcher service is unavailable. Please try again.".to_string(),
             StatusCode::SERVICE_UNAVAILABLE,
         )
     }
@@ -557,13 +578,22 @@ impl GatewayErrorResponse {
     pub fn from_simulation_error(e: impl std::fmt::Display) -> Self {
         let error_str = e.to_string();
         let code = parse_contract_error(&error_str);
-        Self::new(code, StatusCode::BAD_REQUEST)
+        let message = if matches!(code, GatewayErrorCode::BadRequest) {
+            error_str
+        } else {
+            code.to_string()
+        };
+        Self::new(code, message, StatusCode::BAD_REQUEST)
     }
 }
 
 impl std::fmt::Display for GatewayErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Error Code: `{}`. Status: {}", self.error, self.status,)
+        write!(
+            f,
+            "Error Code: `{}`. Message: {}",
+            self.error.code, self.error.message,
+        )
     }
 }
 
@@ -575,6 +605,10 @@ impl IntoResponse for GatewayErrorResponse {
     }
 }
 
+/// Error response body used by the indexer APIs.
+#[cfg(feature = "authenticator")]
+pub type IndexerErrorBody = ServiceApiError<IndexerErrorCode>;
+
 /// Error response used by the indexer APIs.
 #[cfg(feature = "authenticator")]
 #[derive(Debug, Clone)]
@@ -582,41 +616,54 @@ pub struct IndexerErrorResponse {
     /// Http status code.
     status: StatusCode,
     /// The specific error.
-    error: IndexerErrorCode,
+    error: IndexerErrorBody,
 }
 
 impl IndexerErrorResponse {
     /// Create a new [`IndexerErrorCode`] with the provided error and status.
     #[must_use]
-    pub const fn new(error: IndexerErrorCode, status: StatusCode) -> Self {
-        Self { status, error }
+    pub fn new(code: IndexerErrorCode, message: String, status: StatusCode) -> Self {
+        Self {
+            status,
+            error: ServiceApiError::new(code, message),
+        }
     }
 
     #[must_use]
     /// Create a `IndexerErrorCode::InternalServeError`.
-    pub const fn internal_server_error() -> Self {
-        Self::new(
-            IndexerErrorCode::InternalServerError,
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )
+    pub fn internal_server_error() -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: ServiceApiError::new(
+                IndexerErrorCode::InternalServerError,
+                "Internal server error. Please try again.".to_string(),
+            ),
+        }
     }
 
     #[must_use]
     /// Create a `IndexerErrorCode::NotFound`.
-    pub const fn not_found() -> Self {
-        Self::new(IndexerErrorCode::NotFound, StatusCode::NOT_FOUND)
+    pub fn not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            error: ServiceApiError::new(IndexerErrorCode::NotFound, "Not found.".to_string()),
+        }
     }
 
     #[must_use]
     /// Create a [`IndexerErrorCode`] with `BAD_REQUEST` http status code.
-    pub const fn bad_request(code: IndexerErrorCode) -> Self {
-        Self::new(code, StatusCode::BAD_REQUEST)
+    pub fn bad_request(code: IndexerErrorCode, message: String) -> Self {
+        Self::new(code, message, StatusCode::BAD_REQUEST)
     }
 }
 
 impl std::fmt::Display for IndexerErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Error Code: `{}`. Status: {}", self.error, self.status,)
+        write!(
+            f,
+            "Error Code: `{}`. Message: {}",
+            self.error.code, self.error.message,
+        )
     }
 }
 

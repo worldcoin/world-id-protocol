@@ -10,7 +10,7 @@ use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
     IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
-    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
 use crate::world_id_registry::WorldIdRegistry::{self, WorldIdRegistryInstance};
 use crate::world_id_registry::{
@@ -253,14 +253,14 @@ impl Authenticator {
             let status = resp.status();
             if !status.is_success() {
                 // Try to parse the error response
-                if let Ok(error_resp) = resp.json::<IndexerErrorCode>().await {
-                    return match error_resp {
+                if let Ok(error_resp) = resp.json::<ServiceApiError<IndexerErrorCode>>().await {
+                    return match error_resp.code {
                         IndexerErrorCode::AccountDoesNotExist => {
                             Err(AuthenticatorError::AccountDoesNotExist)
                         }
                         _ => Err(AuthenticatorError::IndexerError {
                             status,
-                            body: error_resp.to_string(),
+                            body: error_resp.message,
                         }),
                     };
                 }

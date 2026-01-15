@@ -36,7 +36,8 @@ pub(crate) async fn handler(
 
     if leaf_index == 0 {
         return Err(IndexerErrorResponse::bad_request(
-            IndexerErrorCode::InvalidLeafIndex(leaf_index.to_string()),
+            IndexerErrorCode::InvalidLeafIndex,
+            "Leaf index cannot be 0.".to_string(),
         ));
     }
 
@@ -85,7 +86,8 @@ pub(crate) async fn handler(
     let index_as_usize = leaf_index.as_limbs()[0] as usize;
     if index_as_usize >= tree_capacity() {
         return Err(IndexerErrorResponse::bad_request(
-            IndexerErrorCode::InvalidLeafIndex("Leaf index out of range.".to_string()),
+            IndexerErrorCode::InvalidLeafIndex,
+            "Leaf index out of range.".to_string(),
         ));
     }
 
@@ -94,6 +96,7 @@ pub(crate) async fn handler(
     if leaf == U256::ZERO {
         return Err(IndexerErrorResponse::new(
             IndexerErrorCode::Locked,
+            "Insertion is still pending.".to_string(),
             StatusCode::LOCKED,
         ));
     }

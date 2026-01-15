@@ -1,7 +1,7 @@
 use axum::{response::IntoResponse, Json, Router};
 use utoipa::OpenApi;
 use world_id_core::types::{
-    AccountInclusionProofSchema, IndexerErrorCode, IndexerPackedAccountRequest,
+    AccountInclusionProofSchema, IndexerErrorBody, IndexerPackedAccountRequest,
     IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
 
@@ -24,7 +24,7 @@ mod inclusion_proof;
         IndexerQueryRequest,
         IndexerSignatureNonceResponse,
         AccountInclusionProofSchema,
-        IndexerErrorCode,
+        IndexerErrorBody,
     )),
     tags(
         (name = "indexer", description = "World ID Indexer. Provides Merkle inclusion proofs and account information from the on-chain registry.")

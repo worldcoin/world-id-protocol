@@ -235,7 +235,7 @@ impl OpsBatcherRunner {
                 tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
                 // Parse the error to get a specific error code if possible
                 let code = parse_contract_error(&sim_error);
-                let error_msg = if matches!(code, GatewayErrorCode::BadRequest(_)) {
+                let error_msg = if matches!(code, GatewayErrorCode::BadRequest) {
                     format!("pre-flight check failed: {sim_error}")
                 } else {
                     code.to_string()
@@ -264,7 +264,7 @@ impl OpsBatcherRunner {
                             tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
                             // Parse the error to get a specific error code if possible
                             let code = parse_contract_error(&sim_error);
-                            let error_msg = if matches!(code, GatewayErrorCode::BadRequest(_)) {
+                            let error_msg = if matches!(code, GatewayErrorCode::BadRequest) {
                                 format!("pre-flight check failed: {sim_error}")
                             } else {
                                 code.to_string()

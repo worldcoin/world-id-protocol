@@ -4,7 +4,7 @@ use axum::{extract::State, Json};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 use world_id_core::{
-    types::{GatewayErrorCode, GatewayErrorResponse, IsValidRootQuery, IsValidRootResponse},
+    types::{GatewayErrorResponse, IsValidRootQuery, IsValidRootResponse},
     world_id_registry::WorldIdRegistry,
 };
 
@@ -18,10 +18,7 @@ const CACHE_SKEW_SECS: u64 = 120;
 /// Parse a hex string into a `U256`.
 pub(crate) fn req_u256(_field: &str, s: &str) -> Result<U256, GatewayErrorResponse> {
     s.parse().map_err(|e| {
-        GatewayErrorResponse::bad_request(GatewayErrorCode::BadRequest(format!(
-            "invalid value: {}",
-            e
-        )))
+        GatewayErrorResponse::bad_request_message(format!("invalid value: {e}"))
     })
 }
 
