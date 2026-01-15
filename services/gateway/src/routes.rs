@@ -4,7 +4,7 @@ use crate::{
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     provider::{build_provider, build_wallet},
-    request_tracker::{RequestTracker},
+    request_tracker::RequestTracker,
     routes::{
         create_account::create_account,
         health::{health, HealthResponse, __path_health},
