@@ -6531,6 +6531,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9085f4762d38839ca1ab55c7eab2a24961b8eb1fdb639fabd1d015703a389f13"
 dependencies = [
+ "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "serde",
@@ -6538,23 +6539,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "taceo-ark-serde-compat"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a680eee0351c4c95c6a21cccf3327ae85614254f698ef9e4714f9246347df2d"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "serde",
-]
-
-[[package]]
 name = "taceo-circom-types"
-version = "0.1.2"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c3ebb25dbaef5d1d81d45697a64012f782594d696221af0bed04b12ef436983"
+checksum = "bd2c756196776c43c258116dc21fed8ad34f7ab93f446311803aa04e7f8413db"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -6569,7 +6557,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "taceo-ark-serde-compat 0.3.0",
+ "taceo-ark-serde-compat",
  "thiserror 2.0.17",
  "tracing",
 ]
@@ -6589,7 +6577,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "taceo-ark-babyjubjub",
- "taceo-ark-serde-compat 0.2.1",
+ "taceo-ark-serde-compat",
  "taceo-poseidon2 0.2.1",
  "zeroize",
 ]
@@ -6733,7 +6721,7 @@ dependencies = [
  "serde",
  "subtle",
  "taceo-ark-babyjubjub",
- "taceo-ark-serde-compat 0.2.1",
+ "taceo-ark-serde-compat",
  "taceo-poseidon2 0.2.1",
  "uuid",
  "zeroize",
@@ -6876,7 +6864,7 @@ dependencies = [
  "http 1.4.0",
  "serde",
  "taceo-ark-babyjubjub",
- "taceo-ark-serde-compat 0.2.1",
+ "taceo-ark-serde-compat",
  "taceo-circom-types",
  "taceo-groth16-sol",
  "taceo-oprf-core",
@@ -8395,7 +8383,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "taceo-ark-babyjubjub",
- "taceo-ark-serde-compat 0.2.1",
+ "taceo-ark-serde-compat",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
