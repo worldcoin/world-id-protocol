@@ -1,3 +1,4 @@
+use crate::{config::AppState, proof_to_vec, tree_capacity, GLOBAL_TREE};
 use alloy::primitives::U256;
 use axum::{extract::State, Json};
 use http::StatusCode;
@@ -13,7 +14,6 @@ use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, FieldElement,
     TREE_DEPTH,
 };
-use crate::{config::AppState, proof_to_vec, tree_capacity, GLOBAL_TREE};
 
 /// Get Inclusion Proof
 ///

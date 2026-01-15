@@ -333,6 +333,7 @@ pub struct IndexerSignatureNonceResponse {
 }
 
 /// Health response for an API service (gateway or indexer).
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct HealthResponse {
@@ -341,6 +342,7 @@ pub struct HealthResponse {
 }
 
 /// Query params for the `/is-valid-root` endpoint.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct IsValidRootQuery {
     /// Root to validate (hex string).
@@ -349,6 +351,7 @@ pub struct IsValidRootQuery {
 }
 
 /// Response payload for root validity checks.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct IsValidRootResponse {
     /// Whether the root is currently valid on-chain.
@@ -469,11 +472,13 @@ pub struct AccountInclusionProofSchema {
 }
 
 /// Helper to format a selector as a hex string for matching in error messages.
+#[cfg(feature = "authenticator")]
 fn selector_hex(selector: [u8; 4]) -> String {
     format!("0x{}", hex::encode(selector))
 }
 
 /// Parses a contract error string and returns a specific error code if recognized.
+#[cfg(feature = "authenticator")]
 pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
     if error.contains(&selector_hex(AuthenticatorAddressAlreadyInUse::SELECTOR)) {
         return GatewayErrorCode::AuthenticatorAlreadyExists;
