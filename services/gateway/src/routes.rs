@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
@@ -18,7 +18,7 @@ use crate::{
     },
     AppState, RequestStatusResponse, SignerConfig,
 };
-use alloy::primitives::Address;
+use alloy::{primitives::Address, providers::DynProvider};
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
@@ -44,17 +44,13 @@ mod update_authenticator;
 mod validation;
 
 pub(crate) async fn build_app(
-    registry_addr: Address,
-    rpc_url: String,
-    signer_config: SignerConfig,
+    provider: Arc<DynProvider>,
+    registry: Arc<WorldIDRegistryInstance<DynProvider>>,
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
-    let ethereum_wallet = build_wallet(signer_config, &rpc_url).await?;
-    let provider = build_provider(&rpc_url, ethereum_wallet)?;
-    tracing::info!("RPC Provider built");
 
     let tracker = RequestTracker::new(redis_url).await;
     let (tx, rx) = mpsc::channel(1024);

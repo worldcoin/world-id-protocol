@@ -1,10 +1,11 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
 use world_id_core::types::CreateAccountRequest;
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::error::{parse_contract_error, ErrorCode};
 use crate::{RequestState, RequestTracker};
@@ -22,8 +23,7 @@ pub struct CreateReqEnvelope {
 
 pub struct CreateBatcherRunner {
     rx: mpsc::Receiver<CreateReqEnvelope>,
-    provider: DynProvider,
-    registry: Address,
+    registry: Arc<WorldIdRegistryInstance<DynProvider>>,
     window: Duration,
     max_batch_size: usize,
     tracker: RequestTracker,
@@ -31,8 +31,7 @@ pub struct CreateBatcherRunner {
 
 impl CreateBatcherRunner {
     pub fn new(
-        provider: DynProvider,
-        registry: Address,
+        registry: Arc<WorldIdRegistryInstance<DynProvider>>,
         window: Duration,
         max_batch_size: usize,
         rx: mpsc::Receiver<CreateReqEnvelope>,
@@ -40,7 +39,6 @@ impl CreateBatcherRunner {
     ) -> Self {
         Self {
             rx,
-            provider,
             registry,
             window,
             max_batch_size,
@@ -49,9 +47,9 @@ impl CreateBatcherRunner {
     }
 
     pub async fn run(mut self) {
-        let provider = self.provider.clone();
-        let contract = WorldIdRegistry::new(self.registry, provider);
-
+        let provider = self.registry.provider().clone();
+        let contract = self.registry;
+       
         loop {
             let Some(first) = self.rx.recv().await else {
                 tracing::info!("create batcher channel closed");

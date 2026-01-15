@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use alloy::primitives::Address;
 use clap::{Args, Parser};
+use common::ProviderArgs;
 
 #[derive(Clone, Debug)]
 pub enum SignerConfig {
@@ -59,12 +60,8 @@ pub struct GatewayConfig {
     pub registry_addr: Address,
 
     /// The HTTP RPC endpoint to submit transactions
-    #[arg(long, env = "RPC_URL")]
-    pub rpc_url: String,
-
-    /// Secrets for the signer.
     #[command(flatten)]
-    pub signer_args: SignerArgs,
+    pub provider: ProviderArgs,
 
     /// Batch window in milliseconds (i.e. how long to wait before submitting a batch of transactions)
     #[arg(long, env = "BATCH_MS", default_value = "1000")]
@@ -100,10 +97,6 @@ impl GatewayConfig {
 
         config
     }
-
-    pub fn signer_config(&self) -> SignerConfig {
-        self.signer_args.signer_config()
-    }
 }
 
 #[cfg(test)]
@@ -126,26 +119,6 @@ mod tests {
             .copied()
             .collect();
         GatewayConfig::try_parse_from(args)
-    }
-
-    #[test]
-    fn test_private_key_only_succeeds() {
-        let result = parse_with_signer_args(&["--wallet-private-key", "0xdeadbeef"]);
-        assert!(result.is_ok());
-
-        let config = result.unwrap();
-        assert!(
-            matches!(config.signer_config(), SignerConfig::PrivateKey(pk) if pk == "0xdeadbeef")
-        );
-    }
-
-    #[test]
-    fn test_aws_kms_only_succeeds() {
-        let result = parse_with_signer_args(&["--aws-kms-key-id", "my-key-id"]);
-        assert!(result.is_ok());
-
-        let config = result.unwrap();
-        assert!(matches!(config.signer_config(), SignerConfig::AwsKms(id) if id == "my-key-id"));
     }
 
     #[test]
