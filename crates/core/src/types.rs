@@ -522,7 +522,7 @@ pub struct GatewayErrorResponse {
 impl GatewayErrorResponse {
     /// Create a new [`GatewayErrorResponse`] with the provided error and status.
     #[must_use]
-    pub fn new(code: GatewayErrorCode, message: String, status: StatusCode) -> Self {
+    pub const fn new(code: GatewayErrorCode, message: String, status: StatusCode) -> Self {
         Self {
             status,
             error: ServiceApiError::new(code, message),
@@ -553,12 +553,13 @@ impl GatewayErrorResponse {
     #[must_use]
     /// Create a [`GatewayErrorCode`] with `BAD_REQUEST` http status code.
     pub fn bad_request(code: GatewayErrorCode) -> Self {
-        Self::new(code.clone(), code.to_string(), StatusCode::BAD_REQUEST)
+        let message = code.to_string();
+        Self::new(code, message, StatusCode::BAD_REQUEST)
     }
 
     #[must_use]
     /// Create a `GatewayErrorCode::BadRequest` with a custom message.
-    pub fn bad_request_message(message: String) -> Self {
+    pub const fn bad_request_message(message: String) -> Self {
         Self::new(GatewayErrorCode::BadRequest, message, StatusCode::BAD_REQUEST)
     }
 
@@ -622,7 +623,7 @@ pub struct IndexerErrorResponse {
 impl IndexerErrorResponse {
     /// Create a new [`IndexerErrorCode`] with the provided error and status.
     #[must_use]
-    pub fn new(code: IndexerErrorCode, message: String, status: StatusCode) -> Self {
+    pub const fn new(code: IndexerErrorCode, message: String, status: StatusCode) -> Self {
         Self {
             status,
             error: ServiceApiError::new(code, message),
@@ -652,7 +653,7 @@ impl IndexerErrorResponse {
 
     #[must_use]
     /// Create a [`IndexerErrorCode`] with `BAD_REQUEST` http status code.
-    pub fn bad_request(code: IndexerErrorCode, message: String) -> Self {
+    pub const fn bad_request(code: IndexerErrorCode, message: String) -> Self {
         Self::new(code, message, StatusCode::BAD_REQUEST)
     }
 }
