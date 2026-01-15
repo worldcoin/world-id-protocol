@@ -241,6 +241,7 @@ impl Authenticator {
     ) -> Result<U256, AuthenticatorError> {
         // If the registry is available through direct RPC calls, use it. Otherwise fallback to the indexer.
         let raw_index = if let Some(registry) = registry {
+            // TODO: Better error handling to expose the specific failure
             registry
                 .getPackedAccountData(onchain_signer_address)
                 .call()
