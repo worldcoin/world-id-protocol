@@ -23,7 +23,7 @@ semaphore-rs-trees = "0.5.0"
 semaphore-rs-hasher = "0.5.0"
 ark-ff = "0.5.0"
 ark-bn254 = { workspace = true }
-axum = { version = "0.7", features = ["macros", "json"] }
+axum = { workspace = true, features = ["macros", "json"] }
 http = "1"
 take_mut = "0.2.2"
 utoipa = { workspace = true }

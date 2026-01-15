@@ -3,7 +3,10 @@ use axum::{extract::State, Json};
 use http::StatusCode;
 use sqlx::Row;
 use world_id_core::{
-    types::{AccountInclusionProof, IndexerQueryRequest},
+    types::{
+        AccountInclusionProof, AccountInclusionProofSchema, IndexerErrorCode, IndexerErrorResponse,
+        IndexerQueryRequest,
+    },
     EdDSAPublicKey,
 };
 use world_id_primitives::{
@@ -11,28 +14,7 @@ use world_id_primitives::{
     TREE_DEPTH,
 };
 
-use crate::{
-    config::AppState,
-    error::{ErrorCode, ErrorResponse},
-    proof_to_vec, tree_capacity, GLOBAL_TREE,
-};
-
-/// OpenAPI schema representation of the `AccountInclusionProof` response.
-#[derive(serde::Serialize, utoipa::ToSchema)]
-pub(crate) struct AccountInclusionProofSchema {
-    /// The root hash of the Merkle tree (hex string)
-    #[schema(value_type = String, format = "hex", example = "0x1a2b3c4d5e6f7890")]
-    root: String,
-    /// The World ID's leaf position in the Merkle tree
-    #[schema(value_type = String, format = "hex", example = "0x2a")]
-    leaf_index: String,
-    /// The sibling path up to the Merkle root (array of hex strings)
-    #[schema(value_type = Vec<String>, format = "hex")]
-    siblings: Vec<String>,
-    /// The compressed authenticator public keys for the account (array of hex strings)
-    #[schema(value_type = Vec<String>, format = "hex")]
-    authenticator_pubkeys: Vec<String>,
-}
+use crate::{config::AppState, proof_to_vec, tree_capacity, GLOBAL_TREE};
 
 /// Get Inclusion Proof
 ///
@@ -50,13 +32,12 @@ pub(crate) struct AccountInclusionProofSchema {
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerQueryRequest>,
-) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, ErrorResponse> {
+) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, IndexerErrorResponse> {
     let leaf_index = req.leaf_index;
 
     if leaf_index == 0 {
-        return Err(ErrorResponse::bad_request(
-            ErrorCode::InvalidLeafIndex,
-            "Leaf index cannot be 0.".to_string(),
+        return Err(IndexerErrorResponse::bad_request(
+            IndexerErrorCode::InvalidLeafIndex(leaf_index.to_string()),
         ));
     }
 
@@ -70,7 +51,7 @@ pub(crate) async fn handler(
     .flatten();
 
     if account_row.is_none() {
-        return Err(ErrorResponse::not_found());
+        return Err(IndexerErrorResponse::not_found());
     }
 
     let row = account_row.unwrap();
@@ -92,7 +73,7 @@ pub(crate) async fn handler(
 
     let authenticator_pubkeys = AuthenticatorPublicKeySet::new(Some(pubkeys)).map_err(|e| {
         tracing::error!(leaf_index = %leaf_index, "Invalid public key set stored for account: {e}");
-        ErrorResponse::internal_server_error()
+        IndexerErrorResponse::internal_server_error()
     })?;
 
     let offchain_signer_commitment: U256 = row
@@ -104,18 +85,16 @@ pub(crate) async fn handler(
 
     let index_as_usize = leaf_index.as_limbs()[0] as usize;
     if index_as_usize >= tree_capacity() {
-        return Err(ErrorResponse::bad_request(
-            ErrorCode::InvalidLeafIndex,
-            "Leaf index out of range.".to_string(),
+        return Err(IndexerErrorResponse::bad_request(
+            IndexerErrorCode::InvalidLeafIndex("Leaf index out of range.".to_string()),
         ));
     }
 
     let leaf = tree.get_leaf(index_as_usize);
 
     if leaf == U256::ZERO {
-        return Err(ErrorResponse::new(
-            ErrorCode::Locked,
-            "Insertion is still pending.".to_string(),
+        return Err(IndexerErrorResponse::new(
+            IndexerErrorCode::Locked,
             StatusCode::LOCKED,
         ));
     }
@@ -127,7 +106,7 @@ pub(crate) async fn handler(
             offchain_signer_commitment = %offchain_signer_commitment,
            "Tree is out of sync with DB. Leaf hash does not match offchain signer commitment.",
         );
-        return Err(ErrorResponse::internal_server_error());
+        return Err(IndexerErrorResponse::internal_server_error());
     }
 
     let proof = tree.proof(index_as_usize);

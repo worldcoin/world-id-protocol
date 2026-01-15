@@ -1,11 +1,10 @@
 use alloy::primitives::U256;
 use axum::{extract::State, Json};
-use world_id_core::types::{IndexerQueryRequest, IndexerSignatureNonceResponse};
-
-use crate::{
-    config::AppState,
-    error::{ErrorCode, ErrorResponse},
+use world_id_core::types::{
+    IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
+
+use crate::config::AppState;
 
 /// Get Signature Nonce
 ///
@@ -25,11 +24,10 @@ use crate::{
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerQueryRequest>,
-) -> Result<Json<IndexerSignatureNonceResponse>, ErrorResponse> {
+) -> Result<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
     if req.leaf_index == U256::ZERO {
-        return Err(ErrorResponse::bad_request(
-            ErrorCode::InvalidLeafIndex,
-            "Account index cannot be zero".to_string(),
+        return Err(IndexerErrorResponse::bad_request(
+            IndexerErrorCode::InvalidLeafIndex(req.leaf_index.to_string()),
         ));
     }
 
@@ -40,7 +38,7 @@ pub(crate) async fn handler(
         .await
         .map_err(|e| {
             tracing::error!("RPC error getting signature nonce: {}", e);
-            ErrorResponse::internal_server_error()
+            IndexerErrorResponse::internal_server_error()
         })?;
 
     Ok(Json(IndexerSignatureNonceResponse { signature_nonce }))

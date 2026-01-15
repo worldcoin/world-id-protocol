@@ -1,11 +1,11 @@
 use alloy::primitives::U256;
 use axum::{extract::State, Json};
-use world_id_core::types::{IndexerPackedAccountRequest, IndexerPackedAccountResponse};
-
-use crate::{
-    config::AppState,
-    error::{ErrorBody, ErrorCode, ErrorResponse},
+use world_id_core::types::{
+    IndexerErrorCode, IndexerErrorResponse, IndexerPackedAccountRequest,
+    IndexerPackedAccountResponse,
 };
+
+use crate::config::AppState;
 
 /// Get Packed Account Data
 ///
@@ -17,14 +17,14 @@ use crate::{
     request_body = IndexerPackedAccountRequest,
     responses(
         (status = 200, body = IndexerPackedAccountResponse),
-        (status = 400, description = "Account does not exist for the given authenticator address", body = ErrorBody),
+        (status = 400, description = "Account does not exist for the given authenticator address", body = IndexerErrorCode),
     ),
     tag = "indexer"
 )]
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerPackedAccountRequest>,
-) -> Result<Json<IndexerPackedAccountResponse>, ErrorResponse> {
+) -> Result<Json<IndexerPackedAccountResponse>, IndexerErrorResponse> {
     let packed_account_data = state
         .registry
         .authenticatorAddressToPackedAccountData(req.authenticator_address)
@@ -32,13 +32,12 @@ pub(crate) async fn handler(
         .await
         .map_err(|e| {
             tracing::error!("RPC error getting packed account index: {}", e);
-            ErrorResponse::internal_server_error()
+            IndexerErrorResponse::internal_server_error()
         })?;
 
     if packed_account_data == U256::ZERO {
-        return Err(ErrorResponse::bad_request(
-            ErrorCode::AccountDoesNotExist,
-            "There is no account for this authenticator address".to_string(),
+        return Err(IndexerErrorResponse::bad_request(
+            IndexerErrorCode::AccountDoesNotExist,
         ));
     }
 

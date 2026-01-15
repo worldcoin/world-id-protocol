@@ -12,6 +12,8 @@ use strum::EnumString;
 use utoipa::ToSchema;
 
 #[cfg(feature = "authenticator")]
+use axum::{http::StatusCode, response::IntoResponse};
+#[cfg(feature = "authenticator")]
 use world_id_primitives::serde_utils::{
     hex_u256, hex_u256_opt, hex_u256_vec, hex_u32, hex_u32_opt,
 };
@@ -302,57 +304,93 @@ pub struct IndexerSignatureNonceResponse {
     pub signature_nonce: U256,
 }
 
-/// Error codes returned by the indexer.
+/// Indexer error codes.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Clone, strum::Display, EnumString, Serialize, Deserialize)]
+#[derive(Debug, Clone, EnumString, Serialize, Deserialize, thiserror::Error)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerErrorCode {
+    #[error("Internal server error occurred in the indexer.")]
     /// Internal server error occurred in the indexer.
     InternalServerError,
+    #[error("Requested resource was not found.")]
     /// Requested resource was not found.
     NotFound,
+    #[error("The provided leaf index is invalid: {0}.")]
     /// The provided leaf index is invalid.
-    InvalidLeafIndex,
+    InvalidLeafIndex(String),
+    #[error("The resource is locked and cannot be accessed.")]
     /// The resource is locked and cannot be accessed.
     Locked,
+    #[error("The account does not exist.")]
     /// The account does not exist.
     AccountDoesNotExist,
 }
 
 /// Gateway error codes.
-#[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone, Deserialize, Serialize, thiserror::Error)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayErrorCode {
+    #[error("Internal server error occurred in the gateway.")]
     /// Internal server error occurred in the gateway.
     InternalServerError,
+    #[error("Requested resource was not found.")]
     /// Requested resource was not found.
     NotFound,
+    #[error("Bad request - invalid input.")]
     /// Bad request - invalid input.
     BadRequest,
+    #[error("Batcher service unavailable.")]
     /// Batcher service unavailable.
     BatcherUnavailable,
+    #[error("Authenticator address is already in use by another account.")]
     /// Authenticator address is already in use by another account.
     AuthenticatorAlreadyExists,
+    #[error("Authenticator does not exist on the account.")]
     /// Authenticator does not exist on the account.
     AuthenticatorDoesNotExist,
+    #[error("The signature nonce does not match the expected value.")]
     /// The signature nonce does not match the expected value.
     MismatchedSignatureNonce,
+    #[error("The pubkey ID slot is already in use.")]
     /// The pubkey ID slot is already in use.
     PubkeyIdInUse,
+    #[error("The pubkey ID is out of bounds (max 4 authenticators).")]
     /// The pubkey ID is out of bounds (max 4 authenticators).
     PubkeyIdOutOfBounds,
+    #[error("The authenticator does not belong to the specified account.")]
     /// The authenticator does not belong to the specified account.
     AuthenticatorDoesNotBelongToAccount,
+    #[error("Transaction was submitted but reverted on-chain.")]
     /// Transaction was submitted but reverted on-chain.
     TransactionReverted,
+    #[error("Error while waiting for transaction confirmation.")]
     /// Error while waiting for transaction confirmation.
     ConfirmationError,
+    #[error("Pre-flight simulation failed.")]
     /// Pre-flight simulation failed.
     PreFlightFailed,
+}
+
+/// OpenAPI schema representation of the `AccountInclusionProof` response.
+#[cfg(feature = "authenticator")]
+#[derive(serde::Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct AccountInclusionProofSchema {
+    /// The root hash of the Merkle tree (hex string)
+    #[schema(value_type = String, format = "hex", example = "0x1a2b3c4d5e6f7890")]
+    pub root: String,
+    /// The World ID's leaf position in the Merkle tree
+    #[schema(value_type = String, format = "hex", example = "0x2a")]
+    pub leaf_index: String,
+    /// The sibling path up to the Merkle root (array of hex strings)
+    #[schema(value_type = Vec<String>, format = "hex")]
+    pub siblings: Vec<String>,
+    /// The compressed authenticator public keys for the account (array of hex strings)
+    #[schema(value_type = Vec<String>, format = "hex")]
+    pub authenticator_pubkeys: Vec<String>,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).
@@ -377,5 +415,109 @@ where
     /// Creates a new error object.
     pub const fn new(code: T, message: String) -> Self {
         Self { code, message }
+    }
+}
+
+/// Error response used by the gateway APIs.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone)]
+pub struct GatewayErrorResponse {
+    /// Http status code.
+    status: StatusCode,
+    /// The specific error.
+    error: GatewayErrorCode,
+}
+
+impl GatewayErrorResponse {
+    /// Create a new [GatewayErrorResponse] with the provided error and status.
+    pub fn new(error: GatewayErrorCode, status: StatusCode) -> Self {
+        Self { status, error }
+    }
+
+    #[must_use]
+    /// Create a `GatewayErrorCode::InternalServeError`.
+    pub fn internal_server_error() -> Self {
+        Self::new(
+            GatewayErrorCode::InternalServerError,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    }
+
+    #[must_use]
+    /// Create a `GatewayErrorCode::NotFound`.
+    pub fn not_found() -> Self {
+        Self::new(GatewayErrorCode::NotFound, StatusCode::NOT_FOUND)
+    }
+
+    #[must_use]
+    /// Create a [GatewayErrorCode] with `BAD_REQUEST` http status code.
+    pub fn bad_request(code: GatewayErrorCode) -> Self {
+        Self::new(code, StatusCode::BAD_REQUEST)
+    }
+}
+
+impl std::fmt::Display for GatewayErrorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error Code: `{}`. Status: {}", self.error, self.status,)
+    }
+}
+
+impl std::error::Error for GatewayErrorResponse {}
+
+impl IntoResponse for GatewayErrorResponse {
+    fn into_response(self) -> axum::response::Response {
+        (self.status, axum::Json(self.error)).into_response()
+    }
+}
+
+/// Error response used by the indexer APIs.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone)]
+pub struct IndexerErrorResponse {
+    /// Http status code.
+    status: StatusCode,
+    /// The specific error.
+    error: IndexerErrorCode,
+}
+
+impl IndexerErrorResponse {
+    /// Create a new [IndexerErrorCode] with the provided error and status.
+    pub fn new(error: IndexerErrorCode, status: StatusCode) -> Self {
+        Self { status, error }
+    }
+
+    #[must_use]
+    /// Create a `IndexerErrorCode::InternalServeError`.
+    pub fn internal_server_error() -> Self {
+        Self::new(
+            IndexerErrorCode::InternalServerError,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    }
+
+    #[must_use]
+    /// Create a `IndexerErrorCode::NotFound`.
+    pub fn not_found() -> Self {
+        Self::new(IndexerErrorCode::NotFound, StatusCode::NOT_FOUND)
+    }
+
+    #[must_use]
+    /// Create a [IndexerErrorCode] with `BAD_REQUEST` http status code.
+    pub fn bad_request(code: IndexerErrorCode) -> Self {
+        Self::new(code, StatusCode::BAD_REQUEST)
+    }
+}
+
+impl std::fmt::Display for IndexerErrorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error Code: `{}`. Status: {}", self.error, self.status,)
+    }
+}
+
+impl std::error::Error for IndexerErrorResponse {}
+
+impl IntoResponse for IndexerErrorResponse {
+    fn into_response(self) -> axum::response::Response {
+        (self.status, axum::Json(self.error)).into_response()
     }
 }

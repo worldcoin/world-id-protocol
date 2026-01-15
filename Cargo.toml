@@ -70,6 +70,7 @@ world-id-core = { version = "0.3.0", default-features = false, path = "crates/co
 world-id-primitives = { version = "0.3.0", path = "crates/primitives"}
 world-id-oprf-node = { version = "0.1", path = "./services/oprf-node"}
 zeroize = "1"
+axum = { version = "0.8", features = ["macros", "json"] }
 lru = "0.16.3"
 
 [patch.crates-io]
