@@ -331,6 +331,14 @@ pub struct IndexerSignatureNonceResponse {
     pub signature_nonce: U256,
 }
 
+/// Health response for an API service (gateway or indexer).
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct HealthResponse {
+    /// Success value.
+    pub success: bool,
+}
+
 /// Indexer error codes.
 #[cfg(feature = "authenticator")]
 #[derive(Debug, Clone, EnumString, Serialize, Deserialize, thiserror::Error)]

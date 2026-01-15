@@ -1,13 +1,6 @@
 use axum::{extract::State, Json};
-use serde::Serialize;
-use world_id_core::types::IndexerErrorResponse;
-
+use world_id_core::types::{HealthResponse, IndexerErrorResponse};
 use crate::config::AppState;
-
-#[derive(Debug, Serialize)]
-pub struct HealthResponse {
-    success: bool,
-}
 
 pub(crate) async fn handler(
     State(state): State<AppState>,
