@@ -21,6 +21,7 @@ use world_id_primitives::TREE_DEPTH;
 pub mod config;
 mod routes;
 mod sanity_check;
+mod tree;
 use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
 pub use config::GlobalConfig;
 
@@ -123,49 +124,91 @@ async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()>
     Ok(())
 }
 
-async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
-    let rows = sqlx::query(
-        "select leaf_index, offchain_signer_commitment from accounts order by leaf_index asc",
-    )
-    .fetch_all(pool)
-    .await?;
+async fn initialize_tree_with_config(
+    tree_cache_cfg: &config::TreeCacheConfig,
+    pool: &PgPool,
+) -> anyhow::Result<()> {
+    let initializer = tree::TreeInitializer::new(
+        tree_cache_cfg.cache_file_path.clone(),
+        TREE_DEPTH,
+        tree_cache_cfg.dense_tree_prefix_depth,
+        U256::ZERO,
+    );
 
-    tracing::info!("There are {:?} rows in the table.", rows.len());
-
-    let mut leaves: Vec<(usize, U256)> = Vec::with_capacity(rows.len());
-    for r in rows {
-        let leaf_index: String = r.get("leaf_index");
-        let offchain: String = r.get("offchain_signer_commitment");
-        let leaf_index: U256 = leaf_index.parse::<U256>()?;
-        if leaf_index == U256::ZERO {
-            continue;
-        }
-        let leaf_index = leaf_index.as_limbs()[0] as usize;
-        let leaf_val = offchain.parse::<U256>()?;
-        leaves.push((leaf_index, leaf_val));
-    }
-
-    let mut new_tree = MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO);
-    for (idx, value) in leaves {
-        if idx >= tree_capacity() {
-            anyhow::bail!(
-                "leaf index {idx} out of range while rebuilding tree (depth {TREE_DEPTH})",
-            );
-        }
-        new_tree = new_tree.update_with_mutation(idx, &value);
-    }
+    let new_tree = initializer.initialize(pool).await?;
 
     let root = new_tree.root();
     {
         let mut tree = GLOBAL_TREE.write().await;
         *tree = new_tree;
     }
+
     tracing::info!(
         root = %format!("0x{:x}", root),
         depth = TREE_DEPTH,
-        "tree built from DB"
+        "Tree initialized successfully"
     );
     Ok(())
+}
+
+/// Background task for HttpOnly mode: periodically check for stale cache and refresh
+async fn cache_refresh_loop(
+    tree_cache_cfg: config::TreeCacheConfig,
+    pool: PgPool,
+    refresh_interval_secs: u64,
+) -> anyhow::Result<()> {
+    let check_interval = Duration::from_secs(refresh_interval_secs);
+    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
+
+    loop {
+        tokio::time::sleep(check_interval).await;
+
+        // Check if cache needs refresh
+        match check_and_refresh_cache(&tree_cache_cfg, &pool, &cache_path).await {
+            Ok(refreshed) => {
+                if refreshed {
+                    tracing::info!("Cache refreshed with new events");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(?e, "Cache refresh check failed, will retry");
+            }
+        }
+    }
+}
+
+/// Check if cache is stale and refresh if needed
+async fn check_and_refresh_cache(
+    tree_cache_cfg: &config::TreeCacheConfig,
+    pool: &PgPool,
+    cache_path: &std::path::Path,
+) -> anyhow::Result<bool> {
+    // Read current cache metadata
+    let metadata = tree::metadata::read_metadata(cache_path)?;
+
+    // Get current DB state
+    let db_state = tree::metadata::get_db_state(pool).await?;
+
+    let blocks_behind = db_state
+        .max_block_number
+        .saturating_sub(metadata.last_block_number);
+
+    if blocks_behind == 0 {
+        tracing::debug!("Cache is up-to-date");
+        return Ok(false);
+    }
+
+    tracing::info!(
+        cache_block = metadata.last_block_number,
+        current_block = db_state.max_block_number,
+        blocks_behind,
+        "Cache is stale, refreshing"
+    );
+
+    // Re-initialize tree (will restore from cache + replay missed events)
+    initialize_tree_with_config(tree_cache_cfg, pool).await?;
+
+    Ok(true)
 }
 
 async fn update_tree_with_commitment(leaf_index: U256, new_commitment: U256) -> anyhow::Result<()> {
@@ -232,6 +275,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
 
     let rpc_url = &cfg.rpc_url;
     let registry_address = cfg.registry_address;
+    let tree_cache_cfg = &cfg.tree_cache;
 
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
@@ -239,23 +283,38 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             run_indexer_only(rpc_url, registry_address, indexer_config, pool).await
         }
         RunMode::HttpOnly { http_config } => {
-            tracing::info!("Running in HTTP-ONLY mode (building tree from DB)");
-            // Build tree from DB for HTTP-only mode
+            tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
+            // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
-            build_tree_from_db(&pool).await?;
-            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_http_only(rpc_url, registry_address, http_config, pool).await
+            initialize_tree_with_config(tree_cache_cfg, &pool).await?;
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            run_http_only(
+                rpc_url,
+                registry_address,
+                http_config,
+                pool,
+                tree_cache_cfg.clone(),
+            )
+            .await
         }
         RunMode::Both {
             indexer_config,
             http_config,
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
-            // Build tree from DB for both mode
+            // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
-            build_tree_from_db(&pool).await?;
-            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_both(rpc_url, registry_address, indexer_config, http_config, pool).await
+            initialize_tree_with_config(tree_cache_cfg, &pool).await?;
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            run_both(
+                rpc_url,
+                registry_address,
+                indexer_config,
+                http_config,
+                pool,
+                tree_cache_cfg.cache_file_path.clone(),
+            )
+            .await
         }
     }
 }
@@ -280,12 +339,19 @@ async fn run_indexer_only(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        false, // Don't update in-memory tree
+        None, // Don't update in-memory tree or cache in indexer-only mode
     )
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, false).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        registry_address,
+        from,
+        None, // Don't update in-memory tree or cache in indexer-only mode
+    )
+    .await?;
 
     Ok(())
 }
@@ -295,6 +361,7 @@ async fn run_http_only(
     registry_address: Address,
     http_cfg: HttpConfig,
     pool: PgPool,
+    tree_cache_cfg: config::TreeCacheConfig,
 ) -> anyhow::Result<()> {
     // Start DB poller for account updates
     let poller_pool = pool.clone();
@@ -319,10 +386,22 @@ async fn run_http_only(
         }));
     }
 
+    // Start cache refresh task in the background
+    let refresh_pool = pool.clone();
+    let refresh_interval = tree_cache_cfg.http_cache_refresh_interval_secs;
+    let refresh_cache_cfg = tree_cache_cfg.clone();
+    let cache_refresh_handle = tokio::spawn(async move {
+        if let Err(e) = cache_refresh_loop(refresh_cache_cfg, refresh_pool, refresh_interval).await
+        {
+            tracing::error!(?e, "Cache refresh task failed");
+        }
+    });
+
     // Start HTTP server
     let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
+    cache_refresh_handle.abort();
     if let Some(handle) = sanity_handle {
         handle.abort();
     }
@@ -335,6 +414,7 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     pool: PgPool,
+    cache_file_path: String,
 ) -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
@@ -372,12 +452,19 @@ async fn run_both(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        true, // Update in-memory tree directly from events
+        Some(cache_file_path.as_str()), // Update in-memory tree and cache metadata after each batch
     )
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, true).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        registry_address,
+        from,
+        Some(cache_file_path.as_str()), // Update in-memory tree and cache metadata after each event
+    )
+    .await?;
 
     http_handle.abort();
     if let Some(handle) = sanity_handle {
@@ -425,8 +512,8 @@ async fn backfill_batch<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    update_tree: bool,
     head: u64,
+    tree_cache_path: Option<&str>,
 ) -> anyhow::Result<()> {
     if *from_block == 0 {
         *from_block = 1;
@@ -472,7 +559,7 @@ async fn backfill_batch<P: Provider>(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree {
+                if tree_cache_path.is_some() {
                     if let Err(e) = update_tree_with_event(&event).await {
                         tracing::error!(?e, ?event, "failed to update tree for event");
                     }
@@ -485,6 +572,18 @@ async fn backfill_batch<P: Provider>(
     }
 
     save_checkpoint(pool, to_block).await?;
+
+    // Update cache metadata if tree was updated
+    if let Some(cache_path) = tree_cache_path {
+        let cache_path_buf = std::path::PathBuf::from(cache_path);
+        let tree = GLOBAL_TREE.read().await;
+        tree::metadata::write_metadata(&cache_path_buf, &tree, pool, to_block)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(?e, "Failed to update cache metadata");
+            });
+    }
+
     tracing::debug!(
         from = *from_block,
         to = to_block,
@@ -501,7 +600,7 @@ pub async fn backfill<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    update_tree: bool,
+    tree_cache_path: Option<&str>,
 ) -> anyhow::Result<()> {
     let mut head = provider.get_block_number().await?;
     loop {
@@ -511,8 +610,8 @@ pub async fn backfill<P: Provider>(
             registry,
             from_block,
             batch_size,
-            update_tree,
             head,
+            tree_cache_path,
         )
         .await
         {
@@ -1007,7 +1106,7 @@ pub async fn stream_logs(
     pool: &PgPool,
     registry: Address,
     start_from: u64,
-    update_tree: bool,
+    tree_cache_path: Option<&str>,
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
@@ -1042,7 +1141,7 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree {
+                if tree_cache_path.is_some() {
                     if let Err(e) = update_tree_with_event(&event).await {
                         tracing::error!(?e, ?event, "failed to update tree for live event");
                     }
@@ -1050,6 +1149,17 @@ pub async fn stream_logs(
 
                 if let Some(bn) = log.block_number {
                     save_checkpoint(pool, bn).await?;
+
+                    // Update cache metadata if tree was updated
+                    if let Some(cache_path) = tree_cache_path {
+                        let cache_path_buf = std::path::PathBuf::from(cache_path);
+                        let tree = GLOBAL_TREE.read().await;
+                        tree::metadata::write_metadata(&cache_path_buf, &tree, pool, bn)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::warn!(?e, "Failed to update cache metadata");
+                            });
+                    }
                 }
             }
             Err(e) => {
