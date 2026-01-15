@@ -98,6 +98,12 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     error InvalidMerkleRoot();
 
     /**
+     *
+     * @notice Thrown when a `issuerSchemaId` is not registered in the `CredentialSchemaIssuerRegistry`.
+     */
+    error UnregisteredIssuerSchemaId();
+
+    /**
      * @notice Emitted when the credential schema issuer registry is updated
      * @param oldCredentialSchemaIssuerRegistry Previous registry address
      * @param newCredentialSchemaIssuerRegistry New registry address
@@ -160,30 +166,33 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 credentialIssuerId,
         OprfKeyGen.Groth16Proof calldata proof
     ) external view virtual onlyProxy onlyInitialized {
+        require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
+        require(address(groth16VerifierNullifier) != address(0), "Groth16Verifier not set");
+
         if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
             revert InvalidMerkleRoot();
         }
 
         CredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =
             credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(credentialIssuerId);
-        require(credentialIssuerPubkey.x != 0 && credentialIssuerPubkey.y != 0, "Credential issuer not registered");
-
-        require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
+        if (credentialIssuerPubkey.x == 0 || credentialIssuerPubkey.y == 0) {
+            revert UnregisteredIssuerSchemaId();
+        }
 
         // NOTICE: Currently the `oprfKeyId` is the same as the `rpId`. This may change in the future in the `RpRegistry` contract
         uint160 oprfKeyId = uint160(rpId);
         BabyJubJub.Affine memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
-        require(address(groth16VerifierNullifier) != address(0), "Groth16Verifier not set");
-
         // do not allow proofs from the future
         if (proofTimestamp > block.timestamp) {
             revert NullifierFromFuture();
         }
+
         // do not allow proofs older than proofTimestampDelta
         if (proofTimestamp + proofTimestampDelta < block.timestamp) {
             revert OutdatedNullifier();
         }
+
         uint256[13] memory pubSignals;
 
         pubSignals[0] = sessionId;
