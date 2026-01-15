@@ -8,13 +8,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: >
+    ${{ github.event_name == 'pull_request'
+        && format('pr-{0}', github.event.pull_request.number)
+        || format('main-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   lint:
     name: Format, Clippy & Build
-    runs-on: 
+    runs-on:
       group: arc-public-4xlarge-amd64-runner
     permissions:
       contents: read
@@ -54,7 +61,7 @@ jobs:
 
   build:
     name: Test Build
-    runs-on: 
+    runs-on:
       group: arc-public-large-amd64-runner
     permissions:
       contents: read
@@ -80,10 +87,14 @@ jobs:
 
   test:
     name: Tests
-    runs-on: 
+    runs-on:
       group: arc-public-8xlarge-amd64-runner
     permissions:
       contents: read
+
+    # Log in to Docker Hub if a token is provided to avoid public rate limiting
+    env:
+      IS_DOCKER_TOKEN_SET: ${{ (secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN != '' && secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME != '') && 'true' || 'false' }}
 
     strategy:
       matrix:
@@ -93,6 +104,13 @@ jobs:
           - 1.87 # MSRV (see rust-version.workspace in Cargo.toml)
 
     steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
+        with:
+          username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
+
       - name: Checkout code
         uses: actions/checkout@v5
 
@@ -109,21 +127,23 @@ jobs:
 
       - name: Run services
         run: |
-          docker compose -f docker-compose.yml up -d
+          docker compose up -d
           sleep 5
 
       - name: Run tests
+        env:
+          TESTS_RPC_FORK_URL: ${{ secrets.TESTS_RPC_FORK_URL }}
         run: |
           cargo test --all --all-features
           cargo test -p world-id-core --no-default-features
 
       - name: Clean up services
         run: |
-          docker compose -f docker-compose.yml down
+          docker compose down
 
   deny:
     name: Cargo deny
-    runs-on: 
+    runs-on:
       group: arc-public-large-amd64-runner
     permissions:
       contents: read
@@ -135,7 +155,18 @@ jobs:
 
     continue-on-error: ${{ matrix.checks == 'advisories' }}
 
+    # Log in to Docker Hub if a token is provided to avoid public rate limiting
+    env:
+      IS_DOCKER_TOKEN_SET: ${{ (secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN != '' && secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME != '') && 'true' || 'false' }}
+
     steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
+        with:
+          username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -145,25 +176,28 @@ jobs:
 
   docker:
     name: Test Docker build
-    runs-on: 
+    runs-on:
       group: arc-public-8xlarge-amd64-runner
     strategy:
       matrix:
         service:
           - indexer
           - gateway
-    services:
-      postgres:
-        image: postgres:17
-        ports:
-          - 5432:5432
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
     permissions:
       contents: read
 
+    # Log in to Docker Hub if a token is provided to avoid public rate limiting
+    env:
+      IS_DOCKER_TOKEN_SET: ${{ (secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN != '' && secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME != '') && 'true' || 'false' }}
+
     steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
+        with:
+          username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
+
       - name: Checkout code
         uses: actions/checkout@v5
 
@@ -181,6 +215,11 @@ jobs:
           cache-to: "type=gha,mode=max"
           platforms: linux/amd64
           build-args: SERVICE_NAME=world-id-${{ matrix.service }}
+
+      - name: Run services
+        run: |
+          docker compose up -d
+          sleep 5
 
       - name: Run Docker container
         run: |
@@ -200,6 +239,7 @@ jobs:
         run: |
           docker stop ${{ matrix.service }}-container
           docker rm ${{ matrix.service }}-container
+          docker compose down
 
   docs:
     name: Check docs
