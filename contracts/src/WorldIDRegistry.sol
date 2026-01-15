@@ -403,7 +403,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Returns the timestamp when a root was recorded.
      * @param root The root to query.
      */
-    function getRootToTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getRootTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return rootToTimestamp[root];
     }
 

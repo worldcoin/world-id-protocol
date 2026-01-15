@@ -7,8 +7,6 @@ import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
 import {PackedAccountData} from "../src/libraries/PackedAccountData.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 
 contract WorldIDRegistryTest is Test {
@@ -43,7 +41,7 @@ contract WorldIDRegistryTest is Test {
         // Ensure the initial root is recorded as valid
         uint256 root = worldIDRegistry.currentRoot();
         assertTrue(worldIDRegistry.isValidRoot(root));
-        assertEq(worldIDRegistry.getRootToTimestamp(root), block.timestamp);
+        assertEq(worldIDRegistry.getRootTimestamp(root), block.timestamp);
 
         alternateRecoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY_ALT);
         authenticatorAddress1 = vm.addr(AUTH1_PRIVATE_KEY);
@@ -469,28 +467,13 @@ contract WorldIDRegistryTest is Test {
         );
 
         // authenticatorAddress1 still associated with leafIndex = 1
-        assertEq(
-            uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), uint192(leafIndex)
-        );
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), uint192(leafIndex));
         // Recovery counter is 0 as it will only be incremented on the NEW_AUTHENTICATOR
-        assertEq(
-            PackedAccountData.recoveryCounter(
-                worldIDRegistry.getPackedAccountData(authenticatorAddress1)
-            ),
-            0
-        );
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 0);
 
         // New authenticator added with higher recovery counter
-        assertEq(
-            uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)),
-            uint192(leafIndex)
-        );
-        assertEq(
-            PackedAccountData.recoveryCounter(
-                worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)
-            ),
-            1
-        );
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), uint192(leafIndex));
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), 1);
 
         // Check that we can create a new account with authenticatorAddress1 after recovery
         address[] memory authenticatorAddressesNew = new address[](1);
@@ -503,17 +486,9 @@ contract WorldIDRegistryTest is Test {
         );
 
         // authenticatorAddress1 now associated with leafIndex = 2
-        assertEq(
-            PackedAccountData.leafIndex(worldIDRegistry.getPackedAccountData(authenticatorAddress1)),
-            2
-        );
+        assertEq(PackedAccountData.leafIndex(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 2);
         // Recovery counter is 0 for leafIndex = 2
-        assertEq(
-            PackedAccountData.recoveryCounter(
-                worldIDRegistry.getPackedAccountData(authenticatorAddress1)
-            ),
-            0
-        );
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 0);
     }
 
     function test_CannotRegisterAuthenticatorAddressThatIsAlreadyInUse() public {
@@ -580,16 +555,8 @@ contract WorldIDRegistryTest is Test {
         console.log("Gas used for ERC-1271 recovery:", (startGas - endGas));
 
         // Verify recovery was successful
-        assertEq(
-            uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)),
-            uint192(leafIndex)
-        );
-        assertEq(
-            PackedAccountData.recoveryCounter(
-                worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)
-            ),
-            1
-        );
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), uint192(leafIndex));
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), 1);
         assertEq(worldIDRegistry.getRecoveryCounter(leafIndex), 1);
     }
 
@@ -837,13 +804,13 @@ contract WorldIDRegistryTest is Test {
         assertEq(maxAuth, 10, "Max authenticators should update after setter is called");
     }
 
-    function test_GetRootToTimestamp() public {
+    function test_GetRootTimestamp() public {
         uint256 currentRoot = worldIDRegistry.currentRoot();
-        uint256 timestamp = worldIDRegistry.getRootToTimestamp(currentRoot);
+        uint256 timestamp = worldIDRegistry.getRootTimestamp(currentRoot);
         assertEq(timestamp, block.timestamp, "Current root timestamp should match block timestamp");
 
         // Test non-existent root returns 0
-        uint256 nonExistentTimestamp = worldIDRegistry.getRootToTimestamp(12345);
+        uint256 nonExistentTimestamp = worldIDRegistry.getRootTimestamp(12345);
         assertEq(nonExistentTimestamp, 0, "Non-existent root should have timestamp of 0");
     }
 

@@ -206,7 +206,7 @@ mod tests {
         );
 
         let valid_root = WorldIdRegistry::new(registry_address, anvil.provider().unwrap())
-            .latestRoot()
+            .getLatestRoot()
             .call()
             .await
             .expect("failed to fetch root");
