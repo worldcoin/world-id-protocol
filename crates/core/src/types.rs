@@ -358,7 +358,8 @@ pub struct IsValidRootQuery {
 
 /// Response payload for root validity checks.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct IsValidRootResponse {
     /// Whether the root is currently valid on-chain.
     pub valid: bool,
