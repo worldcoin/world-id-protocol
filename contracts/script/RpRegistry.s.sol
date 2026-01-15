@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {Script, console} from "forge-std/Script.sol";
 import {RpRegistry} from "../src/RpRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract DeployScript is Script {
     RpRegistry public rpRegistry;
@@ -16,19 +15,16 @@ contract DeployScript is Script {
         vm.startBroadcast();
 
         address oprfKeyRegitryAddress = vm.envAddress("OPRF_KEY_REGISTRY_ADDRESS");
+        address feeToken = vm.envAddress("FEE_TOKEN");
+        address feeRecipient = vm.envAddress("FEE_RECIPIENT");
+        uint256 registrationFee = vm.envUint("REGISTRATION_FEE");
 
         // Deploy implementation
         RpRegistry implementation = new RpRegistry{salt: bytes32(uint256(0))}();
 
-        // Deploy mock ERC20 token
-        ERC20Mock feeToken = new ERC20Mock();
-
-        // Dummy fee recipient
-        address feeRecipient = vm.addr(0x9999);
-
         // Encode initializer call
         bytes memory initData = abi.encodeWithSelector(
-            RpRegistry.initialize.selector, feeRecipient, address(feeToken), 0, oprfKeyRegitryAddress
+            RpRegistry.initialize.selector, feeRecipient, feeToken, registrationFee, oprfKeyRegitryAddress
         );
 
         // Deploy proxy

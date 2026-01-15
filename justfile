@@ -40,7 +40,9 @@ run-setup:
     just deploy-oprf-key-registry-with-deps-anvil | tee logs/deploy_oprf_key_registry.log
     oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     echo "starting RpRegistry contract..."
-    OPRF_KEY_REGISTRY_ADDRESS=$oprf_key_registry just deploy-rp-registry-anvil | tee logs/deploy_rp_registry.log
+    just deploy-erc20-mock-anvil | tee logs/deploy_erc20_mock.log
+    erc20_mock=$(grep -oP 'ERC20Mock deployed to: \K0x[a-fA-F0-9]+' logs/deploy_erc20_mock.log)
+    OPRF_KEY_REGISTRY_ADDRESS=$oprf_key_registry FEE_TOKEN=$erc20_mock FEE_RECIPIENT=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 REGISTRATION_FEE=0 just deploy-rp-registry-anvil | tee logs/deploy_rp_registry.log
     rp_registry=$(grep -oP 'RpRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_rp_registry.log)
     OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$rp_registry just register-oprf-key-registry-admin-anvil
     echo "register oprf-nodes..."
@@ -98,6 +100,11 @@ run-indexer-and-gateway:
 [working-directory('contracts/script')]
 deploy-world-id-registry-anvil:
     forge script WorldIDRegistry.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+[private]
+[working-directory('contracts/script')]
+deploy-erc20-mock-anvil:
+    forge script ERC20Mock.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 [private]
 [working-directory('contracts/script')]
