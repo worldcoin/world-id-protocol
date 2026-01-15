@@ -1938,47 +1938,12 @@ dependencies = [
 
 [[package]]
 name = "axum"
-version = "0.7.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edca88bc138befd0323b20752846e6587272d3b03b0343c8ea28a6f819e6e71f"
-dependencies = [
- "async-trait",
- "axum-core 0.4.5",
- "axum-macros 0.4.2",
- "bytes",
- "futures-util",
- "http 1.4.0",
- "http-body 1.0.1",
- "http-body-util",
- "hyper 1.8.1",
- "hyper-util",
- "itoa",
- "matchit 0.7.3",
- "memchr",
- "mime",
- "percent-encoding",
- "pin-project-lite",
- "rustversion",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_urlencoded",
- "sync_wrapper",
- "tokio",
- "tower",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "axum"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b52af3cb4058c895d37317bb27508dccc8e5f2d39454016b297bf4a400597b8"
 dependencies = [
- "axum-core 0.5.6",
- "axum-macros 0.5.0",
+ "axum-core",
+ "axum-macros",
  "base64",
  "bytes",
  "form_urlencoded",
@@ -1989,7 +1954,7 @@ dependencies = [
  "hyper 1.8.1",
  "hyper-util",
  "itoa",
- "matchit 0.8.4",
+ "matchit",
  "memchr",
  "mime",
  "percent-encoding",
@@ -2003,27 +1968,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.28.0",
  "tower",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "axum-core"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09f2bd6146b97ae3359fa0cc6d6b376d9539582c7b4220f041a33ec24c226199"
-dependencies = [
- "async-trait",
- "bytes",
- "futures-util",
- "http 1.4.0",
- "http-body 1.0.1",
- "http-body-util",
- "mime",
- "pin-project-lite",
- "rustversion",
- "sync_wrapper",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -2054,8 +1998,8 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fef252edff26ddba56bbcdf2ee3307b8129acb86f5749b68990c168a6fcc9c76"
 dependencies = [
- "axum 0.8.8",
- "axum-core 0.5.6",
+ "axum",
+ "axum-core",
  "bytes",
  "futures-core",
  "futures-util",
@@ -2068,17 +2012,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "axum-macros"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.114",
 ]
 
 [[package]]
@@ -4249,12 +4182,6 @@ checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
  "regex-automata",
 ]
-
-[[package]]
-name = "matchit"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "matchit"
@@ -6739,7 +6666,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
- "axum 0.8.8",
+ "axum",
  "clap",
  "eyre",
  "futures",
@@ -6773,7 +6700,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
- "axum 0.8.8",
+ "axum",
  "axum-extra",
  "ciborium",
  "clap",
@@ -6807,7 +6734,7 @@ source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=7ffff84#7ffff84e
 dependencies = [
  "async-trait",
  "aws-config",
- "axum 0.8.8",
+ "axum",
  "clap",
  "eyre",
  "humantime",
@@ -6970,7 +6897,7 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
- "axum 0.8.8",
+ "axum",
  "eyre",
  "futures",
  "hex",
@@ -8201,7 +8128,7 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
- "axum 0.8.8",
+ "axum",
  "backon",
  "chrono",
  "ciborium",
@@ -8245,7 +8172,7 @@ dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-kms",
- "axum 0.8.8",
+ "axum",
  "clap",
  "dotenvy",
  "hex",
@@ -8276,7 +8203,7 @@ dependencies = [
  "anyhow",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
- "axum 0.7.9",
+ "axum",
  "dotenvy",
  "futures-util",
  "hex",
@@ -8339,7 +8266,7 @@ dependencies = [
  "ark-groth16 0.5.0",
  "async-trait",
  "aws-config",
- "axum 0.8.8",
+ "axum",
  "clap",
  "eyre",
  "futures",

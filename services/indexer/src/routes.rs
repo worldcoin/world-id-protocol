@@ -1,13 +1,11 @@
 use axum::{response::IntoResponse, Json, Router};
 use utoipa::OpenApi;
 use world_id_core::types::{
-    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerQueryRequest,
-    IndexerSignatureNonceResponse,
+    AccountInclusionProofSchema, IndexerErrorBody, IndexerPackedAccountRequest,
+    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
 
-use crate::{
-    config::AppState, error::ErrorBody, routes::inclusion_proof::AccountInclusionProofSchema,
-};
+use crate::config::AppState;
 mod get_packed_account;
 mod get_signature_nonce;
 mod health;
@@ -26,7 +24,7 @@ mod inclusion_proof;
         IndexerQueryRequest,
         IndexerSignatureNonceResponse,
         AccountInclusionProofSchema,
-        ErrorBody,
+        IndexerErrorBody,
     )),
     tags(
         (name = "indexer", description = "World ID Indexer. Provides Merkle inclusion proofs and account information from the on-chain registry.")

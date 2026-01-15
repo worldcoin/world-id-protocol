@@ -1,16 +1,13 @@
 use std::net::SocketAddr;
 
 pub use crate::config::{GatewayConfig, SignerArgs, SignerConfig};
-pub use crate::error::ErrorResponse;
 use crate::routes::build_app;
-use crate::types::{AppState, RequestStatusResponse};
-use error::ErrorResponse as ApiError;
-use request_tracker::{RequestState, RequestTracker};
+use crate::types::AppState;
+use request_tracker::RequestTracker;
 use tokio::sync::oneshot;
 
 mod config;
 mod create_batcher;
-mod error;
 mod ops_batcher;
 mod provider;
 mod request_tracker;

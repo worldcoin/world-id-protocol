@@ -3,14 +3,23 @@
 use ruint::aliases::U256;
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "authenticator")]
+use strum::EnumString;
 
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
-#[cfg(feature = "authenticator")]
-use strum::EnumString;
+#[cfg(feature = "openapi")]
+use utoipa::IntoParams;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
+#[cfg(feature = "authenticator")]
+use crate::world_id_registry::WorldIdRegistry::{
+    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
+    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
+};
+#[cfg(feature = "authenticator")]
+use axum::{http::StatusCode, response::IntoResponse};
 #[cfg(feature = "authenticator")]
 use world_id_primitives::serde_utils::{
     hex_u256, hex_u256_opt, hex_u256_vec, hex_u32, hex_u32_opt,
@@ -203,7 +212,9 @@ pub struct RecoverAccountRequest {
 }
 
 /// Response returned by the registry gateway for state-changing requests.
-#[derive(Debug, Deserialize)]
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GatewayStatusResponse {
     /// Identifier assigned by the gateway to the submitted request.
     pub request_id: String,
@@ -214,7 +225,9 @@ pub struct GatewayStatusResponse {
 }
 
 /// Kind of request tracked by the registry gateway.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(feature = "authenticator")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayRequestKind {
     /// Account creation request.
@@ -230,7 +243,9 @@ pub enum GatewayRequestKind {
 }
 
 /// Tracking state for a registry gateway request.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(feature = "authenticator")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum GatewayRequestState {
     /// Request queued but not yet batched.
@@ -255,6 +270,26 @@ pub enum GatewayRequestState {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         error_code: Option<GatewayErrorCode>,
     },
+}
+
+#[cfg(feature = "authenticator")]
+impl GatewayRequestState {
+    /// Creates a failed state with an error message and optional error code.
+    pub fn failed(error: impl Into<String>, error_code: Option<GatewayErrorCode>) -> Self {
+        Self::Failed {
+            error: error.into(),
+            error_code,
+        }
+    }
+
+    /// Creates a failed state from an error code (uses the code's display as the message).
+    #[must_use]
+    pub fn failed_from_code(code: GatewayErrorCode) -> Self {
+        Self::Failed {
+            error: code.to_string(),
+            error_code: Some(code),
+        }
+    }
 }
 
 /// Request to fetch a packed account index from the indexer.
@@ -302,9 +337,37 @@ pub struct IndexerSignatureNonceResponse {
     pub signature_nonce: U256,
 }
 
-/// Error codes returned by the indexer.
+/// Health response for an API service (gateway or indexer).
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Clone, strum::Display, EnumString, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct HealthResponse {
+    /// Success value.
+    pub success: bool,
+}
+
+/// Query params for the `/is-valid-root` endpoint.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(IntoParams, ToSchema))]
+pub struct IsValidRootQuery {
+    /// Root to validate (hex string).
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub root: String,
+}
+
+/// Response payload for root validity checks.
+#[cfg(feature = "authenticator")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IsValidRootResponse {
+    /// Whether the root is currently valid on-chain.
+    pub valid: bool,
+}
+
+/// Indexer error codes.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone, EnumString, Serialize, Deserialize, strum::Display)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -322,6 +385,7 @@ pub enum IndexerErrorCode {
 }
 
 /// Gateway error codes.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
@@ -343,7 +407,7 @@ pub enum GatewayErrorCode {
     MismatchedSignatureNonce,
     /// The pubkey ID slot is already in use.
     PubkeyIdInUse,
-    /// The pubkey ID is out of bounds (max 4 authenticators).
+    /// The pubkey ID is out of bounds (max 7 authenticators).
     PubkeyIdOutOfBounds,
     /// The authenticator does not belong to the specified account.
     AuthenticatorDoesNotBelongToAccount,
@@ -351,8 +415,6 @@ pub enum GatewayErrorCode {
     TransactionReverted,
     /// Error while waiting for transaction confirmation.
     ConfirmationError,
-    /// Pre-flight simulation failed.
-    PreFlightFailed,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).
@@ -377,5 +439,247 @@ where
     /// Creates a new error object.
     pub const fn new(code: T, message: String) -> Self {
         Self { code, message }
+    }
+}
+
+/// `OpenAPI` schema representation of the `AccountInclusionProof` response.
+#[cfg(feature = "authenticator")]
+#[derive(serde::Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct AccountInclusionProofSchema {
+    /// The root hash of the Merkle tree (hex string)
+    #[cfg_attr(
+        feature = "openapi",
+        schema(value_type = String, format = "hex", example = "0x1a2b3c4d5e6f7890")
+    )]
+    pub root: String,
+    /// The World ID's leaf position in the Merkle tree
+    #[cfg_attr(
+        feature = "openapi",
+        schema(value_type = String, format = "hex", example = "0x2a")
+    )]
+    pub leaf_index: String,
+    /// The sibling path up to the Merkle root (array of hex strings)
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    pub siblings: Vec<String>,
+    /// The compressed authenticator public keys for the account (array of hex strings)
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    pub authenticator_pubkeys: Vec<String>,
+}
+
+/// Helper to format a selector as a hex string for matching in error messages.
+#[cfg(feature = "authenticator")]
+fn selector_hex(selector: [u8; 4]) -> String {
+    format!("0x{}", hex::encode(selector))
+}
+
+/// Parses a contract error string and returns a specific error code if recognized.
+#[cfg(feature = "authenticator")]
+#[must_use]
+pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
+    use alloy::sol_types::SolError;
+
+    if error.contains(&selector_hex(AuthenticatorAddressAlreadyInUse::SELECTOR)) {
+        return GatewayErrorCode::AuthenticatorAlreadyExists;
+    }
+    if error.contains(&selector_hex(AuthenticatorDoesNotExist::SELECTOR)) {
+        return GatewayErrorCode::AuthenticatorDoesNotExist;
+    }
+    if error.contains(&selector_hex(MismatchedSignatureNonce::SELECTOR)) {
+        return GatewayErrorCode::MismatchedSignatureNonce;
+    }
+    if error.contains(&selector_hex(PubkeyIdInUse::SELECTOR)) {
+        return GatewayErrorCode::PubkeyIdInUse;
+    }
+    if error.contains(&selector_hex(PubkeyIdOutOfBounds::SELECTOR)) {
+        return GatewayErrorCode::PubkeyIdOutOfBounds;
+    }
+    if error.contains(&selector_hex(AuthenticatorDoesNotBelongToAccount::SELECTOR)) {
+        return GatewayErrorCode::AuthenticatorDoesNotBelongToAccount;
+    }
+
+    GatewayErrorCode::BadRequest
+}
+
+/// Error response body used by the gateway APIs.
+#[cfg(feature = "authenticator")]
+pub type GatewayErrorBody = ServiceApiError<GatewayErrorCode>;
+
+/// Error response used by the gateway APIs.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone)]
+pub struct GatewayErrorResponse {
+    /// Http status code.
+    status: StatusCode,
+    /// The specific error.
+    error: GatewayErrorBody,
+}
+
+#[cfg(feature = "authenticator")]
+impl GatewayErrorResponse {
+    /// Create a new [`GatewayErrorResponse`] with the provided error and status.
+    #[must_use]
+    pub const fn new(code: GatewayErrorCode, message: String, status: StatusCode) -> Self {
+        Self {
+            status,
+            error: ServiceApiError::new(code, message),
+        }
+    }
+
+    #[must_use]
+    /// Create a `GatewayErrorCode::InternalServeError`.
+    pub fn internal_server_error() -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: ServiceApiError::new(
+                GatewayErrorCode::InternalServerError,
+                "Internal server error. Please try again.".to_string(),
+            ),
+        }
+    }
+
+    #[must_use]
+    /// Create a `GatewayErrorCode::NotFound`.
+    pub fn not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            error: ServiceApiError::new(GatewayErrorCode::NotFound, "Not found.".to_string()),
+        }
+    }
+
+    #[must_use]
+    /// Create a [`GatewayErrorCode`] with `BAD_REQUEST` http status code.
+    pub fn bad_request(code: GatewayErrorCode) -> Self {
+        let message = code.to_string();
+        Self::new(code, message, StatusCode::BAD_REQUEST)
+    }
+
+    #[must_use]
+    /// Create a `GatewayErrorCode::BadRequest` with a custom message.
+    pub const fn bad_request_message(message: String) -> Self {
+        Self::new(
+            GatewayErrorCode::BadRequest,
+            message,
+            StatusCode::BAD_REQUEST,
+        )
+    }
+
+    #[must_use]
+    /// Create a `GatewayErrorCode::BatcherUnavailable`.
+    pub fn batcher_unavailable() -> Self {
+        Self::new(
+            GatewayErrorCode::BatcherUnavailable,
+            "Batcher service is unavailable. Please try again.".to_string(),
+            StatusCode::SERVICE_UNAVAILABLE,
+        )
+    }
+
+    /// Creates an error response from a contract simulation error.
+    /// Parses the error to extract a specific error code if possible.
+    #[must_use]
+    pub fn from_simulation_error(e: impl std::fmt::Display) -> Self {
+        let error_str = e.to_string();
+        let code = parse_contract_error(&error_str);
+        let message = if matches!(code, GatewayErrorCode::BadRequest) {
+            error_str
+        } else {
+            code.to_string()
+        };
+        Self::new(code, message, StatusCode::BAD_REQUEST)
+    }
+}
+
+#[cfg(feature = "authenticator")]
+impl std::fmt::Display for GatewayErrorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Error Code: `{}`. Message: {}",
+            self.error.code, self.error.message,
+        )
+    }
+}
+
+#[cfg(feature = "authenticator")]
+impl std::error::Error for GatewayErrorResponse {}
+
+#[cfg(feature = "authenticator")]
+impl IntoResponse for GatewayErrorResponse {
+    fn into_response(self) -> axum::response::Response {
+        (self.status, axum::Json(self.error)).into_response()
+    }
+}
+
+/// Error response body used by the indexer APIs.
+#[cfg(feature = "authenticator")]
+pub type IndexerErrorBody = ServiceApiError<IndexerErrorCode>;
+
+/// Error response used by the indexer APIs.
+#[cfg(feature = "authenticator")]
+#[derive(Debug, Clone)]
+pub struct IndexerErrorResponse {
+    /// Http status code.
+    status: StatusCode,
+    /// The specific error.
+    error: IndexerErrorBody,
+}
+
+#[cfg(feature = "authenticator")]
+impl IndexerErrorResponse {
+    /// Create a new [`IndexerErrorCode`] with the provided error and status.
+    #[must_use]
+    pub const fn new(code: IndexerErrorCode, message: String, status: StatusCode) -> Self {
+        Self {
+            status,
+            error: ServiceApiError::new(code, message),
+        }
+    }
+
+    #[must_use]
+    /// Create a `IndexerErrorCode::InternalServeError`.
+    pub fn internal_server_error() -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: ServiceApiError::new(
+                IndexerErrorCode::InternalServerError,
+                "Internal server error. Please try again.".to_string(),
+            ),
+        }
+    }
+
+    #[must_use]
+    /// Create a `IndexerErrorCode::NotFound`.
+    pub fn not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            error: ServiceApiError::new(IndexerErrorCode::NotFound, "Not found.".to_string()),
+        }
+    }
+
+    #[must_use]
+    /// Create a [`IndexerErrorCode`] with `BAD_REQUEST` http status code.
+    pub const fn bad_request(code: IndexerErrorCode, message: String) -> Self {
+        Self::new(code, message, StatusCode::BAD_REQUEST)
+    }
+}
+
+#[cfg(feature = "authenticator")]
+impl std::fmt::Display for IndexerErrorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Error Code: `{}`. Message: {}",
+            self.error.code, self.error.message,
+        )
+    }
+}
+
+#[cfg(feature = "authenticator")]
+impl std::error::Error for IndexerErrorResponse {}
+
+#[cfg(feature = "authenticator")]
+impl IntoResponse for IndexerErrorResponse {
+    fn into_response(self) -> axum::response::Response {
+        (self.status, axum::Json(self.error)).into_response()
     }
 }

@@ -1,11 +1,5 @@
-use axum::{http::StatusCode, response::IntoResponse, Json};
-use serde::Serialize;
-use utoipa::ToSchema;
-
-#[derive(Debug, Serialize, ToSchema)]
-pub(crate) struct HealthResponse {
-    pub(crate) status: String,
-}
+use axum::Json;
+use world_id_core::types::HealthResponse;
 
 #[utoipa::path(
     get,
@@ -15,6 +9,6 @@ pub(crate) struct HealthResponse {
     ),
     tag = "Gateway"
 )]
-pub(crate) async fn health() -> impl IntoResponse {
-    (StatusCode::OK, Json(serde_json::json!({"status":"ok"})))
+pub(crate) async fn health() -> Json<HealthResponse> {
+    Json(HealthResponse { success: true })
 }

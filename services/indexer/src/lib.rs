@@ -19,7 +19,6 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 use world_id_primitives::TREE_DEPTH;
 
 pub mod config;
-mod error;
 mod routes;
 mod sanity_check;
 use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};

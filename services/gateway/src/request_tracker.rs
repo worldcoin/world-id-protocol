@@ -4,60 +4,12 @@ use redis::{aio::ConnectionManager, AsyncTypedCommands, Client, SetExpiry, SetOp
 use serde::{Deserialize, Serialize};
 use tokio::{sync::RwLock, time::Instant};
 use utoipa::ToSchema;
-
-use crate::error::ErrorCode;
-use crate::ApiError;
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum RequestKind {
-    CreateAccount,
-    UpdateAuthenticator,
-    InsertAuthenticator,
-    RemoveAuthenticator,
-    RecoverAccount,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum RequestState {
-    Queued,
-    Batching,
-    Submitted {
-        tx_hash: String,
-    },
-    Finalized {
-        tx_hash: String,
-    },
-    Failed {
-        error: String,
-        #[serde(skip_serializing_if = "Option::is_none", default)]
-        error_code: Option<ErrorCode>,
-    },
-}
-
-impl RequestState {
-    /// Creates a failed state with an error message and optional error code.
-    pub fn failed(error: impl Into<String>, error_code: Option<ErrorCode>) -> Self {
-        Self::Failed {
-            error: error.into(),
-            error_code,
-        }
-    }
-
-    /// Creates a failed state from an error code (uses the code's display as the message).
-    pub fn failed_from_code(code: ErrorCode) -> Self {
-        Self::Failed {
-            error: code.to_string(),
-            error_code: Some(code),
-        }
-    }
-}
+use world_id_core::types::{GatewayErrorResponse, GatewayRequestKind, GatewayRequestState};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
-    pub kind: RequestKind,
-    pub status: RequestState,
+    pub kind: GatewayRequestKind,
+    pub status: GatewayRequestState,
 }
 
 struct InMemoryRecord {
@@ -132,19 +84,19 @@ impl RequestTracker {
 
     pub async fn new_request(
         &self,
-        kind: RequestKind,
-    ) -> Result<(String, RequestRecord), ApiError> {
+        kind: GatewayRequestKind,
+    ) -> Result<(String, RequestRecord), GatewayErrorResponse> {
         let id = uuid::Uuid::new_v4().to_string();
         let record = RequestRecord {
             kind,
-            status: RequestState::Queued,
+            status: GatewayRequestState::Queued,
         };
 
         if let Some(mut manager) = self.redis_manager.clone() {
             let key = Self::request_key(&id);
             let json_str = serde_json::to_string(&record).map_err(|e| {
                 tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
-                ApiError::internal_server_error()
+                GatewayErrorResponse::internal_server_error()
             })?;
 
             let opts = SetOptions::default()
@@ -169,7 +121,7 @@ impl RequestTracker {
         Ok((id, record))
     }
 
-    pub async fn set_status_batch(&self, ids: &[String], status: RequestState) {
+    pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
         if self.redis_manager.is_some() {
             for id in ids {
                 if let Err(e) = self.set_status_on_redis(id, &status).await {
@@ -187,7 +139,7 @@ impl RequestTracker {
         }
     }
 
-    pub async fn set_status(&self, id: &str, status: RequestState) {
+    pub async fn set_status(&self, id: &str, status: GatewayRequestState) {
         self.set_status_batch(&[id.to_string()], status).await;
     }
 
@@ -218,7 +170,11 @@ impl RequestTracker {
     }
 
     /// Sets the status of a specific request in Redis.
-    async fn set_status_on_redis(&self, id: &str, status: &RequestState) -> anyhow::Result<()> {
+    async fn set_status_on_redis(
+        &self,
+        id: &str,
+        status: &GatewayRequestState,
+    ) -> anyhow::Result<()> {
         if let Some(mut manager) = self.redis_manager.clone() {
             let key = Self::request_key(id);
             let status_json = serde_json::to_string(status)?;
@@ -252,7 +208,7 @@ impl RequestTracker {
     }
 }
 
-fn handle_redis_error(e: redis::RedisError) -> ApiError {
+fn handle_redis_error(e: redis::RedisError) -> GatewayErrorResponse {
     tracing::error!("Unhandled Redis error: {}", e);
-    ApiError::internal_server_error()
+    GatewayErrorResponse::internal_server_error()
 }

@@ -1,14 +1,16 @@
 use crate::{
     ops_batcher::{OpEnvelope, OpKind},
-    request_tracker::{RequestKind, RequestState, RequestTracker},
+    request_tracker::RequestTracker,
     routes::validation::ValidateRequest,
-    types::{ApiResult, AppState, RequestStatusResponse},
-    ErrorResponse as ApiError,
+    types::AppState,
 };
 use alloy::primitives::Bytes;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use world_id_core::{
-    types::{GatewayErrorCode as ErrorCode, UpdateAuthenticatorRequest},
+    types::{
+        GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
+        GatewayRequestState, GatewayStatusResponse, UpdateAuthenticatorRequest,
+    },
     world_id_registry::WorldIdRegistry,
 };
 
@@ -16,7 +18,7 @@ pub(crate) async fn update_authenticator(
     State(state): State<AppState>,
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<UpdateAuthenticatorRequest>,
-) -> ApiResult<impl IntoResponse> {
+) -> Result<(StatusCode, Json<GatewayStatusResponse>), GatewayErrorResponse> {
     // Input validation
     req.validate()?;
 
@@ -37,10 +39,10 @@ pub(crate) async fn update_authenticator(
         )
         .call()
         .await
-        .map_err(ApiError::from_simulation_error)?;
+        .map_err(GatewayErrorResponse::from_simulation_error)?;
 
     let (id, record) = tracker
-        .new_request(RequestKind::UpdateAuthenticator)
+        .new_request(GatewayRequestKind::UpdateAuthenticator)
         .await?;
 
     let env = OpEnvelope {
@@ -63,13 +65,13 @@ pub(crate) async fn update_authenticator(
         tracker
             .set_status(
                 &id,
-                RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
+                GatewayRequestState::failed_from_code(ErrorCode::BatcherUnavailable),
             )
             .await;
-        return Err(ApiError::batcher_unavailable());
+        return Err(GatewayErrorResponse::batcher_unavailable());
     }
 
-    let body = RequestStatusResponse {
+    let body = GatewayStatusResponse {
         request_id: id,
         kind: record.kind,
         status: record.status,

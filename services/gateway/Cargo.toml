@@ -20,7 +20,7 @@ alloy = { workspace = true, features = [
 anyhow = { workspace = true }
 aws-config = "1"
 aws-sdk-kms = "1"
-axum = { version = "0.8", features = ["macros", "json"] }
+axum = { workspace = true, features = ["macros", "json"] }
 clap = { version = "4", features = ["derive", "env"] }
 world-id-core = { workspace = true, features = [
     "authenticator",
