@@ -56,6 +56,7 @@ pub async fn start(
         config.rp_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_rp_registry_store_size,
+        started_services.new_service(),
         cancellation_token.clone(),
     )
     .await

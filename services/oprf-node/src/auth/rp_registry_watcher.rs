@@ -1,4 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use alloy::{
     eips::BlockNumberOrTag,
@@ -63,6 +69,7 @@ impl RpRegistryWatcher {
         contract_address: Address,
         ws_rpc_url: &str,
         max_rp_registry_store_size: usize,
+        started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
         tracing::info!("creating provider for rp-registry-watcher...");
@@ -75,6 +82,9 @@ impl RpRegistryWatcher {
             .event_signature(RpUpdated::SIGNATURE_HASH);
         let sub = provider.subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
+
+        // indicate that the RpRegistry watcher has started
+        started.store(true, Ordering::Relaxed);
 
         let rp_store = Arc::new(Mutex::new(HashMap::<RpId, RelyingParty>::new()));
         tokio::task::spawn({
