@@ -31,12 +31,3 @@ pub(crate) struct AppState {
     /// LRU cache of valid roots to their expiration timestamps.
     pub(crate) root_cache: Arc<Mutex<LruCache<U256, U256>>>,
 }
-
-#[derive(Debug, Serialize, ToSchema)]
-pub(crate) struct RequestStatusResponse {
-    pub(crate) request_id: String,
-    pub(crate) kind: RequestKind,
-    pub(crate) status: RequestState,
-}
-
-pub(crate) type ApiResult<T> = Result<T, ApiError>;

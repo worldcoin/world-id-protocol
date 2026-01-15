@@ -1,4 +1,5 @@
 #![allow(clippy::option_if_let_else)]
+use alloy::sol_types::SolError;
 #[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
@@ -16,6 +17,11 @@ use axum::{http::StatusCode, response::IntoResponse};
 #[cfg(feature = "authenticator")]
 use world_id_primitives::serde_utils::{
     hex_u256, hex_u256_opt, hex_u256_vec, hex_u32, hex_u32_opt,
+};
+#[cfg(feature = "authenticator")]
+use crate::world_id_registry::WorldIdRegistry::{
+    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
+    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
 
 pub use world_id_primitives::merkle::AccountInclusionProof;
@@ -339,9 +345,9 @@ pub enum GatewayErrorCode {
     #[error("Requested resource was not found.")]
     /// Requested resource was not found.
     NotFound,
-    #[error("Bad request - invalid input.")]
+    #[error("Bad request - {0}")]
     /// Bad request - invalid input.
-    BadRequest,
+    BadRequest(String),
     #[error("Batcher service unavailable.")]
     /// Batcher service unavailable.
     BatcherUnavailable,
@@ -418,6 +424,35 @@ where
     }
 }
 
+/// Helper to format a selector as a hex string for matching in error messages.
+fn selector_hex(selector: [u8; 4]) -> String {
+    format!("0x{}", hex::encode(selector))
+}
+
+/// Parses a contract error string and returns a specific error code if recognized.
+pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
+    if error.contains(&selector_hex(AuthenticatorAddressAlreadyInUse::SELECTOR)) {
+        return GatewayErrorCode::AuthenticatorAlreadyExists;
+    }
+    if error.contains(&selector_hex(AuthenticatorDoesNotExist::SELECTOR)) {
+        return GatewayErrorCode::AuthenticatorDoesNotExist;
+    }
+    if error.contains(&selector_hex(MismatchedSignatureNonce::SELECTOR)) {
+        return GatewayErrorCode::MismatchedSignatureNonce;
+    }
+    if error.contains(&selector_hex(PubkeyIdInUse::SELECTOR)) {
+        return GatewayErrorCode::PubkeyIdInUse;
+    }
+    if error.contains(&selector_hex(PubkeyIdOutOfBounds::SELECTOR)) {
+        return GatewayErrorCode::PubkeyIdOutOfBounds;
+    }
+    if error.contains(&selector_hex(AuthenticatorDoesNotBelongToAccount::SELECTOR)) {
+        return GatewayErrorCode::AuthenticatorDoesNotBelongToAccount;
+    }
+
+    GatewayErrorCode::BadRequest(error.to_string())
+}
+
 /// Error response used by the gateway APIs.
 #[cfg(feature = "authenticator")]
 #[derive(Debug, Clone)]
@@ -452,6 +487,24 @@ impl GatewayErrorResponse {
     #[must_use]
     /// Create a [GatewayErrorCode] with `BAD_REQUEST` http status code.
     pub fn bad_request(code: GatewayErrorCode) -> Self {
+        Self::new(code, StatusCode::BAD_REQUEST)
+    }
+
+    #[must_use]
+    /// Create a `GatewayErrorCode::BatcherUnavailable`.
+    pub fn batcher_unavailable() -> Self {
+        Self::new(
+            GatewayErrorCode::BatcherUnavailable,
+            StatusCode::SERVICE_UNAVAILABLE,
+        )
+    }
+
+    /// Creates an error response from a contract simulation error.
+    /// Parses the error to extract a specific error code if possible.
+    #[must_use]
+    pub fn from_simulation_error(e: impl std::fmt::Display) -> Self {
+        let error_str = e.to_string();
+        let code = parse_contract_error(&error_str);
         Self::new(code, StatusCode::BAD_REQUEST)
     }
 }

@@ -2,13 +2,12 @@ use crate::{
     create_batcher::CreateReqEnvelope,
     request_tracker::{RequestKind, RequestState, RequestTracker},
     routes::validation::ValidateRequest,
-    types::{ApiResult, AppState, RequestStatusResponse},
-    ErrorResponse as ApiError,
+    types::AppState,
 };
 use alloy::primitives::Address;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use world_id_core::{
-    types::{CreateAccountRequest, GatewayErrorCode as ErrorCode},
+    types::{CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse},
     world_id_registry::WorldIdRegistry,
 };
 
@@ -16,7 +15,7 @@ pub(crate) async fn create_account(
     State(state): State<AppState>,
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
-) -> ApiResult<impl IntoResponse> {
+) -> Result<Json, GatewayErrorResponse> {
     // Input validation
     req.validate()?;
 
@@ -31,7 +30,7 @@ pub(crate) async fn create_account(
         )
         .call()
         .await
-        .map_err(ApiError::from_simulation_error)?;
+        .map_err(GatewayErrorResponse::from_simulation_error)?;
 
     let (id, record) = tracker.new_request(RequestKind::CreateAccount).await?;
 
@@ -47,7 +46,7 @@ pub(crate) async fn create_account(
                 RequestState::failed_from_code(ErrorCode::BatcherUnavailable),
             )
             .await;
-        return Err(ApiError::batcher_unavailable());
+        return Err(GatewayErrorResponse::batcher_unavailable());
     }
 
     let body = RequestStatusResponse {
