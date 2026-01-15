@@ -3,11 +3,12 @@
 use ruint::aliases::U256;
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "authenticator")]
+use strum::EnumString;
 
 #[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
-#[cfg(feature = "authenticator")]
-use strum::EnumString;
+#[cfg(feature = "openapi")]
 use utoipa::IntoParams;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
@@ -17,7 +18,6 @@ use crate::world_id_registry::WorldIdRegistry::{
     AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
     AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
-use alloy::sol_types::SolError;
 #[cfg(feature = "authenticator")]
 use axum::{http::StatusCode, response::IntoResponse};
 #[cfg(feature = "authenticator")]
@@ -212,6 +212,7 @@ pub struct RecoverAccountRequest {
 }
 
 /// Response returned by the registry gateway for state-changing requests.
+#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GatewayStatusResponse {
@@ -225,6 +226,7 @@ pub struct GatewayStatusResponse {
 
 /// Kind of request tracked by the registry gateway.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayRequestKind {
@@ -242,6 +244,7 @@ pub enum GatewayRequestKind {
 
 /// Tracking state for a registry gateway request.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum GatewayRequestState {
@@ -269,6 +272,7 @@ pub enum GatewayRequestState {
     },
 }
 
+#[cfg(feature = "authenticator")]
 impl GatewayRequestState {
     /// Creates a failed state with an error message and optional error code.
     pub fn failed(error: impl Into<String>, error_code: Option<GatewayErrorCode>) -> Self {
@@ -344,7 +348,8 @@ pub struct HealthResponse {
 
 /// Query params for the `/is-valid-root` endpoint.
 #[cfg(feature = "authenticator")]
-#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(IntoParams, ToSchema))]
 pub struct IsValidRootQuery {
     /// Root to validate (hex string).
     #[schema(value_type = String, format = "hex")]
@@ -483,6 +488,8 @@ fn selector_hex(selector: [u8; 4]) -> String {
 #[cfg(feature = "authenticator")]
 #[must_use]
 pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
+    use alloy::sol_types::SolError;
+
     if error.contains(&selector_hex(AuthenticatorAddressAlreadyInUse::SELECTOR)) {
         return GatewayErrorCode::AuthenticatorAlreadyExists;
     }
@@ -519,6 +526,7 @@ pub struct GatewayErrorResponse {
     error: GatewayErrorBody,
 }
 
+#[cfg(feature = "authenticator")]
 impl GatewayErrorResponse {
     /// Create a new [`GatewayErrorResponse`] with the provided error and status.
     #[must_use]
@@ -560,7 +568,11 @@ impl GatewayErrorResponse {
     #[must_use]
     /// Create a `GatewayErrorCode::BadRequest` with a custom message.
     pub const fn bad_request_message(message: String) -> Self {
-        Self::new(GatewayErrorCode::BadRequest, message, StatusCode::BAD_REQUEST)
+        Self::new(
+            GatewayErrorCode::BadRequest,
+            message,
+            StatusCode::BAD_REQUEST,
+        )
     }
 
     #[must_use]
@@ -588,6 +600,7 @@ impl GatewayErrorResponse {
     }
 }
 
+#[cfg(feature = "authenticator")]
 impl std::fmt::Display for GatewayErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -598,8 +611,10 @@ impl std::fmt::Display for GatewayErrorResponse {
     }
 }
 
+#[cfg(feature = "authenticator")]
 impl std::error::Error for GatewayErrorResponse {}
 
+#[cfg(feature = "authenticator")]
 impl IntoResponse for GatewayErrorResponse {
     fn into_response(self) -> axum::response::Response {
         (self.status, axum::Json(self.error)).into_response()
@@ -620,6 +635,7 @@ pub struct IndexerErrorResponse {
     error: IndexerErrorBody,
 }
 
+#[cfg(feature = "authenticator")]
 impl IndexerErrorResponse {
     /// Create a new [`IndexerErrorCode`] with the provided error and status.
     #[must_use]
@@ -658,6 +674,7 @@ impl IndexerErrorResponse {
     }
 }
 
+#[cfg(feature = "authenticator")]
 impl std::fmt::Display for IndexerErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -668,8 +685,10 @@ impl std::fmt::Display for IndexerErrorResponse {
     }
 }
 
+#[cfg(feature = "authenticator")]
 impl std::error::Error for IndexerErrorResponse {}
 
+#[cfg(feature = "authenticator")]
 impl IntoResponse for IndexerErrorResponse {
     fn into_response(self) -> axum::response::Response {
         (self.status, axum::Json(self.error)).into_response()

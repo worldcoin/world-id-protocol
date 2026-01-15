@@ -31,9 +31,8 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::types::{
     CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
-    GatewayRequestState,
-    GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
-    IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+    GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
+    IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
     UpdateAuthenticatorRequest,
 };
 

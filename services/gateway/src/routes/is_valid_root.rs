@@ -17,9 +17,8 @@ const CACHE_SKEW_SECS: u64 = 120;
 
 /// Parse a hex string into a `U256`.
 pub(crate) fn req_u256(_field: &str, s: &str) -> Result<U256, GatewayErrorResponse> {
-    s.parse().map_err(|e| {
-        GatewayErrorResponse::bad_request_message(format!("invalid value: {e}"))
-    })
+    s.parse()
+        .map_err(|e| GatewayErrorResponse::bad_request_message(format!("invalid value: {e}")))
 }
 
 /// Return the current timestamp in seconds since the UNIX_EPOCH.
