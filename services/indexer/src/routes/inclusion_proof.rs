@@ -1,19 +1,37 @@
-use crate::{config::AppState, proof_to_vec, tree_capacity, GLOBAL_TREE};
+use crate::config::AppState;
 use alloy::primitives::U256;
 use axum::{extract::State, Json};
 use http::StatusCode;
+use semaphore_rs_trees::proof::InclusionProof;
+use semaphore_rs_trees::Branch;
 use sqlx::Row;
 use world_id_core::{
-    types::{
-        AccountInclusionProof, AccountInclusionProofSchema, IndexerErrorCode, IndexerErrorResponse,
-        IndexerQueryRequest,
-    },
+    types::{AccountInclusionProof, IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest},
     EdDSAPublicKey,
 };
 use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, FieldElement,
     TREE_DEPTH,
 };
+
+use crate::tree::{tree_capacity, PoseidonHasher, GLOBAL_TREE};
+
+/// OpenAPI schema representation of the `AccountInclusionProof` response.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct AccountInclusionProofSchema {
+    /// The root hash of the Merkle tree (hex string)
+    #[schema(value_type = String, format = "hex", example = "0x1a2b3c4d5e6f7890")]
+    root: String,
+    /// The World ID's leaf position in the Merkle tree
+    #[schema(value_type = String, format = "hex", example = "0x2a")]
+    leaf_index: String,
+    /// The sibling path up to the Merkle root (array of hex strings)
+    #[schema(value_type = Vec<String>, format = "hex")]
+    siblings: Vec<String>,
+    /// The compressed authenticator public keys for the account (array of hex strings)
+    #[schema(value_type = Vec<String>, format = "hex")]
+    authenticator_pubkeys: Vec<String>,
+}
 
 /// Get Inclusion Proof
 ///
@@ -129,4 +147,15 @@ pub(crate) async fn handler(
     let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
         .expect("authenticator_pubkeys already validated");
     Ok(Json(resp))
+}
+
+fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
+    proof
+        .0
+        .iter()
+        .map(|b| match b {
+            Branch::Left(sib) => *sib,
+            Branch::Right(sib) => *sib,
+        })
+        .collect()
 }
