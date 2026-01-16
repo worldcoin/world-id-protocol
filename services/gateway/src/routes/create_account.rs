@@ -3,7 +3,7 @@ use crate::{
     routes::validation::ValidateRequest, types::AppState,
 };
 use alloy::primitives::Address;
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, Json};
 use world_id_core::{
     types::{
         CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse,
@@ -16,7 +16,7 @@ pub(crate) async fn create_account(
     State(state): State<AppState>,
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Json(req): Json<CreateAccountRequest>,
-) -> Result<(StatusCode, Json<GatewayStatusResponse>), GatewayErrorResponse> {
+) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     // Input validation
     req.validate()?;
 
@@ -58,5 +58,5 @@ pub(crate) async fn create_account(
         status: record.status,
     };
 
-    Ok((StatusCode::ACCEPTED, Json(body)))
+    Ok(Json(body))
 }
