@@ -7,6 +7,7 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
@@ -30,6 +31,11 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @dev Thrown when the provided pubkey is invalid (for example if either coordinate is zero).
      */
     error InvalidPubkey();
+
+    /**
+     * @dev Thrown when an invalid signer is preovided (e.g. zero address)
+     */
+    error InvalidSigner();
 
     modifier onlyInitialized() {
         _onlyInitialized();
@@ -89,11 +95,22 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         keccak256(abi.encodePacked(UPDATE_ISSUER_SCHEMA_URI_TYPEDEF));
     bytes32 public constant PUBKEY_TYPEHASH = keccak256(abi.encodePacked(PUBKEY_TYPEDEF));
 
+    /**
+     * @notice The oprfKeyId (from the OprfKeyRegistry contract) is used to compute a blinding factor
+     * for the user's credential.
+     * @dev This constant is used to shift the OPRF key to the right to avoid collisions with RP OPRF Keys,
+     * i.e. the first 64 bits are reserved for RPs (rpId is 64 bits).
+     */
+    uint160 public constant OPRF_KEY_SHIFTER = uint160(type(uint64).max);
+
+    // the OPRF key registry contract, used to init OPRF key gen for blinding factors of credentials
+    IOprfKeyRegistry public _oprfKeyRegistry;
+
     ////////////////////////////////////////////////////////////
     //                        Events                          //
     ////////////////////////////////////////////////////////////
 
-    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
+    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer, uint256 oprfKeyId);
     event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
     event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
     event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
@@ -111,10 +128,13 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     /**
      * @dev Initializes the contract.
      */
-    function initialize() public virtual initializer {
+    function initialize(address oprfKeyRegistry) public virtual initializer {
+        require(oprfKeyRegistry != address(0), "initialize a OprfKeyRegistry");
+
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
+        _oprfKeyRegistry = IOprfKeyRegistry(oprfKeyRegistry);
         _nextId = 1;
     }
 
@@ -126,12 +146,19 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
         }
-        require(signer != address(0), "Registry: signer cannot be zero address");
+        if (signer == address(0)) {
+            revert InvalidSigner();
+        }
 
         uint256 issuerSchemaId = _nextId;
         _idToPubkey[issuerSchemaId] = pubkey;
         _idToAddress[issuerSchemaId] = signer;
-        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer);
+
+        // An OPRF Key is initialized to allow authenticators to compute the blinding factor for this credential
+        uint160 oprfKeyId = OPRF_KEY_SHIFTER + uint160(_nextId);
+        _oprfKeyRegistry.initKeyGen(oprfKeyId);
+
+        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, oprfKeyId);
         _nextId = issuerSchemaId + 1;
         return issuerSchemaId;
     }
