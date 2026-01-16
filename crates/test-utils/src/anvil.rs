@@ -215,6 +215,7 @@ impl TestAnvil {
     pub async fn deploy_credential_schema_issuer_registry(
         &self,
         signer: PrivateKeySigner,
+        oprf_key_registry_address: Address,
     ) -> Result<Address> {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
@@ -226,7 +227,12 @@ impl TestAnvil {
 
         let implementation_address = *implementation.address();
 
-        let init_data = Bytes::from(CredentialSchemaIssuerRegistry::initializeCall {}.abi_encode());
+        let init_data = Bytes::from(
+            CredentialSchemaIssuerRegistry::initializeCall {
+                oprfKeyRegistry: oprf_key_registry_address,
+            }
+            .abi_encode(),
+        );
 
         let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await

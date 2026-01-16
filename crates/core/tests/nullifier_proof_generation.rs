@@ -35,6 +35,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     let RegistryTestContext {
         anvil,
         world_id_registry,
+        oprf_key_registry: _,
         credential_registry: issuer_registry,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,

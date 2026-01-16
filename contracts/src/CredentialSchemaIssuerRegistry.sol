@@ -7,6 +7,7 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
@@ -30,6 +31,26 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @dev Thrown when the provided pubkey is invalid (for example if either coordinate is zero).
      */
     error InvalidPubkey();
+
+    /**
+     * @dev Thrown when an invalid signer is preovided (e.g. zero address)
+     */
+    error InvalidSigner();
+
+    /**
+     * @dev Thrown when an issuerSchemaId is not registered
+     */
+    error IdNotRegistered();
+
+    /**
+     * @dev Thrown when trying to update signer to the same address that's already assigned
+     */
+    error SignerAlreadyAssigned();
+
+    /**
+     * @dev Thrown when the provided issuerSchemaId is invalid
+     */
+    error InvalidIssuerSchemaId();
 
     modifier onlyInitialized() {
         _onlyInitialized();
@@ -89,11 +110,22 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         keccak256(abi.encodePacked(UPDATE_ISSUER_SCHEMA_URI_TYPEDEF));
     bytes32 public constant PUBKEY_TYPEHASH = keccak256(abi.encodePacked(PUBKEY_TYPEDEF));
 
+    /**
+     * @notice The oprfKeyId (from the OprfKeyRegistry contract) is used to compute a blinding factor
+     * for the user's credential.
+     * @dev This constant is used to shift the OPRF key to the right to avoid collisions with RP OPRF Keys,
+     * i.e. the first 64 bits are reserved for RPs (rpId is 64 bits).
+     */
+    uint160 public constant OPRF_KEY_SHIFTER = uint160(type(uint64).max);
+
+    // the OPRF key registry contract, used to init OPRF key gen for blinding factors of credentials
+    IOprfKeyRegistry public _oprfKeyRegistry;
+
     ////////////////////////////////////////////////////////////
     //                        Events                          //
     ////////////////////////////////////////////////////////////
 
-    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
+    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer, uint256 oprfKeyId);
     event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
     event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
     event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
@@ -111,10 +143,13 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     /**
      * @dev Initializes the contract.
      */
-    function initialize() public virtual initializer {
+    function initialize(address oprfKeyRegistry) public virtual initializer {
+        require(oprfKeyRegistry != address(0), "initialize a OprfKeyRegistry");
+
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
+        _oprfKeyRegistry = IOprfKeyRegistry(oprfKeyRegistry);
         _nextId = 1;
     }
 
@@ -126,19 +161,28 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
         }
-        require(signer != address(0), "Registry: signer cannot be zero address");
+        if (signer == address(0)) {
+            revert InvalidSigner();
+        }
 
         uint256 issuerSchemaId = _nextId;
         _idToPubkey[issuerSchemaId] = pubkey;
         _idToAddress[issuerSchemaId] = signer;
-        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer);
+
+        // An OPRF Key is initialized to allow authenticators to compute the blinding factor for this credential
+        uint160 oprfKeyId = OPRF_KEY_SHIFTER + uint160(_nextId);
+        _oprfKeyRegistry.initKeyGen(oprfKeyId);
+
+        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, oprfKeyId);
         _nextId = issuerSchemaId + 1;
         return issuerSchemaId;
     }
 
     function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
-        require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
+        if (_isEmptyPubkey(pubkey)) {
+            revert IdNotRegistered();
+        }
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId]))
         );
@@ -162,7 +206,9 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         onlyInitialized
     {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
-        require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
+        if (_isEmptyPubkey(oldPubkey)) {
+            revert IdNotRegistered();
+        }
 
         if (_isEmptyPubkey(newPubkey)) {
             revert InvalidPubkey();
@@ -195,9 +241,15 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         onlyProxy
         onlyInitialized
     {
-        require(!_isEmptyPubkey(_idToPubkey[issuerSchemaId]), "Registry: id not registered");
-        require(newSigner != address(0), "Registry: newSigner cannot be zero address");
-        require(_idToAddress[issuerSchemaId] != newSigner, "Registry: newSigner is already the assigned signer");
+        if (_isEmptyPubkey(_idToPubkey[issuerSchemaId])) {
+            revert IdNotRegistered();
+        }
+        if (newSigner == address(0)) {
+            revert InvalidSigner();
+        }
+        if (_idToAddress[issuerSchemaId] == newSigner) {
+            revert SignerAlreadyAssigned();
+        }
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId]))
@@ -243,11 +295,12 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         onlyProxy
         onlyInitialized
     {
-        require(issuerSchemaId != 0, "Schema ID not registered");
-        require(
-            keccak256(bytes(schemaUri)) != keccak256(bytes(idToSchemaUri[issuerSchemaId])),
-            SchemaUriIsTheSameAsCurrentOne()
-        );
+        if (issuerSchemaId == 0) {
+            revert InvalidIssuerSchemaId();
+        }
+        if (keccak256(bytes(schemaUri)) == keccak256(bytes(idToSchemaUri[issuerSchemaId]))) {
+            revert SchemaUriIsTheSameAsCurrentOne();
+        }
 
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 messageHash = _hashTypedDataV4(
