@@ -1,14 +1,9 @@
 use std::sync::Arc;
 
-use crate::{
-    create_batcher::CreateBatcherHandle,
-    ops_batcher::OpsBatcherHandle,
-    request_tracker::{RequestKind, RequestState},
-    ErrorResponse as ApiError,
-};
-use alloy::providers::DynProvider;
-use serde::Serialize;
-use utoipa::ToSchema;
+use crate::{create_batcher::CreateBatcherHandle, ops_batcher::OpsBatcherHandle};
+use alloy::{primitives::U256, providers::DynProvider};
+use lru::LruCache;
+use parking_lot::Mutex;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 /// Maximum number of authenticators per account (matches contract default).

@@ -15,7 +15,6 @@ mod routes;
 mod types;
 
 pub use crate::config::GatewayConfig;
-pub use crate::error::ErrorResponse;
 
 // Re-export common types
 pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};

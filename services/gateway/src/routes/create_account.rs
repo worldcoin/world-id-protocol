@@ -3,8 +3,11 @@ use crate::{
     routes::validation::ValidateRequest, types::AppState,
 };
 use alloy::primitives::Address;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use world_id_core::types::{CreateAccountRequest, GatewayErrorCode as ErrorCode};
+use axum::{extract::State, http::StatusCode, Json};
+use world_id_core::types::{
+    CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
+    GatewayRequestState, GatewayStatusResponse,
+};
 
 pub(crate) async fn create_account(
     State(state): State<AppState>,
@@ -15,7 +18,8 @@ pub(crate) async fn create_account(
     req.validate()?;
 
     // Simulate the account creation before queueing to catch errors early
-    state.regsitry
+    state
+        .regsitry
         .createAccount(
             req.recovery_address.unwrap_or(Address::ZERO),
             req.authenticator_addresses.clone(),

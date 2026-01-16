@@ -5,19 +5,11 @@ use crate::{
     types::AppState,
 };
 use alloy::primitives::{Bytes, U256};
-<<<<<<< HEAD
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use world_id_core::types::{GatewayErrorCode as ErrorCode, RemoveAuthenticatorRequest};
-=======
 use axum::{extract::State, http::StatusCode, Json};
-use world_id_core::{
-    types::{
-        GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, RemoveAuthenticatorRequest,
-    },
-    world_id_registry::WorldIdRegistry,
+use world_id_core::types::{
+    GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse, RemoveAuthenticatorRequest,
 };
->>>>>>> main
 
 pub(crate) async fn remove_authenticator(
     State(state): State<AppState>,

@@ -5,11 +5,10 @@ use crate::RequestTracker;
 use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
-use world_id_core::types::CreateAccountRequest;
+use world_id_core::types::{
+    parse_contract_error, CreateAccountRequest, GatewayErrorCode, GatewayRequestState,
+};
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
-
-use crate::error::{parse_contract_error, ErrorCode};
-use crate::{RequestState, RequestTracker};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
@@ -47,7 +46,7 @@ impl CreateBatcherRunner {
         }
     }
 
-    pub async fn run(mut self) {       
+    pub async fn run(mut self) {
         loop {
             let Some(first) = self.rx.recv().await else {
                 tracing::info!("create batcher channel closed");
@@ -88,7 +87,9 @@ impl CreateBatcherRunner {
                 commits.push(env.req.offchain_signer_commitment);
             }
 
-            let call = self.registry.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
+            let call =
+                self.registry
+                    .createManyAccounts(recovery_addresses, auths, pubkeys, commits);
             match call.send().await {
                 Ok(builder) => {
                     let hash = format!("0x{:x}", builder.tx_hash());

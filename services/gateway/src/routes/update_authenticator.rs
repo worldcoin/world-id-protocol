@@ -5,8 +5,11 @@ use crate::{
     types::AppState,
 };
 use alloy::primitives::Bytes;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use world_id_core::types::{GatewayErrorCode as ErrorCode, UpdateAuthenticatorRequest};
+use axum::{extract::State, http::StatusCode, Json};
+use world_id_core::types::{
+    GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse, UpdateAuthenticatorRequest,
+};
 
 pub(crate) async fn update_authenticator(
     State(state): State<AppState>,

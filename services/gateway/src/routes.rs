@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 use crate::{
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
-    request_tracker::{RequestKind, RequestState, RequestTracker},
+    request_tracker::RequestTracker,
     routes::{
         create_account::create_account,
         health::{__path_health, health},
@@ -14,7 +14,7 @@ use crate::{
         request_status::request_status,
         update_authenticator::update_authenticator,
     },
-    AppState, RequestStatusResponse,
+    AppState,
 };
 use alloy::providers::DynProvider;
 use axum::{
@@ -30,8 +30,10 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::{
     types::{
-        CreateAccountRequest, GatewayErrorCode as ErrorCode, InsertAuthenticatorRequest,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayErrorCode as ErrorCode,
+        GatewayRequestKind, GatewayRequestState, GatewayStatusResponse, HealthResponse,
+        InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };

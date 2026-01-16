@@ -1,3 +1,4 @@
+use crate::routes::ErrorCode;
 use crate::{
     ops_batcher::{OpEnvelope, OpKind},
     request_tracker::RequestTracker,
@@ -5,9 +6,11 @@ use crate::{
     types::AppState,
 };
 use alloy::primitives::{Bytes, U256};
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use world_id_core::types::{GatewayErrorCode as ErrorCode, RecoverAccountRequest};
-
+use axum::{extract::State, http::StatusCode, Json};
+use world_id_core::types::{
+    GatewayErrorResponse, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
+    RecoverAccountRequest,
+};
 pub(crate) async fn recover_account(
     State(state): State<AppState>,
     axum::Extension(tracker): axum::Extension<RequestTracker>,
