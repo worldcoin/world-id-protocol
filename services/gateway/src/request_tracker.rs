@@ -73,11 +73,8 @@ impl RequestTracker {
             status: GatewayRequestState::Queued,
         };
 
-        // Always insert into local cache
-        self.cache.insert(id.clone(), record.clone()).await;
-
-        // Persist to Redis if configured
         if let Some(mut manager) = self.redis_manager.clone() {
+            // Persist to redis if configured
             let key = Self::request_key(&id);
             let json_str = serde_json::to_string(&record).map_err(|e| {
                 tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
@@ -92,6 +89,9 @@ impl RequestTracker {
                 .set_options(&key, json_str, opts)
                 .await
                 .map_err(handle_redis_error)?;
+        } else {
+            // No Redis, use local cache as storage
+            self.cache.insert(id.clone(), record.clone()).await;
         }
 
         Ok((id, record))
@@ -99,26 +99,26 @@ impl RequestTracker {
 
     pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
         for id in ids {
-            // Atomically update local cache if entry exists
-            self.cache
-                .entry_by_ref(id)
-                .and_compute_with(|entry| async {
-                    match entry {
-                        Some(entry) => {
-                            let mut record = entry.into_value();
-                            record.status = status.clone();
-                            Op::Put(record)
-                        }
-                        None => Op::Nop,
-                    }
-                })
-                .await;
-
-            // Update Redis if configured
             if self.redis_manager.is_some() {
+                // Update redis if configured
                 if let Err(e) = self.set_status_on_redis(id, &status).await {
                     tracing::error!("Error updating status for request {id}: {e}");
                 }
+            } else {
+                // No Redis, update local cache
+                self.cache
+                    .entry_by_ref(id)
+                    .and_compute_with(|entry| async {
+                        match entry {
+                            Some(entry) => {
+                                let mut record = entry.into_value();
+                                record.status = status.clone();
+                                Op::Put(record)
+                            }
+                            None => Op::Nop,
+                        }
+                    })
+                    .await;
             }
         }
     }
@@ -128,23 +128,14 @@ impl RequestTracker {
     }
 
     pub async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
-        // Check local cache first (L1)
-        if let Some(record) = self.cache.get(id).await {
-            return Some(record);
-        }
-
-        // Fall back to Redis if configured (L2)
         if let Some(mut manager) = self.redis_manager.clone() {
+            // Read from redis if configured
             let key = Self::request_key(id);
             let result: Result<Option<String>, redis::RedisError> = manager.get(&key).await;
 
             match result {
                 Ok(Some(json_str)) => match serde_json::from_str::<RequestRecord>(&json_str) {
-                    Ok(record) => {
-                        // Populate cache on Redis hit
-                        self.cache.insert(id.to_string(), record.clone()).await;
-                        Some(record)
-                    }
+                    Ok(record) => Some(record),
                     Err(e) => {
                         tracing::error!("Failed to deserialize request from Redis: {}", e);
                         None
@@ -157,7 +148,8 @@ impl RequestTracker {
                 }
             }
         } else {
-            None
+            // No Redis, read from local cache
+            self.cache.get(id).await
         }
     }
 
