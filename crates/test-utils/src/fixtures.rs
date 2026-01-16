@@ -29,6 +29,7 @@ use crate::{
 pub struct RegistryTestContext {
     pub anvil: TestAnvil,
     pub world_id_registry: Address,
+    pub oprf_key_registry: Address,
     pub credential_registry: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
@@ -47,10 +48,33 @@ impl RegistryTestContext {
             .deploy_world_id_registry(deployer.clone())
             .await
             .wrap_err("failed to deploy WorldIDRegistry")?;
+        let oprf_key_registry = anvil
+            .deploy_oprf_key_registry(deployer.clone())
+            .await
+            .wrap_err("failed to deploy OprfKeyRegistry")?;
+
+        // Register OPRF nodes (required before initKeyGen can be called)
+        // signers must match the ones used in test secret managers if applicable
+        let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
+        anvil
+            .register_oprf_nodes(
+                oprf_key_registry,
+                deployer.clone(),
+                oprf_node_signers.iter().map(|s| s.address()).collect(),
+            )
+            .await
+            .wrap_err("failed to register OPRF nodes")?;
+
         let credential_registry = anvil
-            .deploy_credential_schema_issuer_registry(deployer.clone())
+            .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
             .await
             .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
+
+        // Add CredentialSchemaIssuerRegistry as OprfKeyRegistry admin so it can call initKeyGen
+        anvil
+            .add_oprf_key_registry_admin(oprf_key_registry, deployer.clone(), credential_registry)
+            .await
+            .wrap_err("failed to add CredentialSchemaIssuerRegistry as OprfKeyRegistry admin")?;
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer.clone()))
@@ -93,6 +117,7 @@ impl RegistryTestContext {
         Ok(Self {
             anvil,
             world_id_registry,
+            oprf_key_registry,
             credential_registry,
             issuer_private_key,
             issuer_public_key,

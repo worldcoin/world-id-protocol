@@ -33,6 +33,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let RegistryTestContext {
         anvil,
         world_id_registry,
+        oprf_key_registry: oprf_registry,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,
@@ -46,18 +47,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
-
-    // deploy the OprfKeyRegistry
-    let oprf_registry = anvil.deploy_oprf_key_registry(deployer.clone()).await?;
-    // signers must match the ones used in the TestSecretManager
-    let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
-    anvil
-        .register_oprf_nodes(
-            oprf_registry,
-            deployer.clone(),
-            oprf_node_signers.iter().map(|s| s.address()).collect(),
-        )
-        .await?;
 
     let rp_registry = anvil
         .deploy_rp_registry(deployer.clone(), oprf_registry)
