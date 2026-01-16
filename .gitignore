@@ -19,6 +19,7 @@ logs/
 .idea
 .claude
 .cursor
+.zed/settings.json
 
 # Ignore generated contract ABIs except WorldIDRegistry and CredentialSchemaIssuerRegistry
 crates/core/contracts/out/*.sol/*.json

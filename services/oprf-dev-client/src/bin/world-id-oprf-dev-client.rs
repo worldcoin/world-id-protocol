@@ -1,14 +1,21 @@
 use std::{
     collections::HashMap,
+    str::FromStr,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use alloy::{
+    network::EthereumWallet,
     primitives::{Address, U160},
-    signers::k256::ecdsa::{signature::Signer as _, SigningKey},
+    providers::{Provider as _, ProviderBuilder},
+    signers::{
+        k256::ecdsa::SigningKey,
+        local::{LocalSigner, PrivateKeySigner},
+        SignerSync as _,
+    },
 };
-use ark_ff::{BigInteger as _, PrimeField as _, UniformRand as _};
+use ark_ff::UniformRand as _;
 use clap::{Parser, Subcommand};
 use eyre::Context as _;
 use rand::SeedableRng;
@@ -16,12 +23,13 @@ use rustls::{ClientConfig, RootCertStore};
 use secrecy::{ExposeSecret, SecretString};
 use taceo_oprf_client::Connector;
 use taceo_oprf_core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor};
-use taceo_oprf_test::{health_checks, oprf_key_registry_scripts};
+use taceo_oprf_test::health_checks;
 use taceo_oprf_types::{
     api::v1::{OprfRequest, ShareIdentifier},
     crypto::OprfPublicKey,
     OprfKeyId, ShareEpoch,
 };
+use test_utils::anvil::RpRegistry;
 use test_utils::fixtures::build_base_credential;
 use tokio::task::JoinSet;
 use uuid::Uuid;
@@ -84,20 +92,16 @@ pub struct OprfDevClientConfig {
     pub threshold: usize,
 
     /// The Address of the OprfKeyRegistry contract.
-    #[clap(
-        long,
-        env = "OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT",
-        default_value = "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6"
-    )]
+    #[clap(long, env = "OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT")]
     pub oprf_key_registry_contract: Address,
 
     /// The Address of the WorldIDRegistry contract.
-    #[clap(
-        long,
-        env = "OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT",
-        default_value = "0xB235407CA24410938A90890D9e218Bb60e8A65b6"
-    )]
+    #[clap(long, env = "OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT")]
     pub world_id_registry_contract: Address,
+
+    /// The Address of the RpRegistry contract.
+    #[clap(long, env = "OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT")]
+    pub rp_registry_contract: Address,
 
     /// The RPC for chain communication
     #[clap(
@@ -134,8 +138,8 @@ pub struct OprfDevClientConfig {
     pub gateway_url: String,
 
     /// rp id of already registered rp
-    #[clap(long, env = "OPRF_DEV_CLIENT_OPRF_KEY_ID")]
-    pub oprf_key_id: Option<U160>,
+    #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
+    pub rp_id: Option<u64>,
 
     /// max wait time for init key-gen to succeed.
     #[clap(long, env = "OPRF_DEV_CLIENT_KEY_GEN_WAIT_TIME", default_value="2min", value_parser=humantime::parse_duration)]
@@ -168,8 +172,10 @@ fn create_and_sign_credential(
 
 async fn run_nullifier(
     authenticator: &Authenticator,
+    rp_id: RpId,
     oprf_key_id: OprfKeyId,
     oprf_public_key: OprfPublicKey,
+    signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
@@ -191,18 +197,16 @@ async fn run_nullifier(
         .expect("system time after epoch")
         .as_secs();
 
-    let mut msg = Vec::new();
-    msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_timestamp.to_le_bytes());
-    let signing_key = SigningKey::random(&mut rng); // TODO oprf nodes need this to verify the signature (not done atm)
-    let signature = signing_key.sign(&msg);
+    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
+    let signature = signer.sign_message_sync(&msg)?;
 
     let proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
         created_at: current_timestamp,
         expires_at: current_timestamp + 300, // 5 minutes from now
-        rp_id: RpId::new(oprf_key_id.into_inner()),
+        rp_id,
+        oprf_key_id,
         action: FieldElement::from(action),
         oprf_public_key,
         signature,
@@ -229,12 +233,14 @@ async fn run_nullifier(
 fn prepare_nullifier_stress_test_oprf_request(
     authenticator: &Authenticator,
     authenticator_private_key: &EdDSAPrivateKey,
+    rp_id: RpId,
     oprf_key_id: OprfKeyId,
     oprf_public_key: OprfPublicKey,
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
     key_index: u64,
     query_material: &CircomGroth16Material,
+    signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<(
     SingleProofInput<TREE_DEPTH>,
     QueryProofCircuitInput<TREE_DEPTH>,
@@ -254,9 +260,6 @@ fn prepare_nullifier_stress_test_oprf_request(
             .expect("leaf_index fits into u64"),
     )?;
 
-    // TODO: convert rp_request to primitives types
-    let primitives_rp_id = world_id_primitives::rp::RpId::new(oprf_key_id.into_inner());
-
     let action = ark_babyjubjub::Fq::rand(&mut rng);
     let nonce = ark_babyjubjub::Fq::rand(&mut rng);
     let current_timestamp = SystemTime::now()
@@ -264,11 +267,8 @@ fn prepare_nullifier_stress_test_oprf_request(
         .expect("system time after epoch")
         .as_secs();
 
-    let mut msg = Vec::new();
-    msg.extend(nonce.into_bigint().to_bytes_le());
-    msg.extend(current_timestamp.to_le_bytes());
-    let signing_key = SigningKey::random(&mut rng); // TODO oprf nodes need this to verify the signature (not done atm)
-    let signature = signing_key.sign(&msg);
+    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
+    let signature = signer.sign_message_sync(&msg)?;
 
     let signal_hash = ark_babyjubjub::Fq::rand(&mut rng);
 
@@ -282,7 +282,8 @@ fn prepare_nullifier_stress_test_oprf_request(
         key_set,
         key_index,
         session_id_r_seed: FieldElement::random(&mut rng),
-        rp_id: primitives_rp_id,
+        rp_id,
+        oprf_key_id,
         share_epoch: ShareEpoch::default().into_inner(),
         action: action.into(),
         nonce: nonce.into(),
@@ -333,13 +334,16 @@ fn avg(durations: &[Duration]) -> Duration {
     }
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn stress_test(
     authenticator: &Authenticator,
     authenticator_private_key: EdDSAPrivateKey,
+    rp_id: RpId,
     oprf_key_id: OprfKeyId,
     oprf_public_key: OprfPublicKey,
     cmd: StressTestCommand,
     connector: Connector,
+    signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
     let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
 
@@ -363,12 +367,14 @@ async fn stress_test(
         let (args, query_input, blinding_factor, req) = prepare_nullifier_stress_test_oprf_request(
             authenticator,
             &authenticator_private_key,
+            rp_id,
             oprf_key_id,
             oprf_public_key,
             inclusion_proof.clone(),
             key_set.clone(),
             key_index,
             &query_material,
+            signer,
         )?;
         request_ids.insert(idx, req.request_id);
         oprf_args.insert(idx, args);
@@ -533,8 +539,22 @@ async fn main() -> eyre::Result<()> {
         .context("while doing health checks")?;
     tracing::info!("everyone online..");
 
-    let (oprf_key_id, oprf_public_key) = if let Some(oprf_key_id) = config.oprf_key_id {
-        let oprf_key_id = OprfKeyId::new(oprf_key_id);
+    let private_key = PrivateKeySigner::from_str(config.taceo_private_key.expose_secret())?;
+    let address = private_key.address();
+    let wallet = EthereumWallet::from(private_key.clone());
+
+    tracing::info!("init rpc provider..");
+    let provider = ProviderBuilder::new()
+        .wallet(wallet)
+        .connect(config.chain_rpc_url.expose_secret())
+        .await
+        .context("while connecting to RPC")?
+        .erased();
+
+    let (rp_id, oprf_key_id, oprf_public_key) = if let Some(rp_id) = config.rp_id {
+        // TODO should maybe check if the oprf key id matches the registered one in case it was changed
+        // in case they are not the same, we return them both
+        let oprf_key_id = OprfKeyId::new(U160::from(rp_id));
         let oprf_public_key = taceo_oprf_test::health_checks::oprf_public_key_from_services(
             oprf_key_id,
             ShareEpoch::default(),
@@ -542,14 +562,28 @@ async fn main() -> eyre::Result<()> {
             Duration::from_secs(10), // should already be there
         )
         .await?;
-        (oprf_key_id, oprf_public_key)
+        (RpId::new(rp_id), oprf_key_id, oprf_public_key)
     } else {
-        let oprf_key_id = oprf_key_registry_scripts::init_key_gen(
-            config.chain_rpc_url.expose_secret(),
-            config.oprf_key_registry_contract,
-            config.taceo_private_key.expose_secret(),
-        );
-        tracing::info!("registered OPRF key with: {oprf_key_id}");
+        let rp_registry = RpRegistry::new(config.rp_registry_contract, provider);
+        let rp_id = RpId::new(rand::random());
+        let oprf_key_id = OprfKeyId::new(U160::from(rp_id.into_inner()));
+        tracing::info!("registering new RP");
+        let receipt = rp_registry
+            .register(
+                rp_id.into_inner(),
+                address,
+                address,
+                "taceo.oprf.dev.client".to_string(),
+            )
+            .gas(10000000)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+        if !receipt.status() {
+            eyre::bail!("failed to register RP");
+        }
+        tracing::info!("registered RP with OPRF key: {oprf_key_id}");
         let oprf_public_key = taceo_oprf_test::health_checks::oprf_public_key_from_services(
             oprf_key_id,
             ShareEpoch::default(),
@@ -557,7 +591,7 @@ async fn main() -> eyre::Result<()> {
             config.max_wait_time_key_gen,
         )
         .await?;
-        (oprf_key_id, oprf_public_key)
+        (rp_id, oprf_key_id, oprf_public_key)
     };
 
     let world_config = Config::new(
@@ -587,7 +621,14 @@ async fn main() -> eyre::Result<()> {
     match config.command {
         Command::Test => {
             tracing::info!("running single nullifier");
-            run_nullifier(&authenticator, oprf_key_id, oprf_public_key).await?;
+            run_nullifier(
+                &authenticator,
+                rp_id,
+                oprf_key_id,
+                oprf_public_key,
+                &private_key,
+            )
+            .await?;
             tracing::info!("nullifier successful");
         }
         Command::StressTest(cmd) => {
@@ -595,10 +636,12 @@ async fn main() -> eyre::Result<()> {
             stress_test(
                 &authenticator,
                 authenticator_private_key,
+                rp_id,
                 oprf_key_id,
                 oprf_public_key,
                 cmd,
                 connector,
+                &private_key,
             )
             .await?;
             tracing::info!("stress-test successful");

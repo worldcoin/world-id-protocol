@@ -3,7 +3,7 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
-use taceo_oprf_types::crypto::OprfPublicKey;
+use taceo_oprf_types::{crypto::OprfPublicKey, OprfKeyId};
 
 use crate::{
     authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId, Credential,
@@ -146,6 +146,8 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
 
     /// The ID of the RP requesting the proof.
     pub rp_id: RpId,
+    /// The `OprfKeyId` for the RP requesting the proof.
+    pub oprf_key_id: OprfKeyId,
     /// The epoch of the `DLog` share (currently always `0`).
     pub share_epoch: u128,
     /// The specific hashed action for which the user is generating the proof. The output nullifier will
@@ -162,7 +164,7 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     /// The signature is computed over `H(nonce || timestamp)`, ECDSA on the `secp256k1` curve.
     ///
     /// TODO: Refactor what is actually signed.
-    pub rp_signature: k256::ecdsa::Signature,
+    pub rp_signature: alloy_primitives::Signature,
     /// The public key used to verify the computed nullifier. It can be retrieved from the `OprfKeyRegistry` contract.
     ///
     /// TODO: This requires more details.

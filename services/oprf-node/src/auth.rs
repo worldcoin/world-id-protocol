@@ -9,6 +9,7 @@
 
 use crate::auth::{
     merkle_watcher::{MerkleWatcher, MerkleWatcherError},
+    rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
     signature_history::{DuplicateSignatureError, SignatureHistory},
 };
 use ark_bn254::Bn254;
@@ -28,6 +29,7 @@ use world_id_primitives::{oprf::OprfRequestAuthV1, TREE_DEPTH};
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
 
 pub(crate) mod merkle_watcher;
+pub(crate) mod rp_registry_watcher;
 pub(crate) mod signature_history;
 
 /// Errors returned by the [`WorldOprfReqAuthenticator`].
@@ -39,12 +41,24 @@ pub(crate) enum OprfRequestAuthError {
     /// An error returned from the merkle watcher service during merkle look-up.
     #[error(transparent)]
     MerkleWatcherError(#[from] MerkleWatcherError),
+    /// An error returned from the RpRegistry watcher service during merkle look-up.
+    #[error(transparent)]
+    RpRegistryWatcherError(#[from] RpRegistryWatcherError),
+    /// The provided OprfKeyId does not match the one registered for the RP.
+    #[error("oprf key id mismatch")]
+    OprfKeyIdMismatch,
     /// The current time stamp difference between client and service is larger than allowed.
     #[error("the time stamp difference is too large")]
     TimeStampDifference,
     /// A nonce signature was uses more than once
     #[error(transparent)]
     DuplicateSignatureError(#[from] DuplicateSignatureError),
+    /// The signature over the nonce and time stamp is invalid
+    #[error(transparent)]
+    InvalidSignature(#[from] alloy::primitives::SignatureError),
+    /// Rp signature signer is invalid
+    #[error("the rp signer is not the same as in the signature")]
+    InvalidSigner,
     /// The provided merkle root is not valid
     #[error("invalid merkle root")]
     InvalidMerkleRoot,
@@ -63,11 +77,24 @@ impl IntoResponse for OprfRequestAuthError {
                 tracing::error!("merkle watcher error: {err}");
                 (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
             }
+            OprfRequestAuthError::RpRegistryWatcherError(err) => {
+                tracing::error!("RpRegistry watcher error: {err}");
+                (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
+            }
             OprfRequestAuthError::TimeStampDifference => (
                 StatusCode::BAD_REQUEST,
                 "the time stamp difference is too large",
             )
                 .into_response(),
+            OprfRequestAuthError::OprfKeyIdMismatch => {
+                (StatusCode::BAD_REQUEST, "oprf key id mismatch").into_response()
+            }
+            OprfRequestAuthError::InvalidSignature(err) => {
+                (StatusCode::BAD_REQUEST, err.to_string()).into_response()
+            }
+            OprfRequestAuthError::InvalidSigner => {
+                (StatusCode::BAD_REQUEST, "invalid signer").into_response()
+            }
             OprfRequestAuthError::DuplicateSignatureError(err) => {
                 (StatusCode::BAD_REQUEST, err.to_string()).into_response()
             }
@@ -89,6 +116,7 @@ impl IntoResponse for OprfRequestAuthError {
 
 pub(crate) struct WorldOprfRequestAuthenticator {
     merkle_watcher: MerkleWatcher,
+    rp_registry_watcher: RpRegistryWatcher,
     signature_history: SignatureHistory,
     vk: Arc<ark_groth16::PreparedVerifyingKey<Bn254>>,
     current_time_stamp_max_difference: Duration,
@@ -97,6 +125,7 @@ pub(crate) struct WorldOprfRequestAuthenticator {
 impl WorldOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
+        rp_registry_watcher: RpRegistryWatcher,
         current_time_stamp_max_difference: Duration,
         signature_history_cleanup_interval: Duration,
     ) -> Self {
@@ -108,6 +137,7 @@ impl WorldOprfRequestAuthenticator {
                 signature_history_cleanup_interval,
             ),
             merkle_watcher,
+            rp_registry_watcher,
             vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
             current_time_stamp_max_difference,
         }
@@ -132,11 +162,28 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
             return Err(OprfRequestAuthError::TimeStampDifference);
         }
 
-        // TODO check the RP nonce signature
+        // fetch the RP info
+        let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
+
+        // check if the oprf key id matches the one registered for the RP
+        if rp.oprf_key_id != request.share_identifier.oprf_key_id {
+            return Err(OprfRequestAuthError::OprfKeyIdMismatch);
+        }
+
+        // check the RP nonce signature
+        let msg = world_id_primitives::oprf::compute_rp_signature_msg(
+            request.auth.nonce,
+            request.auth.current_time_stamp,
+        );
+
+        let recovered = request.auth.signature.recover_address_from_msg(&msg)?;
+        if recovered != rp.signer {
+            return Err(OprfRequestAuthError::InvalidSigner);
+        }
 
         // add signature to history to check if the nonces where only used once
         self.signature_history
-            .add_signature(request.auth.signature.to_vec(), req_time_stamp)?;
+            .add_signature(request.auth.signature.as_bytes().to_vec(), req_time_stamp)?;
 
         // check if the merkle root is valid
         let valid = self

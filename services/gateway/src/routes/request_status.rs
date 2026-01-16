@@ -1,24 +1,21 @@
-use crate::{
-    request_tracker::RequestTracker,
-    types::{ApiResult, RequestStatusResponse},
-    ErrorResponse as ApiError,
-};
-use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
+use crate::request_tracker::RequestTracker;
+use axum::{extract::Path, Json};
+use world_id_core::types::{GatewayErrorResponse, GatewayStatusResponse};
 
 pub(crate) async fn request_status(
     axum::Extension(tracker): axum::Extension<RequestTracker>,
     Path(id): Path<String>,
-) -> ApiResult<impl IntoResponse> {
+) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     let record = tracker
         .snapshot(&id)
         .await
-        .ok_or_else(ApiError::not_found)?;
+        .ok_or_else(GatewayErrorResponse::not_found)?;
 
-    let body = RequestStatusResponse {
+    let body = GatewayStatusResponse {
         request_id: id,
         kind: record.kind,
         status: record.status,
     };
 
-    Ok((StatusCode::OK, Json(body)))
+    Ok(Json(body))
 }

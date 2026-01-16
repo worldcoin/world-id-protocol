@@ -72,7 +72,11 @@ struct TestGateway {
 }
 
 async fn spawn_test_gateway(port: u16) -> TestGateway {
-    let anvil = TestAnvil::spawn_fork(RPC_FORK_URL).expect("failed to spawn forked anvil");
+    let mut fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or_default();
+    if fork_url.is_empty() {
+        fork_url = RPC_FORK_URL.to_string();
+    }
+    let anvil = TestAnvil::spawn_fork(&fork_url).expect("failed to spawn forked anvil");
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
         .deploy_world_id_registry(deployer)
@@ -559,10 +563,10 @@ async fn test_authenticator_already_exists_error_code() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
     let error_body: serde_json::Value = resp.json().await.unwrap();
-    // Check either the message field or the code field for the error
+    // Check string response, or message/code field for the error
     let error_msg = error_body
-        .get("message")
-        .and_then(|e| e.as_str())
+        .as_str()
+        .or_else(|| error_body.get("message").and_then(|e| e.as_str()))
         .or_else(|| error_body.get("code").and_then(|e| e.as_str()))
         .unwrap_or("");
     assert!(
@@ -619,10 +623,10 @@ async fn test_same_authenticator_different_accounts() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
     let error_body: serde_json::Value = resp.json().await.unwrap();
-    // Check either the message field or the code field for the error
+    // Check string response, or message/code field for the error
     let error_msg = error_body
-        .get("message")
-        .and_then(|e| e.as_str())
+        .as_str()
+        .or_else(|| error_body.get("message").and_then(|e| e.as_str()))
         .or_else(|| error_body.get("code").and_then(|e| e.as_str()))
         .unwrap_or("");
     assert!(

@@ -2,14 +2,13 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
-    error::ErrorBody,
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request_tracker::{RequestKind, RequestState, RequestTracker},
     routes::{
         create_account::create_account,
-        health::{health, HealthResponse, __path_health},
+        health::{__path_health, health},
         insert_authenticator::insert_authenticator,
-        is_valid_root::{is_valid_root, IsValidRootQuery, IsValidRootResponse},
+        is_valid_root::is_valid_root,
         recover_account::recover_account,
         remove_authenticator::remove_authenticator,
         request_status::request_status,
@@ -24,6 +23,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use lru::LruCache;
+use parking_lot::Mutex;
 use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
@@ -44,6 +45,8 @@ mod remove_authenticator;
 mod request_status;
 mod update_authenticator;
 mod validation;
+
+const ROOT_CACHE_SIZE: usize = 1024;
 
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
@@ -78,10 +81,14 @@ pub(crate) async fn build_app(
 
     tracing::info!("Ops batcher initialized");
 
+    let root_cache = Arc::new(Mutex::new(LruCache::new(
+        NonZeroUsize::new(ROOT_CACHE_SIZE).expect("ROOT_CACHE_SIZE must be non-zero"),
+    )));
     let state = AppState {
         regsitry: registry.clone(),
         batcher,
         ops_batcher,
+        root_cache,
     };
 
     Ok(Router::new()
@@ -110,8 +117,8 @@ pub(crate) async fn build_app(
     path = "/create-account",
     request_body = CreateAccountRequest,
     responses(
-        (status = 202, description = "TODO", body = RequestStatusResponse),
-        (status = 500, description = "TODO", body = ErrorBody)
+        (status = 202, description = "TODO", body = GatewayStatusResponse),
+        (status = 500, description = "TODO", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
@@ -124,8 +131,8 @@ async fn _doc_create_account(_: State<AppState>, _: Json<CreateAccountRequest>) 
         ("id" = String, Path, description = "TODO")
     ),
     responses(
-        (status = 200, description = "TODO", body = RequestStatusResponse),
-        (status = 404, description = "TODO", body = ErrorBody)
+        (status = 200, description = "TODO", body = GatewayStatusResponse),
+        (status = 404, description = "TODO", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
@@ -136,8 +143,8 @@ async fn _doc_request_status(_: State<AppState>, _: Path<String>) {}
     path = "/update-authenticator",
     request_body = UpdateAuthenticatorRequest,
     responses(
-        (status = 202, description = "TODO", body = RequestStatusResponse),
-        (status = 500, description = "TODO", body = ErrorBody)
+        (status = 202, description = "TODO", body = GatewayStatusResponse),
+        (status = 500, description = "TODO", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
@@ -148,8 +155,8 @@ async fn _doc_update_authenticator(_: State<AppState>, _: Json<UpdateAuthenticat
     path = "/insert-authenticator",
     request_body = InsertAuthenticatorRequest,
     responses(
-        (status = 202, description = "TODO", body = RequestStatusResponse),
-        (status = 500, description = "TODO", body = ErrorBody)
+        (status = 202, description = "TODO", body = GatewayStatusResponse),
+        (status = 500, description = "TODO", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
@@ -160,8 +167,8 @@ async fn _doc_insert_authenticator(_: State<AppState>, _: Json<InsertAuthenticat
     path = "/remove-authenticator",
     request_body = RemoveAuthenticatorRequest,
     responses(
-        (status = 202, description = "TODO", body = RequestStatusResponse),
-        (status = 500, description = "TODO", body = ErrorBody)
+        (status = 202, description = "TODO", body = GatewayStatusResponse),
+        (status = 500, description = "TODO", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
@@ -172,8 +179,8 @@ async fn _doc_remove_authenticator(_: State<AppState>, _: Json<RemoveAuthenticat
     path = "/recover-account",
     request_body = RecoverAccountRequest,
     responses(
-        (status = 202, description = "TODO", body = RequestStatusResponse),
-        (status = 500, description = "TODO", body = ErrorBody)
+        (status = 202, description = "TODO", body = GatewayStatusResponse),
+        (status = 500, description = "TODO", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
@@ -185,7 +192,7 @@ async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>
     params(IsValidRootQuery),
     responses(
         (status = 200, description = "TODO", body = IsValidRootResponse),
-        (status = 400, description = "TODO", body = ErrorBody)
+        (status = 400, description = "TODO", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
@@ -204,11 +211,11 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         _doc_is_valid_root
     ),
     components(schemas(
-        ErrorBody,
-        ErrorCode,
-        RequestKind,
-        RequestState,
-        RequestStatusResponse,
+        GatewayErrorCode,
+        GatewayErrorBody,
+        GatewayRequestKind,
+        GatewayRequestState,
+        GatewayStatusResponse,
         HealthResponse,
         IsValidRootQuery,
         IsValidRootResponse,

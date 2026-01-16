@@ -31,7 +31,7 @@ ark-ec = { workspace = true }
 taceo-oprf-types = { workspace = true }
 taceo-oprf-test = { workspace = true }
 taceo-oprf-key-gen = { workspace = true }
-axum = { version = "0.8", features = ["json"] }
+axum = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
 taceo-oprf-service = { workspace = true }
 world-id-oprf-node = { workspace = true }

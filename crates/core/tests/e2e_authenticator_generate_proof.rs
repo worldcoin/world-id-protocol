@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use alloy::primitives::U256;
+use alloy::{primitives::U256, signers::local::LocalSigner};
 use eyre::{eyre, Context as _, Result};
 use taceo_oprf_types::ShareEpoch;
 use test_utils::{
@@ -20,9 +20,7 @@ use world_id_core::{
     Authenticator, AuthenticatorError, HashableCredential,
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
-use world_id_primitives::{
-    merkle::AccountInclusionProof, rp::RpId, Config, FieldElement, TREE_DEPTH,
-};
+use world_id_primitives::{merkle::AccountInclusionProof, Config, FieldElement, TREE_DEPTH};
 
 const GW_PORT: u16 = 4104;
 
@@ -34,7 +32,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let RegistryTestContext {
         anvil,
-        world_id_registry: registry_address,
+        world_id_registry,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,
@@ -59,6 +57,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             deployer.clone(),
             oprf_node_signers.iter().map(|s| s.address()).collect(),
         )
+        .await?;
+
+    let rp_registry = anvil
+        .deploy_rp_registry(deployer.clone(), oprf_registry)
+        .await?;
+
+    // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens
+    anvil
+        .add_oprf_key_registry_admin(oprf_registry, deployer.clone(), rp_registry)
         .await?;
 
     // Spawn the gateway wired to this Anvil instance.
@@ -90,7 +97,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let creation_config = Config::new(
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
-        registry_address,
+        world_id_registry,
         "http://127.0.0.1:0".to_string(), // placeholder for future indexer stub
         format!("http://127.0.0.1:{GW_PORT}"),
         Vec::new(),
@@ -161,7 +168,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         anvil.ws_endpoint(),
         secret_managers.clone(),
         oprf_registry,
-        registry_address,
+        world_id_registry,
+        rp_registry,
     )
     .await;
 
@@ -171,14 +179,25 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .await?;
 
-    // init key gen for a new RP, wait until its done and fetch the public key
-    let oprf_key_id = anvil.init_oprf_key_gen(oprf_registry, deployer).await?;
+    // Register the RP which also triggers a OPRF key-gen.
+    let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+    anvil
+        .register_rp(
+            rp_registry,
+            deployer.clone(),
+            rp_fixture.world_rp_id,
+            rp_signer.address(),
+            rp_signer.address(),
+            "taceo.oprf".to_string(),
+        )
+        .await?;
+
     let oprf_public_key =
         test_utils::taceo_oprf_test::health_checks::oprf_public_key_from_services(
-            oprf_key_id,
+            rp_fixture.oprf_key_id,
             ShareEpoch::default(),
             &nodes,
-            Duration::from_secs(60),
+            Duration::from_secs(120),
         )
         .await?;
 
@@ -190,7 +209,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let proof_config = Config::new(
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
-        registry_address,
+        world_id_registry,
         indexer_url.clone(),
         format!("http://127.0.0.1:{GW_PORT}"),
         nodes.to_vec(),
@@ -222,7 +241,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         version: RequestVersion::V1,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.current_timestamp + 300, // 5 minutes from now
-        rp_id: RpId::from(oprf_key_id.into_inner()),
+        rp_id: rp_fixture.world_rp_id,
+        oprf_key_id: rp_fixture.oprf_key_id,
         action: rp_fixture.action.into(),
         oprf_public_key,
         signature: rp_fixture.signature,

@@ -2,15 +2,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::routes::build_app;
-use crate::types::{AppState, RequestStatusResponse};
-use error::ErrorResponse as ApiError;
-use request_tracker::{RequestState, RequestTracker};
+use crate::types::AppState;
+use request_tracker::RequestTracker;
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 mod config;
 mod create_batcher;
-mod error;
 mod ops_batcher;
 mod request_tracker;
 mod routes;
