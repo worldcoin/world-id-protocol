@@ -53,11 +53,7 @@ pub struct ProviderArgs {
 #[derive(Args, Debug, Clone, Deserialize)]
 pub struct ThrottleConfig {
     /// Requests per second rate limit (0 = unlimited).
-    #[arg(
-        long = "rps",
-        default_value_t = 100,
-        env = "RPC_REQUESTS_PER_SECOND"
-    )]
+    #[arg(long = "rps", default_value_t = 100, env = "RPC_REQUESTS_PER_SECOND")]
     #[serde(default = "defaults::default_requests_per_second")]
     pub requests_per_second: u32,
 
@@ -110,6 +106,38 @@ impl SignerArgs {
             )),
         }
     }
+
+    /// Create a new `SignerArgs` with the provided wallet private key.
+    pub fn from_wallet(wallet_private_key: String) -> Self {
+        Self {
+            wallet_private_key: Some(wallet_private_key),
+            aws_kms_key_id: None,
+        }
+    }
+
+    /// Create a new `SignerArgs` with the provided aws kms key id
+    pub fn from_aws(aws_kms_key_id: String) -> Self {
+        Self {
+            wallet_private_key: None,
+            aws_kms_key_id: Some(aws_kms_key_id),
+        }
+    }
+
+    /// Create and return a `SignerConfig`.
+    pub fn signer_config(&self) -> SignerConfig {
+        match (&self.wallet_private_key, &self.aws_kms_key_id) {
+            (Some(pk), None) => SignerConfig::PrivateKey(pk.clone()),
+            (None, Some(key_id)) => SignerConfig::AwsKms(key_id.clone()),
+            // Clap's group constraint enforces exactly one of these is set
+            _ => unreachable!("clap enforces exactly one of wallet_private_key or aws_kms_key_id"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SignerConfig {
+    PrivateKey(String),
+    AwsKms(String),
 }
 
 mod defaults {
@@ -155,9 +183,10 @@ impl ProviderArgs {
 
     /// Add multiple HTTP RPC endpoints.
     pub fn with_http_urls(mut self, urls: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
-        self.http
-            .get_or_insert_with(Vec::new)
-            .extend(urls.into_iter().map(|u| Url::parse(u.as_ref()).expect("invalid URL")));
+        self.http.get_or_insert_with(Vec::new).extend(
+            urls.into_iter()
+                .map(|u| Url::parse(u.as_ref()).expect("invalid URL")),
+        );
         self
     }
 
@@ -167,20 +196,20 @@ impl ProviderArgs {
         self
     }
     /// Build a dynamic provider from the configuration.
-    pub async fn http(
-        self
-    ) -> anyhow::Result<DynProvider>{
+    pub async fn http(self) -> anyhow::Result<DynProvider> {
         let Some(http) = self.http else {
             return Err(anyhow::anyhow!("No HTTP URLs provided"));
         };
         // Configure the fallback layer
-        let fallback_layer =
-            FallbackLayer::default().with_active_transport_count(NonZeroUsize::new(http.len()).unwrap());
-        
-        let throttle = self.throttle.map(|throttle_config| ThrottleLayer::new_with_config(
+        let fallback_layer = FallbackLayer::default()
+            .with_active_transport_count(NonZeroUsize::new(http.len()).unwrap());
+
+        let throttle = self.throttle.map(|throttle_config| {
+            ThrottleLayer::new_with_config(
                 throttle_config.requests_per_second,
                 throttle_config.burst_size,
-            ));
+            )
+        });
 
         let transports = http.into_iter().map(Http::new).collect::<Vec<_>>();
         let maybe_signer = if let Some(signer) = &self.signer {
@@ -189,15 +218,17 @@ impl ProviderArgs {
             None
         };
 
-        
         let client = if let Some(throttle) = throttle {
-            let transport = ServiceBuilder::new().layer(throttle).layer(fallback_layer).service(transports);
-            
+            let transport = ServiceBuilder::new()
+                .layer(throttle)
+                .layer(fallback_layer)
+                .service(transports);
 
             RpcClient::builder().transport(transport, false)
         } else {
-            let transport = ServiceBuilder::new().layer(fallback_layer).service(transports);
-            
+            let transport = ServiceBuilder::new()
+                .layer(fallback_layer)
+                .service(transports);
 
             RpcClient::builder().transport(transport, false)
         };
@@ -216,28 +247,24 @@ impl ProviderArgs {
             provider.erased()
         };
 
-      
         Ok(provider)
     }
 
-    pub async fn ws(
-        self
-    ) -> anyhow::Result<DynProvider>{
+    pub async fn ws(self) -> anyhow::Result<DynProvider> {
         let Some(ws) = self.ws else {
             return Err(anyhow::anyhow!("No WS URLs provided"));
         };
 
-       
         let provider = ProviderBuilder::new()
             .with_chain_id(self.chain_id)
-            .connect_ws(WsConnect::new(ws)).await?.erased();
+            .connect_ws(WsConnect::new(ws))
+            .await?
+            .erased();
 
-            Ok(provider)
+        Ok(provider)
     }
 
-    pub async fn build_providers(
-        self
-    ) -> anyhow::Result<(DynProvider, DynProvider)> {
+    pub async fn build_providers(self) -> anyhow::Result<(DynProvider, DynProvider)> {
         let http_provider = self.clone().http().await?;
         let ws_provider = self.ws().await?;
 

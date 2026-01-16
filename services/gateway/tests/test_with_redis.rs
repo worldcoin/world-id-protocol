@@ -1,5 +1,6 @@
 #![cfg(feature = "integration-tests")]
 
+use ::common::{ProviderArgs, SignerArgs};
 use alloy::{
     primitives::{address, Address, U256},
     signers::local::PrivateKeySigner,
@@ -8,7 +9,7 @@ use redis::{aio::ConnectionManager, AsyncTypedCommands, IntegerReplyOrNoOp};
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
 use world_id_core::types::GatewayStatusResponse;
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
+use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig};
 
 use crate::common::{wait_for_finalized, wait_http_ready};
 
@@ -44,8 +45,11 @@ async fn redis_integration() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        rpc_url: rpc_url.to_string(),
-        signer_args,
+        provider: ProviderArgs {
+            http: Some(vec![rpc_url.parse().unwrap()]),
+            signer: Some(signer_args),
+            ..Default::default()
+        },
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
         max_create_batch_size: 10,

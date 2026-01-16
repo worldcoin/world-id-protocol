@@ -4,7 +4,6 @@ use crate::{
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::ErrorBody,
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
-    provider::{build_provider, build_wallet},
     request_tracker::{RequestKind, RequestState, RequestTracker},
     routes::{
         create_account::create_account,
@@ -16,9 +15,9 @@ use crate::{
         request_status::request_status,
         update_authenticator::update_authenticator,
     },
-    AppState, RequestStatusResponse, SignerConfig,
+    AppState, RequestStatusResponse,
 };
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::providers::DynProvider;
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
@@ -28,9 +27,12 @@ use axum::{
 use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
-use world_id_core::types::{
-    CreateAccountRequest, GatewayErrorCode as ErrorCode, InsertAuthenticatorRequest,
-    RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+use world_id_core::{
+    types::{
+        CreateAccountRequest, GatewayErrorCode as ErrorCode, InsertAuthenticatorRequest,
+        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    },
+    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
 mod create_account;
@@ -44,20 +46,17 @@ mod update_authenticator;
 mod validation;
 
 pub(crate) async fn build_app(
-    provider: Arc<DynProvider>,
-    registry: Arc<WorldIDRegistryInstance<DynProvider>>,
+    registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
-
     let tracker = RequestTracker::new(redis_url).await;
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
-        provider.clone(),
-        registry_addr,
+        registry.clone(),
         Duration::from_millis(batch_ms),
         max_create_batch_size,
         rx,
@@ -69,8 +68,7 @@ pub(crate) async fn build_app(
     let (otx, orx) = mpsc::channel(2048);
     let ops_batcher = OpsBatcherHandle { tx: otx };
     let ops_runner = OpsBatcherRunner::new(
-        provider.clone(),
-        registry_addr,
+        registry.clone(),
         Duration::from_millis(batch_ms),
         max_ops_batch_size,
         orx,
@@ -81,8 +79,7 @@ pub(crate) async fn build_app(
     tracing::info!("Ops batcher initialized");
 
     let state = AppState {
-        registry_addr,
-        provider,
+        regsitry: registry.clone(),
         batcher,
         ops_batcher,
     };

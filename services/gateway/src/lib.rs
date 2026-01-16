@@ -1,8 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-pub use crate::config::{GatewayConfig, SignerArgs, SignerConfig};
-pub use crate::error::ErrorResponse;
 use crate::routes::build_app;
 use crate::types::{AppState, RequestStatusResponse};
 use error::ErrorResponse as ApiError;
@@ -14,10 +12,15 @@ mod config;
 mod create_batcher;
 mod error;
 mod ops_batcher;
-mod provider;
 mod request_tracker;
 mod routes;
 mod types;
+
+pub use crate::config::GatewayConfig;
+pub use crate::error::ErrorResponse;
+
+// Re-export common types
+pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -42,11 +45,13 @@ impl GatewayHandle {
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
     let provider = Arc::new(cfg.provider.http().await?);
-    let registry = WorldIdRegistryInstance::new(cfg.registry_addr, provider.clone());
+    let registry = Arc::new(WorldIdRegistryInstance::new(
+        cfg.registry_addr,
+        provider.clone(),
+    ));
 
     let app = build_app(
-        provider,
-        Arc::new(registry),
+        registry,
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
@@ -72,14 +77,15 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> anyhow::Result<()> {
     let cfg = GatewayConfig::from_env();
-    let provider = Ar::new(cfg.provider.http().await?);
-    let registry = WorldIdRegistryInstance::new(cfg.registry_addr, Arc::new(provider.clone()));
+    let provider = Arc::new(cfg.provider.http().await?);
+    let registry = Arc::new(WorldIdRegistryInstance::new(
+        cfg.registry_addr,
+        provider.clone(),
+    ));
 
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
-        cfg.registry_addr,
-        cfg.rpc_url,
-        signer_config,
+        registry,
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,

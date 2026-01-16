@@ -1,20 +1,22 @@
+use std::sync::Arc;
+
 use crate::{
     create_batcher::CreateBatcherHandle,
     ops_batcher::OpsBatcherHandle,
     request_tracker::{RequestKind, RequestState},
     ErrorResponse as ApiError,
 };
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::providers::DynProvider;
 use serde::Serialize;
 use utoipa::ToSchema;
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 /// Maximum number of authenticators per account (matches contract default).
 pub(crate) const MAX_AUTHENTICATORS: u32 = 7;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
-    pub(crate) registry_addr: Address,
-    pub(crate) provider: DynProvider,
+    pub(crate) regsitry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     pub(crate) batcher: CreateBatcherHandle,
     pub(crate) ops_batcher: OpsBatcherHandle,
 }

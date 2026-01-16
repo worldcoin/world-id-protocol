@@ -7,10 +7,7 @@ use crate::{
 };
 use alloy::primitives::{Bytes, U256};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use world_id_core::{
-    types::{GatewayErrorCode as ErrorCode, RecoverAccountRequest},
-    world_id_registry::WorldIdRegistry,
-};
+use world_id_core::types::{GatewayErrorCode as ErrorCode, RecoverAccountRequest};
 
 pub(crate) async fn recover_account(
     State(state): State<AppState>,
@@ -22,8 +19,8 @@ pub(crate) async fn recover_account(
 
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::ZERO);
     // Simulate the operation before queueing to catch errors early
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    contract
+    state
+        .regsitry
         .recoverAccount(
             req.leaf_index,
             req.new_authenticator_address,

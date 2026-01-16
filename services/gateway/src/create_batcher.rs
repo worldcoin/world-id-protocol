@@ -23,7 +23,7 @@ pub struct CreateReqEnvelope {
 
 pub struct CreateBatcherRunner {
     rx: mpsc::Receiver<CreateReqEnvelope>,
-    registry: Arc<WorldIdRegistryInstance<DynProvider>>,
+    registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     window: Duration,
     max_batch_size: usize,
     tracker: RequestTracker,
@@ -31,7 +31,7 @@ pub struct CreateBatcherRunner {
 
 impl CreateBatcherRunner {
     pub fn new(
-        registry: Arc<WorldIdRegistryInstance<DynProvider>>,
+        registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
         window: Duration,
         max_batch_size: usize,
         rx: mpsc::Receiver<CreateReqEnvelope>,
@@ -46,10 +46,7 @@ impl CreateBatcherRunner {
         }
     }
 
-    pub async fn run(mut self) {
-        let provider = self.registry.provider().clone();
-        let contract = self.registry;
-       
+    pub async fn run(mut self) {       
         loop {
             let Some(first) = self.rx.recv().await else {
                 tracing::info!("create batcher channel closed");
@@ -90,7 +87,7 @@ impl CreateBatcherRunner {
                 commits.push(env.req.offchain_signer_commitment);
             }
 
-            let call = contract.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
+            let call = self.registry.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
             match call.send().await {
                 Ok(builder) => {
                     let hash = format!("0x{:x}", builder.tx_hash());

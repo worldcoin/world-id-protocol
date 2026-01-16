@@ -6,7 +6,6 @@ use alloy::primitives::U256;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
-use world_id_core::world_id_registry::WorldIdRegistry;
 
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub(crate) struct IsValidRootQuery {
@@ -29,8 +28,8 @@ pub(crate) async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> ApiResult<impl IntoResponse> {
     let root = req_u256("root", &q.root)?;
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    let valid = contract
+    let valid = state
+        .regsitry
         .isValidRoot(root)
         .call()
         .await
