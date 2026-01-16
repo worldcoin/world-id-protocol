@@ -18,8 +18,7 @@ const REQUESTS_TTL: u64 = 86_400; // 24 hours
 ///
 /// Tracks all requests made to the gateway by ID for async querying.
 ///
-/// Uses an in-memory cache (moka) for fast lookups, with optional Redis persistence
-/// for production environments and multi-node setups.
+/// Using Redis is strongly recommended for production environments, and especially multi-node setups.
 #[derive(Clone)]
 pub struct RequestTracker {
     /// The lru cache with TTL-based expiration.
