@@ -53,7 +53,7 @@ contract WorldIDRegistryUpgradeTest is Test {
         worldIDRegistry.createAccount(address(0xABCD), authenticatorAddresses, authenticatorPubkeys, commitment);
 
         // Verify state before upgrade
-        assertEq(worldIDRegistry.nextLeafIndex(), 2);
+        assertEq(worldIDRegistry.getNextLeafIndex(), 2);
         uint256 rootBefore = worldIDRegistry.currentRoot();
 
         // Deploy V2 implementation
@@ -66,7 +66,7 @@ contract WorldIDRegistryUpgradeTest is Test {
         WorldIDRegistryV2Mock worldIDRegistryV2 = WorldIDRegistryV2Mock(address(proxy));
 
         // Verify storage was preserved
-        assertEq(worldIDRegistryV2.nextLeafIndex(), 2);
+        assertEq(worldIDRegistryV2.getNextLeafIndex(), 2);
         assertEq(worldIDRegistryV2.currentRoot(), rootBefore);
 
         // Verify new functionality works
@@ -80,7 +80,7 @@ contract WorldIDRegistryUpgradeTest is Test {
         uint256[] memory newAuthPubkeys = new uint256[](1);
         newAuthPubkeys[0] = 0;
         worldIDRegistryV2.createAccount(address(0xDEF), newAuthAddresses, newAuthPubkeys, 0x9876543210);
-        assertEq(worldIDRegistryV2.nextLeafIndex(), 3);
+        assertEq(worldIDRegistryV2.getNextLeafIndex(), 3);
     }
 
     function test_UpgradeFailsForNonOwner() public {

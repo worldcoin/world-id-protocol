@@ -153,7 +153,7 @@ async fn e2e_gateway_full_flow() {
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let packed_after = contract
-            .authenticatorAddressToPackedAccountData(wallet_addr)
+            .getPackedAccountData(wallet_addr)
             .call()
             .await
             .unwrap();
@@ -173,7 +173,7 @@ async fn e2e_gateway_full_flow() {
     let contract = WorldIdRegistry::new(gw.registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
-        .authenticatorAddressToPackedAccountData(wallet_addr)
+        .getPackedAccountData(wallet_addr)
         .call()
         .await
         .unwrap();
@@ -245,7 +245,7 @@ async fn e2e_gateway_full_flow() {
     let deadline2 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountData(new_auth2)
+            .getPackedAccountData(new_auth2)
             .call()
             .await
             .unwrap();
@@ -310,7 +310,7 @@ async fn e2e_gateway_full_flow() {
     let deadline3 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountData(new_auth2)
+            .getPackedAccountData(new_auth2)
             .call()
             .await
             .unwrap();
@@ -379,7 +379,7 @@ async fn e2e_gateway_full_flow() {
     let deadline4 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountData(wallet_addr_new)
+            .getPackedAccountData(wallet_addr_new)
             .call()
             .await
             .unwrap();
@@ -449,12 +449,12 @@ async fn e2e_gateway_full_flow() {
     let deadline5 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let old_v = contract
-            .authenticatorAddressToPackedAccountData(wallet_addr_new)
+            .getPackedAccountData(wallet_addr_new)
             .call()
             .await
             .unwrap();
         let new_v = contract
-            .authenticatorAddressToPackedAccountData(new_auth4)
+            .getPackedAccountData(new_auth4)
             .call()
             .await
             .unwrap();
@@ -502,7 +502,7 @@ async fn test_authenticator_already_exists_error_code() {
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let packed_after = contract
-            .authenticatorAddressToPackedAccountData(wallet_addr)
+            .getPackedAccountData(wallet_addr)
             .call()
             .await
             .unwrap();

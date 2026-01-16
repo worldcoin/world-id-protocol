@@ -23,7 +23,11 @@ contract VerifierV2Mock is Verifier {
 }
 
 contract WorldIDRegistryMock {
-    uint256 public treeDepth = 30;
+    uint256 private treeDepth = 30;
+
+    function getTreeDepth() external view returns (uint256) {
+        return treeDepth;
+    }
 }
 
 contract VerifierUpgradeTest is Test {
