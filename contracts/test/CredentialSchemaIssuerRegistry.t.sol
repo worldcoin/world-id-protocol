@@ -6,6 +6,10 @@ import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegis
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 
+contract MockOprfKeyRegistry {
+    function initKeyGen(uint160 oprfKeyId) external {}
+}
+
 contract CredentialIssuerRegistryTest is Test {
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
@@ -16,8 +20,11 @@ contract CredentialIssuerRegistryTest is Test {
         // Deploy implementation
         CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry();
 
+        // Deploy mock OPRF key registry
+        address oprfKeyRegistry = address(new MockOprfKeyRegistry());
+
         // Deploy proxy
-        bytes memory initData = abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector);
+        bytes memory initData = abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector, oprfKeyRegistry);
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         registry = CredentialSchemaIssuerRegistry(address(proxy));
@@ -78,8 +85,11 @@ contract CredentialIssuerRegistryTest is Test {
         address signer = vm.addr(signerPk);
         CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("pubkey-issuer-1");
 
+        // Calculate expected oprfKeyId: OPRF_KEY_SHIFTER + issuerSchemaId (which is 1)
+        uint160 expectedOprfKeyId = uint160(type(uint64).max) + uint160(1);
+
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaRegistered(1, pubkey, signer);
+        emit CredentialSchemaIssuerRegistry.IssuerSchemaRegistered(1, pubkey, signer, expectedOprfKeyId);
         uint256 issuerSchemaId = registry.register(pubkey, signer);
         assertEq(issuerSchemaId, 1);
 
@@ -136,7 +146,7 @@ contract CredentialIssuerRegistryTest is Test {
         registry.register(_generatePubkey("k"), signer);
 
         bytes memory sig = _signUpdateSigner(signerPk, 1, signer);
-        vm.expectRevert(bytes("Registry: newSigner is already the assigned signer"));
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.SignerAlreadyAssigned.selector));
         registry.updateSigner(1, signer, sig);
         assertEq(registry.getSignerForIssuerSchemaId(1), signer);
     }

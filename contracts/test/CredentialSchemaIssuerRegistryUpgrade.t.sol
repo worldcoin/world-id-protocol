@@ -5,6 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+contract MockOprfKeyRegistry {
+    function initKeyGen(uint160 oprfKeyId) external {}
+}
+
 /**
  * @title CredentialSchemaIssuerRegistryV2Mock
  * @notice Mock V2 implementation for testing upgrades
@@ -35,8 +39,11 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         // Deploy implementation V1
         CredentialSchemaIssuerRegistry implementationV1 = new CredentialSchemaIssuerRegistry();
 
+        // Deploy mock OPRF key registry
+        address oprfKeyRegistry = address(new MockOprfKeyRegistry());
+
         // Deploy proxy with initialization
-        bytes memory initData = abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector);
+        bytes memory initData = abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector, oprfKeyRegistry);
         proxy = new ERC1967Proxy(address(implementationV1), initData);
 
         registry = CredentialSchemaIssuerRegistry(address(proxy));
@@ -129,8 +136,9 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
 
     function test_CannotInitializeTwice() public {
         // Try to initialize again (should fail)
+        address oprfKeyRegistry = address(new MockOprfKeyRegistry());
         vm.expectRevert();
-        registry.initialize();
+        registry.initialize(oprfKeyRegistry);
     }
 
     function test_ImplementationCannotBeInitialized() public {
@@ -138,8 +146,9 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry();
 
         // Try to initialize the implementation directly (should fail)
+        address oprfKeyRegistry = address(new MockOprfKeyRegistry());
         vm.expectRevert();
-        implementation.initialize();
+        implementation.initialize(oprfKeyRegistry);
     }
 
     function test_OwnerCannotRegisterWithoutUpgrade() public {

@@ -37,6 +37,21 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      */
     error InvalidSigner();
 
+    /**
+     * @dev Thrown when an issuerSchemaId is not registered
+     */
+    error IdNotRegistered();
+
+    /**
+     * @dev Thrown when trying to update signer to the same address that's already assigned
+     */
+    error SignerAlreadyAssigned();
+
+    /**
+     * @dev Thrown when the provided issuerSchemaId is invalid
+     */
+    error InvalidIssuerSchemaId();
+
     modifier onlyInitialized() {
         _onlyInitialized();
         _;
@@ -165,7 +180,9 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
     function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
-        require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
+        if (_isEmptyPubkey(pubkey)) {
+            revert IdNotRegistered();
+        }
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId]))
         );
@@ -189,7 +206,9 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         onlyInitialized
     {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
-        require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
+        if (_isEmptyPubkey(oldPubkey)) {
+            revert IdNotRegistered();
+        }
 
         if (_isEmptyPubkey(newPubkey)) {
             revert InvalidPubkey();
@@ -222,9 +241,15 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         onlyProxy
         onlyInitialized
     {
-        require(!_isEmptyPubkey(_idToPubkey[issuerSchemaId]), "Registry: id not registered");
-        require(newSigner != address(0), "Registry: newSigner cannot be zero address");
-        require(_idToAddress[issuerSchemaId] != newSigner, "Registry: newSigner is already the assigned signer");
+        if (_isEmptyPubkey(_idToPubkey[issuerSchemaId])) {
+            revert IdNotRegistered();
+        }
+        if (newSigner == address(0)) {
+            revert InvalidSigner();
+        }
+        if (_idToAddress[issuerSchemaId] == newSigner) {
+            revert SignerAlreadyAssigned();
+        }
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId]))
@@ -270,11 +295,12 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         onlyProxy
         onlyInitialized
     {
-        require(issuerSchemaId != 0, "Schema ID not registered");
-        require(
-            keccak256(bytes(schemaUri)) != keccak256(bytes(idToSchemaUri[issuerSchemaId])),
-            SchemaUriIsTheSameAsCurrentOne()
-        );
+        if (issuerSchemaId == 0) {
+            revert InvalidIssuerSchemaId();
+        }
+        if (keccak256(bytes(schemaUri)) == keccak256(bytes(idToSchemaUri[issuerSchemaId]))) {
+            revert SchemaUriIsTheSameAsCurrentOne();
+        }
 
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 messageHash = _hashTypedDataV4(
