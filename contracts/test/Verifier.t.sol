@@ -68,6 +68,7 @@ contract CredentialSchemaIssuerRegistryMock {
 
 contract NullifierVerifier is Test {
     using Types for Types.Groth16Proof;
+
     Verifier public verifier;
 
     address public verifierGroth16;

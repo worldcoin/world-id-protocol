@@ -13,7 +13,12 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract CredentialSchemaIssuerRegistry is
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable
+{
     error ImplementationNotInitialized();
 
     /**
@@ -122,7 +127,13 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
+    function register(Pubkey memory pubkey, address signer)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256)
+    {
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
         }
