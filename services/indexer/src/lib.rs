@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use alloy::primitives::{Address, Log, U256};
-use alloy::providers::{Provider, ProviderBuilder, WsConnect};
+use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use ark_bn254::Fr;
@@ -25,6 +25,17 @@ use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
 pub use config::GlobalConfig;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+
+// Event signatures for all registry events that change commitment
+fn event_signatures() -> Vec<alloy::primitives::FixedBytes<32>> {
+    vec![
+        WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
+        WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
+        WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
+        WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
+        WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
+    ]
+}
 
 #[derive(Debug, Clone)]
 pub struct AccountCreatedEvent {
@@ -266,26 +277,15 @@ async fn run_indexer_only(
     indexer_cfg: IndexerConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-
-    // Determine starting block from checkpoint or env
-    let mut from = load_checkpoint(&pool)
-        .await?
-        .unwrap_or(indexer_cfg.start_block);
-
-    // Backfill until head (update_tree = false for indexer-only mode)
-    backfill(
-        &provider,
+    index_task(
+        rpc_url,
         &pool,
         registry_address,
-        &mut from,
+        indexer_cfg.start_block,
         indexer_cfg.batch_size,
         false, // Don't update in-memory tree
     )
     .await?;
-
-    tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, false).await?;
 
     Ok(())
 }
@@ -336,8 +336,6 @@ async fn run_both(
     http_cfg: HttpConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-
     // Start HTTP server
     let http_pool = pool.clone();
     let http_addr = http_cfg.http_addr;
@@ -360,29 +358,82 @@ async fn run_both(
         }));
     }
 
-    // Determine starting block from checkpoint or env
-    let mut from = load_checkpoint(&pool)
-        .await?
-        .unwrap_or(indexer_cfg.start_block);
+    // Spawn indexer task
+    let indexer_pool = pool.clone();
+    let indexer_rpc_url = rpc_url.to_string();
+    let indexer_registry = registry_address;
+    let indexer_start_block = indexer_cfg.start_block;
+    let indexer_batch_size = indexer_cfg.batch_size;
+    let indexer_handle = tokio::spawn(async move {
+        index_task(
+            &indexer_rpc_url,
+            &indexer_pool,
+            indexer_registry,
+            indexer_start_block,
+            indexer_batch_size,
+            true, // Update in-memory tree directly from events
+        )
+        .await
+    });
 
-    // Backfill until head (update_tree = true for both mode)
-    backfill(
-        &provider,
-        &pool,
-        registry_address,
-        &mut from,
-        indexer_cfg.batch_size,
-        true, // Update in-memory tree directly from events
-    )
-    .await?;
+    // Get abort handles before select (select moves the handles)
+    let http_abort = http_handle.abort_handle();
+    let indexer_abort = indexer_handle.abort_handle();
+    let sanity_abort = sanity_handle.as_ref().map(|h| h.abort_handle());
 
-    tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, true).await?;
+    // Wait for any task to complete
+    tokio::select! {
+        http_result = http_handle => {
+            // HTTP server completed (or errored)
+            if let Err(e) = http_result {
+                tracing::error!(?e, "HTTP server task panicked");
+            } else if let Err(e) = http_result.unwrap() {
+                tracing::error!(?e, "HTTP server exited with error");
+            } else {
+                tracing::info!("HTTP server exited normally");
+            }
 
-    http_handle.abort();
-    if let Some(handle) = sanity_handle {
-        handle.abort();
+            // Gracefully shut down other tasks
+            indexer_abort.abort();
+            if let Some(abort) = sanity_abort {
+                abort.abort();
+            }
+        }
+        indexer_result = indexer_handle => {
+            // Indexer task completed (or errored)
+            if let Err(e) = indexer_result {
+                tracing::error!(?e, "Indexer task panicked");
+            } else if let Err(e) = indexer_result.unwrap() {
+                tracing::error!(?e, "Indexer exited with error");
+            } else {
+                tracing::info!("Indexer exited normally");
+            }
+
+            // Gracefully shut down other tasks
+            http_abort.abort();
+            if let Some(abort) = sanity_abort {
+                abort.abort();
+            }
+        }
+        sanity_result = async {
+            match sanity_handle {
+                Some(handle) => handle.await,
+                None => std::future::pending().await,
+            }
+        } => {
+            // Sanity checker completed (shouldn't normally happen, but handle it)
+            if let Err(e) = sanity_result {
+                tracing::error!(?e, "Sanity checker task panicked");
+            } else {
+                tracing::warn!("Sanity checker task completed unexpectedly");
+            }
+
+            // Gracefully shut down other tasks
+            http_abort.abort();
+            indexer_abort.abort();
+        }
     }
+
     Ok(())
 }
 
@@ -409,13 +460,26 @@ pub async fn load_checkpoint(pool: &PgPool) -> anyhow::Result<Option<u64>> {
 }
 
 pub async fn save_checkpoint(pool: &PgPool, block: u64) -> anyhow::Result<()> {
-    sqlx::query(
-        "insert into checkpoints (name, last_block) values ($1, $2) on conflict (name) do update set last_block = excluded.last_block",
+    let result = sqlx::query(
+        "insert into checkpoints (name, last_block) values ($1, $2) 
+         on conflict (name) do update set last_block = excluded.last_block 
+         where excluded.last_block > checkpoints.last_block",
     )
     .bind("account_created")
     .bind(block as i64)
     .execute(pool)
     .await?;
+
+    // If no rows were affected, it means the block number wasn't greater than the existing one
+    if result.rows_affected() == 0 && tracing::enabled!(tracing::Level::DEBUG) {
+        let existing_block = load_checkpoint(pool).await?.unwrap_or(0);
+        tracing::debug!(
+            attempted_block = block,
+            existing_block,
+            "checkpoint not updated: block number not greater than existing checkpoint"
+        );
+    }
+
     Ok(())
 }
 
@@ -432,114 +496,83 @@ async fn backfill_batch<P: Provider>(
         *from_block = 1;
     }
 
-    let to_block = (*from_block + batch_size - 1).min(head);
+    // Process batches until caught up to head
+    while *from_block <= head {
+        let to_block = (*from_block + batch_size - 1).min(head);
 
-    // Listen for all events that change commitment
-    let event_signatures = vec![
-        WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-        WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-        WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-    ];
+        let filter = Filter::new()
+            .address(registry)
+            .event_signature(event_signatures())
+            .from_block(*from_block)
+            .to_block(to_block);
 
-    let filter = Filter::new()
-        .address(registry)
-        .event_signature(event_signatures)
-        .from_block(*from_block)
-        .to_block(to_block);
+        let mut logs = provider.get_logs(&filter).await?;
 
-    let logs = provider.get_logs(&filter).await?;
-    if !logs.is_empty() {
-        tracing::info!(
-            count = logs.len(),
-            from = *from_block,
-            to = to_block,
-            "processing registry logs"
-        );
-    }
-    for lg in logs {
-        match decode_registry_event(&lg) {
-            Ok(event) => {
-                tracing::debug!(?event, "decoded registry event");
-                let block_number = lg.block_number;
-                let tx_hash = lg.transaction_hash;
-                let log_index = lg.log_index;
-
-                if let Err(e) =
-                    handle_registry_event(pool, &event, block_number, tx_hash, log_index).await
-                {
-                    tracing::error!(?e, ?event, "failed to handle registry event in DB");
-                }
-
-                if update_tree {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for event");
+        // Sort logs by block number, then by log index to ensure correct processing order
+        // The RPC spec doesn't guarantee order, so we must sort explicitly
+        logs.sort_by(|a, b| {
+            match (a.block_number, b.block_number) {
+                (Some(a_bn), Some(b_bn)) => {
+                    let block_cmp = a_bn.cmp(&b_bn);
+                    if block_cmp != std::cmp::Ordering::Equal {
+                        return block_cmp;
+                    }
+                    // Within the same block, sort by log index
+                    match (a.log_index, b.log_index) {
+                        (Some(a_li), Some(b_li)) => a_li.cmp(&b_li),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
                     }
                 }
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
             }
-            Err(e) => {
-                tracing::warn!(?e, ?lg, "failed to decode registry event");
-            }
+        });
+
+        if !logs.is_empty() {
+            tracing::info!(
+                count = logs.len(),
+                from = *from_block,
+                to = to_block,
+                "processing registry logs"
+            );
         }
-    }
+        for lg in logs {
+            let event = decode_registry_event(&lg)?;
+            tracing::debug!(?event, "decoded registry event");
+            let block_number = lg.block_number;
+            let tx_hash = lg.transaction_hash;
+            let log_index = lg.log_index;
 
-    save_checkpoint(pool, to_block).await?;
-    tracing::debug!(
-        from = *from_block,
-        to = to_block,
-        "✔️ finished processing batch until block {to_block}"
-    );
-    *from_block = to_block + 1;
-    Ok(())
-}
-
-/// Backfill the entire history of the registry.
-pub async fn backfill<P: Provider>(
-    provider: &P,
-    pool: &PgPool,
-    registry: Address,
-    from_block: &mut u64,
-    batch_size: u64,
-    update_tree: bool,
-) -> anyhow::Result<()> {
-    let mut head = provider.get_block_number().await?;
-    loop {
-        match backfill_batch(
-            provider,
-            pool,
-            registry,
-            from_block,
-            batch_size,
-            update_tree,
-            head,
-        )
-        .await
-        {
-            Ok(()) => {
-                // Check if we're caught up to chain head
-                let new_head = provider.get_block_number().await;
-                if let Ok(new_head) = new_head {
-                    head = new_head;
-                } else {
-                    tracing::error!("failed to get current chain head; retrying after delay");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+            // Deduplication: Check if this event has already been processed
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
+                if is_event_already_processed(pool, &tx, li).await? {
+                    tracing::debug!(
+                        tx_hash = ?tx,
+                        log_index = li,
+                        block_number = ?block_number,
+                        "event already processed, skipping"
+                    );
                     continue;
                 }
-                if *from_block > head {
-                    tracing::info!(
-                        from = *from_block,
-                        head,
-                        "✅ backfill complete, caught up to chain head"
-                    );
-                    break;
+            }
+
+            if let Some(bn) = block_number {
+                handle_registry_event(pool, &event, bn, tx_hash, log_index).await?;
+                if update_tree {
+                    update_tree_with_event(&event).await?;
                 }
             }
-            Err(err) => {
-                tracing::error!(?err, "backfill error; retrying after delay");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
         }
+        save_checkpoint(pool, to_block).await?;
+        tracing::info!(
+            from = *from_block,
+            to = to_block,
+            "✔️ finished processing batch until block {to_block}"
+        );
+        *from_block = to_block + 1;
     }
     Ok(())
 }
@@ -653,11 +686,16 @@ pub fn decode_registry_event(lg: &alloy::rpc::types::Log) -> anyhow::Result<Regi
     }
 }
 
-pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::Result<()> {
+pub async fn insert_account(
+    pool: &PgPool,
+    ev: &AccountCreatedEvent,
+    block_number: u64,
+) -> anyhow::Result<()> {
+    let block_num = block_number as i64;
     sqlx::query(
         r#"insert into accounts
-        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
-        values ($1, $2, $3, $4, $5)
+        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment, last_updated_block)
+        values ($1, $2, $3, $4, $5, $6)
         on conflict (leaf_index) do nothing"#,
     )
     .bind(ev.leaf_index.to_string())
@@ -675,6 +713,7 @@ pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::
             .collect::<Vec<_>>(),
     ))
     .bind(ev.offchain_signer_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -684,14 +723,17 @@ pub async fn update_commitment(
     pool: &PgPool,
     leaf_index: U256,
     new_commitment: U256,
+    block_number: u64,
 ) -> anyhow::Result<()> {
+    let block_num = block_number as i64;
     sqlx::query(
         r#"update accounts
-        set offchain_signer_commitment = $2
-        where leaf_index = $1"#,
+        set offchain_signer_commitment = $2, last_updated_block = $3
+        where leaf_index = $1 and (last_updated_block is null or last_updated_block < $3)"#,
     )
     .bind(leaf_index.to_string())
     .bind(new_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -704,20 +746,25 @@ pub async fn update_authenticator_at_index(
     new_address: Address,
     new_pubkey: U256,
     new_commitment: U256,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     // Update authenticator at specific index (pubkey_id)
+    // Enforce that last_updated_block must increase
+    let block_num = block_number as i64;
     sqlx::query(
         r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), false),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), false),
-            offchain_signer_commitment = $5
-        where leaf_index = $1"#,
+            offchain_signer_commitment = $5,
+            last_updated_block = $6
+        where leaf_index = $1 and (last_updated_block is null or last_updated_block < $6)"#,
     )
     .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -730,20 +777,25 @@ pub async fn insert_authenticator_at_index(
     new_address: Address,
     new_pubkey: U256,
     new_commitment: U256,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     // Ensure arrays are large enough and insert at specific index
+    // Enforce that last_updated_block must increase
+    let block_num = block_number as i64;
     sqlx::query(
         r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), true),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), true),
-            offchain_signer_commitment = $5
-        where leaf_index = $1"#,
+            offchain_signer_commitment = $5,
+            last_updated_block = $6
+        where leaf_index = $1 and (last_updated_block is null or last_updated_block < $6)"#,
     )
     .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}"))
     .bind(new_address.to_string())
     .bind(new_pubkey.to_string())
     .bind(new_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
@@ -754,21 +806,45 @@ pub async fn remove_authenticator_at_index(
     leaf_index: U256,
     pubkey_id: u32,
     new_commitment: U256,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     // Remove authenticator at specific index by setting to null
+    // Enforce that last_updated_block must increase
+    let block_num = block_number as i64;
     sqlx::query(
         r#"update accounts
         set authenticator_addresses = jsonb_set(authenticator_addresses, $2, 'null'::jsonb, false),
             authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, 'null'::jsonb, false),
-            offchain_signer_commitment = $3
-        where leaf_index = $1"#,
+            offchain_signer_commitment = $3,
+            last_updated_block = $4
+        where leaf_index = $1 and (last_updated_block is null or last_updated_block < $4)"#,
     )
     .bind(leaf_index.to_string())
     .bind(format!("{{{pubkey_id}}}"))
     .bind(new_commitment.to_string())
+    .bind(block_num)
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Check if an event has already been processed by querying commitment_update_events.
+/// Returns true if the event exists (already processed), false otherwise.
+async fn is_event_already_processed(
+    pool: &PgPool,
+    tx_hash: &alloy::primitives::B256,
+    log_index: u64,
+) -> anyhow::Result<bool> {
+    let tx_str = format!("{tx_hash:?}");
+    let exists: Option<(i64,)> = sqlx::query_as(
+        "select 1 from commitment_update_events where tx_hash = $1 and log_index = $2 limit 1",
+    )
+    .bind(&tx_str)
+    .bind(log_index as i64)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(exists.is_some())
 }
 
 pub async fn record_commitment_update(
@@ -800,20 +876,20 @@ pub async fn record_commitment_update(
 pub async fn handle_registry_event(
     pool: &PgPool,
     event: &RegistryEvent,
-    block_number: Option<u64>,
+    block_number: u64,
     tx_hash: Option<alloy::primitives::B256>,
     log_index: Option<u64>,
 ) -> anyhow::Result<()> {
     match event {
         RegistryEvent::AccountCreated(ev) => {
-            insert_account(pool, ev).await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            insert_account(pool, ev, block_number).await?;
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "created",
                     ev.offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -828,15 +904,16 @@ pub async fn handle_registry_event(
                 ev.new_authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
+                block_number,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "updated",
                     ev.new_offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -851,15 +928,16 @@ pub async fn handle_registry_event(
                 ev.authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
+                block_number,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "inserted",
                     ev.new_offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -872,15 +950,16 @@ pub async fn handle_registry_event(
                 ev.leaf_index,
                 ev.pubkey_id,
                 ev.new_offchain_signer_commitment,
+                block_number,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "removed",
                     ev.new_offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -896,15 +975,16 @@ pub async fn handle_registry_event(
                 ev.new_authenticator_address,
                 ev.new_authenticator_pubkey,
                 ev.new_offchain_signer_commitment,
+                block_number,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
+            if let (Some(tx), Some(li)) = (tx_hash, log_index) {
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
                     "recovered",
                     ev.new_offchain_signer_commitment,
-                    bn,
+                    block_number,
                     &format!("{tx:?}"),
                     li,
                 )
@@ -1002,62 +1082,108 @@ async fn fetch_recent_account_updates(
     Ok(updates)
 }
 
-pub async fn stream_logs(
-    ws_url: &str,
+/// Continuously indexes from the last saved checkpoint.
+/// This task runs in a loop, periodically checking for new blocks and catching up.
+/// Fetches the starting block from checkpoint inside the loop.
+/// Uses checkpoint as the source of truth and runs on a 1-second interval.
+/// All database updates are dedup-safe via conflict handling.
+async fn index_task(
+    rpc_url: &str,
     pool: &PgPool,
-    registry: Address,
-    start_from: u64,
+    registry_address: Address,
+    start_block: Option<u64>,
+    batch_size: u64,
     update_tree: bool,
 ) -> anyhow::Result<()> {
-    use futures_util::StreamExt;
-    let ws = WsConnect::new(ws_url);
-    let provider = ProviderBuilder::new().connect_ws(ws).await?;
+    const INTERVAL: Duration = Duration::from_secs(1);
 
-    let event_signatures = vec![
-        WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-        WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-        WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-    ];
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
-    let filter = Filter::new()
-        .address(registry)
-        .event_signature(event_signatures)
-        .from_block(start_from);
-    let sub = provider.subscribe_logs(&filter).await?;
-    let mut stream = sub.into_stream();
-    while let Some(log) = stream.next().await {
-        tracing::info!(?log, "processing live registry log");
-        match decode_registry_event(&log) {
-            Ok(event) => {
-                tracing::info!(?event, "decoded live registry event");
-                let block_number = log.block_number;
-                let tx_hash = log.transaction_hash;
-                let log_index = log.log_index;
+    // If start_block is defined do initial backfill from start_block
+    if let Some(block) = start_block {
+        let current_head = provider.get_block_number().await?;
+        let mut from = block;
+        let head = current_head;
+        // If initial backfill_fails, error out. Don't retry indefinitely like the loop below.
+        backfill_batch(
+            &provider,
+            pool,
+            registry_address,
+            &mut from,
+            batch_size,
+            update_tree,
+            head,
+        )
+        .await?;
+    }
 
-                if let Err(e) =
-                    handle_registry_event(pool, &event, block_number, tx_hash, log_index).await
-                {
-                    tracing::error!(?e, ?event, "failed to handle registry event in DB");
-                }
-
-                if update_tree {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for live event");
-                    }
-                }
-
-                if let Some(bn) = log.block_number {
-                    save_checkpoint(pool, bn).await?;
-                }
+    // Main loop: always use checkpoint as source of truth
+    loop {
+        // Step 1: Get last processed block from checkpoint
+        let last_processed = match load_checkpoint(pool).await {
+            Ok(Some(block)) => {
+                tracing::debug!(block, "index task: loaded checkpoint");
+                block
+            }
+            Ok(None) => {
+                tracing::info!("index task: no checkpoint found, starting from block 1");
+                1
             }
             Err(e) => {
-                tracing::warn!(?e, ?log, "failed to decode live registry event");
+                tracing::error!(?e, "index task: failed to load checkpoint, will retry");
+                tokio::time::sleep(INTERVAL).await;
+                continue;
             }
+        };
+
+        // Step 2: Get current chain head
+        let current_head = match provider.get_block_number().await {
+            Ok(head) => head,
+            Err(e) => {
+                tracing::error!(
+                    ?e,
+                    "index task: failed to get current chain head, will retry"
+                );
+                tokio::time::sleep(INTERVAL).await;
+                continue;
+            }
+        };
+
+        // Step 3: If we're behind, process one batch
+        if last_processed < current_head {
+            tracing::info!(
+                from = last_processed,
+                to = current_head,
+                "index task: processing batch"
+            );
+            let mut from = last_processed;
+
+            if let Err(err) = backfill_batch(
+                &provider,
+                pool,
+                registry_address,
+                &mut from,
+                batch_size,
+                update_tree,
+                current_head,
+            )
+            .await
+            {
+                tracing::error!(?err, "index task: failed to backfill batch, will retry");
+                tokio::time::sleep(INTERVAL).await;
+                continue;
+            }
+        } else {
+            tracing::debug!(
+                last_processed,
+                current_head,
+                "index task: already caught up"
+            );
         }
+
+        // Wait before next check
+        tokio::time::sleep(INTERVAL).await;
     }
-    Ok(())
 }
 
 #[cfg(test)]
