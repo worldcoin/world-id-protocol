@@ -174,7 +174,6 @@ async fn run_nullifier(
     authenticator: &Authenticator,
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
-    oprf_public_key: OprfPublicKey,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
@@ -208,7 +207,6 @@ async fn run_nullifier(
         rp_id,
         oprf_key_id,
         action: FieldElement::from(action),
-        oprf_public_key,
         signature,
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {
@@ -235,7 +233,6 @@ fn prepare_nullifier_stress_test_oprf_request(
     authenticator_private_key: &EdDSAPrivateKey,
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
-    oprf_public_key: OprfPublicKey,
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
     key_index: u64,
@@ -289,7 +286,6 @@ fn prepare_nullifier_stress_test_oprf_request(
         nonce: nonce.into(),
         current_timestamp,
         rp_signature: signature,
-        oprf_public_key,
         signal_hash: signal_hash.into(),
         credential_sub_blinding_factor,
         genesis_issued_at_min: 0,
@@ -369,7 +365,6 @@ async fn stress_test(
             &authenticator_private_key,
             rp_id,
             oprf_key_id,
-            oprf_public_key,
             inclusion_proof.clone(),
             key_set.clone(),
             key_index,
@@ -621,14 +616,7 @@ async fn main() -> eyre::Result<()> {
     match config.command {
         Command::Test => {
             tracing::info!("running single nullifier");
-            run_nullifier(
-                &authenticator,
-                rp_id,
-                oprf_key_id,
-                oprf_public_key,
-                &private_key,
-            )
-            .await?;
+            run_nullifier(&authenticator, rp_id, oprf_key_id, &private_key).await?;
             tracing::info!("nullifier successful");
         }
         Command::StressTest(cmd) => {

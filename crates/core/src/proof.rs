@@ -272,7 +272,6 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     let verifiable_oprf_output = taceo_oprf_client::distributed_oprf(
         services,
         threshold,
-        args.oprf_public_key,
         args.oprf_key_id,
         share_epoch,
         query_hash,
@@ -301,7 +300,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         id_commitment_r: *args.session_id_r_seed,
         dlog_e: verifiable_oprf_output.dlog_proof.e,
         dlog_s: verifiable_oprf_output.dlog_proof.s,
-        oprf_pk: args.oprf_public_key.inner(),
+        oprf_pk: verifiable_oprf_output.oprf_public_key.inner(),
         oprf_response_blinded: verifiable_oprf_output.blinded_response,
         oprf_response: verifiable_oprf_output.unblinded_response,
         signal_hash: *args.signal_hash,

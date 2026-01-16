@@ -3,7 +3,7 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
-use taceo_oprf_types::{crypto::OprfPublicKey, OprfKeyId};
+use taceo_oprf_types::OprfKeyId;
 
 use crate::{
     authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId, Credential,
@@ -165,10 +165,6 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     ///
     /// TODO: Refactor what is actually signed.
     pub rp_signature: alloy_primitives::Signature,
-    /// The public key used to verify the computed nullifier. It can be retrieved from the `OprfKeyRegistry` contract.
-    ///
-    /// TODO: This requires more details.
-    pub oprf_public_key: OprfPublicKey,
     /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
     /// to ensure the integrity of the proof. For example, in a voting application, the signal could
     /// be used to encode the user's vote.

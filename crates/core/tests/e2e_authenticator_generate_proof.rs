@@ -189,7 +189,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         )
         .await?;
 
-    let oprf_public_key =
+    // Wait for OPRF key-gen and until the public key is available from the nodes.
+    let _oprf_public_key =
         test_utils::taceo_oprf_test::health_checks::oprf_public_key_from_services(
             rp_fixture.oprf_key_id,
             ShareEpoch::default(),
@@ -241,7 +242,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
         action: rp_fixture.action.into(),
-        oprf_public_key,
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
