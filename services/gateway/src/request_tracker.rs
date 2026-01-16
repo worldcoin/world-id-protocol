@@ -13,6 +13,7 @@ pub struct RequestRecord {
 }
 
 const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
+const CACHE_MAX_CAPACITY: u64 = 100_000;
 
 /// Custom expiry policy that preserves TTL on updates (like Redis KEEPTTL).
 struct RequestExpiry;
@@ -85,7 +86,10 @@ impl RequestTracker {
         };
 
         // Build moka cache with custom expiry that preserves TTL on updates
-        let cache = Cache::builder().expire_after(RequestExpiry).build();
+        let cache = Cache::builder()
+            .max_capacity(CACHE_MAX_CAPACITY)
+            .expire_after(RequestExpiry)
+            .build();
 
         Self {
             cache,
