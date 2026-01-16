@@ -3,9 +3,7 @@ use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
 };
-use lru::LruCache;
-use parking_lot::Mutex;
-use std::sync::Arc;
+use moka::future::Cache;
 
 /// Maximum number of authenticators per account (matches contract default).
 pub(crate) const MAX_AUTHENTICATORS: u32 = 7;
@@ -21,6 +19,6 @@ pub(crate) struct AppState {
     pub(crate) batcher: CreateBatcherHandle,
     /// Background batcher for ops (insert/remove/recover/update).
     pub(crate) ops_batcher: OpsBatcherHandle,
-    /// LRU cache of valid roots to their expiration timestamps.
-    pub(crate) root_cache: Arc<Mutex<LruCache<U256, U256>>>,
+    /// Cache of valid roots to their expiration timestamps.
+    pub(crate) root_cache: Cache<U256, U256>,
 }
