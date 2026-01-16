@@ -43,7 +43,7 @@ pub struct WorldOprfNodeConfig {
     ///
     /// Will drop old Rps if this capacity is reached.
     #[clap(long, env = "OPRF_NODE_RP_REGISTRY_STORE_SIZE", default_value = "1000")]
-    pub max_rp_registry_store_size: usize,
+    pub max_rp_registry_store_size: u64,
 
     /// The maximum delta between the received current_time_stamp the node current_time_stamp
     #[clap(
