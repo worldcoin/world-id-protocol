@@ -33,18 +33,11 @@ fn is_expired(expires_at: U256, now: U256) -> bool {
     expires_at <= now
 }
 
-/// Return a cached validity value when present and not expired.
-async fn get_cached_root(state: &AppState, root: U256, now: U256) -> bool {
-    let expires_at = match state.root_cache.get(&root).await {
-        Some(ts) => ts,
-        None => return false,
-    };
-    if is_expired(expires_at, now) {
-        // Expired entries are removed so future lookups fall through.
-        state.root_cache.invalidate(&root).await;
-        return false;
-    }
-    true
+/// Check if a root is present in the cache.
+///
+/// Expiration is handled automatically by moka's `Expiry` policy.
+async fn is_cached_root(state: &AppState, root: U256) -> bool {
+    state.root_cache.get(&root).await.is_some()
 }
 
 /// Cache decision for a valid root.
@@ -99,10 +92,10 @@ pub(crate) async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> Result<Json<IsValidRootResponse>, GatewayErrorResponse> {
     let root = req_u256("root", &q.root)?;
-    let now = now_timestamp()?;
-    if get_cached_root(&state, root, now).await {
+    if is_cached_root(&state, root).await {
         return Ok(Json(IsValidRootResponse { valid: true }));
     }
+    let now = now_timestamp()?;
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)

@@ -15,6 +15,7 @@ use crate::{
         request_status::request_status,
         update_authenticator::update_authenticator,
     },
+    types::RootExpiry,
     AppState, SignerConfig,
 };
 use alloy::primitives::Address;
@@ -90,6 +91,7 @@ pub(crate) async fn build_app(
 
     let root_cache = Cache::builder()
         .max_capacity(ROOT_CACHE_SIZE as u64)
+        .expire_after(RootExpiry)
         .build();
     let state = AppState {
         registry_addr,
