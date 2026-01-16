@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use moka::{future::Cache, ops::compute::Op};
+use moka::{future::Cache, ops::compute::Op, Expiry};
 use redis::{aio::ConnectionManager, AsyncTypedCommands, Client, SetExpiry, SetOptions};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -12,7 +12,44 @@ pub struct RequestRecord {
     pub status: GatewayRequestState,
 }
 
-const REQUESTS_TTL: u64 = 86_400; // 24 hours
+const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
+
+/// Custom expiry policy that preserves TTL on updates (like Redis KEEPTTL).
+struct RequestExpiry;
+
+impl Expiry<String, RequestRecord> for RequestExpiry {
+    fn expire_after_create(
+        &self,
+        _key: &String,
+        _value: &RequestRecord,
+        _created_at: Instant,
+    ) -> Option<Duration> {
+        Some(REQUESTS_TTL)
+    }
+
+    fn expire_after_read(
+        &self,
+        _key: &String,
+        _value: &RequestRecord,
+        _read_at: Instant,
+        duration_until_expiry: Option<Duration>,
+        _last_modified_at: Instant,
+    ) -> Option<Duration> {
+        // Preserve original TTL on read
+        duration_until_expiry
+    }
+
+    fn expire_after_update(
+        &self,
+        _key: &String,
+        _value: &RequestRecord,
+        _updated_at: Instant,
+        duration_until_expiry: Option<Duration>,
+    ) -> Option<Duration> {
+        // Preserve original TTL on update (like Redis KEEPTTL)
+        duration_until_expiry
+    }
+}
 
 /// Global request tracker instance.
 ///
@@ -47,10 +84,8 @@ impl RequestTracker {
             None
         };
 
-        // Build moka cache with TTL-based expiration (no manual cleanup needed)
-        let cache = Cache::builder()
-            .time_to_live(Duration::from_secs(REQUESTS_TTL))
-            .build();
+        // Build moka cache with custom expiry that preserves TTL on updates
+        let cache = Cache::builder().expire_after(RequestExpiry).build();
 
         Self {
             cache,
@@ -82,7 +117,7 @@ impl RequestTracker {
 
             let opts = SetOptions::default()
                 .conditional_set(redis::ExistenceCheck::NX)
-                .with_expiration(SetExpiry::EX(REQUESTS_TTL));
+                .with_expiration(SetExpiry::EX(REQUESTS_TTL.as_secs()));
 
             manager
                 .set_options(&key, json_str, opts)
