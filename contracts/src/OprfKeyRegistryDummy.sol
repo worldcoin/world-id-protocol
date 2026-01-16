@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
 import {Verifier as VerifierKeyGen13} from "oprf-key-registry/src/VerifierKeyGen13.sol";
