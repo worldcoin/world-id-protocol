@@ -1,8 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::time::Duration;
 
+use moka::{future::Cache, ops::compute::Op};
 use redis::{aio::ConnectionManager, AsyncTypedCommands, Client, SetExpiry, SetOptions};
 use serde::{Deserialize, Serialize};
-use tokio::{sync::RwLock, time::Instant};
 use utoipa::ToSchema;
 use world_id_core::types::{GatewayErrorResponse, GatewayRequestKind, GatewayRequestState};
 
@@ -12,22 +12,19 @@ pub struct RequestRecord {
     pub status: GatewayRequestState,
 }
 
-struct InMemoryRecord {
-    record: RequestRecord,
-    created_at: Instant,
-}
-
 const REQUESTS_TTL: u64 = 86_400; // 24 hours
-const MEMORY_CLEANUP_INTERVAL: Duration = Duration::from_secs(3_600);
 
 /// Global request tracker instance.
 ///
 /// Tracks all requests made to the gateway by ID for async querying.
 ///
-/// Using Redis is strongly recommended for production environments, and especially multi-node setups.
+/// Uses an in-memory cache (moka) for fast lookups, with optional Redis persistence
+/// for production environments and multi-node setups.
 #[derive(Clone)]
 pub struct RequestTracker {
-    inner: Arc<RwLock<HashMap<String, InMemoryRecord>>>,
+    /// The lru cache with TTL-based expiration.
+    cache: Cache<String, RequestRecord>,
+    /// The db (redis) connection.
     redis_manager: Option<ConnectionManager>,
 }
 
@@ -47,35 +44,19 @@ impl RequestTracker {
 
             Some(manager)
         } else {
-            tracing::info!("No Redis URL provided, using in-memory request storage");
+            tracing::info!("No Redis URL provided, using in-memory request storage only");
             None
         };
 
-        let tracker = Self {
-            inner: Arc::new(RwLock::new(HashMap::new())),
+        // Build moka cache with TTL-based expiration (no manual cleanup needed)
+        let cache = Cache::builder()
+            .time_to_live(Duration::from_secs(REQUESTS_TTL))
+            .build();
+
+        Self {
+            cache,
             redis_manager,
-        };
-
-        // Spawn background cleanup task for in-memory storage
-        if tracker.redis_manager.is_none() {
-            let inner = tracker.inner.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(MEMORY_CLEANUP_INTERVAL).await;
-                    let mut map = inner.write().await;
-                    let now = Instant::now();
-                    map.retain(|_, record| {
-                        now.duration_since(record.created_at) < Duration::from_secs(REQUESTS_TTL)
-                    });
-                    tracing::info!(
-                        "Cleaned up expired in-memory request records. Current count: {}",
-                        map.len()
-                    );
-                }
-            });
         }
-
-        tracker
     }
 
     fn request_key(id: &str) -> String {
@@ -92,6 +73,10 @@ impl RequestTracker {
             status: GatewayRequestState::Queued,
         };
 
+        // Always insert into local cache
+        self.cache.insert(id.clone(), record.clone()).await;
+
+        // Persist to Redis if configured
         if let Some(mut manager) = self.redis_manager.clone() {
             let key = Self::request_key(&id);
             let json_str = serde_json::to_string(&record).map_err(|e| {
@@ -107,33 +92,32 @@ impl RequestTracker {
                 .set_options(&key, json_str, opts)
                 .await
                 .map_err(handle_redis_error)?;
-        } else {
-            // Use in-memory storage
-            self.inner.write().await.insert(
-                id.clone(),
-                InMemoryRecord {
-                    record: record.clone(),
-                    created_at: Instant::now(),
-                },
-            );
         }
 
         Ok((id, record))
     }
 
     pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
-        if self.redis_manager.is_some() {
-            for id in ids {
+        for id in ids {
+            // Atomically update local cache if entry exists
+            self.cache
+                .entry_by_ref(id)
+                .and_compute_with(|entry| async {
+                    match entry {
+                        Some(entry) => {
+                            let mut record = entry.into_value();
+                            record.status = status.clone();
+                            Op::Put(record)
+                        }
+                        None => Op::Nop,
+                    }
+                })
+                .await;
+
+            // Update Redis if configured
+            if self.redis_manager.is_some() {
                 if let Err(e) = self.set_status_on_redis(id, &status).await {
-                    tracing::error!("Error updating status for request: {e}");
-                }
-            }
-        } else {
-            // Update in-memory
-            let mut map = self.inner.write().await;
-            for id in ids {
-                if let Some(mem_rec) = map.get_mut(id) {
-                    mem_rec.record.status = status.clone();
+                    tracing::error!("Error updating status for request {id}: {e}");
                 }
             }
         }
@@ -144,14 +128,23 @@ impl RequestTracker {
     }
 
     pub async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
+        // Check local cache first (L1)
+        if let Some(record) = self.cache.get(id).await {
+            return Some(record);
+        }
+
+        // Fall back to Redis if configured (L2)
         if let Some(mut manager) = self.redis_manager.clone() {
-            // Try to get from Redis
             let key = Self::request_key(id);
             let result: Result<Option<String>, redis::RedisError> = manager.get(&key).await;
 
             match result {
                 Ok(Some(json_str)) => match serde_json::from_str::<RequestRecord>(&json_str) {
-                    Ok(record) => Some(record),
+                    Ok(record) => {
+                        // Populate cache on Redis hit
+                        self.cache.insert(id.to_string(), record.clone()).await;
+                        Some(record)
+                    }
                     Err(e) => {
                         tracing::error!("Failed to deserialize request from Redis: {}", e);
                         None
@@ -164,8 +157,7 @@ impl RequestTracker {
                 }
             }
         } else {
-            // Get from in-memory storage
-            self.inner.read().await.get(id).map(|r| r.record.clone())
+            None
         }
     }
 
