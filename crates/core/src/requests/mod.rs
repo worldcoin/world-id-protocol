@@ -55,8 +55,6 @@ pub struct ProofRequest {
     pub version: RequestVersion,
     /// Unix timestamp (seconds since epoch) when the request was created
     pub created_at: u64,
-    /// Unix timestamp (seconds since epoch) when request expires
-    pub expires_at: u64,
     /// Registered RP id
     pub rp_id: RpId,
     /// `OprfKeyId` of the RP
@@ -262,12 +260,6 @@ impl ProofRequest {
         self.requests
             .iter()
             .find(|r| r.issuer_schema_id == issuer_schema_id)
-    }
-
-    /// Returns true if the request is expired relative to now (unix timestamp in seconds)
-    #[must_use]
-    pub const fn is_expired(&self, now: u64) -> bool {
-        now > self.expires_at
     }
 
     /// Compute the digest hash of this request that should be signed by the RP, which right now
@@ -557,7 +549,6 @@ mod tests {
             id: "test_request".into(),
             version: RequestVersion::V1,
             created_at: 1_700_000_000,
-            expires_at: 1_700_100_000,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: FieldElement::ZERO,
@@ -597,7 +588,6 @@ mod tests {
             id: "req_1".into(),
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
-            expires_at: 1_735_689_600, // 2025-01-01
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: FieldElement::ZERO,
@@ -678,7 +668,6 @@ mod tests {
             id: "req_2".into(),
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
-            expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
@@ -753,7 +742,6 @@ mod tests {
             id: "req_nodes_ok".into(),
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
-            expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
@@ -896,7 +884,6 @@ mod tests {
             id: "req_nodes_too_many".into(),
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
-            expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
@@ -1002,7 +989,6 @@ mod tests {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
-            expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
@@ -1044,7 +1030,6 @@ mod tests {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
-            expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
@@ -1109,7 +1094,6 @@ mod tests {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
-            expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
@@ -1246,7 +1230,6 @@ mod tests {
             id: "req_dup".into(),
             version: RequestVersion::V1,
             created_at: 1_725_381_192,
-            expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
@@ -1291,7 +1274,6 @@ mod tests {
             id: "req".into(),
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
-            expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
@@ -1340,7 +1322,6 @@ mod tests {
             id: "req".into(),
             version: RequestVersion::V1,
             created_at: 1_735_689_600,
-            expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),

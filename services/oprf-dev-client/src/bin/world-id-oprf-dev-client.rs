@@ -204,7 +204,6 @@ async fn run_nullifier(
         id: "test_request".to_string(),
         version: RequestVersion::V1,
         created_at: current_timestamp,
-        expires_at: current_timestamp + 300, // 5 minutes from now
         rp_id,
         oprf_key_id,
         action: FieldElement::from(action),
