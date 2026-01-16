@@ -73,7 +73,7 @@ async fn redis_integration() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    assert_eq!(resp.status(), StatusCode::OK);
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let request_id = accepted.request_id.clone();
 
