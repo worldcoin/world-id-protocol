@@ -30,6 +30,8 @@ Monorepo containing:
 | -------------------------------- | ----------------------------------------------------- |
 | `WorldIDRegistry`                | `0xb64a1F443C9a18Cd3865C3c9Be871946617C0d75`          |
 | `CredentialSchemaIssuerRegistry` | `0xCd987d2C973B099FD291Bf5AF332031Dc980a96B`          |
+| `RpRegistry`                     | `0x27ee9a7a64e445737e43cF5338584556b061e031`          |
+| `OprfKeyRegistry`                |`0xD5dD99e7c11DaD43CF3D7AB0E708b2309738A618`           |
 | `world-id-indexer`               | `https://world-id-indexer.stage-crypto.worldcoin.org` |
 | `world-id-gateway`               | `https://world-id-gateway.stage-crypto.worldcoin.org` |
 
