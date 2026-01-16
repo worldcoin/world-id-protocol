@@ -43,7 +43,8 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         address oprfKeyRegistry = address(new MockOprfKeyRegistry());
 
         // Deploy proxy with initialization
-        bytes memory initData = abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector, oprfKeyRegistry);
+        bytes memory initData =
+            abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector, oprfKeyRegistry);
         proxy = new ERC1967Proxy(address(implementationV1), initData);
 
         registry = CredentialSchemaIssuerRegistry(address(proxy));
