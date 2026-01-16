@@ -46,7 +46,7 @@ mod request_status;
 mod update_authenticator;
 mod validation;
 
-const ROOT_CACHE_SIZE: usize = 1024;
+const ROOT_CACHE_SIZE: u64 = 1024;
 
 pub(crate) async fn build_app(
     registry_addr: Address,
@@ -90,7 +90,7 @@ pub(crate) async fn build_app(
     tracing::info!("Ops batcher initialized");
 
     let root_cache = Cache::builder()
-        .max_capacity(ROOT_CACHE_SIZE as u64)
+        .max_capacity(ROOT_CACHE_SIZE)
         .expire_after(RootExpiry)
         .build();
     let state = AppState {
