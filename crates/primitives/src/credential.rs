@@ -150,7 +150,7 @@ impl Credential {
     pub fn new() -> Self {
         let mut rng = rand::thread_rng();
         Self {
-            id: rng.gen(),
+            id: rng.r#gen(),
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
             sub: FieldElement::ZERO,
