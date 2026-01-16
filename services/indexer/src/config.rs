@@ -1,9 +1,6 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
-use alloy::primitives::Address;
-use alloy::providers::DynProvider;
+use alloy::{primitives::Address, providers::DynProvider};
 use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 

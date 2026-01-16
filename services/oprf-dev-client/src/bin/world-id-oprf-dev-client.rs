@@ -29,8 +29,7 @@ use taceo_oprf_types::{
     crypto::OprfPublicKey,
     OprfKeyId, ShareEpoch,
 };
-use test_utils::anvil::RpRegistry;
-use test_utils::fixtures::build_base_credential;
+use test_utils::{anvil::RpRegistry, fixtures::build_base_credential};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 use world_id_core::{

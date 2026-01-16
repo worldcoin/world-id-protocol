@@ -2,24 +2,27 @@
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use crate::requests::ProofRequest;
-use crate::types::{
-    AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-    IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-    IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
-    RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+use crate::{
+    requests::ProofRequest,
+    types::{
+        AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
+        IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+        IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
+        RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+    },
+    world_id_registry::{
+        domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
+        WorldIdRegistry::{self, WorldIdRegistryInstance},
+    },
+    Credential, FieldElement, Signer,
 };
-use crate::world_id_registry::WorldIdRegistry::{self, WorldIdRegistryInstance};
-use crate::world_id_registry::{
-    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
+use alloy::{
+    primitives::{Address, U256},
+    providers::{DynProvider, Provider, ProviderBuilder},
+    uint,
 };
-use crate::{Credential, FieldElement, Signer};
-use alloy::primitives::{Address, U256};
-use alloy::providers::{DynProvider, Provider, ProviderBuilder};
-use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
@@ -31,10 +34,10 @@ use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use taceo_oprf_client::Connector;
 use taceo_oprf_types::ShareEpoch;
-use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
-use world_id_primitives::merkle::MerkleInclusionProof;
-use world_id_primitives::proof::SingleProofInput;
-use world_id_primitives::PrimitiveError;
+use world_id_primitives::{
+    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    proof::SingleProofInput, PrimitiveError,
+};
 pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
 
 static MASK_RECOVERY_COUNTER: U256 =

@@ -6,13 +6,10 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
-use serde::de::Error as _;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Serialize};
 use std::collections::HashSet;
-use taceo_oprf_types::crypto::OprfPublicKey;
-use taceo_oprf_types::OprfKeyId;
-use world_id_primitives::rp::RpId;
-use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof};
+use taceo_oprf_types::{crypto::OprfPublicKey, OprfKeyId};
+use world_id_primitives::{rp::RpId, FieldElement, PrimitiveError, WorldIdProof};
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -464,7 +461,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::{signers::local::PrivateKeySigner, signers::SignerSync, uint};
+    use alloy::{
+        signers::{local::PrivateKeySigner, SignerSync},
+        uint,
+    };
     use k256::ecdsa::SigningKey;
 
     // Test helpers

@@ -6,9 +6,11 @@
 //!
 //! The history is thread-safe and can be cloned to share across tasks.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use parking_lot::Mutex;
 use tracing::instrument;

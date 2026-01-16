@@ -1,19 +1,24 @@
-use std::net::SocketAddr;
-use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::{
+    net::SocketAddr,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
-use alloy::primitives::{Address, Log, U256};
-use alloy::providers::{Provider, ProviderBuilder, WsConnect};
-use alloy::rpc::types::Filter;
-use alloy::sol_types::SolEvent;
+use alloy::{
+    primitives::{Address, Log, U256},
+    providers::{Provider, ProviderBuilder, WsConnect},
+    rpc::types::Filter,
+    sol_types::SolEvent,
+};
 use ark_bn254::Fr;
 use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
 use semaphore_rs_hasher::Hasher;
-use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
-use semaphore_rs_trees::proof::InclusionProof;
-use semaphore_rs_trees::Branch;
-use sqlx::migrate::Migrator;
-use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
+use semaphore_rs_trees::{
+    lazy::{Canonical, LazyMerkleTree as MerkleTree},
+    proof::InclusionProof,
+    Branch,
+};
+use sqlx::{migrate::Migrator, postgres::PgPoolOptions, types::Json, PgPool, Row};
 use tokio::sync::RwLock;
 use world_id_core::world_id_registry::WorldIdRegistry;
 use world_id_primitives::TREE_DEPTH;

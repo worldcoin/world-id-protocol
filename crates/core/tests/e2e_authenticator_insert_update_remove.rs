@@ -2,9 +2,11 @@
 
 use std::time::Duration;
 
-use alloy::primitives::{Address, U256};
-use alloy::providers::ProviderBuilder;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{
+    primitives::{Address, U256},
+    providers::ProviderBuilder,
+    signers::local::PrivateKeySigner,
+};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::Client;
 use test_utils::{
@@ -12,8 +14,10 @@ use test_utils::{
     fixtures::{single_leaf_merkle_fixture, MerkleFixture},
     stubs::MutableIndexerStub,
 };
-use world_id_core::types::{GatewayRequestState, GatewayStatusResponse};
-use world_id_core::{Authenticator, AuthenticatorError};
+use world_id_core::{
+    types::{GatewayRequestState, GatewayStatusResponse},
+    Authenticator, AuthenticatorError,
+};
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
 use world_id_primitives::{merkle::AccountInclusionProof, Config, TREE_DEPTH};
 

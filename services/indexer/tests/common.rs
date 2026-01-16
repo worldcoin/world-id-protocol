@@ -2,9 +2,11 @@
 
 use std::time::Duration;
 
-use alloy::network::EthereumWallet;
-use alloy::primitives::{address, Address, U256};
-use alloy::providers::ProviderBuilder;
+use alloy::{
+    network::EthereumWallet,
+    primitives::{address, Address, U256},
+    providers::ProviderBuilder,
+};
 use sqlx::{postgres::PgPoolOptions, Executor, PgPool};
 use test_utils::anvil::TestAnvil;
 use world_id_core::world_id_registry::WorldIdRegistry;

@@ -4,9 +4,9 @@ use eyre::Result;
 use world_id_core::{primitives::Config, requests::ProofRequest, Authenticator, Credential};
 
 fn install_tracing() {
-    use tracing_subscriber::prelude::*;
     use tracing_subscriber::{
         fmt::{self},
+        prelude::*,
         EnvFilter,
     };
 

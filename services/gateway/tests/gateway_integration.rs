@@ -1,17 +1,21 @@
 use std::time::Duration;
 
-use alloy::primitives::{address, Address, U256};
-use alloy::providers::Provider;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{
+    primitives::{address, Address, U256},
+    providers::Provider,
+    signers::local::PrivateKeySigner,
+};
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
-use world_id_core::types::{
-    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
-};
-use world_id_core::world_id_registry::{
-    domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator, WorldIdRegistry,
+use world_id_core::{
+    types::{
+        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    },
+    world_id_registry::{
+        domain as ag_domain, sign_insert_authenticator, sign_recover_account,
+        sign_remove_authenticator, sign_update_authenticator, WorldIdRegistry,
+    },
 };
 use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
 
