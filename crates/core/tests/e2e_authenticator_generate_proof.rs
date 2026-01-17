@@ -68,15 +68,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .add_oprf_key_registry_admin(oprf_registry, deployer.clone(), rp_registry)
         .await?;
 
-    let registry_address = anvil
-        .deploy_world_id_registry(deployer.clone())
-        .await
-        .unwrap();
-
     // Spawn the gateway wired to this Anvil instance.
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
-        registry_addr: registry_address,
+        registry_addr: world_id_registry,
         provider: world_id_gateway::ProviderArgs {
             http: Some(vec![anvil.endpoint().parse().unwrap()]),
             signer: Some(signer_args),

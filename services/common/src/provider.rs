@@ -28,12 +28,12 @@ use url::Url;
 #[command(next_help_heading = "Rpc Configuration")]
 pub struct ProviderArgs {
     /// HTTP RPC endpoints (in priority order).
-    #[arg(long = "http", value_delimiter = ',', env = "RPC_URL")]
+    #[arg(long = "rpc-url", value_delimiter = ',', env = "RPC_URL")]
     #[serde(default)]
     pub http: Option<Vec<Url>>,
 
     /// WebSocket RPC endpoints (in priority order).
-    #[arg(long = "ws", value_delimiter = ',', env = "WS_URL")]
+    #[arg(long = "ws-url", env = "WS_URL")]
     #[serde(default)]
     pub ws: Option<String>,
 
@@ -48,7 +48,7 @@ pub struct ProviderArgs {
 
 #[derive(Args, Debug, Clone, Deserialize)]
 pub struct ThrottleConfig {
-    /// Requests per second rate limit (0 = unlimited).
+    /// Requests per second rate limit.
     #[arg(long = "rps", default_value_t = 100, env = "RPC_REQUESTS_PER_SECOND")]
     #[serde(default = "defaults::default_requests_per_second")]
     pub requests_per_second: u32,
@@ -338,6 +338,7 @@ where
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use std::io::Write;
 
@@ -346,7 +347,6 @@ mod tests {
         let config = r#"
             [provider]
             http = ["https://rpc1.example.com", "https://rpc2.example.com", "https://rpc3.example.com"]
-            chain_id = 1
         "#;
 
         let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
@@ -366,7 +366,6 @@ mod tests {
             [provider]
             http = ["https://rpc.example.com"]
             ws = "wss://ws.example.com"
-            chain_id = 42161
         "#;
 
         let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
@@ -382,10 +381,9 @@ mod tests {
         let config = r#"
             [provider]
             http = ["https://rpc.example.com"]
-            chain_id = 1
 
             [provider.signer]
-            wallet_private_key = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            wallet_private_key = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
         "#;
 
         let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
@@ -404,7 +402,6 @@ mod tests {
         let config = r#"
             [provider]
             http = ["https://rpc.example.com"]
-            chain_id = 1
 
             [provider.signer]
             aws_kms_key_id = "arn:aws:kms:us-east-1:123456789:key/abc-123"

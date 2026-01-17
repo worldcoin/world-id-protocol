@@ -78,7 +78,10 @@ async fn test_authenticator_registration() {
         }
     };
 
-    poller.retry(ExponentialBuilder::default()).await.unwrap();
+    poller
+        .retry(ExponentialBuilder::default().with_max_times(10))
+        .await
+        .unwrap();
 
     let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
     let elapsed = start.elapsed();
