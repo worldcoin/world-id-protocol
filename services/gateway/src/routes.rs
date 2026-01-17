@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
@@ -14,6 +14,7 @@ use crate::{
         request_status::request_status,
         update_authenticator::update_authenticator,
     },
+    types::RootExpiry,
     AppState,
 };
 use alloy::providers::DynProvider;
@@ -23,8 +24,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use lru::LruCache;
-use parking_lot::Mutex;
+use moka::future::Cache;
 use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
@@ -48,7 +48,7 @@ mod request_status;
 mod update_authenticator;
 mod validation;
 
-const ROOT_CACHE_SIZE: usize = 1024;
+const ROOT_CACHE_SIZE: u64 = 1024;
 
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
@@ -83,9 +83,10 @@ pub(crate) async fn build_app(
 
     tracing::info!("Ops batcher initialized");
 
-    let root_cache = Arc::new(Mutex::new(LruCache::new(
-        NonZeroUsize::new(ROOT_CACHE_SIZE).expect("ROOT_CACHE_SIZE must be non-zero"),
-    )));
+    let root_cache = Cache::builder()
+        .max_capacity(ROOT_CACHE_SIZE)
+        .expire_after(RootExpiry)
+        .build();
     let state = AppState {
         regsitry: registry.clone(),
         batcher,
