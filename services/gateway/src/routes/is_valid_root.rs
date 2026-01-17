@@ -8,7 +8,7 @@ use world_id_core::{
     world_id_registry::WorldIdRegistry,
 };
 
-/// Default root validity window for LRU cache.
+/// Default root validity window for cache.
 ///
 /// Set to 1 hour.
 const DEFAULT_CACHE_TTL_SECS: u64 = 60 * 60;
@@ -33,19 +33,11 @@ fn is_expired(expires_at: U256, now: U256) -> bool {
     expires_at <= now
 }
 
-/// Return a cached validity value when present and not expired.
-fn get_cached_root(state: &AppState, root: U256, now: U256) -> bool {
-    let mut cache = state.root_cache.lock();
-    let expires_at = match cache.get(&root) {
-        Some(ts) => *ts,
-        None => return false,
-    };
-    if is_expired(expires_at, now) {
-        // Expired entries are removed so future lookups fall through.
-        cache.pop(&root);
-        return false;
-    }
-    true
+/// Check if a root is present in the cache.
+///
+/// Expiration is handled automatically by moka's `Expiry` policy.
+async fn is_cached_root(state: &AppState, root: U256) -> bool {
+    state.root_cache.get(&root).await.is_some()
 }
 
 /// Cache decision for a valid root.
@@ -100,10 +92,10 @@ pub(crate) async fn is_valid_root(
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> Result<Json<IsValidRootResponse>, GatewayErrorResponse> {
     let root = req_u256("root", &q.root)?;
-    let now = now_timestamp()?;
-    if get_cached_root(&state, root, now) {
+    if is_cached_root(&state, root).await {
         return Ok(Json(IsValidRootResponse { valid: true }));
     }
+    let now = now_timestamp()?;
     let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
     let valid = contract
         .isValidRoot(root)
@@ -114,7 +106,7 @@ pub(crate) async fn is_valid_root(
         // Cache only valid roots to avoid serving stale negatives indefinitely.
         match cache_policy_for_root(&contract, root, now).await {
             Ok(CachePolicy::Cache(expires_at)) => {
-                state.root_cache.lock().put(root, expires_at);
+                state.root_cache.insert(root, expires_at).await;
             }
             Ok(CachePolicy::Skip) => {}
             Err(err) => {

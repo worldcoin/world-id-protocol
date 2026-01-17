@@ -1,11 +1,9 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
+use crate::auth::rp_registry_watcher::RpRegistry::RpUpdated;
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
@@ -14,13 +12,11 @@ use alloy::{
     sol_types::SolEvent,
 };
 use futures::StreamExt as _;
-use parking_lot::Mutex;
+use moka::{future::Cache, ops::compute::Op};
 use taceo_oprf_types::OprfKeyId;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use world_id_primitives::rp::RpId;
-
-use crate::auth::rp_registry_watcher::RpRegistry::RpUpdated;
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments)]
@@ -57,10 +53,9 @@ pub(crate) enum RpRegistryWatcherError {
 /// Additionally, will subscribe to chain events to handle RpUpdate events.
 #[derive(Clone)]
 pub(crate) struct RpRegistryWatcher {
-    rp_store: Arc<Mutex<HashMap<RpId, RelyingParty>>>,
+    rp_store: Cache<RpId, RelyingParty>,
     provider: DynProvider, // do not drop provider while we want to stay subscribed
     contract_address: Address,
-    max_rp_registry_store_size: usize,
 }
 
 impl RpRegistryWatcher {
@@ -68,7 +63,7 @@ impl RpRegistryWatcher {
     pub(crate) async fn init(
         contract_address: Address,
         ws_rpc_url: &str,
-        max_rp_registry_store_size: usize,
+        max_rp_registry_store_size: u64,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
@@ -86,9 +81,11 @@ impl RpRegistryWatcher {
         // indicate that the RpRegistry watcher has started
         started.store(true, Ordering::Relaxed);
 
-        let rp_store = Arc::new(Mutex::new(HashMap::<RpId, RelyingParty>::new()));
+        let rp_store: Cache<RpId, RelyingParty> = Cache::builder()
+            .max_capacity(max_rp_registry_store_size)
+            .build();
         tokio::task::spawn({
-            let rp_store = Arc::clone(&rp_store);
+            let rp_store = rp_store.clone();
             async move {
                 // shutdown service if RP registry watcher encounters an error and drops this guard
                 let _drop_guard = cancellation_token.drop_guard();
@@ -98,20 +95,28 @@ impl RpRegistryWatcher {
                             let rp_id = RpId::new(event.rpId);
                             tracing::info!("got rp-update event for rp: {rp_id}");
                             if event.active {
-                                if let Some(rp) = rp_store.lock().get_mut(&rp_id) {
-                                    tracing::debug!("updating rp {rp_id} in store");
-                                    rp.signer = event.signer;
-                                    rp.oprf_key_id = OprfKeyId::new(event.oprfKeyId);
-                                } else {
-                                    tracing::debug!(
-                                        "rp {rp_id} not found in store, ignoring update"
-                                    );
-                                }
+                                rp_store
+                                    .entry(rp_id)
+                                    .and_compute_with(|entry| async {
+                                        if let Some(entry) = entry {
+                                            tracing::debug!("updating rp {rp_id} in store");
+                                            let mut rp = entry.into_value();
+                                            rp.signer = event.signer;
+                                            rp.oprf_key_id = OprfKeyId::new(event.oprfKeyId);
+                                            Op::Put(rp)
+                                        } else {
+                                            tracing::debug!(
+                                                "rp {rp_id} not found in store, ignoring update"
+                                            );
+                                            Op::Nop
+                                        }
+                                    })
+                                    .await;
                             } else {
                                 tracing::debug!(
                                     "removing rp {rp_id} from store because it is not active"
                                 );
-                                rp_store.lock().remove(&rp_id);
+                                rp_store.invalidate(&rp_id).await;
                             }
                         }
                         Err(err) => {
@@ -126,7 +131,6 @@ impl RpRegistryWatcher {
             rp_store,
             provider: provider.erased(),
             contract_address,
-            max_rp_registry_store_size,
         })
     }
 
@@ -135,9 +139,9 @@ impl RpRegistryWatcher {
         rp_id: &RpId,
     ) -> Result<RelyingParty, RpRegistryWatcherError> {
         {
-            if let Some(rp) = self.rp_store.lock().get(rp_id) {
+            if let Some(rp) = self.rp_store.get(rp_id).await {
                 tracing::debug!("rp {rp_id} found in store");
-                return Ok(rp.clone());
+                return Ok(rp);
             }
         }
 
@@ -154,19 +158,8 @@ impl RpRegistryWatcher {
                 signer: rp.signer,
                 oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
             };
-            let mut store = self.rp_store.lock();
-            store.insert(*rp_id, relying_party.clone());
+            self.rp_store.insert(*rp_id, relying_party.clone()).await;
             tracing::debug!("rp {rp_id} loaded from chain and stored");
-
-            if store.len() == self.max_rp_registry_store_size {
-                tracing::debug!(
-                    "rp store max size {} reached, evicting a entry",
-                    self.max_rp_registry_store_size
-                );
-                // TODO maybe implement LRU cache
-                let to_remove = store.keys().next().copied().expect("store is not empty");
-                store.remove(&to_remove);
-            }
 
             Ok(relying_party)
         } else {

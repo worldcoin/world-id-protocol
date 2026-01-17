@@ -54,7 +54,7 @@ jobs:
           fi
 
       - name: Check code formatting
-        run: cargo fmt -- --check
+        run: cargo +nightly fmt -- --check
 
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features

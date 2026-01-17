@@ -141,7 +141,7 @@ async fn e2e_gateway_full_flow() {
         .await
         .unwrap();
     let status_code = resp.status();
-    if status_code != StatusCode::ACCEPTED {
+    if status_code != StatusCode::OK {
         let body = resp.text().await.unwrap_or_default();
         panic!("create-account failed: status={status_code}, body={body}",);
     }
@@ -231,7 +231,7 @@ async fn e2e_gateway_full_flow() {
         .await
         .unwrap();
     let status_code = resp.status();
-    if status_code != StatusCode::ACCEPTED {
+    if status_code != StatusCode::OK {
         let body = resp.text().await.unwrap_or_default();
         panic!(
             "insert-authenticator failed: status={}, body={}",
@@ -299,7 +299,7 @@ async fn e2e_gateway_full_flow() {
         .await
         .unwrap();
     let status_code = resp.status();
-    if status_code != StatusCode::ACCEPTED {
+    if status_code != StatusCode::OK {
         let body = resp.text().await.unwrap_or_default();
         panic!("remove-authenticator failed: status={status_code}, body={body}",);
     }
@@ -365,7 +365,7 @@ async fn e2e_gateway_full_flow() {
         .unwrap();
 
     let status_code = resp.status();
-    if status_code != StatusCode::ACCEPTED {
+    if status_code != StatusCode::OK {
         let body = resp.text().await.unwrap_or_default();
         panic!(
             "recover-account failed: status={}, body={}",
@@ -435,7 +435,7 @@ async fn e2e_gateway_full_flow() {
         .await
         .unwrap();
     let status_code = resp.status();
-    if status_code != StatusCode::ACCEPTED {
+    if status_code != StatusCode::OK {
         let body = resp.text().await.unwrap_or_default();
         panic!(
             "update-authenticator failed: status={}, body={}",
@@ -497,7 +497,7 @@ async fn test_authenticator_already_exists_error_code() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    assert_eq!(resp.status(), StatusCode::OK);
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let create_request_id = accepted.request_id.clone();
     let _tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &create_request_id).await;
@@ -599,7 +599,7 @@ async fn test_same_authenticator_different_accounts() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    assert_eq!(resp.status(), StatusCode::OK);
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let request_id_1 = accepted.request_id.clone();
     let _tx_hash_1 = wait_for_finalized(&gw.client, &gw.base_url, &request_id_1).await;
