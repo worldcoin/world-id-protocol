@@ -1,6 +1,7 @@
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 use crate::{
+    AppState, SignerConfig,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     provider::{build_provider, build_wallet},
@@ -15,14 +16,13 @@ use crate::{
         request_status::request_status,
         update_authenticator::update_authenticator,
     },
-    AppState, SignerConfig,
 };
 use alloy::primitives::Address;
 use axum::{
+    Json, Router,
     extract::{Path, State},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use lru::LruCache;
 use parking_lot::Mutex;

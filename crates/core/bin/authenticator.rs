@@ -1,13 +1,13 @@
 use std::fs::File;
 
 use eyre::Result;
-use world_id_core::{primitives::Config, requests::ProofRequest, Authenticator, Credential};
+use world_id_core::{Authenticator, Credential, primitives::Config, requests::ProofRequest};
 
 fn install_tracing() {
     use tracing_subscriber::{
+        EnvFilter,
         fmt::{self},
         prelude::*,
-        EnvFilter,
     };
 
     let fmt_layer = fmt::layer().with_target(false).with_line_number(false);

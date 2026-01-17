@@ -21,11 +21,11 @@ use taceo_oprf_client::Connector;
 use taceo_oprf_core::oprf::BlindingFactor;
 use taceo_oprf_types::ShareEpoch;
 use world_id_primitives::{
+    FieldElement, TREE_DEPTH,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
     oprf::OprfRequestAuthV1,
     proof::SingleProofInput,
     rp::RpId,
-    FieldElement, TREE_DEPTH,
 };
 
 pub use groth16_material::circom::{

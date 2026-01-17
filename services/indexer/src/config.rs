@@ -106,11 +106,7 @@ impl HttpConfig {
             sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS").ok().and_then(
                 |s| {
                     let val = s.parse::<u64>().ok().unwrap_or(0);
-                    if val == 0 {
-                        None
-                    } else {
-                        Some(val)
-                    }
+                    if val == 0 { None } else { Some(val) }
                 },
             ),
         };

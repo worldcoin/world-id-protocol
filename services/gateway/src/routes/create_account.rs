@@ -3,7 +3,7 @@ use crate::{
     routes::validation::ValidateRequest, types::AppState,
 };
 use alloy::primitives::Address;
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 use world_id_core::{
     types::{
         CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse,

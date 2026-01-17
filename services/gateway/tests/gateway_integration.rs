@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy::{
-    primitives::{address, Address, U256},
+    primitives::{Address, U256, address},
     providers::Provider,
     signers::local::PrivateKeySigner,
 };
@@ -13,11 +13,11 @@ use world_id_core::{
         RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
     world_id_registry::{
-        domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-        sign_remove_authenticator, sign_update_authenticator, WorldIdRegistry,
+        WorldIdRegistry, domain as ag_domain, sign_insert_authenticator, sign_recover_account,
+        sign_remove_authenticator, sign_update_authenticator,
     },
 };
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
+use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
 
 use crate::common::{wait_for_finalized, wait_http_ready};
 

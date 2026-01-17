@@ -5,6 +5,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
+    Credential, FieldElement, Signer,
     requests::ProofRequest,
     types::{
         AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
@@ -13,10 +14,9 @@ use crate::{
         RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
     },
     world_id_registry::{
-        domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
         WorldIdRegistry::{self, WorldIdRegistryInstance},
+        domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
     },
-    Credential, FieldElement, Signer,
 };
 use alloy::{
     primitives::{Address, U256},
@@ -34,11 +34,11 @@ use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use taceo_oprf_client::Connector;
 use taceo_oprf_types::ShareEpoch;
+pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
-    proof::SingleProofInput, PrimitiveError,
+    PrimitiveError, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    proof::SingleProofInput,
 };
-pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -951,7 +951,7 @@ enum PollResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::{address, U256};
+    use alloy::primitives::{U256, address};
 
     /// Tests that `get_packed_account_data` correctly fetches the packed account data from the indexer
     /// when no RPC is configured.

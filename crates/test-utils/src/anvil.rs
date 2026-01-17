@@ -1,6 +1,6 @@
 use alloy::{
     network::EthereumWallet,
-    primitives::{address, Address, Bytes, TxKind, U256},
+    primitives::{Address, Bytes, TxKind, U256, address},
     providers::{DynProvider, Provider, ProviderBuilder},
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,

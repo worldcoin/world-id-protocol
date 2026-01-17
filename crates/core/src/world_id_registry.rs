@@ -4,7 +4,7 @@ use alloy::{
     primitives::{Address, Signature, U256},
     signers::Signer,
     sol,
-    sol_types::{eip712_domain, Eip712Domain, SolStruct},
+    sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
 
 sol!(

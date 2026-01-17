@@ -4,8 +4,8 @@ mod common;
 
 use std::time::Duration;
 
-use alloy::primitives::{address, U256};
-use common::{query_count, TestSetup};
+use alloy::primitives::{U256, address};
+use common::{TestSetup, query_count};
 use http::StatusCode;
 use serial_test::serial;
 use world_id_core::EdDSAPrivateKey;

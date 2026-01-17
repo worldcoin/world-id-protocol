@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use alloy::{
     network::EthereumWallet,
-    primitives::{address, Address, U256},
+    primitives::{Address, U256, address},
     providers::ProviderBuilder,
 };
-use sqlx::{postgres::PgPoolOptions, Executor, PgPool};
+use sqlx::{Executor, PgPool, postgres::PgPoolOptions};
 use test_utils::anvil::TestAnvil;
 use world_id_core::world_id_registry::WorldIdRegistry;
 

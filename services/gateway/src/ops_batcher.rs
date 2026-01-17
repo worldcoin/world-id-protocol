@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use crate::RequestTracker;
 use alloy::{
-    primitives::{address, Address, Bytes, U256},
+    primitives::{Address, Bytes, U256, address},
     providers::DynProvider,
 };
 use tokio::sync::mpsc;
 use world_id_core::{
-    types::{parse_contract_error, GatewayErrorCode, GatewayRequestState},
+    types::{GatewayErrorCode, GatewayRequestState, parse_contract_error},
     world_id_registry::WorldIdRegistry,
 };
 

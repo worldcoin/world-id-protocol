@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use redis::{aio::ConnectionManager, AsyncTypedCommands, Client, SetExpiry, SetOptions};
+use redis::{AsyncTypedCommands, Client, SetExpiry, SetOptions, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::RwLock, time::Instant};
 use utoipa::ToSchema;

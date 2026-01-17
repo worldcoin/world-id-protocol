@@ -11,14 +11,14 @@ use alloy::{
     sol_types::SolEvent,
 };
 use ark_bn254::Fr;
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
+use poseidon2::{POSEIDON2_BN254_T2_PARAMS, Poseidon2};
 use semaphore_rs_hasher::Hasher;
 use semaphore_rs_trees::{
+    Branch,
     lazy::{Canonical, LazyMerkleTree as MerkleTree},
     proof::InclusionProof,
-    Branch,
 };
-use sqlx::{migrate::Migrator, postgres::PgPoolOptions, types::Json, PgPool, Row};
+use sqlx::{PgPool, Row, migrate::Migrator, postgres::PgPoolOptions, types::Json};
 use tokio::sync::RwLock;
 use world_id_core::world_id_registry::WorldIdRegistry;
 use world_id_primitives::TREE_DEPTH;
@@ -477,10 +477,8 @@ async fn backfill_batch<P: Provider>(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for event");
-                    }
+                if update_tree && let Err(e) = update_tree_with_event(&event).await {
+                    tracing::error!(?e, ?event, "failed to update tree for event");
                 }
             }
             Err(e) => {
@@ -1047,10 +1045,8 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for live event");
-                    }
+                if update_tree && let Err(e) = update_tree_with_event(&event).await {
+                    tracing::error!(?e, ?event, "failed to update tree for live event");
                 }
 
                 if let Some(bn) = log.block_number {
