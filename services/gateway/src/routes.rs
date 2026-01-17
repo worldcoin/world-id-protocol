@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::{
+    AppState, SignerConfig,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     provider::{build_provider, build_wallet},
@@ -16,14 +17,13 @@ use crate::{
         update_authenticator::update_authenticator,
     },
     types::RootExpiry,
-    AppState, SignerConfig,
 };
 use alloy::primitives::Address;
 use axum::{
+    Json, Router,
     extract::{Path, State},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use moka::future::Cache;
 use tokio::sync::mpsc;

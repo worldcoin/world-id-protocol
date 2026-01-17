@@ -1,5 +1,5 @@
 use alloy::primitives::U256;
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use world_id_core::types::{
     IndexerErrorBody, IndexerErrorCode, IndexerErrorResponse, IndexerPackedAccountRequest,
     IndexerPackedAccountResponse,

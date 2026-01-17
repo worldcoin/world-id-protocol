@@ -1,5 +1,5 @@
 use std::path::Path;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use world_id_indexer::GlobalConfig;
 
 #[tokio::main]

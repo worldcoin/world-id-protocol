@@ -3,7 +3,7 @@ use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
 };
-use moka::{future::Cache, Expiry};
+use moka::{Expiry, future::Cache};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Maximum number of authenticators per account (matches contract default).

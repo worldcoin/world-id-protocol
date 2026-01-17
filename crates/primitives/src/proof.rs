@@ -2,12 +2,12 @@ use std::io::Cursor;
 
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
-use taceo_oprf_types::{crypto::OprfPublicKey, OprfKeyId};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
+use taceo_oprf_types::{OprfKeyId, crypto::OprfPublicKey};
 
 use crate::{
-    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId, Credential,
-    FieldElement, PrimitiveError,
+    Credential, FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet,
+    merkle::MerkleInclusionProof, rp::RpId,
 };
 
 /// Represents a base World ID proof.

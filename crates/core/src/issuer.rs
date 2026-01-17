@@ -1,4 +1,4 @@
-use crate::{issuer::CredentialSchemaIssuerRegistry::Pubkey, Signer};
+use crate::{Signer, issuer::CredentialSchemaIssuerRegistry::Pubkey};
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol, sol_types::SolEvent};
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;

@@ -7,10 +7,10 @@ pub(crate) async fn wait_http_ready(client: &Client, port: u16) {
     let base = format!("http://127.0.0.1:{}", port);
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     loop {
-        if let Ok(resp) = client.get(format!("{}/health", base)).send().await {
-            if resp.status().is_success() {
-                break;
-            }
+        if let Ok(resp) = client.get(format!("{}/health", base)).send().await
+            && resp.status().is_success()
+        {
+            break;
         }
         if std::time::Instant::now() > deadline {
             panic!("gateway not ready");

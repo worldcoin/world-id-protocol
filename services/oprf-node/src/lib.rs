@@ -8,12 +8,12 @@ use std::sync::Arc;
 
 use eyre::Context;
 use secrecy::ExposeSecret;
-use taceo_oprf_service::{secret_manager::SecretManagerService, StartedServices};
+use taceo_oprf_service::{StartedServices, secret_manager::SecretManagerService};
 
 use crate::{
     auth::{
-        merkle_watcher::MerkleWatcher, rp_registry_watcher::RpRegistryWatcher,
-        WorldOprfRequestAuthenticator,
+        WorldOprfRequestAuthenticator, merkle_watcher::MerkleWatcher,
+        rp_registry_watcher::RpRegistryWatcher,
     },
     config::WorldOprfNodeConfig,
 };

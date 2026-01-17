@@ -4,20 +4,20 @@ use alloy::{
     network::EthereumWallet,
     primitives::{Address, U160, U256},
     providers::ProviderBuilder,
-    signers::{local::PrivateKeySigner, Signature, SignerSync},
+    signers::{Signature, SignerSync, local::PrivateKeySigner},
     sol_types::SolEvent,
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, UniformRand};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
-use eyre::{eyre, Context as _, Result};
+use eyre::{Context as _, Result, eyre};
 use k256::ecdsa::SigningKey;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use taceo_oprf_types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, credential::Credential, merkle::MerkleInclusionProof,
-    rp::RpId as WorldRpId, FieldElement, TREE_DEPTH,
+    FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, credential::Credential,
+    merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
 
 use crate::{
@@ -167,7 +167,7 @@ pub struct RpFixture {
 /// Generates RP identifiers, signatures, and ancillary inputs shared across tests.
 pub fn generate_rp_fixture() -> RpFixture {
     let mut rng = thread_rng();
-    let rp_id_value: u64 = rng.gen();
+    let rp_id_value: u64 = rng.r#gen();
     // Atm we use the same value for both WorldRpId and OprfKeyId, this is also done line this in the RpRegistry contract
     let world_rp_id = WorldRpId::new(rp_id_value);
     let oprf_key_id = OprfKeyId::new(U160::from(rp_id_value));

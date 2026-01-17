@@ -23,7 +23,7 @@ use std::{
 use taceo_oprf_service::OprfRequestAuthenticator;
 use taceo_oprf_types::api::v1::OprfRequest;
 use uuid::Uuid;
-use world_id_primitives::{oprf::OprfRequestAuthV1, TREE_DEPTH};
+use world_id_primitives::{TREE_DEPTH, oprf::OprfRequestAuthV1};
 
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");

@@ -19,7 +19,7 @@ use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ruint::aliases::{U160, U256};
-use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
 use std::{
     fmt,
     io::{Cursor, Read, Write},

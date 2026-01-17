@@ -1,5 +1,7 @@
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::{
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 
 const CARGO_MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 

@@ -1,18 +1,18 @@
-use crate::{config::AppState, proof_to_vec, tree_capacity, GLOBAL_TREE};
+use crate::{GLOBAL_TREE, config::AppState, proof_to_vec, tree_capacity};
 use alloy::primitives::U256;
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use http::StatusCode;
 use sqlx::Row;
 use world_id_core::{
+    EdDSAPublicKey,
     types::{
         AccountInclusionProof, AccountInclusionProofSchema, IndexerErrorCode, IndexerErrorResponse,
         IndexerQueryRequest,
     },
-    EdDSAPublicKey,
 };
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, FieldElement,
-    TREE_DEPTH,
+    FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
+    merkle::MerkleInclusionProof,
 };
 
 /// Get Inclusion Proof

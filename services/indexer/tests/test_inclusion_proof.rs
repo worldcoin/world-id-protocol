@@ -3,8 +3,8 @@ mod common;
 
 use std::time::Duration;
 
-use alloy::primitives::{address, U256};
-use common::{query_count, TestSetup, RECOVERY_ADDRESS};
+use alloy::primitives::{U256, address};
+use common::{RECOVERY_ADDRESS, TestSetup, query_count};
 use http::StatusCode;
 use serial_test::serial;
 use sqlx::types::Json;

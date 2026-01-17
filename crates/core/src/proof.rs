@@ -12,21 +12,21 @@
 //! 5. Generating the final Uniqueness Proof `π2`
 
 use ark_ff::PrimeField as _;
-use circom_types::ark_bn254::Bn254;
-use circom_types::groth16::Proof;
+use circom_types::{ark_bn254::Bn254, groth16::Proof};
 use groth16_material::Groth16Error;
 use poseidon2::Poseidon2;
 use rand::{CryptoRng, Rng};
-use std::io::Read;
-use std::path::Path;
+use std::{io::Read, path::Path};
 use taceo_oprf_client::Connector;
 use taceo_oprf_core::oprf::BlindingFactor;
 use taceo_oprf_types::ShareEpoch;
-use world_id_primitives::circuit_inputs::QueryProofCircuitInput;
-use world_id_primitives::oprf::OprfRequestAuthV1;
-use world_id_primitives::rp::RpId;
-use world_id_primitives::{circuit_inputs::NullifierProofCircuitInput, proof::SingleProofInput};
-use world_id_primitives::{FieldElement, TREE_DEPTH};
+use world_id_primitives::{
+    FieldElement, TREE_DEPTH,
+    circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
+    oprf::OprfRequestAuthV1,
+    proof::SingleProofInput,
+    rp::RpId,
+};
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,

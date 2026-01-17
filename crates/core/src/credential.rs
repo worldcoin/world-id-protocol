@@ -2,7 +2,7 @@
 use crate::EdDSAPrivateKey;
 use crate::EdDSAPublicKey;
 use eyre::bail;
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
+use poseidon2::{POSEIDON2_BN254_T16_PARAMS, Poseidon2};
 
 use crate::{Credential, CredentialVersion, FieldElement};
 
