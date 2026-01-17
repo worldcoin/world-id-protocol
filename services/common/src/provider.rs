@@ -83,7 +83,8 @@ impl SignerArgs {
             (Some(s), None) => {
                 let signer = s
                     .parse::<PrivateKeySigner>()
-                    .map_err(|e| anyhow::anyhow!("invalid private key: {e}"))?;
+                    .map_err(|e| anyhow::anyhow!("invalid private key: {e}"))?
+                    .with_chain_id(Some(chain));
                 Ok(EthereumWallet::from(signer))
             }
             (None, Some(key_id)) => {
