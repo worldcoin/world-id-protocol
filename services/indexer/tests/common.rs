@@ -112,13 +112,11 @@ impl TestSetup {
             .await
             .unwrap();
 
-        let test_db_url = if let Some(idx) = base_url.rfind('/') {
+        if let Some(idx) = base_url.rfind('/') {
             format!("{}/{}", &base_url[..idx], TEST_DB_NAME)
         } else {
             panic!("Invalid database URL format: {base_url}");
-        };
-
-        test_db_url
+        }
     }
 
     async fn cleanup_test_database() {
@@ -142,10 +140,10 @@ impl TestSetup {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
 
         loop {
-            if let Ok(resp) = client.get(format!("{host_url}/health")).send().await {
-                if resp.status().is_success() {
-                    return;
-                }
+            if let Ok(resp) = client.get(format!("{host_url}/health")).send().await
+                && resp.status().is_success()
+            {
+                return;
             }
 
             if std::time::Instant::now() > deadline {
