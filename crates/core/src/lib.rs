@@ -35,6 +35,13 @@ mod issuer;
 #[cfg(feature = "issuer")]
 pub use issuer::Issuer;
 
+#[cfg(feature = "issuer")]
+mod issuer_auth;
+#[cfg(feature = "issuer")]
+pub use issuer_auth::{IssuerAuthReplayProtection, IssuerAuthVerificationError, IssuerAuthVerifier};
+#[cfg(feature = "issuer")]
+pub use issuer_auth::IssuerAuthVerificationContext;
+
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 mod signer;
 #[cfg(any(feature = "authenticator", feature = "issuer"))]

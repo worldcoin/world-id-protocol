@@ -3,9 +3,11 @@
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::requests::ProofRequest;
+use crate::requests::{
+    issuer_auth_rp_id, BlindedQuery, IssuerAuthRequest, IssuerAuthResponse, ProofRequest,
+};
 use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
@@ -27,6 +29,9 @@ use backon::{ExponentialBuilder, Retryable};
 use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use reqwest::StatusCode;
+use oprf_client::Connector;
+use oprf_types::crypto::OprfPublicKey;
+use oprf_types::ShareEpoch;
 use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use taceo_oprf_client::Connector;
@@ -478,6 +483,113 @@ impl Authenticator {
         .map_err(|e| AuthenticatorError::Generic(format!("Failed to generate nullifier: {e}")))?;
 
         Ok((proof, nullifier.into()))
+    }
+
+    /// Generates an authentication proof for an issuer request.
+    ///
+    /// This uses the query proof circuit to authenticate that the caller controls an
+    /// authorized authenticator for a World ID account holding the specified credential.
+    ///
+    /// # Errors
+    /// - Will error if the request is expired, in the future, or has an invalid signature.
+    /// - Will error if any of the required network requests fail.
+    /// - Will error if the credential does not match the requested issuer schema.
+    #[allow(clippy::future_not_send)]
+    pub async fn generate_authentication_proof(
+        &self,
+        request: IssuerAuthRequest,
+        credential: Credential,
+    ) -> Result<IssuerAuthResponse, AuthenticatorError> {
+        if credential.issuer_schema_id != request.issuer_schema_id {
+            return Err(AuthenticatorError::IssuerAuthCredentialMismatch);
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| AuthenticatorError::Generic(format!("clock error: {e}")))? // should never happen
+            .as_secs();
+
+        if request.is_from_future(now) {
+            return Err(AuthenticatorError::IssuerAuthRequestFromFuture);
+        }
+
+        if request.is_expired(now) {
+            return Err(AuthenticatorError::IssuerAuthRequestExpired);
+        }
+
+        request
+            .verify_signature(self.config.chain_id())
+            .map_err(|e| AuthenticatorError::IssuerAuthRequestInvalidSignature(e.to_string()))?;
+
+        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
+        let key_index = key_set
+            .iter()
+            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+
+        // TODO: load once and from bytes
+        let query_material = crate::proof::load_embedded_query_material();
+
+        let issuer_rp_id = issuer_auth_rp_id(request.issuer_schema_id);
+        let dummy_oprf_key = OprfPublicKey::new(EdwardsAffine::default());
+        let rp_signature = request
+            .signature
+            .to_k256_signature()
+            .map_err(|e| AuthenticatorError::IssuerAuthRequestInvalidSignature(e.to_string()))?;
+
+        let args = SingleProofInput::<TREE_DEPTH> {
+            credential,
+            inclusion_proof,
+            key_set,
+            key_index,
+            rp_session_id_r_seed: FieldElement::ZERO,
+            rp_id: issuer_rp_id,
+            share_epoch: ShareEpoch::default().into_inner(),
+            action: request.action,
+            nonce: request.nonce,
+            current_timestamp: request.created_at,
+            rp_signature,
+            oprf_public_key: dummy_oprf_key,
+            signal_hash: FieldElement::ZERO,
+        };
+
+        let private_key = self.signer.offchain_signer_private_key().expose_secret();
+        let query_hash =
+            crate::proof::query_hash(args.inclusion_proof.leaf_index, args.rp_id, args.action);
+
+        let mut rng = rand::thread_rng();
+        let blinding_factor = oprf_core::oprf::BlindingFactor::rand(&mut rng);
+
+        let (auth, _query_input) = crate::proof::oprf_request_auth(
+            &args,
+            &query_material,
+            private_key,
+            query_hash,
+            &blinding_factor,
+            &mut rng,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!("Failed to generate issuer auth proof: {e}"))
+        })?;
+
+        let blinded_request =
+            oprf_core::oprf::client::blind_query(query_hash, blinding_factor.clone());
+        let blinded_query = blinded_request.blinded_query();
+
+        let proof = world_id_primitives::WorldIdProof::new(
+            auth.proof.clone().into(),
+            FieldElement::from(auth.merkle_root),
+        );
+
+        Ok(IssuerAuthResponse {
+            id: request.id,
+            version: request.version,
+            proof,
+            blinded_query: BlindedQuery {
+                x: FieldElement::from(blinded_query.x),
+                y: FieldElement::from(blinded_query.y),
+            },
+        })
     }
 
     /// Inserts a new authenticator to the account.
@@ -933,6 +1045,22 @@ pub enum AuthenticatorError {
         /// Detailed error message.
         error_message: String,
     },
+
+    /// Issuer auth request is expired.
+    #[error("Issuer auth request has expired")]
+    IssuerAuthRequestExpired,
+
+    /// Issuer auth request was created in the future.
+    #[error("Issuer auth request is from the future")]
+    IssuerAuthRequestFromFuture,
+
+    /// Issuer auth request signature is invalid.
+    #[error("Issuer auth request signature invalid: {0}")]
+    IssuerAuthRequestInvalidSignature(String),
+
+    /// Issuer auth credential does not match the requested schema.
+    #[error("Issuer auth credential does not match the request")]
+    IssuerAuthCredentialMismatch,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

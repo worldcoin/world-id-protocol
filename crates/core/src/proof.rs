@@ -13,10 +13,11 @@
 
 use ark_ff::PrimeField as _;
 use circom_types::ark_bn254::Bn254;
-use circom_types::groth16::Proof;
+use circom_types::groth16::{Proof, VerificationKey};
 use groth16_material::Groth16Error;
 use poseidon2::Poseidon2;
 use rand::{CryptoRng, Rng};
+use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use taceo_oprf_client::Connector;
@@ -171,6 +172,27 @@ pub fn load_query_material_from_paths(
     graph: impl AsRef<Path>,
 ) -> eyre::Result<CircomGroth16Material> {
     Ok(build_query_builder().build_from_paths(zkey, graph)?)
+}
+
+/// Loads the Groth16 verification key for the query proof from the provided reader.
+///
+/// # Errors
+/// Will return an error if the key cannot be parsed.
+pub fn load_query_verification_key_from_reader(
+    reader: impl Read,
+) -> eyre::Result<VerificationKey<Bn254>> {
+    Ok(serde_json::from_reader(reader)?)
+}
+
+/// Loads the Groth16 verification key for the query proof from the provided path.
+///
+/// # Errors
+/// Will return an error if the key cannot be read or parsed.
+pub fn load_query_verification_key_from_path(
+    path: impl AsRef<Path>,
+) -> eyre::Result<VerificationKey<Bn254>> {
+    let file = File::open(path)?;
+    load_query_verification_key_from_reader(file)
 }
 
 fn build_nullifier_builder() -> CircomGroth16MaterialBuilder {

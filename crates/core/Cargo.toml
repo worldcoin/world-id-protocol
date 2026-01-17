@@ -38,6 +38,7 @@ backon = { workspace = true, optional = true, features = ["tokio-sleep"] }
 poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
+ark-groth16 = { workspace = true }
 anyhow = { workspace = true }
 chrono = "0.4"
 ciborium = "0.2"
@@ -69,7 +70,7 @@ webpki-roots = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 
 [features]
-default = ["authenticator", "embed-zkeys"]
+default = ["issuer", "authenticator", "embed-zkeys"]
 
 authenticator = [
     "alloy/contract",
@@ -90,7 +91,7 @@ authenticator = [
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
-issuer = ["alloy/signer-local", "dep:secrecy"]
+issuer = ["alloy/signer-local", "dep:secrecy", "dep:circom-types"]
 
 rp = ["dep:taceo-oprf-types"]
 

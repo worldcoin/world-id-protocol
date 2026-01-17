@@ -185,6 +185,45 @@ RP ->> RP: Verify nullifier uniqueness
     - The user then hashes the blinding factor with their `leafIndex` to compute the `sub` claim of the credential. This value is what issuers include in the credential.
     - When a proof is presented, the `subjectBlindingFactor` is used within the Uniqueness Proof circuit to ensure the credential is issued to the right user. The blinding factor acts as entropy to prevent correlation, but the right `leafIndex` as provided in the circuit input must match correctly.
 
+### Issuer Authentication Proofs
+
+Some issuers require holder authentication for credential management operations (e.g. refresh, status check).
+This uses the **query proof** circuit (π₁) without generating a nullifier, so it avoids nullifier-based identifiers.
+
+**Flow overview**
+- Issuer sends an `IssuerAuthRequest` signed via EIP-712 (domain: `WorldIDIssuerAuth`, verifying contract = `CredentialSchemaIssuerRegistry`).
+- Authenticator validates signature + time window, generates a query proof and returns `IssuerAuthResponse`.
+- Issuer verifies the Groth16 query proof, validates the Merkle root, and enforces replay protection.
+
+**Example request**
+```json
+{
+  "id": "issuer_auth_req_1",
+  "version": 1,
+  "created_at": 1736947200,
+  "expires_at": 1736947260,
+  "issuer_schema_id": "0x1",
+  "issuer_registry_address": "0x1234567890abcdef1234567890abcdef12345678",
+  "issuer_signer": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+  "action": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "nonce": "0x0000000000000000000000000000000000000000000000000000000000000042",
+  "signature": "0x..."
+}
+```
+
+**Example response**
+```json
+{
+  "id": "issuer_auth_req_1",
+  "version": 1,
+  "proof": "0x...",
+  "blinded_query": {
+    "x": "0x...",
+    "y": "0x..."
+  }
+}
+```
+
 ### Registries
 
 - **World ID Registry**

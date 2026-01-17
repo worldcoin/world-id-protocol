@@ -4,7 +4,12 @@
 //! for Authenticators to handle such requests.
 
 mod constraints;
+mod issuer_auth;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
+pub use issuer_auth::{
+    issuer_auth_rp_id, BlindedQuery, IssuerAuthRequest, IssuerAuthResponse, IssuerAuthSignature,
+    IssuerAuthVersion,
+};
 
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
