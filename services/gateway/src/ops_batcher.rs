@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::RequestTracker;
@@ -5,7 +6,7 @@ use alloy::primitives::{address, Address, Bytes, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
 use world_id_core::types::{parse_contract_error, GatewayErrorCode, GatewayRequestState};
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
@@ -80,8 +81,7 @@ pub struct OpEnvelope {
 
 pub struct OpsBatcherRunner {
     rx: mpsc::Receiver<OpEnvelope>,
-    provider: DynProvider,
-    registry: Address,
+    registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     window: Duration,
     max_batch_size: usize,
     tracker: RequestTracker,
@@ -89,8 +89,7 @@ pub struct OpsBatcherRunner {
 
 impl OpsBatcherRunner {
     pub fn new(
-        provider: DynProvider,
-        registry: Address,
+        registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
         window: Duration,
         max_batch_size: usize,
         rx: mpsc::Receiver<OpEnvelope>,
@@ -98,7 +97,6 @@ impl OpsBatcherRunner {
     ) -> Self {
         Self {
             rx,
-            provider,
             registry,
             window,
             max_batch_size,
@@ -107,10 +105,7 @@ impl OpsBatcherRunner {
     }
 
     /// Simulate an operation to check if it would revert without spending gas
-    async fn simulate_operation(
-        contract: &WorldIdRegistry::WorldIdRegistryInstance<DynProvider>,
-        kind: &OpKind,
-    ) -> Result<(), String> {
+    async fn simulate_operation(&self, kind: &OpKind) -> Result<(), String> {
         match kind {
             OpKind::Update {
                 leaf_index,
@@ -123,7 +118,8 @@ impl OpsBatcherRunner {
                 nonce,
                 pubkey_id,
                 new_pubkey,
-            } => contract
+            } => self
+                .registry
                 .updateAuthenticator(
                     *leaf_index,
                     *old_authenticator_address,
@@ -150,7 +146,8 @@ impl OpsBatcherRunner {
                 nonce,
                 pubkey_id,
                 new_pubkey,
-            } => contract
+            } => self
+                .registry
                 .insertAuthenticator(
                     *leaf_index,
                     *new_authenticator_address,
@@ -176,7 +173,8 @@ impl OpsBatcherRunner {
                 nonce,
                 pubkey_id,
                 authenticator_pubkey,
-            } => contract
+            } => self
+                .registry
                 .removeAuthenticator(
                     *leaf_index,
                     *authenticator_address,
@@ -201,7 +199,8 @@ impl OpsBatcherRunner {
                 sibling_nodes,
                 nonce,
                 new_pubkey,
-            } => contract
+            } => self
+                .registry
                 .recoverAccount(
                     *leaf_index,
                     *new_authenticator_address,
@@ -220,8 +219,8 @@ impl OpsBatcherRunner {
     }
 
     pub async fn run(mut self) {
-        let provider = self.provider.clone();
-        let contract = WorldIdRegistry::new(self.registry, provider.clone());
+        let provider = self.registry.provider().clone();
+        let contract = self.registry.clone();
         let mc = Multicall3::new(MULTICALL3_ADDR, provider);
 
         loop {
@@ -231,7 +230,7 @@ impl OpsBatcherRunner {
             };
 
             // Simulate the first operation before starting a batch
-            if let Err(sim_error) = Self::simulate_operation(&contract, &first.kind).await {
+            if let Err(sim_error) = self.simulate_operation(&first.kind).await {
                 tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
                 // Parse the error to get a specific error code if possible
                 let code = parse_contract_error(&sim_error);
@@ -259,8 +258,7 @@ impl OpsBatcherRunner {
                 match tokio::time::timeout_at(deadline, self.rx.recv()).await {
                     Ok(Some(req)) => {
                         // Simulate each additional operation before adding to batch
-                        if let Err(sim_error) = Self::simulate_operation(&contract, &req.kind).await
-                        {
+                        if let Err(sim_error) = self.simulate_operation(&req.kind).await {
                             tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
                             // Parse the error to get a specific error code if possible
                             let code = parse_contract_error(&sim_error);
@@ -269,6 +267,7 @@ impl OpsBatcherRunner {
                             } else {
                                 code.to_string()
                             };
+
                             self.tracker
                                 .set_status(
                                     &req.id,
@@ -280,6 +279,7 @@ impl OpsBatcherRunner {
                             batch.push(req);
                         }
                     }
+
                     Ok(None) => {
                         tracing::info!("ops batcher channel closed while batching");
                         break;
@@ -394,7 +394,7 @@ impl OpsBatcherRunner {
                         .clone(),
                 };
                 calls.push(Multicall3::Call3 {
-                    target: self.registry,
+                    target: *self.registry.address(),
                     allowFailure: false,
                     callData: data,
                 });

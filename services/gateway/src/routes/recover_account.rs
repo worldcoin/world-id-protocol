@@ -1,3 +1,4 @@
+use crate::routes::ErrorCode;
 use crate::{
     ops_batcher::{OpEnvelope, OpKind},
     request_tracker::RequestTracker,
@@ -6,14 +7,10 @@ use crate::{
 };
 use alloy::primitives::{Bytes, U256};
 use axum::{extract::State, Json};
-use world_id_core::{
-    types::{
-        GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, RecoverAccountRequest,
-    },
-    world_id_registry::WorldIdRegistry,
+use world_id_core::types::{
+    GatewayErrorResponse, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
+    RecoverAccountRequest,
 };
-
 pub(crate) async fn recover_account(
     State(state): State<AppState>,
     axum::Extension(tracker): axum::Extension<RequestTracker>,
@@ -24,8 +21,8 @@ pub(crate) async fn recover_account(
 
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::ZERO);
     // Simulate the operation before queueing to catch errors early
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    contract
+    state
+        .regsitry
         .recoverAccount(
             req.leaf_index,
             req.new_authenticator_address,

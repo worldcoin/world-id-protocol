@@ -1,55 +1,8 @@
 use std::net::SocketAddr;
 
 use alloy::primitives::Address;
-use clap::{Args, Parser};
-
-#[derive(Clone, Debug)]
-pub enum SignerConfig {
-    PrivateKey(String),
-    AwsKms(String),
-}
-
-/// Secrets for the signer.
-/// Exactly one of `wallet_private_key` or `aws_kms_key_id` must be provided.
-#[derive(Args, Debug, Clone)]
-#[group(required = true, multiple = false)]
-pub struct SignerArgs {
-    /// The signer wallet private key (hex) that will submit transactions (pays for gas)
-    #[arg(long, env = "WALLET_PRIVATE_KEY")]
-    wallet_private_key: Option<String>,
-
-    /// AWS KMS Key ID for signing transactions
-    #[arg(long, env = "AWS_KMS_KEY_ID")]
-    aws_kms_key_id: Option<String>,
-}
-
-impl SignerArgs {
-    /// Create a new `SignerArgs` with the provided wallet private key.
-    pub fn from_wallet(wallet_private_key: String) -> Self {
-        Self {
-            wallet_private_key: Some(wallet_private_key),
-            aws_kms_key_id: None,
-        }
-    }
-
-    /// Create a new `SignerArgs` with the provided aws kms key id
-    pub fn from_aws(aws_kms_key_id: String) -> Self {
-        Self {
-            wallet_private_key: None,
-            aws_kms_key_id: Some(aws_kms_key_id),
-        }
-    }
-
-    /// Create and return a `SignerConfig`.
-    pub fn signer_config(&self) -> SignerConfig {
-        match (&self.wallet_private_key, &self.aws_kms_key_id) {
-            (Some(pk), None) => SignerConfig::PrivateKey(pk.clone()),
-            (None, Some(key_id)) => SignerConfig::AwsKms(key_id.clone()),
-            // Clap's group constraint enforces exactly one of these is set
-            _ => unreachable!("clap enforces exactly one of wallet_private_key or aws_kms_key_id"),
-        }
-    }
-}
+use clap::Parser;
+use common::ProviderArgs;
 
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -59,12 +12,8 @@ pub struct GatewayConfig {
     pub registry_addr: Address,
 
     /// The HTTP RPC endpoint to submit transactions
-    #[arg(long, env = "RPC_URL")]
-    pub rpc_url: String,
-
-    /// Secrets for the signer.
     #[command(flatten)]
-    pub signer_args: SignerArgs,
+    pub provider: ProviderArgs,
 
     /// Batch window in milliseconds (i.e. how long to wait before submitting a batch of transactions)
     #[arg(long, env = "BATCH_MS", default_value = "1000")]
@@ -100,10 +49,6 @@ impl GatewayConfig {
 
         config
     }
-
-    pub fn signer_config(&self) -> SignerConfig {
-        self.signer_args.signer_config()
-    }
 }
 
 #[cfg(test)]
@@ -126,26 +71,6 @@ mod tests {
             .copied()
             .collect();
         GatewayConfig::try_parse_from(args)
-    }
-
-    #[test]
-    fn test_private_key_only_succeeds() {
-        let result = parse_with_signer_args(&["--wallet-private-key", "0xdeadbeef"]);
-        assert!(result.is_ok());
-
-        let config = result.unwrap();
-        assert!(
-            matches!(config.signer_config(), SignerConfig::PrivateKey(pk) if pk == "0xdeadbeef")
-        );
-    }
-
-    #[test]
-    fn test_aws_kms_only_succeeds() {
-        let result = parse_with_signer_args(&["--aws-kms-key-id", "my-key-id"]);
-        assert!(result.is_ok());
-
-        let config = result.unwrap();
-        assert!(matches!(config.signer_config(), SignerConfig::AwsKms(id) if id == "my-key-id"));
     }
 
     #[test]
