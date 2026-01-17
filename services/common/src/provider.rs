@@ -2,9 +2,9 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::Path;
 use std::sync::Arc;
 
-use alloy::network::EthereumWallet;
+use alloy::network::{Ethereum, EthereumWallet};
 use alloy::providers::fillers::CachedNonceManager;
-use alloy::providers::{DynProvider, Provider, ProviderBuilder, WsConnect};
+use alloy::providers::{DynProvider, Provider, ProviderBuilder, RootProvider, WsConnect};
 use alloy::rpc::client::RpcClient;
 use alloy::rpc::json_rpc::RequestPacket;
 use alloy::signers::aws::aws_config::BehaviorVersion;
@@ -36,10 +36,6 @@ pub struct ProviderArgs {
     #[arg(long = "ws", value_delimiter = ',', env = "WS_URL")]
     #[serde(default)]
     pub ws: Option<String>,
-
-    /// The Chain ID.
-    #[arg(long = "chain", env = "CHAIN_ID", default_value_t = 4801)]
-    pub chain_id: u64,
 
     #[command(flatten)]
     #[serde(default)]
@@ -83,8 +79,7 @@ impl SignerArgs {
             (Some(s), None) => {
                 let signer = s
                     .parse::<PrivateKeySigner>()
-                    .map_err(|e| anyhow::anyhow!("invalid private key: {e}"))?
-                    .with_chain_id(Some(chain));
+                    .map_err(|e| anyhow::anyhow!("invalid private key: {e}"))?;
                 Ok(EthereumWallet::from(signer))
             }
             (None, Some(key_id)) => {
@@ -160,7 +155,6 @@ impl Default for ProviderArgs {
             ws: None,
             signer: None,
             throttle: None,
-            chain_id: 4801,
         }
     }
 }
@@ -201,6 +195,7 @@ impl ProviderArgs {
         let Some(http) = self.http else {
             return Err(anyhow::anyhow!("No HTTP URLs provided"));
         };
+
         // Configure the fallback layer
         let fallback_layer = FallbackLayer::default()
             .with_active_transport_count(NonZeroUsize::new(http.len()).unwrap());
@@ -213,11 +208,6 @@ impl ProviderArgs {
         });
 
         let transports = http.into_iter().map(Http::new).collect::<Vec<_>>();
-        let maybe_signer = if let Some(signer) = &self.signer {
-            Some(signer.signer(self.chain_id).await?)
-        } else {
-            None
-        };
 
         let client = if let Some(throttle) = throttle {
             let transport = ServiceBuilder::new()
@@ -234,17 +224,27 @@ impl ProviderArgs {
             RpcClient::builder().transport(transport, false)
         };
 
+        let chain_id = {
+            let provider: RootProvider<Ethereum> =
+                ProviderBuilder::default().connect_client(client.clone());
+            provider.get_chain_id().await?
+        };
+
+        let maybe_signer = if let Some(signer) = &self.signer {
+            Some(signer.signer(chain_id).await?)
+        } else {
+            None
+        };
+
         let provider = if let Some(signer) = maybe_signer {
             let provider = ProviderBuilder::new()
-                .with_chain_id(self.chain_id)
                 .with_nonce_management(CachedNonceManager::default())
                 .wallet(signer)
                 .connect_client(client);
+
             provider.erased()
         } else {
-            let provider = ProviderBuilder::new()
-                .with_chain_id(self.chain_id)
-                .connect_client(client);
+            let provider = ProviderBuilder::new().connect_client(client);
             provider.erased()
         };
 
@@ -257,7 +257,6 @@ impl ProviderArgs {
         };
 
         let provider = ProviderBuilder::new()
-            .with_chain_id(self.chain_id)
             .connect_ws(WsConnect::new(ws))
             .await?
             .erased();
@@ -334,5 +333,88 @@ where
             limiter.until_ready().await;
             inner.call(req).await
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn from_file_loads_http_with_multiple_endpoints() {
+        let config = r#"
+            [provider]
+            http = ["https://rpc1.example.com", "https://rpc2.example.com", "https://rpc3.example.com"]
+            chain_id = 1
+        "#;
+
+        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+        file.write_all(config.as_bytes()).unwrap();
+
+        let args = ProviderArgs::from_file(file.path()).unwrap();
+        let urls = args.http.unwrap();
+        assert_eq!(urls.len(), 3);
+        assert_eq!(urls[0].as_str(), "https://rpc1.example.com/");
+        assert_eq!(urls[1].as_str(), "https://rpc2.example.com/");
+        assert_eq!(urls[2].as_str(), "https://rpc3.example.com/");
+    }
+
+    #[test]
+    fn from_file_loads_http_and_ws() {
+        let config = r#"
+            [provider]
+            http = ["https://rpc.example.com"]
+            ws = "wss://ws.example.com"
+            chain_id = 42161
+        "#;
+
+        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+        file.write_all(config.as_bytes()).unwrap();
+
+        let args = ProviderArgs::from_file(file.path()).unwrap();
+        assert_eq!(args.http.unwrap().len(), 1);
+        assert_eq!(args.ws.unwrap(), "wss://ws.example.com");
+    }
+
+    #[test]
+    fn from_file_loads_with_private_key_signer() {
+        let config = r#"
+            [provider]
+            http = ["https://rpc.example.com"]
+            chain_id = 1
+
+            [provider.signer]
+            wallet_private_key = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        "#;
+
+        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+        file.write_all(config.as_bytes()).unwrap();
+
+        let args = ProviderArgs::from_file(file.path()).unwrap();
+        let signer = args.signer.unwrap();
+        assert!(matches!(
+            signer.signer_config(),
+            SignerConfig::PrivateKey(_)
+        ));
+    }
+
+    #[test]
+    fn from_file_loads_with_aws_kms_signer() {
+        let config = r#"
+            [provider]
+            http = ["https://rpc.example.com"]
+            chain_id = 1
+
+            [provider.signer]
+            aws_kms_key_id = "arn:aws:kms:us-east-1:123456789:key/abc-123"
+        "#;
+
+        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+        file.write_all(config.as_bytes()).unwrap();
+
+        let args = ProviderArgs::from_file(file.path()).unwrap();
+        let signer = args.signer.unwrap();
+        assert!(matches!(signer.signer_config(), SignerConfig::AwsKms(_)));
     }
 }

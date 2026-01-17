@@ -11,11 +11,16 @@ rust-version.workspace = true
 [dependencies]
 alloy = { workspace = true, features = [
     "json-rpc",
+    "network",
     "node-bindings",
+    "providers",
+    "provider-ws",
     "rpc-client",
     "rpc-types-debug",
     "rpc-types-trace",
     "signer-aws",
+    "signer-local",
+    "transport-http",
 ] }
 serde.workspace = true
 url.workspace = true
@@ -25,6 +30,9 @@ tracing.workspace = true
 config = "0.15.19"
 aws-sdk-kms = "1.0.0"
 aws-config = "1.0.0"
-clap = "4.5.54"
+clap = { version = "4.5.54", features = ["derive", "env"] }
 tower = "0.5.3"
 governor = "0.10.4"
+
+[dev-dependencies]
+tempfile = "3"
