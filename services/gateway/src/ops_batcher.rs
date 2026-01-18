@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use world_id_core::types::{parse_contract_error, GatewayErrorCode, GatewayRequestState};
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
-const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
+pub const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
 alloy::sol! {
     #[allow(missing_docs)]

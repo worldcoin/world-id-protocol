@@ -43,9 +43,16 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tower-http = { version = "0.5", features = ["trace", "timeout"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
+tracing-opentelemetry = "0.27"
+opentelemetry = { version = "0.26", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.26", features = ["rt-tokio", "metrics"] }
+opentelemetry-otlp = { version = "0.26", features = ["default", "grpc-tonic", "metrics"] }
 utoipa = { workspace = true }
 uuid = { version = "1.11", features = ["v4"] }
-
+tokio-util = "0.7.18"
+tokio-stream = "0.1.11"
+futures = "0.3"
+futures-util = "0.3"
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
 reqwest = { workspace = true }

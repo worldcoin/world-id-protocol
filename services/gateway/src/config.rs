@@ -1,8 +1,9 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use alloy::primitives::Address;
 use clap::Parser;
 use common::ProviderArgs;
+use serde::Deserialize;
 
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -48,6 +49,35 @@ impl GatewayConfig {
         }
 
         config
+    }
+}
+
+#[derive(Debug, Clone, clap::Args, Default, Deserialize)]
+
+pub struct PendingBatchConfig {
+    #[clap(long, env = "RESUBMIT_TIMEOUT", default_value = "15s", value_parser = parser::parse_duration)]
+    pub resubmit_timeout: Duration,
+    #[clap(long, env = "MAX_FEE_MULTIPLIER", default_value = "2.0")]
+    pub max_fee_multiplier: f64,
+    #[clap(long, env = "FEE_ESCALATION_STEP", default_value = "0.1")]
+    pub fee_escalation_step: f64,
+    #[clap(long, env = "MAX_RESUBMISSIONS", default_value = "5")]
+    pub max_resubmissions: u32,
+    #[clap(long, env = "SIMULATION_TIMEOUT", default_value = "10s", value_parser = parser::parse_duration)]
+    pub simulation_timeout: Duration,
+    #[clap(long, env = "SIMULATION_DEBOUNCE", default_value = "500ms", value_parser = parser::parse_duration)]
+    pub simulation_debounce: Duration,
+    #[clap(long, env = "MAX_PENDING_DURATION", default_value = "5m", value_parser = parser::parse_duration)]
+    pub max_pending_duration: Duration,
+    #[clap(long, env = "RETRY_BASE_DELAY", default_value = "500ms", value_parser = parser::parse_duration)]
+    pub retry_base_delay: Duration,
+}
+
+mod parser {
+    use std::time::Duration;
+
+    pub fn parse_duration(s: &str) -> anyhow::Result<Duration> {
+        Ok(Duration::from_secs(Duration::from_secs(s.parse::<u64>()?).as_secs()))
     }
 }
 

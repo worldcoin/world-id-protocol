@@ -1,8 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
+    batcher::{
+        IngressController, OpEnvelopeInner, OpsBatcher, OpsBatcherConfig, OpsBatcherMetrics,
+        SignupFifoOrdering,
+    },
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
-    ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request_tracker::RequestTracker,
     routes::{
         create_account::create_account,
@@ -17,7 +20,8 @@ use crate::{
     types::RootExpiry,
     AppState,
 };
-use alloy::providers::DynProvider;
+use alloy::providers::{DynProvider, Provider};
+use alloy::pubsub::PubSubConnect;
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
@@ -30,10 +34,10 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::{
     types::{
-        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayErrorCode as ErrorCode,
-        GatewayRequestKind, GatewayRequestState, GatewayStatusResponse, HealthResponse,
-        InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
+        GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
+        IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+        UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -50,13 +54,24 @@ mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 
+pub trait WsBounds: PubSubConnect + Provider + Clone + Send + Sync {}
+impl<T: PubSubConnect + Provider + Clone + Send + Sync> WsBounds for T {}
+
+/// Build the application router with all routes and middleware.
+///
+/// Generic over provider types to allow different RPC configurations:
+/// - `P`: The primary RPC provider (HTTP or any other transport)
+/// - `WS`: Optional websocket provider for block subscriptions
 pub(crate) async fn build_app(
+    provider: Arc<impl Provider + Clone + 'static>,
+    ws_provider: Option<Arc<impl WsBounds + Clone + 'static>>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
-) -> anyhow::Result<Router> {
+) -> anyhow::Result<Router>
+where {
     let tracker = RequestTracker::new(redis_url).await;
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -69,19 +84,25 @@ pub(crate) async fn build_app(
     );
     tokio::spawn(runner.run());
 
-    // ops batcher (insert/remove/recover/update)
-    let (otx, orx) = mpsc::channel(2048);
-    let ops_batcher = OpsBatcherHandle { tx: otx };
-    let ops_runner = OpsBatcherRunner::new(
-        registry.clone(),
-        Duration::from_millis(batch_ms),
-        max_ops_batch_size,
-        orx,
-        tracker.clone(),
-    );
-    tokio::spawn(ops_runner.run());
+    // Create OpsBatcher for insert/remove/recover/update operations
+    let mut ops_config = OpsBatcherConfig::new(registry.clone());
+    ops_config.batch_window = Duration::from_millis(batch_ms);
+    ops_config.adaptive.max_batch_ops = max_ops_batch_size;
 
-    tracing::info!("Ops batcher initialized");
+    let metrics = OpsBatcherMetrics::new();
+    let (ops_batcher, ops_handle, _shutdown_signal) =
+        OpsBatcher::<_, _, SignupFifoOrdering<OpEnvelopeInner>>::new(
+            provider,
+            ws_provider,
+            Arc::new(tracker.clone()),
+            ops_config,
+            metrics,
+        );
+
+    // Spawn the OpsBatcher task
+    tokio::spawn(ops_batcher.run());
+
+    tracing::info!("OpsBatcher initialized with PendingBatchFuture");
 
     let root_cache = Cache::builder()
         .max_capacity(ROOT_CACHE_SIZE)
@@ -90,7 +111,7 @@ pub(crate) async fn build_app(
     let state = AppState {
         regsitry: registry.clone(),
         batcher,
-        ops_batcher,
+        ops_batcher: ops_handle,
         root_cache,
     };
 

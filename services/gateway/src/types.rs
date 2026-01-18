@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use crate::{create_batcher::CreateBatcherHandle, ops_batcher::OpsBatcherHandle};
+use crate::batcher::OpsBatcherHandle;
+use crate::create_batcher::CreateBatcherHandle;
 use alloy::{primitives::U256, providers::DynProvider};
 use moka::{future::Cache, Expiry};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};

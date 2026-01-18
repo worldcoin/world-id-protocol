@@ -1,11 +1,12 @@
 use crate::{
-    ops_batcher::{OpEnvelope, OpKind},
+    batcher::{BackpressureError, InsertAuthenticatorOp, OpEnvelopeInner, Operation},
     request_tracker::RequestTracker,
     routes::validation::ValidateRequest,
     types::AppState,
 };
 use alloy::primitives::Bytes;
 use axum::{extract::State, Json};
+use uuid::Uuid;
 use world_id_core::types::{
     GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
     GatewayStatusResponse, InsertAuthenticatorRequest,
@@ -40,27 +41,36 @@ pub(crate) async fn insert_authenticator(
     let (id, record) = tracker
         .new_request(GatewayRequestKind::InsertAuthenticator)
         .await?;
-    let env = OpEnvelope {
-        id: id.clone(),
-        kind: OpKind::Insert {
-            leaf_index: req.leaf_index,
-            new_authenticator_address: req.new_authenticator_address,
-            old_commit: req.old_offchain_signer_commitment,
-            new_commit: req.new_offchain_signer_commitment,
-            sibling_nodes: req.sibling_nodes.clone(),
-            signature: Bytes::from(req.signature.clone()),
-            nonce: req.nonce,
-            pubkey_id: req.pubkey_id,
-            new_pubkey: req.new_authenticator_pubkey,
-        },
-    };
 
-    if state.ops_batcher.tx.send(env).await.is_err() {
+    // Build the new operation envelope with all required fields
+    let op = Operation::InsertAuthenticator(InsertAuthenticatorOp {
+        leaf_index: req.leaf_index,
+        new_authenticator_address: req.new_authenticator_address,
+        pubkey_id: req.pubkey_id,
+        new_authenticator_pubkey: req.new_authenticator_pubkey,
+        old_commit: req.old_offchain_signer_commitment,
+        new_commit: req.new_offchain_signer_commitment,
+        signature: Bytes::from(req.signature.clone()),
+        sibling_nodes: req.sibling_nodes.clone(),
+        nonce: req.nonce,
+    });
+
+    let env = OpEnvelopeInner::with_id(
+        Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()),
+        op,
+        req.new_authenticator_address,
+        req.nonce,
+    );
+
+    if let Err(e) = state.ops_batcher.try_submit(env) {
+        let error_code = match e {
+            BackpressureError::QueueFull | BackpressureError::Timeout => {
+                ErrorCode::BatcherUnavailable
+            }
+            BackpressureError::Shutdown => ErrorCode::BatcherUnavailable,
+        };
         tracker
-            .set_status(
-                &id,
-                GatewayRequestState::failed_from_code(ErrorCode::BatcherUnavailable),
-            )
+            .set_status(&id, GatewayRequestState::failed_from_code(error_code))
             .await;
         return Err(GatewayErrorResponse::batcher_unavailable());
     }
