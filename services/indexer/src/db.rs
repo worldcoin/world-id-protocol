@@ -7,11 +7,11 @@ use sqlx::{PgPool, Row, postgres::PgPoolOptions, types::Json};
 /// Type of commitment update event stored in the database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventType {
-    Created,
-    Updated,
-    Inserted,
-    Removed,
-    Recovered,
+    AccountCreated,
+    AccountUpdated,
+    AccountRecovered,
+    AuthenticationInserted,
+    AuthenticationRemoved,
 }
 
 impl EventType {}
@@ -19,11 +19,11 @@ impl EventType {}
 impl fmt::Display for EventType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EventType::Created => write!(f, "created"),
-            EventType::Updated => write!(f, "updated"),
-            EventType::Inserted => write!(f, "inserted"),
-            EventType::Removed => write!(f, "removed"),
-            EventType::Recovered => write!(f, "recovered"),
+            EventType::AccountCreated => write!(f, "account_created"),
+            EventType::AccountUpdated => write!(f, "account_updated"),
+            EventType::AccountRecovered => write!(f, "account_recovered"),
+            EventType::AuthenticationInserted => write!(f, "authentication_inserted"),
+            EventType::AuthenticationRemoved => write!(f, "authentication_removed"),
         }
     }
 }
@@ -33,11 +33,11 @@ impl FromStr for EventType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "created" => Ok(EventType::Created),
-            "updated" => Ok(EventType::Updated),
-            "inserted" => Ok(EventType::Inserted),
-            "removed" => Ok(EventType::Removed),
-            "recovered" => Ok(EventType::Recovered),
+            "account_created" => Ok(EventType::AccountCreated),
+            "account_updated" => Ok(EventType::AccountUpdated),
+            "account_recovered" => Ok(EventType::AccountRecovered),
+            "authentication_inserted" => Ok(EventType::AuthenticationInserted),
+            "authentication_removed" => Ok(EventType::AuthenticationRemoved),
             _ => Err(anyhow::anyhow!("Unknown event type: {}", s)),
         }
     }
@@ -59,23 +59,12 @@ pub async fn init_db(pool: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn load_checkpoint(pool: &PgPool) -> anyhow::Result<Option<u64>> {
-    let rec: Option<(i64,)> = sqlx::query_as("select last_block from checkpoints where name = $1")
+pub async fn get_latest_block(pool: &PgPool) -> anyhow::Result<Option<u64>> {
+    let rec: Option<(i64,)> = sqlx::query_as("SELECT MAX(block_number) FROM world_id_events")
         .bind("account_created")
         .fetch_optional(pool)
         .await?;
     Ok(rec.map(|t| t.0 as u64))
-}
-
-pub async fn save_checkpoint(pool: &PgPool, block: u64) -> anyhow::Result<()> {
-    sqlx::query(
-        "insert into checkpoints (name, last_block) values ($1, $2) on conflict (name) do update set last_block = excluded.last_block",
-    )
-        .bind("account_created")
-        .bind(block as i64)
-        .execute(pool)
-        .await?;
-    Ok(())
 }
 
 pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::Result<()> {
@@ -189,7 +178,7 @@ pub async fn record_commitment_update(
     log_index: u64,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        r#"insert into commitment_update_events
+        r#"insert into world_id_events
         (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
         values ($1, $2, $3, $4, $5, $6)
         on conflict (tx_hash, log_index) do nothing"#,
@@ -215,13 +204,13 @@ pub async fn fetch_recent_account_updates(
         .unwrap_or_default();
     let since_timestamp = since_duration.as_secs() as i64;
 
-    // Query commitment_update_events for recent changes
+    // Query world_id_events for recent changes
     let rows = sqlx::query(
         r#"
         SELECT DISTINCT ON (leaf_index)
             leaf_index,
             new_commitment
-        FROM commitment_update_events
+        FROM world_id_events
         WHERE created_at > to_timestamp($1)
         ORDER BY leaf_index, created_at DESC
         "#,
@@ -269,10 +258,10 @@ pub async fn fetch_all_leaves(pool: &PgPool) -> anyhow::Result<Vec<(String, Stri
     Ok(leaves)
 }
 
-/// Get the maximum block number from commitment_update_events.
+/// Get the maximum block number from world_id_events.
 pub async fn get_max_event_block(pool: &PgPool) -> anyhow::Result<u64> {
     let result = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT COALESCE(MAX(block_number), 0) FROM commitment_update_events",
+        "SELECT COALESCE(MAX(block_number), 0) FROM world_id_events",
     )
     .fetch_one(pool)
     .await?
@@ -284,12 +273,11 @@ pub async fn get_max_event_block(pool: &PgPool) -> anyhow::Result<u64> {
 /// Get the maximum event ID from commitment_update_events.
 /// This is the primary key that auto-increments with each insertion.
 pub async fn get_max_event_id(pool: &PgPool) -> anyhow::Result<i64> {
-    let result = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT COALESCE(MAX(id), 0) FROM commitment_update_events",
-    )
-    .fetch_one(pool)
-    .await?
-    .unwrap_or(0);
+    let result =
+        sqlx::query_scalar::<_, Option<i64>>("SELECT COALESCE(MAX(id), 0) FROM world_id_events")
+            .fetch_one(pool)
+            .await?
+            .unwrap_or(0);
 
     Ok(result)
 }
@@ -306,7 +294,7 @@ pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
 
 /// Count total events in commitment_update_events.
 pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
-    let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM commitment_update_events")
+    let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM world_id_events")
         .fetch_one(pool)
         .await?;
 
@@ -334,7 +322,7 @@ pub async fn fetch_events_for_replay(
 ) -> anyhow::Result<Vec<CommitmentEventRow>> {
     let rows = sqlx::query(
         "SELECT id, leaf_index, event_type, new_commitment, block_number
-         FROM commitment_update_events
+         FROM world_id_events
          WHERE id > $1
          ORDER BY id ASC
          LIMIT $2",

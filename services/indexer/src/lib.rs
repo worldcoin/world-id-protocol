@@ -17,15 +17,16 @@ mod sanity_check;
 mod tree;
 
 pub use crate::db::{
-    EventType, fetch_recent_account_updates, get_max_event_id, init_db, insert_account,
-    insert_authenticator_at_index, load_checkpoint, make_db_pool, record_commitment_update,
-    remove_authenticator_at_index, save_checkpoint, update_authenticator_at_index,
+    EventType, fetch_recent_account_updates, get_latest_block, init_db, insert_account,
+    insert_authenticator_at_index, make_db_pool, record_commitment_update,
+    remove_authenticator_at_index, update_authenticator_at_index,
 };
 use crate::{
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     events::{RegistryEvent, decoders::decode_registry_event},
-    tree::{GLOBAL_TREE, update_tree_with_commitment},
+    tree::GLOBAL_TREE,
 };
+use crate::{db::get_max_event_id, tree::update_tree_with_commitment};
 pub use config::GlobalConfig;
 
 /// Tree cache parameters needed during indexing
@@ -105,17 +106,6 @@ async fn initialize_tree_with_config(
     {
         let mut tree = GLOBAL_TREE.write().await;
         *tree = new_tree;
-    }
-
-    // Read the metadata to get the last block number and update checkpoint
-    // This ensures backfill doesn't re-process blocks that were included in tree initialization
-    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
-    if let Ok(metadata) = tree::metadata::read_metadata(&cache_path) {
-        save_checkpoint(pool, metadata.last_block_number).await?;
-        tracing::debug!(
-            block = metadata.last_block_number,
-            "Updated checkpoint from tree metadata"
-        );
     }
 
     tracing::info!(
@@ -285,7 +275,7 @@ async fn run_indexer_only(
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
     // Determine starting block from checkpoint or env
-    let mut from = load_checkpoint(&pool)
+    let mut from = get_latest_block(&pool)
         .await?
         .unwrap_or(indexer_cfg.start_block);
 
@@ -398,7 +388,7 @@ async fn run_both(
     }
 
     // Determine starting block from checkpoint or env
-    let mut from = load_checkpoint(&pool)
+    let mut from = get_latest_block(&pool)
         .await?
         .unwrap_or(indexer_cfg.start_block);
 
@@ -495,8 +485,6 @@ async fn backfill_batch<P: Provider>(
         }
     }
 
-    save_checkpoint(pool, to_block).await?;
-
     // Update cache metadata if tree was updated
     if let Some(cache_params) = tree_cache_params {
         let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
@@ -591,7 +579,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    EventType::Created,
+                    EventType::AccountCreated,
                     ev.offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -614,7 +602,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    EventType::Updated,
+                    EventType::AccountUpdated,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -637,7 +625,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    EventType::Inserted,
+                    EventType::AuthenticationInserted,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -658,7 +646,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    EventType::Removed,
+                    EventType::AuthenticationRemoved,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -682,7 +670,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    EventType::Recovered,
+                    EventType::AccountRecovered,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -788,8 +776,6 @@ pub async fn stream_logs(
                 }
 
                 if let Some(bn) = log.block_number {
-                    save_checkpoint(pool, bn).await?;
-
                     // Update cache metadata if tree was updated
                     if let Some(cache_params) = tree_cache_params {
                         let cache_path_buf =

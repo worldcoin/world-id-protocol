@@ -206,7 +206,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     .unwrap();
 
     sqlx::query(
-        r#"insert into commitment_update_events
+        r#"insert into world_id_events
         (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
         values ($1, $2, $3, $4, $5, $6)"#,
     )
