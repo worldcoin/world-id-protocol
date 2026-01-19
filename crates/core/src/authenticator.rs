@@ -33,7 +33,6 @@ use reqwest::StatusCode;
 use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use taceo_oprf_client::Connector;
-use taceo_oprf_types::ShareEpoch;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
@@ -443,7 +442,7 @@ impl Authenticator {
             credential_sub_blinding_factor,
             rp_id: proof_request.rp_id,
             oprf_key_id: proof_request.oprf_key_id,
-            share_epoch: ShareEpoch::default().into_inner(),
+            share_epoch: proof_request.share_epoch.into_inner(),
             action: proof_request.action,
             nonce: proof_request.nonce,
             current_timestamp: proof_request.created_at,
