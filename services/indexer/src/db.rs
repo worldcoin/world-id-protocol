@@ -305,7 +305,6 @@ pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
     Ok(result as u64)
 }
 
-
 /// Count total events in commitment_update_events.
 pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
     let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM commitment_update_events")
@@ -322,7 +321,6 @@ pub struct CommitmentEventRow {
     pub leaf_index: String,
     pub new_commitment: String,
     pub block_number: i64,
-    pub log_index: i64,
 }
 
 /// Fetch events for replay using event ID-based pagination.
@@ -336,7 +334,7 @@ pub async fn fetch_events_for_replay(
     limit: i64,
 ) -> anyhow::Result<Vec<CommitmentEventRow>> {
     let rows = sqlx::query(
-        "SELECT id, leaf_index, event_type, new_commitment, block_number, log_index
+        "SELECT id, leaf_index, event_type, new_commitment, block_number
          FROM commitment_update_events
          WHERE id > $1
          ORDER BY id ASC
@@ -354,7 +352,6 @@ pub async fn fetch_events_for_replay(
             leaf_index: row.try_get("leaf_index")?,
             new_commitment: row.try_get("new_commitment")?,
             block_number: row.try_get("block_number")?,
-            log_index: row.try_get("log_index")?,
         });
     }
 
