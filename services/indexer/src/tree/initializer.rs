@@ -9,6 +9,7 @@ use tracing::{info, warn};
 use super::PoseidonHasher;
 
 use super::{builder::TreeBuilder, metadata};
+use crate::db::get_max_event_id;
 
 pub struct TreeInitializer {
     builder: TreeBuilder,
@@ -63,19 +64,28 @@ impl TreeInitializer {
 
         info!(
             cache_block = metadata.last_block_number,
+            cache_event_id = metadata.last_event_id,
             cache_root = %metadata.root_hash,
             "Found cache metadata"
         );
 
         // 2. Get current DB state
         let db_state = metadata::get_db_state(pool).await?;
+        let current_event_id = get_max_event_id(pool).await?;
+
         let blocks_behind = db_state
             .max_block_number
             .saturating_sub(metadata.last_block_number);
+        let events_behind = current_event_id.saturating_sub(metadata.last_event_id);
 
         info!(
             current_block = db_state.max_block_number,
-            blocks_behind, "Cache is {} blocks behind", blocks_behind
+            current_event_id,
+            blocks_behind,
+            events_behind,
+            "Cache is {} blocks / {} events behind",
+            blocks_behind,
+            events_behind
         );
 
         // 3. Restore tree from mmap
@@ -91,29 +101,32 @@ impl TreeInitializer {
             );
         }
 
-        // 5. Replay events if needed
-        if blocks_behind == 0 {
+        // 5. Replay events if needed (based on event ID, not block number)
+        if events_behind == 0 {
             info!("Cache is up-to-date, no replay needed");
             return Ok(tree);
         }
 
-        let (updated_tree, new_block) = self
+        // Use event ID as the replay cursor (not block number)
+        let (updated_tree, new_block, new_event_id) = self
             .builder
-            .replay_events(tree, pool, metadata.last_block_number)
+            .replay_events(tree, pool, metadata.last_event_id)
             .await?;
 
-        // 6. Update metadata
+        // 6. Update metadata with new event ID
         metadata::write_metadata(
             &self.cache_path,
             &updated_tree,
             pool,
             new_block,
+            new_event_id,
             self.dense_prefix_depth,
         )
         .await?;
 
         info!(
             replayed_to_block = new_block,
+            replayed_to_event_id = new_event_id,
             new_root = %format!("0x{:x}", updated_tree.root()),
             "Replay complete"
         );
@@ -128,17 +141,18 @@ impl TreeInitializer {
     ) -> anyhow::Result<MerkleTree<PoseidonHasher, Canonical>> {
         info!("Starting full tree rebuild with cache");
 
-        let (tree, last_block) = self
+        let (tree, last_block, last_event_id) = self
             .builder
             .build_from_db_with_cache(pool, &self.cache_path)
             .await?;
 
-        // Write metadata
+        // Write metadata with event ID
         metadata::write_metadata(
             &self.cache_path,
             &tree,
             pool,
             last_block,
+            last_event_id,
             self.dense_prefix_depth,
         )
         .await?;
@@ -146,6 +160,7 @@ impl TreeInitializer {
         info!(
             root = %format!("0x{:x}", tree.root()),
             last_block,
+            last_event_id,
             "Full rebuild complete"
         );
 

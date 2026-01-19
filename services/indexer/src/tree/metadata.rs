@@ -7,20 +7,20 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use super::{MerkleTree, PoseidonHasher};
-use crate::db::{
-    get_active_leaf_count, get_last_event_id_up_to_block, get_max_event_block,
-    get_total_event_count,
-};
+use crate::db::{get_active_leaf_count, get_max_event_block, get_total_event_count};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeCacheMetadata {
     /// Root hash of the tree when cache was written
     pub root_hash: String,
 
-    /// Last block number included in this cache
+    /// Last block number included in this cache (informational only)
     pub last_block_number: u64,
 
-    /// Last event ID processed (safety check)
+    /// Last event ID processed (PRIMARY CURSOR for replay)
+    /// This is the auto-incrementing ID from commitment_update_events table
+    /// Using event_id instead of block_number ensures we catch all events,
+    /// including those inserted later with older block numbers (e.g., during reorgs)
     pub last_event_id: i64,
 
     /// Number of non-zero leaves in the tree
@@ -72,10 +72,10 @@ pub async fn write_metadata(
     tree: &MerkleTree<PoseidonHasher, semaphore_rs_trees::lazy::Canonical>,
     pool: &PgPool,
     last_block_number: u64,
+    last_event_id: i64,
     dense_prefix_depth: usize,
 ) -> anyhow::Result<()> {
     // Get current database state
-    let last_event_id = get_last_event_id_up_to_block(pool, last_block_number).await?;
     let active_leaf_count = get_active_leaf_count(pool).await?;
 
     // Create metadata

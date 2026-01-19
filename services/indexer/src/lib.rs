@@ -18,9 +18,9 @@ mod tree;
 
 use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
 pub use crate::db::{
-    fetch_recent_account_updates, init_db, insert_account, insert_authenticator_at_index,
-    load_checkpoint, make_db_pool, record_commitment_update, remove_authenticator_at_index,
-    save_checkpoint, update_authenticator_at_index, EventType,
+    fetch_recent_account_updates, get_max_event_id, init_db, insert_account,
+    insert_authenticator_at_index, load_checkpoint, make_db_pool, record_commitment_update,
+    remove_authenticator_at_index, save_checkpoint, update_authenticator_at_index, EventType,
 };
 use crate::events::decoders::decode_registry_event;
 use crate::events::RegistryEvent;
@@ -484,11 +484,14 @@ async fn backfill_batch<P: Provider>(
     if let Some(cache_params) = tree_cache_params {
         let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
         let tree = GLOBAL_TREE.read().await;
+        // Get the current max event ID to track replay position
+        let current_event_id = get_max_event_id(pool).await.unwrap_or(0);
         tree::metadata::write_metadata(
             &cache_path_buf,
             &tree,
             pool,
             to_block,
+            current_event_id,
             cache_params.dense_prefix_depth,
         )
         .await
@@ -774,11 +777,14 @@ pub async fn stream_logs(
                         let cache_path_buf =
                             std::path::PathBuf::from(&cache_params.cache_file_path);
                         let tree = GLOBAL_TREE.read().await;
+                        // Get the current max event ID to track replay position
+                        let current_event_id = get_max_event_id(pool).await.unwrap_or(0);
                         tree::metadata::write_metadata(
                             &cache_path_buf,
                             &tree,
                             pool,
                             bn,
+                            current_event_id,
                             cache_params.dense_prefix_depth,
                         )
                         .await
