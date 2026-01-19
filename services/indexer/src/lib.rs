@@ -20,7 +20,7 @@ use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
 pub use crate::db::{
     fetch_recent_account_updates, init_db, insert_account, insert_authenticator_at_index,
     load_checkpoint, make_db_pool, record_commitment_update, remove_authenticator_at_index,
-    save_checkpoint, update_authenticator_at_index,
+    save_checkpoint, update_authenticator_at_index, EventType,
 };
 use crate::events::decoders::decode_registry_event;
 use crate::events::RegistryEvent;
@@ -554,7 +554,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "created",
+                    EventType::Created,
                     ev.offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -577,7 +577,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "updated",
+                    EventType::Updated,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -600,7 +600,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "inserted",
+                    EventType::Inserted,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -621,7 +621,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "removed",
+                    EventType::Removed,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -645,7 +645,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "recovered",
+                    EventType::Recovered,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),

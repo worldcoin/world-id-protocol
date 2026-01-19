@@ -4,7 +4,7 @@ use alloy::primitives::U256;
 use anyhow::Context;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use sqlx::PgPool;
-use tracing::{info, warn};
+use tracing::info;
 
 use super::PoseidonHasher;
 use crate::db::{fetch_all_leaves, fetch_events_for_replay, get_max_event_block};
@@ -114,7 +114,8 @@ impl TreeBuilder {
 
         loop {
             // Keyset pagination: continue from last (block_number, log_index)
-            let events = fetch_events_for_replay(pool, last_block, last_log_index, BATCH_SIZE).await?;
+            let events =
+                fetch_events_for_replay(pool, last_block, last_log_index, BATCH_SIZE).await?;
 
             if events.is_empty() {
                 break;
@@ -131,17 +132,12 @@ impl TreeBuilder {
                     .with_context(|| format!("Failed to parse leaf_index: {}", event.leaf_index))?;
                 let leaf_index = leaf_index.as_limbs()[0] as usize;
 
-                let new_value = match event.event_type.as_str() {
-                    "created" | "updated" | "inserted" | "recovered" => {
-                        event.new_commitment.parse::<U256>().with_context(|| {
-                            format!("Failed to parse new_commitment: {}", event.new_commitment)
-                        })?
-                    }
-                    "removed" => U256::ZERO,
-                    _ => {
-                        warn!("Unknown event type: {}", event.event_type);
-                        continue;
-                    }
+                let new_value = if event.event_type.sets_value() {
+                    event.new_commitment.parse::<U256>().with_context(|| {
+                        format!("Failed to parse new_commitment: {}", event.new_commitment)
+                    })?
+                } else {
+                    U256::ZERO
                 };
 
                 // Store final state (overwrites previous updates to same leaf)

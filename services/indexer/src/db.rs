@@ -1,6 +1,54 @@
+use std::fmt;
+use std::str::FromStr;
+
 use crate::events::AccountCreatedEvent;
 use alloy::primitives::{Address, U256};
 use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
+
+/// Type of commitment update event stored in the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventType {
+    Created,
+    Updated,
+    Inserted,
+    Removed,
+    Recovered,
+}
+
+impl EventType {
+    /// Returns true if this event type sets a non-zero commitment value.
+    #[must_use]
+    pub fn sets_value(&self) -> bool {
+        !matches!(self, EventType::Removed)
+    }
+}
+
+impl fmt::Display for EventType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EventType::Created => write!(f, "created"),
+            EventType::Updated => write!(f, "updated"),
+            EventType::Inserted => write!(f, "inserted"),
+            EventType::Removed => write!(f, "removed"),
+            EventType::Recovered => write!(f, "recovered"),
+        }
+    }
+}
+
+impl FromStr for EventType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "created" => Ok(EventType::Created),
+            "updated" => Ok(EventType::Updated),
+            "inserted" => Ok(EventType::Inserted),
+            "removed" => Ok(EventType::Removed),
+            "recovered" => Ok(EventType::Recovered),
+            _ => Err(anyhow::anyhow!("Unknown event type: {}", s)),
+        }
+    }
+}
 
 pub async fn make_db_pool(db_url: &str) -> anyhow::Result<PgPool> {
     let pool = PgPoolOptions::new()
@@ -141,7 +189,7 @@ pub async fn remove_authenticator_at_index(
 pub async fn record_commitment_update(
     pool: &PgPool,
     leaf_index: U256,
-    event_type: &str,
+    event_type: EventType,
     new_commitment: U256,
     block_number: u64,
     tx_hash: &str,
@@ -154,7 +202,7 @@ pub async fn record_commitment_update(
         on conflict (tx_hash, log_index) do nothing"#,
     )
     .bind(leaf_index.to_string())
-    .bind(event_type)
+    .bind(event_type.to_string())
     .bind(new_commitment.to_string())
     .bind(block_number as i64)
     .bind(tx_hash)
@@ -251,7 +299,10 @@ pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
 }
 
 /// Get the last event ID up to (and including) a specific block number.
-pub async fn get_last_event_id_up_to_block(pool: &PgPool, block_number: u64) -> anyhow::Result<i64> {
+pub async fn get_last_event_id_up_to_block(
+    pool: &PgPool,
+    block_number: u64,
+) -> anyhow::Result<i64> {
     let result = sqlx::query_scalar::<_, Option<i64>>(
         "SELECT MAX(id) FROM commitment_update_events WHERE block_number <= $1",
     )
@@ -265,10 +316,9 @@ pub async fn get_last_event_id_up_to_block(pool: &PgPool, block_number: u64) -> 
 
 /// Count total events in commitment_update_events.
 pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
-    let result =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM commitment_update_events")
-            .fetch_one(pool)
-            .await?;
+    let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM commitment_update_events")
+        .fetch_one(pool)
+        .await?;
 
     Ok(result as u64)
 }
@@ -277,7 +327,7 @@ pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
 #[derive(Debug)]
 pub struct CommitmentEventRow {
     pub leaf_index: String,
-    pub event_type: String,
+    pub event_type: EventType,
     pub new_commitment: String,
     pub block_number: i64,
     pub log_index: i64,
@@ -306,9 +356,10 @@ pub async fn fetch_events_for_replay(
 
     let mut events = Vec::with_capacity(rows.len());
     for row in rows {
+        let event_type_str: String = row.try_get("event_type")?;
         events.push(CommitmentEventRow {
             leaf_index: row.try_get("leaf_index")?,
-            event_type: row.try_get("event_type")?,
+            event_type: event_type_str.parse()?,
             new_commitment: row.try_get("new_commitment")?,
             block_number: row.try_get("block_number")?,
             log_index: row.try_get("log_index")?,

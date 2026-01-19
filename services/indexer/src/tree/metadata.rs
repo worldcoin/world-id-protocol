@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use super::{MerkleTree, PoseidonHasher};
-use crate::db::{get_active_leaf_count, get_last_event_id_up_to_block, get_max_event_block, get_total_event_count};
+use crate::db::{
+    get_active_leaf_count, get_last_event_id_up_to_block, get_max_event_block,
+    get_total_event_count,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeCacheMetadata {
