@@ -7,7 +7,6 @@ use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use sqlx::PgPool;
-use sqlx::migrate::Migrator;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
 pub mod config;
