@@ -15,13 +15,7 @@ pub enum EventType {
     Recovered,
 }
 
-impl EventType {
-    /// Returns true if this event type sets a non-zero commitment value.
-    #[must_use]
-    pub fn sets_value(&self) -> bool {
-        !matches!(self, EventType::Removed)
-    }
-}
+impl EventType {}
 
 impl fmt::Display for EventType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -327,7 +321,6 @@ pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
 #[derive(Debug)]
 pub struct CommitmentEventRow {
     pub leaf_index: String,
-    pub event_type: EventType,
     pub new_commitment: String,
     pub block_number: i64,
     pub log_index: i64,
@@ -356,10 +349,8 @@ pub async fn fetch_events_for_replay(
 
     let mut events = Vec::with_capacity(rows.len());
     for row in rows {
-        let event_type_str: String = row.try_get("event_type")?;
         events.push(CommitmentEventRow {
             leaf_index: row.try_get("leaf_index")?,
-            event_type: event_type_str.parse()?,
             new_commitment: row.try_get("new_commitment")?,
             block_number: row.try_get("block_number")?,
             log_index: row.try_get("log_index")?,

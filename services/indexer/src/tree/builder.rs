@@ -132,13 +132,9 @@ impl TreeBuilder {
                     .with_context(|| format!("Failed to parse leaf_index: {}", event.leaf_index))?;
                 let leaf_index = leaf_index.as_limbs()[0] as usize;
 
-                let new_value = if event.event_type.sets_value() {
-                    event.new_commitment.parse::<U256>().with_context(|| {
-                        format!("Failed to parse new_commitment: {}", event.new_commitment)
-                    })?
-                } else {
-                    U256::ZERO
-                };
+                let new_value = event.new_commitment.parse::<U256>().with_context(|| {
+                    format!("Failed to parse new_commitment: {}", event.new_commitment)
+                })?;
 
                 // Store final state (overwrites previous updates to same leaf)
                 leaf_final_states.insert(leaf_index, new_value);
