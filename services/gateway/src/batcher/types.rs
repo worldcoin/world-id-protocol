@@ -1,23 +1,9 @@
 use alloy::primitives::{Address, Bytes, B256, U256};
 use std::collections::HashMap;
-use std::time::{Duration};
-use uuid::Uuid;
+use std::time::Duration;
 use tokio::time::Instant;
-
-// ============================================================================
-// Operation Types
-// ============================================================================
-
-/// Priority class for operation ordering
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PriorityClass {
-    /// Standard operations (insert, update, remove)
-    Normal = 0,
-    /// Higher priority (recovery)
-    High = 1,
-    /// Highest priority (account creation)
-    Critical = 2,
-}
+use uuid::Uuid;
+use world_id_core::types::{GatewayErrorCode, GatewayRequestState};
 
 /// Inner data for an operation envelope (policy-agnostic).
 ///
@@ -57,6 +43,10 @@ impl OpEnvelopeInner {
             nonce,
         }
     }
+
+    pub fn estimated_gas(&self) -> u64 {
+        self.op.estimated_gas()
+    }
 }
 
 /// All supported operation types
@@ -70,20 +60,10 @@ pub enum Operation {
 }
 
 impl Operation {
-    /// Get the priority class for this operation
-    pub fn priority_class(&self) -> PriorityClass {
-        match self {
-            Self::CreateAccount(_) => PriorityClass::Critical,
-            Self::RecoverAccount(_) => PriorityClass::High,
-            Self::InsertAuthenticator(_)
-            | Self::UpdateAuthenticator(_)
-            | Self::RemoveAuthenticator(_) => PriorityClass::Normal,
-        }
-    }
-
     /// Estimated gas for this operation type
     pub fn estimated_gas(&self) -> u64 {
         match self {
+            // TODO:
             Self::CreateAccount(_) => 150_000,
             Self::InsertAuthenticator(_) => 100_000,
             Self::UpdateAuthenticator(_) => 100_000,
@@ -154,16 +134,6 @@ pub struct RemoveAuthenticatorOp {
     pub nonce: U256,
 }
 
-/// Legacy generic authenticator operation (for backwards compatibility)
-#[derive(Debug, Clone)]
-pub struct AuthenticatorOp {
-    pub leaf_index: U256,
-    pub old_commit: U256,
-    pub new_commit: U256,
-    pub signature: Bytes,
-    pub sibling_nodes: Vec<U256>,
-}
-
 /// Account recovery operation
 #[derive(Debug, Clone)]
 pub struct RecoverAccountOp {
@@ -194,6 +164,28 @@ pub enum OpStatus {
     Failed { reason: FailureReason },
     /// Evicted from batch (may be retried)
     Evicted { reason: EvictionReason },
+}
+
+impl From<OpStatus> for GatewayRequestState {
+    fn from(status: OpStatus) -> Self {
+        match status {
+            OpStatus::Finalized {
+                tx_hash,
+                block_number: _,
+                ..
+            } => GatewayRequestState::Finalized {
+                tx_hash: format!("{:#x}", tx_hash),
+            },
+            OpStatus::Failed { reason } => GatewayRequestState::Failed {
+                error: reason.to_string(),
+                error_code: Some(GatewayErrorCode::BadRequest),
+            },
+            OpStatus::Evicted { reason } => GatewayRequestState::Failed {
+                error: reason.to_string(),
+                error_code: None,
+            },
+        }
+    }
 }
 
 impl OpStatus {
@@ -378,38 +370,6 @@ impl BatchTiming {
         self.submitted_at
             .map(|t| self.finalized_at.duration_since(t))
     }
-}
-
-// ============================================================================
-// Error Types
-// ============================================================================
-
-/// Errors that can occur during batch processing
-#[derive(Debug, thiserror::Error)]
-pub enum BatchError {
-    #[error("simulation failed: {0}")]
-    SimulationFailed(String),
-
-    #[error("transaction failed: {0}")]
-    TransactionFailed(String),
-
-    #[error("transaction not mined after max resubmissions")]
-    MaxResubmissionsExceeded,
-
-    #[error("gas price exceeded maximum allowed")]
-    GasPriceTooHigh,
-
-    #[error("provider error: {0}")]
-    Provider(String),
-
-    #[error("encoding error: {0}")]
-    Encoding(String),
-
-    #[error("batch is empty after evictions")]
-    EmptyBatch,
-
-    #[error("shutdown requested")]
-    Shutdown,
 }
 
 // ============================================================================

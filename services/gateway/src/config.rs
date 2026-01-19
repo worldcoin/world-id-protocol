@@ -77,7 +77,9 @@ mod parser {
     use std::time::Duration;
 
     pub fn parse_duration(s: &str) -> anyhow::Result<Duration> {
-        Ok(Duration::from_secs(Duration::from_secs(s.parse::<u64>()?).as_secs()))
+        Ok(Duration::from_secs(
+            Duration::from_secs(s.parse::<u64>()?).as_secs(),
+        ))
     }
 }
 

@@ -3,7 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::batcher::types::{FinalizedBatch, OpEnvelopeInner, OpStatus};
+use crate::batcher::types::OpEnvelopeInner;
 use alloy::primitives::{Address, U256};
 use std::collections::{BTreeSet, HashMap};
 
@@ -24,15 +24,6 @@ impl NonceTracker {
         Self::default()
     }
 
-    /// Update the confirmed nonce for a signer from chain state
-    pub fn set_confirmed(&mut self, signer: Address, nonce: U256) {
-        self.confirmed.insert(signer, nonce);
-        // Clean up any pending nonces that are now confirmed
-        if let Some(pending_set) = self.pending.get_mut(&signer) {
-            pending_set.retain(|&n| n > nonce);
-        }
-    }
-
     /// Get the confirmed nonce for a signer
     pub fn get_confirmed(&self, signer: &Address) -> U256 {
         self.confirmed.get(signer).copied().unwrap_or(U256::ZERO)
@@ -46,14 +37,6 @@ impl NonceTracker {
             .and_then(|s| s.last().copied())
             .map(|last_pending| last_pending + U256::from(1))
             .unwrap_or(confirmed)
-    }
-
-    /// Check if an operation can be included (no nonce gap)
-    ///
-    /// An operation is ready if its nonce is exactly the next expected nonce.
-    pub fn is_ready(&self, op: &OpEnvelopeInner) -> bool {
-        let next = self.next_expected(&op.signer);
-        op.nonce == next
     }
 
     /// Check if an operation has a nonce that's already been used
@@ -82,108 +65,8 @@ impl NonceTracker {
             }
         }
     }
-
-    /// Update state after a batch is finalized
-    pub fn confirm_batch(&mut self, batch: &FinalizedBatch) {
-        // Find the highest successful nonce per signer
-        let mut max_nonces: HashMap<Address, U256> = HashMap::new();
-
-        for (id, status) in &batch.statuses {
-            if let OpStatus::Finalized { .. } = status {
-                // We need the original operation to get signer/nonce
-                // This would typically be passed separately or stored
-                // For now, we assume the batch updates confirmed externally
-            }
-        }
-
-        // Clean up pending sets
-        for (signer, max_nonce) in max_nonces {
-            if let Some(current) = self.confirmed.get(&signer) {
-                if max_nonce > *current {
-                    self.set_confirmed(signer, max_nonce + U256::from(1));
-                }
-            }
-        }
-    }
-
-    /// Get all ready operations for a signer in nonce order
-    pub fn get_ready_sequence<'a>(
-        &self,
-        signer: &Address,
-        ops: &'a [OpEnvelopeInner],
-    ) -> Vec<&'a OpEnvelopeInner> {
-        let mut signer_ops: Vec<_> = ops.iter().filter(|op| op.signer == *signer).collect();
-
-        // Sort by nonce
-        signer_ops.sort_by_key(|op| op.nonce);
-
-        // Take contiguous sequence starting from next expected
-        let mut next = self.next_expected(signer);
-        let mut ready = Vec::new();
-
-        for op in signer_ops {
-            if op.nonce == next {
-                ready.push(op);
-                next += U256::from(1);
-            } else if op.nonce > next {
-                // Gap found, stop here
-                break;
-            }
-            // Skip ops with nonce < next (stale)
-        }
-
-        ready
-    }
-
-    /// Partition operations into ready vs blocked
-    pub fn partition_by_readiness(
-        &self,
-        ops: Vec<OpEnvelopeInner>,
-    ) -> (Vec<OpEnvelopeInner>, Vec<OpEnvelopeInner>) {
-        let mut ready = Vec::new();
-        let mut blocked = Vec::new();
-
-        // Group by signer
-        let mut by_signer: HashMap<Address, Vec<OpEnvelopeInner>> = HashMap::new();
-        for op in ops {
-            by_signer.entry(op.signer).or_default().push(op);
-        }
-
-        // Process each signer's ops
-        for (signer, mut signer_ops) in by_signer {
-            signer_ops.sort_by_key(|op| op.nonce);
-
-            let mut next = self.next_expected(&signer);
-            let mut in_sequence = true;
-
-            for op in signer_ops {
-                if in_sequence && op.nonce == next {
-                    ready.push(op);
-                    next += U256::from(1);
-                } else {
-                    in_sequence = false;
-                    blocked.push(op);
-                }
-            }
-        }
-
-        (ready, blocked)
-    }
-
-    /// Get statistics about current state
-    pub fn stats(&self) -> NonceTrackerStats {
-        NonceTrackerStats {
-            tracked_signers: self.confirmed.len(),
-            pending_nonces: self.pending.values().map(|s| s.len()).sum(),
-        }
-    }
 }
 
-#[derive(Debug, Clone)]
-pub struct NonceTrackerStats {
-    pub tracked_signers: usize,
-    pub pending_nonces: usize,
-}
 
 /// Trait for policy wrapper types that can be used in a BinaryHeap.
 ///
@@ -203,17 +86,14 @@ pub struct NonceTrackerStats {
 ///     process(envelope.into_inner());
 /// }
 /// ```
-pub trait OrderingPolicy: Ord + Eq + Clone + Send + Sync + 'static {
-    type T: Into<Priority>;
-
+pub trait OrderingPolicy:
+    Ord + Eq + Clone + Send + Sync + Deref<Target = OpEnvelopeInner> + 'static
+{
     fn new(inner: OpEnvelopeInner) -> Self;
 
     fn into_inner(self) -> OpEnvelopeInner;
 
     fn name() -> &'static str;
-
-    /// Compare two operations for ordering.
-    fn cmp(&self, other: &Self) -> Ordering;
 }
 
 #[repr(C)]
@@ -253,8 +133,6 @@ impl SignupFifoOrdering<OpEnvelopeInner> {
 }
 
 impl OrderingPolicy for SignupFifoOrdering<OpEnvelopeInner> {
-    type T = OpEnvelopeInner;
-
     fn new(inner: OpEnvelopeInner) -> Self {
         Self(inner)
     }
@@ -265,10 +143,6 @@ impl OrderingPolicy for SignupFifoOrdering<OpEnvelopeInner> {
 
     fn name() -> &'static str {
         "signup_fifo"
-    }
-
-    fn cmp(&self, other: &Self) -> Ordering {
-        Self::compare(&self.0, &other.0)
     }
 }
 
@@ -349,85 +223,5 @@ mod tests {
 
         assert_eq!(tracker.get_confirmed(&signer), U256::ZERO);
         assert_eq!(tracker.next_expected(&signer), U256::ZERO);
-    }
-
-    #[test]
-    fn test_is_ready() {
-        let mut tracker = NonceTracker::new();
-        let signer = Address::repeat_byte(1);
-
-        tracker.set_confirmed(signer, U256::from(5));
-
-        let op_ready = make_op(signer, 5);
-        let op_stale = make_op(signer, 3);
-        let op_gap = make_op(signer, 7);
-
-        assert!(tracker.is_ready(&op_ready));
-        assert!(!tracker.is_ready(&op_stale));
-        assert!(!tracker.is_ready(&op_gap));
-    }
-
-    #[test]
-    fn test_pending_tracking() {
-        let mut tracker = NonceTracker::new();
-        let signer = Address::repeat_byte(1);
-
-        tracker.set_confirmed(signer, U256::from(0));
-
-        let op0 = make_op(signer, 0);
-        let op1 = make_op(signer, 1);
-        let op2 = make_op(signer, 2);
-
-        assert!(tracker.is_ready(&op0));
-        tracker.mark_pending(&op0);
-
-        // Now op1 should be ready
-        assert!(tracker.is_ready(&op1));
-        assert!(!tracker.is_ready(&op2)); // Gap
-
-        tracker.mark_pending(&op1);
-        assert!(tracker.is_ready(&op2));
-    }
-
-    #[test]
-    fn test_partition() {
-        let mut tracker = NonceTracker::new();
-        let signer = Address::repeat_byte(1);
-
-        tracker.set_confirmed(signer, U256::from(0));
-
-        let ops = vec![
-            make_op(signer, 0),
-            make_op(signer, 1),
-            make_op(signer, 3), // Gap at 2
-            make_op(signer, 4),
-        ];
-
-        let (ready, blocked) = tracker.partition_by_readiness(ops);
-
-        assert_eq!(ready.len(), 2); // 0 and 1
-        assert_eq!(blocked.len(), 2); // 3 and 4 (blocked by gap)
-    }
-
-    #[test]
-    fn test_multiple_signers() {
-        let mut tracker = NonceTracker::new();
-        let signer1 = Address::repeat_byte(1);
-        let signer2 = Address::repeat_byte(2);
-
-        tracker.set_confirmed(signer1, U256::from(0));
-        tracker.set_confirmed(signer2, U256::from(5));
-
-        let ops = vec![
-            make_op(signer1, 0),
-            make_op(signer1, 1),
-            make_op(signer2, 5),
-            make_op(signer2, 6),
-        ];
-
-        let (ready, blocked) = tracker.partition_by_readiness(ops);
-
-        assert_eq!(ready.len(), 4); // All ready
-        assert_eq!(blocked.len(), 0);
     }
 }

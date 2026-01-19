@@ -1,25 +1,17 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use alloy::providers::{DynProvider, Provider, RootProvider};
-use alloy::pubsub::PubSubFrontend;
+use alloy::providers::{DynProvider, Provider};
 
-// Type alias for websocket provider (used for type annotation when passing None)
-type WsProvider = RootProvider<PubSubFrontend>;
 use crate::routes::build_app;
 use crate::types::AppState;
 use request_tracker::RequestTracker;
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
-// Placeholder type for WS provider when we don't have websocket support.
-// This type is never instantiated - we always pass None for ws_provider.
-type NoWsProvider = alloy::providers::RootProvider;
-
 mod batcher;
 mod config;
 mod create_batcher;
-mod ops_batcher;
 mod request_tracker;
 mod routes;
 pub mod telemetry;
@@ -55,12 +47,13 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
     let provider = Arc::new(cfg.provider.http().await?);
     // Create registry with type-erased provider for use in routes
     let dyn_provider: Arc<DynProvider> = Arc::new(provider.clone().erased());
-    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, dyn_provider));
+    let registry = Arc::new(WorldIdRegistryInstance::new(
+        cfg.registry_addr,
+        dyn_provider.clone(),
+    ));
 
-    let ws_provider: Option<Arc<WsProvider>> = None;
     let app = build_app(
-        provider,
-        ws_provider,
+        dyn_provider,
         registry,
         cfg.batch_ms,
         cfg.max_create_batch_size,
@@ -90,12 +83,14 @@ pub async fn run() -> anyhow::Result<()> {
     let provider = Arc::new(cfg.provider.http().await?);
     // Create registry with type-erased provider
     let dyn_provider: Arc<DynProvider> = Arc::new(provider.clone().erased());
-    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, dyn_provider));
+    let registry = Arc::new(WorldIdRegistryInstance::new(
+        cfg.registry_addr,
+        dyn_provider.clone(),
+    ));
 
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
-        provider,
-        None,
+        dyn_provider,
         registry,
         cfg.batch_ms,
         cfg.max_create_batch_size,

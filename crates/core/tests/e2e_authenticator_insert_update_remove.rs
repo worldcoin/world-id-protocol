@@ -90,6 +90,7 @@ fn make_config(
 // Flow: create account (nonce=0) -> insert (nonce=1) -> update (nonce=2) -> remove (nonce=3)
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_insert_update_remove() {
+    tracing_subscriber::fmt::init();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");

@@ -2,8 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     batcher::{
-        IngressController, OpEnvelopeInner, OpsBatcher, OpsBatcherConfig, OpsBatcherMetrics,
-        SignupFifoOrdering,
+        EventBus, OpsBatcher, OpsBatcherConfig, OpsBatcherMetrics,
+        logging_handler, metrics_handler, status_sync_handler,
     },
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     request_tracker::RequestTracker,
@@ -20,8 +20,7 @@ use crate::{
     types::RootExpiry,
     AppState,
 };
-use alloy::providers::{DynProvider, Provider};
-use alloy::pubsub::PubSubConnect;
+use alloy::providers::DynProvider;
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
@@ -54,24 +53,17 @@ mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 
-pub trait WsBounds: PubSubConnect + Provider + Clone + Send + Sync {}
-impl<T: PubSubConnect + Provider + Clone + Send + Sync> WsBounds for T {}
-
 /// Build the application router with all routes and middleware.
 ///
-/// Generic over provider types to allow different RPC configurations:
-/// - `P`: The primary RPC provider (HTTP or any other transport)
-/// - `WS`: Optional websocket provider for block subscriptions
+/// Uses type-erased `DynProvider` for flexibility with different RPC configurations.
 pub(crate) async fn build_app(
-    provider: Arc<impl Provider + Clone + 'static>,
-    ws_provider: Option<Arc<impl WsBounds + Clone + 'static>>,
+    provider: Arc<DynProvider>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
-) -> anyhow::Result<Router>
-where {
+) -> anyhow::Result<Router> {
     let tracker = RequestTracker::new(redis_url).await;
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -87,27 +79,34 @@ where {
     // Create OpsBatcher for insert/remove/recover/update operations
     let mut ops_config = OpsBatcherConfig::new(registry.clone());
     ops_config.batch_window = Duration::from_millis(batch_ms);
-    ops_config.adaptive.max_batch_ops = max_ops_batch_size;
+    ops_config.max_batch_ops = max_ops_batch_size;
+
+    // Create event bus and spawn event handlers
+    let event_bus = EventBus::with_defaults();
+    let _event_handles = vec![
+        event_bus.spawn_async(status_sync_handler(Arc::new(tracker.clone()))),
+        event_bus.spawn_async(metrics_handler(OpsBatcherMetrics::new())),
+        event_bus.spawn_async(logging_handler()),
+    ];
 
     let metrics = OpsBatcherMetrics::new();
-    let (ops_batcher, ops_handle, _shutdown_signal) =
-        OpsBatcher::<_, _, SignupFifoOrdering<OpEnvelopeInner>>::new(
-            provider,
-            ws_provider,
-            Arc::new(tracker.clone()),
-            ops_config,
-            metrics,
-        );
+    let (ops_batcher, ops_handle) = OpsBatcher::new(
+        provider,
+        ops_config,
+        metrics,
+        event_bus,
+    );
 
     // Spawn the OpsBatcher task
     tokio::spawn(ops_batcher.run());
 
-    tracing::info!("OpsBatcher initialized with PendingBatchFuture");
+    tracing::info!("OpsBatcher stub initialized - ops processing disabled during refactor");
 
     let root_cache = Cache::builder()
         .max_capacity(ROOT_CACHE_SIZE)
         .expire_after(RootExpiry)
         .build();
+
     let state = AppState {
         regsitry: registry.clone(),
         batcher,
