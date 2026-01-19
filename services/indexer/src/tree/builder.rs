@@ -3,10 +3,11 @@ use std::path::Path;
 use alloy::primitives::U256;
 use anyhow::Context;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use tracing::{info, warn};
 
 use super::PoseidonHasher;
+use crate::db::{fetch_all_leaves, fetch_events_for_replay, get_max_event_block};
 
 pub struct TreeBuilder {
     tree_depth: usize,
@@ -57,7 +58,7 @@ impl TreeBuilder {
     ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, u64)> {
         info!("Building tree from database with mmap cache");
 
-        let leaves = self.fetch_leaves_from_db(pool).await?;
+        let leaves = self.process_leaves_from_db(pool).await?;
 
         let cache_path_str = cache_path
             .to_str()
@@ -73,12 +74,7 @@ impl TreeBuilder {
         .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
 
         // Get the last block number from DB
-        let last_block_number = sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT COALESCE(MAX(block_number), 0) FROM commitment_update_events",
-        )
-        .fetch_one(pool)
-        .await?
-        .unwrap_or(0) as u64;
+        let last_block_number = get_max_event_block(pool).await?;
 
         info!(
             root = %format!("0x{:x}", tree.root()),
@@ -118,18 +114,7 @@ impl TreeBuilder {
 
         loop {
             // Keyset pagination: continue from last (block_number, log_index)
-            let events = sqlx::query(
-                "SELECT leaf_index, event_type, new_commitment, block_number, log_index
-                 FROM commitment_update_events
-                 WHERE (block_number > $1) OR (block_number = $1 AND log_index > $2)
-                 ORDER BY block_number ASC, log_index ASC
-                 LIMIT $3",
-            )
-            .bind(last_block)
-            .bind(last_log_index)
-            .bind(BATCH_SIZE)
-            .fetch_all(pool)
-            .await?;
+            let events = fetch_events_for_replay(pool, last_block, last_log_index, BATCH_SIZE).await?;
 
             if events.is_empty() {
                 break;
@@ -139,25 +124,22 @@ impl TreeBuilder {
             total_events += batch_count;
 
             // Process events into final states (in memory, deduplicated)
-            for row in &events {
-                let leaf_index_str: String = row.get("leaf_index");
-                let event_type: String = row.get("event_type");
-                let new_commitment_str: String = row.get("new_commitment");
-
-                let leaf_index: U256 = leaf_index_str
+            for event in &events {
+                let leaf_index: U256 = event
+                    .leaf_index
                     .parse()
-                    .with_context(|| format!("Failed to parse leaf_index: {}", leaf_index_str))?;
+                    .with_context(|| format!("Failed to parse leaf_index: {}", event.leaf_index))?;
                 let leaf_index = leaf_index.as_limbs()[0] as usize;
 
-                let new_value = match event_type.as_str() {
+                let new_value = match event.event_type.as_str() {
                     "created" | "updated" | "inserted" | "recovered" => {
-                        new_commitment_str.parse::<U256>().with_context(|| {
-                            format!("Failed to parse new_commitment: {}", new_commitment_str)
+                        event.new_commitment.parse::<U256>().with_context(|| {
+                            format!("Failed to parse new_commitment: {}", event.new_commitment)
                         })?
                     }
                     "removed" => U256::ZERO,
                     _ => {
-                        warn!("Unknown event type: {}", event_type);
+                        warn!("Unknown event type: {}", event.event_type);
                         continue;
                     }
                 };
@@ -168,8 +150,8 @@ impl TreeBuilder {
 
             // Update cursor to last event in this batch
             let last = events.last().unwrap();
-            last_block = last.get("block_number");
-            last_log_index = last.get("log_index");
+            last_block = last.block_number;
+            last_log_index = last.log_index;
             final_block = last_block as u64;
 
             info!(
@@ -217,23 +199,16 @@ impl TreeBuilder {
         Ok((tree, final_block))
     }
 
-    /// Helper: fetch all leaves from DB
-    async fn fetch_leaves_from_db(&self, pool: &PgPool) -> anyhow::Result<Vec<U256>> {
-        let rows = sqlx::query(
-            "SELECT leaf_index, offchain_signer_commitment FROM accounts ORDER BY leaf_index ASC",
-        )
-        .fetch_all(pool)
-        .await?;
+    /// Helper: fetch and process all leaves from DB into a tree-ready format
+    async fn process_leaves_from_db(&self, pool: &PgPool) -> anyhow::Result<Vec<U256>> {
+        let rows = fetch_all_leaves(pool).await?;
 
         info!("Fetched {} accounts from database", rows.len());
 
         let capacity = 1usize << self.tree_depth;
         let mut leaves = vec![U256::ZERO; capacity];
 
-        for row in rows {
-            let leaf_index_str: String = row.get("leaf_index");
-            let offchain_str: String = row.get("offchain_signer_commitment");
-
+        for (leaf_index_str, offchain_str) in rows {
             let leaf_index: U256 = leaf_index_str
                 .parse()
                 .with_context(|| format!("Failed to parse leaf_index: {}", leaf_index_str))?;

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use super::{MerkleTree, PoseidonHasher};
+use crate::db::{get_active_leaf_count, get_last_event_id_up_to_block, get_max_event_block, get_total_event_count};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeCacheMetadata {
@@ -70,26 +71,16 @@ pub async fn write_metadata(
     last_block_number: u64,
 ) -> anyhow::Result<()> {
     // Get current database state
-    let last_event_id = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT MAX(id) FROM commitment_update_events WHERE block_number <= $1",
-    )
-    .bind(last_block_number as i64)
-    .fetch_one(pool)
-    .await?
-    .unwrap_or(0);
-
-    let active_leaf_count =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE leaf_index != '0'")
-            .fetch_one(pool)
-            .await?;
+    let last_event_id = get_last_event_id_up_to_block(pool, last_block_number).await?;
+    let active_leaf_count = get_active_leaf_count(pool).await?;
 
     // Create metadata
     let metadata = TreeCacheMetadata {
         root_hash: format!("0x{:x}", tree.root()),
         last_block_number,
         last_event_id,
-        active_leaf_count: active_leaf_count as u64,
-        tree_depth: crate::TREE_DEPTH,
+        active_leaf_count,
+        tree_depth: crate::tree::TREE_DEPTH,
         dense_prefix_depth: 20, // This will be provided by config in later steps
         created_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -132,26 +123,13 @@ pub async fn write_metadata(
 
 /// Get current database state (for validation)
 pub async fn get_db_state(pool: &PgPool) -> anyhow::Result<DbState> {
-    let max_block_number = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT COALESCE(MAX(block_number), 0) FROM commitment_update_events",
-    )
-    .fetch_one(pool)
-    .await?
-    .unwrap_or(0) as u64;
-
-    let total_events =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM commitment_update_events")
-            .fetch_one(pool)
-            .await?;
-
-    let active_leaf_count =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE leaf_index != '0'")
-            .fetch_one(pool)
-            .await?;
+    let max_block_number = get_max_event_block(pool).await?;
+    let total_events = get_total_event_count(pool).await?;
+    let active_leaf_count = get_active_leaf_count(pool).await?;
 
     Ok(DbState {
         max_block_number,
-        total_events: total_events as u64,
-        active_leaf_count: active_leaf_count as u64,
+        total_events,
+        active_leaf_count,
     })
 }

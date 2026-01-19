@@ -28,8 +28,6 @@ use crate::events::RegistryEvent;
 use crate::tree::{update_tree_with_commitment, GLOBAL_TREE, TREE_DEPTH};
 pub use config::GlobalConfig;
 
-static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
-
 #[derive(Debug, Clone)]
 pub struct AccountCreatedEvent {
     pub leaf_index: U256,

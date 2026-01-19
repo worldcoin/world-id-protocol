@@ -204,3 +204,116 @@ pub async fn fetch_recent_account_updates(
 
     Ok(updates)
 }
+
+// =============================================================================
+// Tree-related DB queries (extracted from tree module)
+// =============================================================================
+
+/// Fetch all account leaves for tree building.
+/// Returns raw strings to let the caller handle parsing and tree-specific logic.
+pub async fn fetch_all_leaves(pool: &PgPool) -> anyhow::Result<Vec<(String, String)>> {
+    let rows = sqlx::query(
+        "SELECT leaf_index, offchain_signer_commitment FROM accounts ORDER BY leaf_index ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut leaves = Vec::with_capacity(rows.len());
+    for row in rows {
+        let leaf_index: String = row.try_get("leaf_index")?;
+        let commitment: String = row.try_get("offchain_signer_commitment")?;
+        leaves.push((leaf_index, commitment));
+    }
+
+    Ok(leaves)
+}
+
+/// Get the maximum block number from commitment_update_events.
+pub async fn get_max_event_block(pool: &PgPool) -> anyhow::Result<u64> {
+    let result = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT COALESCE(MAX(block_number), 0) FROM commitment_update_events",
+    )
+    .fetch_one(pool)
+    .await?
+    .unwrap_or(0);
+
+    Ok(result as u64)
+}
+
+/// Count active (non-zero) leaves in the accounts table.
+pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
+    let result =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE leaf_index != '0'")
+            .fetch_one(pool)
+            .await?;
+
+    Ok(result as u64)
+}
+
+/// Get the last event ID up to (and including) a specific block number.
+pub async fn get_last_event_id_up_to_block(pool: &PgPool, block_number: u64) -> anyhow::Result<i64> {
+    let result = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT MAX(id) FROM commitment_update_events WHERE block_number <= $1",
+    )
+    .bind(block_number as i64)
+    .fetch_one(pool)
+    .await?
+    .unwrap_or(0);
+
+    Ok(result)
+}
+
+/// Count total events in commitment_update_events.
+pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
+    let result =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM commitment_update_events")
+            .fetch_one(pool)
+            .await?;
+
+    Ok(result as u64)
+}
+
+/// Raw event row for replay operations.
+#[derive(Debug)]
+pub struct CommitmentEventRow {
+    pub leaf_index: String,
+    pub event_type: String,
+    pub new_commitment: String,
+    pub block_number: i64,
+    pub log_index: i64,
+}
+
+/// Fetch events for replay using keyset pagination.
+/// Returns events where (block_number > from_block) OR (block_number = from_block AND log_index > from_log_index).
+pub async fn fetch_events_for_replay(
+    pool: &PgPool,
+    from_block: i64,
+    from_log_index: i64,
+    limit: i64,
+) -> anyhow::Result<Vec<CommitmentEventRow>> {
+    let rows = sqlx::query(
+        "SELECT leaf_index, event_type, new_commitment, block_number, log_index
+         FROM commitment_update_events
+         WHERE (block_number > $1) OR (block_number = $1 AND log_index > $2)
+         ORDER BY block_number ASC, log_index ASC
+         LIMIT $3",
+    )
+    .bind(from_block)
+    .bind(from_log_index)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    let mut events = Vec::with_capacity(rows.len());
+    for row in rows {
+        events.push(CommitmentEventRow {
+            leaf_index: row.try_get("leaf_index")?,
+            event_type: row.try_get("event_type")?,
+            new_commitment: row.try_get("new_commitment")?,
+            block_number: row.try_get("block_number")?,
+            log_index: row.try_get("log_index")?,
+        });
+    }
+
+    Ok(events)
+}
