@@ -167,7 +167,7 @@ where
 
         // Get registry from state and simulate
         let app_state = AppState::from_ref(state);
-        body.simulate(&app_state.regsitry).await?;
+        body.simulate(&app_state.registry).await?;
 
         Ok(Validated(body))
     }

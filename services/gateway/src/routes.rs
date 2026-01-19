@@ -128,7 +128,7 @@ pub(crate) async fn build_app(
         .build();
 
     let state = AppState {
-        regsitry: registry.clone(),
+        registry: registry.clone(),
         batcher,
         root_cache,
         event_bus,
