@@ -6,7 +6,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-use crate::{MerkleTree, PoseidonHasher};
+use super::{MerkleTree, PoseidonHasher};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeCacheMetadata {

@@ -2,11 +2,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use sqlx::PgPool;
+use sqlx::migrate::Migrator;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
 pub mod config;
@@ -24,7 +25,7 @@ pub use crate::db::{
 };
 use crate::events::decoders::decode_registry_event;
 use crate::events::RegistryEvent;
-use crate::tree::{build_tree_from_db, update_tree_with_commitment};
+use crate::tree::{update_tree_with_commitment, GLOBAL_TREE, TREE_DEPTH};
 pub use config::GlobalConfig;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
@@ -76,54 +77,6 @@ pub struct AccountRecoveredEvent {
     pub new_authenticator_pubkey: U256,
     pub old_offchain_signer_commitment: U256,
     pub new_offchain_signer_commitment: U256,
-}
-
-#[derive(Debug, Clone)]
-pub enum RegistryEvent {
-    AccountCreated(AccountCreatedEvent),
-    AccountUpdated(AccountUpdatedEvent),
-    AuthenticatorInserted(AuthenticatorInsertedEvent),
-    AuthenticatorRemoved(AuthenticatorRemovedEvent),
-    AccountRecovered(AccountRecoveredEvent),
-}
-
-static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> =
-    LazyLock::new(|| Poseidon2::new(&POSEIDON2_BN254_T2_PARAMS));
-
-struct PoseidonHasher {}
-
-impl Hasher for PoseidonHasher {
-    type Hash = U256;
-
-    fn hash_node(left: &Self::Hash, right: &Self::Hash) -> Self::Hash {
-        let left: Fr = left.try_into().unwrap();
-        let right: Fr = right.try_into().unwrap();
-        let mut input = [left, right];
-        let feed_forward = input[0];
-        POSEIDON_HASHER.permutation_in_place(&mut input);
-        input[0] += feed_forward;
-        input[0].into()
-    }
-}
-
-fn tree_capacity() -> usize {
-    1usize << TREE_DEPTH
-}
-
-// Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
-pub(crate) static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
-    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
-
-async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
-    if leaf_index >= tree_capacity() {
-        anyhow::bail!("leaf index {leaf_index} out of range for tree depth {TREE_DEPTH}");
-    }
-
-    let mut tree = GLOBAL_TREE.write().await;
-    take_mut::take(&mut *tree, |tree| {
-        tree.update_with_mutation(leaf_index, &value)
-    });
-    Ok(())
 }
 
 async fn initialize_tree_with_config(
@@ -213,15 +166,6 @@ async fn check_and_refresh_cache(
     Ok(true)
 }
 
-async fn update_tree_with_commitment(leaf_index: U256, new_commitment: U256) -> anyhow::Result<()> {
-    if leaf_index == 0 {
-        anyhow::bail!("account index cannot be zero");
-    }
-    let leaf_index = leaf_index.as_limbs()[0] as usize;
-    set_leaf_at_index(leaf_index, new_commitment).await?;
-    Ok(())
-}
-
 async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
     match ev {
         RegistryEvent::AccountCreated(e) => {
@@ -240,17 +184,6 @@ async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
             update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
         }
     }
-}
-
-fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
-    proof
-        .0
-        .iter()
-        .map(|b| match b {
-            Branch::Left(sib) => *sib,
-            Branch::Right(sib) => *sib,
-        })
-        .collect()
 }
 
 async fn start_http_server(
@@ -770,26 +703,6 @@ pub async fn poll_db_changes(pool: PgPool, poll_interval_secs: u64) -> anyhow::R
             Err(e) => {
                 tracing::error!(?e, "Failed to fetch account updates from DB");
             }
-        }
-    }
-}
-
-pub async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
-    match ev {
-        RegistryEvent::AccountCreated(e) => {
-            update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment).await
-        }
-        RegistryEvent::AccountUpdated(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AuthenticatorInserted(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AuthenticatorRemoved(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AccountRecovered(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
         }
     }
 }

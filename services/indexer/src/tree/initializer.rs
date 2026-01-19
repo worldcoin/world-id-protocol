@@ -6,7 +6,7 @@ use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use sqlx::PgPool;
 use tracing::{info, warn};
 
-use crate::PoseidonHasher;
+use super::PoseidonHasher;
 
 use super::{builder::TreeBuilder, metadata};
 
