@@ -48,7 +48,7 @@ async fn test_signature_nonce_endpoint() {
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-            dense_tree_prefix_depth: 20,
+            dense_tree_prefix_depth: 4,
             http_cache_refresh_interval_secs: 30,
         },
     };

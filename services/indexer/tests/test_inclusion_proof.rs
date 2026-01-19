@@ -57,7 +57,7 @@ async fn test_backfill_and_live_sync() {
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-            dense_tree_prefix_depth: 20,
+            dense_tree_prefix_depth: 4,
             http_cache_refresh_interval_secs: 30,
         },
     };
@@ -160,7 +160,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-            dense_tree_prefix_depth: 20,
+            dense_tree_prefix_depth: 4,
             http_cache_refresh_interval_secs: 30,
         },
     };
