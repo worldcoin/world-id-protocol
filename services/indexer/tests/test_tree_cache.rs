@@ -105,7 +105,8 @@ async fn test_cache_creation_and_restoration() {
 
     // Read metadata
     let meta_json = fs::read_to_string(&meta_path).expect("Should read metadata");
-    let metadata: serde_json::Value = serde_json::from_str(&meta_json).expect("Should parse metadata");
+    let metadata: serde_json::Value =
+        serde_json::from_str(&meta_json).expect("Should parse metadata");
     assert_eq!(metadata["tree_depth"].as_u64().unwrap(), 30);
     assert_eq!(metadata["dense_prefix_depth"].as_u64().unwrap(), 20);
     assert!(
@@ -184,7 +185,8 @@ async fn test_incremental_replay() {
     // Read initial metadata
     let meta_path = cache_path.with_extension("mmap.meta");
     let initial_meta_json = fs::read_to_string(&meta_path).expect("Should read metadata");
-    let initial_metadata: serde_json::Value = serde_json::from_str(&initial_meta_json).expect("Should parse metadata");
+    let initial_metadata: serde_json::Value =
+        serde_json::from_str(&initial_meta_json).expect("Should parse metadata");
     let initial_block = initial_metadata["last_block_number"].as_u64().unwrap();
 
     // Create more accounts (simulating new events)
@@ -239,7 +241,8 @@ async fn test_incremental_replay() {
 
     // Verify metadata was updated
     let final_meta_json = fs::read_to_string(&meta_path).expect("Should read metadata");
-    let final_metadata: serde_json::Value = serde_json::from_str(&final_meta_json).expect("Should parse metadata");
+    let final_metadata: serde_json::Value =
+        serde_json::from_str(&final_meta_json).expect("Should parse metadata");
     assert!(
         final_metadata["last_block_number"].as_u64().unwrap() > initial_block,
         "Metadata should have been updated with new block"
@@ -375,7 +378,8 @@ async fn test_http_only_cache_refresh() {
     // Read initial metadata
     let meta_path = cache_path.with_extension("mmap.meta");
     let initial_meta_json = fs::read_to_string(&meta_path).expect("Should read metadata");
-    let initial_metadata: serde_json::Value = serde_json::from_str(&initial_meta_json).expect("Should parse metadata");
+    let initial_metadata: serde_json::Value =
+        serde_json::from_str(&initial_meta_json).expect("Should parse metadata");
     let initial_block = initial_metadata["last_block_number"].as_u64().unwrap();
 
     // Now start HttpOnly mode
@@ -428,7 +432,8 @@ async fn test_http_only_cache_refresh() {
 
     // Verify metadata was updated
     let final_meta_json = fs::read_to_string(&meta_path).expect("Should read metadata");
-    let final_metadata: serde_json::Value = serde_json::from_str(&final_meta_json).expect("Should parse metadata");
+    let final_metadata: serde_json::Value =
+        serde_json::from_str(&final_meta_json).expect("Should parse metadata");
     assert!(
         final_metadata["last_block_number"].as_u64().unwrap() > initial_block,
         "HttpOnly should have refreshed and picked up new metadata"
@@ -495,16 +500,16 @@ async fn test_authenticator_removed_replay() {
     indexer_task.abort();
 
     // Read cache metadata to get the last block
-    let cache_meta_content = fs::read_to_string(cache_path.with_extension("mmap.meta"))
-        .expect("Should read metadata");
-    let cache_meta: serde_json::Value = serde_json::from_str(&cache_meta_content)
-        .expect("Should parse metadata");
+    let cache_meta_content =
+        fs::read_to_string(cache_path.with_extension("mmap.meta")).expect("Should read metadata");
+    let cache_meta: serde_json::Value =
+        serde_json::from_str(&cache_meta_content).expect("Should parse metadata");
     let last_block = cache_meta["last_block_number"].as_u64().unwrap();
-    
+
     // Manually insert an AuthenticatorRemoved event with a non-zero new_commitment
     // This simulates what happens when an authenticator is removed but account has other authenticators
     let new_commitment_after_removal = U256::from(999);
-    
+
     sqlx::query(
         r#"INSERT INTO commitment_update_events
         (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
@@ -559,12 +564,12 @@ async fn test_authenticator_removed_replay() {
     // Wait for indexer to process the replay
     tokio::time::sleep(Duration::from_secs(2)).await;
     indexer_task2.abort();
-    
+
     // Read the replayed metadata
     let replayed_meta_content = fs::read_to_string(cache_path.with_extension("mmap.meta"))
         .expect("Should read replayed metadata");
-    let replayed_meta: serde_json::Value = serde_json::from_str(&replayed_meta_content)
-        .expect("Should parse replayed metadata");
+    let replayed_meta: serde_json::Value =
+        serde_json::from_str(&replayed_meta_content).expect("Should parse replayed metadata");
     let replayed_root = replayed_meta["root_hash"].as_str().unwrap();
 
     // Build a fresh tree from DB to get the expected root
@@ -598,10 +603,10 @@ async fn test_authenticator_removed_replay() {
     // Read the fresh build metadata
     let fresh_meta_content = fs::read_to_string(cache_path_fresh.with_extension("mmap.meta"))
         .expect("Should read fresh metadata");
-    let fresh_meta: serde_json::Value = serde_json::from_str(&fresh_meta_content)
-        .expect("Should parse fresh metadata");
+    let fresh_meta: serde_json::Value =
+        serde_json::from_str(&fresh_meta_content).expect("Should parse fresh metadata");
     let fresh_root = fresh_meta["root_hash"].as_str().unwrap();
-    
+
     // The key assertion: replayed root must match fresh build from DB
     // If the bug exists, replay would use U256::ZERO and roots would differ
     assert_eq!(
