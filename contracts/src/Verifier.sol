@@ -9,7 +9,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {CredentialSchemaIssuerRegistry} from "./CredentialSchemaIssuerRegistry.sol";
 import {WorldIDRegistry} from "./WorldIDRegistry.sol";
-import {Groth16Verifier as Groth16VerifierNullifier} from "./Groth16VerifierNullifier.sol";
+import {Verifier as VerifierNullifier} from "./VerifierNullifier.sol";
 
 /**
  * @title Verifier
@@ -40,7 +40,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     OprfKeyRegistry public oprfKeyRegistry;
 
     /// @notice Contract for nullifier proof verification
-    Groth16VerifierNullifier public groth16VerifierNullifier;
+    VerifierNullifier public verifierNullifier;
 
     /// @notice Allowed delta for proof timestamps
     uint256 public proofTimestampDelta;
@@ -57,20 +57,20 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @notice Initializes the Verifier contract with required registries
      * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
      * @param _worldIDRegistry Address of the WorldIDRegistry contract
-     * @param _groth16VerifierNullifier Address of the Groth16Verifier contract for the nullifier circuit.
+     * @param _verifierNullifier Address of the VerifierNullifier contract for the nullifier circuit.
      * @param _proofTimestampDelta uint256 Allowed delta for proof timestamps.
      */
     function initialize(
         address _credentialIssuerRegistry,
         address _worldIDRegistry,
-        address _groth16VerifierNullifier,
+        address _verifierNullifier,
         uint256 _proofTimestampDelta
     ) public virtual initializer {
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
         worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
-        groth16VerifierNullifier = Groth16VerifierNullifier(_groth16VerifierNullifier);
+        verifierNullifier = VerifierNullifier(_verifierNullifier);
         proofTimestampDelta = _proofTimestampDelta;
         treeDepth = worldIDRegistry.getTreeDepth();
     }
@@ -84,11 +84,6 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @notice The nullifier is from the future
      */
     error NullifierFromFuture();
-
-    /**
-     * @notice The provided World ID proof is invalid
-     */
-    error InvalidProof();
 
     /**
      *
@@ -152,7 +147,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @param authenticatorRoot The merkle root of the authenticator set
      * @param proofTimestamp The timestamp when the proof was generated
      * @param credentialIssuerId The ID of the credential issuer
-     * @param proof The Groth16 proof
+     * @param compressedProof The compressed Groth16 proof
      */
     function verify(
         uint256 nullifier,
@@ -164,10 +159,10 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 authenticatorRoot,
         uint256 proofTimestamp,
         uint256 credentialIssuerId,
-        OprfKeyGen.Groth16Proof calldata proof
+        uint256[4] calldata compressedProof
     ) external view virtual onlyProxy onlyInitialized {
         require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
-        require(address(groth16VerifierNullifier) != address(0), "Groth16Verifier not set");
+        require(address(verifierNullifier) != address(0), "verifierNullifier not set");
 
         if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
             revert InvalidMerkleRoot();
@@ -193,25 +188,25 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
             revert OutdatedNullifier();
         }
 
-        uint256[13] memory pubSignals;
+        uint256[15] memory pubSignals;
 
         pubSignals[0] = sessionId;
         pubSignals[1] = nullifier;
-        pubSignals[2] = credentialIssuerPubkey.x;
-        pubSignals[3] = credentialIssuerPubkey.y;
-        pubSignals[4] = proofTimestamp;
-        pubSignals[5] = authenticatorRoot;
-        pubSignals[6] = treeDepth;
-        pubSignals[7] = uint256(rpId);
-        pubSignals[8] = action;
-        pubSignals[9] = oprfPublicKey.x;
-        pubSignals[10] = oprfPublicKey.y;
-        pubSignals[11] = signalHash;
-        pubSignals[12] = nonce;
+        pubSignals[2] = credentialIssuerId;
+        pubSignals[3] = credentialIssuerPubkey.x;
+        pubSignals[4] = credentialIssuerPubkey.y;
+        pubSignals[5] = proofTimestamp;
+        pubSignals[6] = 0; // TODO get cred_genesis_issued_at_min from somewhere
+        pubSignals[7] = authenticatorRoot;
+        pubSignals[8] = treeDepth;
+        pubSignals[9] = uint256(rpId);
+        pubSignals[10] = action;
+        pubSignals[11] = oprfPublicKey.x;
+        pubSignals[12] = oprfPublicKey.y;
+        pubSignals[13] = signalHash;
+        pubSignals[14] = nonce;
 
-        if (!groth16VerifierNullifier.verifyProof(proof.pA, proof.pB, proof.pC, pubSignals)) {
-            revert InvalidProof();
-        }
+        verifierNullifier.verifyCompressedProof(compressedProof, pubSignals);
     }
 
     /**
@@ -254,14 +249,14 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     }
 
     /**
-     * @notice Updates the Groth16 Verifier address
+     * @notice Updates the Nullifier Verifier address
      * @dev Only callable by the contract owner
-     * @param _groth16Verifier The new Groth16 Verifier address
+     * @param _verifierNullifier The new Groth16 Verifier address
      */
-    function updateGroth16Verifier(address _groth16Verifier) external virtual onlyOwner onlyProxy onlyInitialized {
-        address oldVerifier = address(groth16VerifierNullifier);
-        groth16VerifierNullifier = Groth16VerifierNullifier(_groth16Verifier);
-        emit Groth16VerifierNullifierUpdated(oldVerifier, _groth16Verifier);
+    function updateVerifierNullifier(address _verifierNullifier) external virtual onlyOwner onlyProxy onlyInitialized {
+        address oldVerifier = address(verifierNullifier);
+        verifierNullifier = VerifierNullifier(_verifierNullifier);
+        emit Groth16VerifierNullifierUpdated(oldVerifier, _verifierNullifier);
     }
 
     /**
