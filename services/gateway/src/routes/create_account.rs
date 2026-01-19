@@ -19,7 +19,7 @@ pub(crate) async fn create_account(
 
     // Simulate the account creation before queueing to catch errors early
     state
-        .regsitry
+        .registry
         .createAccount(
             req.recovery_address.unwrap_or(Address::ZERO),
             req.authenticator_addresses.clone(),
