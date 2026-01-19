@@ -163,6 +163,9 @@ pub struct TreeCacheConfig {
     /// Path to mmap cache file (mandatory)
     pub cache_file_path: String,
 
+    /// Depth of the Merkle tree (default: 30)
+    pub tree_depth: usize,
+
     /// Depth of dense tree prefix (mandatory, default: 20)
     pub dense_tree_prefix_depth: usize,
 
@@ -177,6 +180,10 @@ impl TreeCacheConfig {
 
         let config = Self {
             cache_file_path,
+            tree_depth: std::env::var("TREE_DEPTH")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30),
             dense_tree_prefix_depth: std::env::var("TREE_DENSE_PREFIX_DEPTH")
                 .ok()
                 .and_then(|s| s.parse().ok())

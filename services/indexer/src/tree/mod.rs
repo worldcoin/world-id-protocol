@@ -34,17 +34,33 @@ impl Hasher for PoseidonHasher {
     }
 }
 
-pub fn tree_capacity() -> usize {
-    1usize << TREE_DEPTH
+// Store the configured tree depth (set during initialization)
+static CONFIGURED_TREE_DEPTH: LazyLock<RwLock<usize>> = LazyLock::new(|| RwLock::new(TREE_DEPTH));
+
+pub async fn set_tree_depth(depth: usize) {
+    let mut configured_depth = CONFIGURED_TREE_DEPTH.write().await;
+    *configured_depth = depth;
+}
+
+pub async fn get_tree_depth() -> usize {
+    *CONFIGURED_TREE_DEPTH.read().await
+}
+
+pub async fn tree_capacity() -> usize {
+    let depth = get_tree_depth().await;
+    1usize << depth
 }
 
 // Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
+// Initial tree uses TREE_DEPTH but will be replaced during initialization with configured depth
 pub static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
     LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
 
 pub async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
-    if leaf_index >= tree_capacity() {
-        anyhow::bail!("leaf index {leaf_index} out of range for tree depth {TREE_DEPTH}");
+    let capacity = tree_capacity().await;
+    if leaf_index >= capacity {
+        let depth = get_tree_depth().await;
+        anyhow::bail!("leaf index {leaf_index} out of range for tree depth {depth}");
     }
 
     let mut tree = GLOBAL_TREE.write().await;

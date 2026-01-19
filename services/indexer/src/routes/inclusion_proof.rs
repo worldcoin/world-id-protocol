@@ -14,7 +14,7 @@ use world_id_primitives::{
     TREE_DEPTH,
 };
 
-use crate::tree::{tree_capacity, PoseidonHasher, GLOBAL_TREE};
+use crate::tree::{PoseidonHasher, GLOBAL_TREE};
 
 /// OpenAPI schema representation of the `AccountInclusionProof` response.
 #[derive(serde::Serialize, utoipa::ToSchema)]
@@ -102,7 +102,8 @@ pub(crate) async fn handler(
     let tree = GLOBAL_TREE.read().await;
 
     let index_as_usize = leaf_index.as_limbs()[0] as usize;
-    if index_as_usize >= tree_capacity() {
+    let capacity = crate::tree::tree_capacity().await;
+    if index_as_usize >= capacity {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
             "Leaf index out of range.".to_string(),

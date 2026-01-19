@@ -24,7 +24,7 @@ pub use crate::db::{
 };
 use crate::events::decoders::decode_registry_event;
 use crate::events::RegistryEvent;
-use crate::tree::{update_tree_with_commitment, GLOBAL_TREE, TREE_DEPTH};
+use crate::tree::{update_tree_with_commitment, GLOBAL_TREE};
 pub use config::GlobalConfig;
 
 /// Tree cache parameters needed during indexing
@@ -87,9 +87,12 @@ async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     pool: &PgPool,
 ) -> anyhow::Result<()> {
+    // Set the configured tree depth globally
+    tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
+
     let initializer = tree::TreeInitializer::new(
         tree_cache_cfg.cache_file_path.clone(),
-        TREE_DEPTH,
+        tree_cache_cfg.tree_depth,
         tree_cache_cfg.dense_tree_prefix_depth,
         U256::ZERO,
     );
@@ -104,7 +107,7 @@ async fn initialize_tree_with_config(
 
     tracing::info!(
         root = %format!("0x{:x}", root),
-        depth = TREE_DEPTH,
+        depth = tree_cache_cfg.tree_depth,
         "Tree initialized successfully"
     );
     Ok(())

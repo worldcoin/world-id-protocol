@@ -48,7 +48,8 @@ async fn test_packed_account_endpoint() {
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-            dense_tree_prefix_depth: 4,
+            tree_depth: 6,
+            dense_tree_prefix_depth: 2,
             http_cache_refresh_interval_secs: 30,
         },
     };
@@ -57,11 +58,21 @@ async fn test_packed_account_endpoint() {
         world_id_indexer::run_indexer(global_config).await.unwrap();
     });
 
+    // Add a small delay to let initialization start
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    println!("Indexer task spawned, waiting for backfill...");
+
     // Wait for account to be indexed
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         let c = query_count(&setup.pool).await;
+        println!(
+            "Current account count: {} (elapsed: {:?})",
+            c,
+            deadline.saturating_duration_since(std::time::Instant::now())
+        );
         if c >= 1 {
+            println!("Account found! Backfill complete.");
             break;
         }
         if std::time::Instant::now() > deadline {

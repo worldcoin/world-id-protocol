@@ -19,7 +19,8 @@ fn create_temp_cache_config() -> (TreeCacheConfig, PathBuf) {
 
     let config = TreeCacheConfig {
         cache_file_path: cache_path.to_str().unwrap().to_string(),
-        dense_tree_prefix_depth: 4,
+        tree_depth: 6,
+        dense_tree_prefix_depth: 2,
         http_cache_refresh_interval_secs: 1, // Fast refresh for tests
     };
 
