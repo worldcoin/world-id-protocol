@@ -13,6 +13,7 @@ use super::{builder::TreeBuilder, metadata};
 pub struct TreeInitializer {
     builder: TreeBuilder,
     cache_path: PathBuf,
+    dense_prefix_depth: usize,
 }
 
 impl TreeInitializer {
@@ -25,6 +26,7 @@ impl TreeInitializer {
         Self {
             builder: TreeBuilder::new(tree_depth, dense_prefix_depth, empty_value),
             cache_path: PathBuf::from(cache_file_path),
+            dense_prefix_depth,
         }
     }
 
@@ -101,7 +103,14 @@ impl TreeInitializer {
             .await?;
 
         // 6. Update metadata
-        metadata::write_metadata(&self.cache_path, &updated_tree, pool, new_block).await?;
+        metadata::write_metadata(
+            &self.cache_path,
+            &updated_tree,
+            pool,
+            new_block,
+            self.dense_prefix_depth,
+        )
+        .await?;
 
         info!(
             replayed_to_block = new_block,
@@ -125,7 +134,14 @@ impl TreeInitializer {
             .await?;
 
         // Write metadata
-        metadata::write_metadata(&self.cache_path, &tree, pool, last_block).await?;
+        metadata::write_metadata(
+            &self.cache_path,
+            &tree,
+            pool,
+            last_block,
+            self.dense_prefix_depth,
+        )
+        .await?;
 
         info!(
             root = %format!("0x{:x}", tree.root()),

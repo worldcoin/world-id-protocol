@@ -27,6 +27,13 @@ use crate::events::RegistryEvent;
 use crate::tree::{update_tree_with_commitment, GLOBAL_TREE, TREE_DEPTH};
 pub use config::GlobalConfig;
 
+/// Tree cache parameters needed during indexing
+#[derive(Clone)]
+pub struct TreeCacheParams {
+    pub cache_file_path: String,
+    pub dense_prefix_depth: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct AccountCreatedEvent {
     pub leaf_index: U256,
@@ -242,7 +249,10 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
                 indexer_config,
                 http_config,
                 pool,
-                tree_cache_cfg.cache_file_path.clone(),
+                TreeCacheParams {
+                    cache_file_path: tree_cache_cfg.cache_file_path.clone(),
+                    dense_prefix_depth: tree_cache_cfg.dense_tree_prefix_depth,
+                },
             )
             .await
         }
@@ -344,7 +354,7 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     pool: PgPool,
-    cache_file_path: String,
+    tree_cache_params: TreeCacheParams,
 ) -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
@@ -382,7 +392,7 @@ async fn run_both(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        Some(cache_file_path.as_str()), // Update in-memory tree and cache metadata after each batch
+        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each batch
     )
     .await?;
 
@@ -392,7 +402,7 @@ async fn run_both(
         &pool,
         registry_address,
         from,
-        Some(cache_file_path.as_str()), // Update in-memory tree and cache metadata after each event
+        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each event
     )
     .await?;
 
@@ -410,7 +420,7 @@ async fn backfill_batch<P: Provider>(
     from_block: &mut u64,
     batch_size: u64,
     head: u64,
-    tree_cache_path: Option<&str>,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     if *from_block == 0 {
         *from_block = 1;
@@ -456,7 +466,7 @@ async fn backfill_batch<P: Provider>(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if tree_cache_path.is_some() {
+                if tree_cache_params.is_some() {
                     if let Err(e) = update_tree_with_event(&event).await {
                         tracing::error!(?e, ?event, "failed to update tree for event");
                     }
@@ -471,14 +481,20 @@ async fn backfill_batch<P: Provider>(
     save_checkpoint(pool, to_block).await?;
 
     // Update cache metadata if tree was updated
-    if let Some(cache_path) = tree_cache_path {
-        let cache_path_buf = std::path::PathBuf::from(cache_path);
+    if let Some(cache_params) = tree_cache_params {
+        let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
         let tree = GLOBAL_TREE.read().await;
-        tree::metadata::write_metadata(&cache_path_buf, &tree, pool, to_block)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(?e, "Failed to update cache metadata");
-            });
+        tree::metadata::write_metadata(
+            &cache_path_buf,
+            &tree,
+            pool,
+            to_block,
+            cache_params.dense_prefix_depth,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(?e, "Failed to update cache metadata");
+        });
     }
 
     tracing::debug!(
@@ -497,7 +513,7 @@ pub async fn backfill<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    tree_cache_path: Option<&str>,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     let mut head = provider.get_block_number().await?;
     loop {
@@ -508,7 +524,7 @@ pub async fn backfill<P: Provider>(
             from_block,
             batch_size,
             head,
-            tree_cache_path,
+            tree_cache_params,
         )
         .await
         {
@@ -709,7 +725,7 @@ pub async fn stream_logs(
     pool: &PgPool,
     registry: Address,
     start_from: u64,
-    tree_cache_path: Option<&str>,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
@@ -744,7 +760,7 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if tree_cache_path.is_some() {
+                if tree_cache_params.is_some() {
                     if let Err(e) = update_tree_with_event(&event).await {
                         tracing::error!(?e, ?event, "failed to update tree for live event");
                     }
@@ -754,14 +770,21 @@ pub async fn stream_logs(
                     save_checkpoint(pool, bn).await?;
 
                     // Update cache metadata if tree was updated
-                    if let Some(cache_path) = tree_cache_path {
-                        let cache_path_buf = std::path::PathBuf::from(cache_path);
+                    if let Some(cache_params) = tree_cache_params {
+                        let cache_path_buf =
+                            std::path::PathBuf::from(&cache_params.cache_file_path);
                         let tree = GLOBAL_TREE.read().await;
-                        tree::metadata::write_metadata(&cache_path_buf, &tree, pool, bn)
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::warn!(?e, "Failed to update cache metadata");
-                            });
+                        tree::metadata::write_metadata(
+                            &cache_path_buf,
+                            &tree,
+                            pool,
+                            bn,
+                            cache_params.dense_prefix_depth,
+                        )
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!(?e, "Failed to update cache metadata");
+                        });
                     }
                 }
             }

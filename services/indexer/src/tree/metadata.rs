@@ -72,6 +72,7 @@ pub async fn write_metadata(
     tree: &MerkleTree<PoseidonHasher, semaphore_rs_trees::lazy::Canonical>,
     pool: &PgPool,
     last_block_number: u64,
+    dense_prefix_depth: usize,
 ) -> anyhow::Result<()> {
     // Get current database state
     let last_event_id = get_last_event_id_up_to_block(pool, last_block_number).await?;
@@ -84,7 +85,7 @@ pub async fn write_metadata(
         last_event_id,
         active_leaf_count,
         tree_depth: crate::tree::TREE_DEPTH,
-        dense_prefix_depth: 20, // This will be provided by config in later steps
+        dense_prefix_depth,
         created_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
