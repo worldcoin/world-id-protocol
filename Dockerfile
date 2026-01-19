@@ -51,6 +51,8 @@ RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package 
 
 RUN mv target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin
 
+RUN mkdir -p /app/data && touch /app/data/.keep
+
 ####################################################################################################
 ## Final image
 ####################################################################################################
@@ -59,6 +61,7 @@ WORKDIR /app
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/bin /app/bin
+COPY --from=builder --chown=100:100 /app/data /data
 
 USER 100
 EXPOSE 8080
