@@ -43,11 +43,11 @@ impl RequestTracker {
                 .await
                 .expect("Unable to create Redis connection manager");
 
-            tracing::info!("✅ Connection to Redis established");
+            tracing::info!(target: "world_id_gateway::request_tracker", "Connection to Redis established");
 
             Some(manager)
         } else {
-            tracing::info!("No Redis URL provided, using in-memory request storage");
+            tracing::info!(target: "world_id_gateway::request_tracker", "No Redis URL provided, using in-memory request storage");
             None
         };
 
@@ -68,6 +68,7 @@ impl RequestTracker {
                         now.duration_since(record.created_at) < Duration::from_secs(REQUESTS_TTL)
                     });
                     tracing::info!(
+                        target: "world_id_gateway::request_tracker",
                         "Cleaned up expired in-memory request records. Current count: {}",
                         map.len()
                     );
@@ -87,15 +88,24 @@ impl RequestTracker {
         kind: GatewayRequestKind,
     ) -> Result<(String, RequestRecord), GatewayErrorResponse> {
         let id = uuid::Uuid::new_v4().to_string();
+        let record = self.create_request(&id, kind).await?;
+        Ok((id, record))
+    }
+
+    pub async fn create_request(
+        &self,
+        id: &str,
+        kind: GatewayRequestKind,
+    ) -> Result<RequestRecord, GatewayErrorResponse> {
         let record = RequestRecord {
             kind,
             status: GatewayRequestState::Queued,
         };
 
         if let Some(mut manager) = self.redis_manager.clone() {
-            let key = Self::request_key(&id);
+            let key = Self::request_key(id);
             let json_str = serde_json::to_string(&record).map_err(|e| {
-                tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
+                tracing::error!(target: "world_id_gateway::request_tracker", "FATAL: unable to serialize a RequestRecord: {e}");
                 GatewayErrorResponse::internal_server_error()
             })?;
 
@@ -110,7 +120,7 @@ impl RequestTracker {
         } else {
             // Use in-memory storage
             self.inner.write().await.insert(
-                id.clone(),
+                id.to_string(),
                 InMemoryRecord {
                     record: record.clone(),
                     created_at: Instant::now(),
@@ -118,14 +128,14 @@ impl RequestTracker {
             );
         }
 
-        Ok((id, record))
+        Ok(record)
     }
 
     pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
         if self.redis_manager.is_some() {
             for id in ids {
                 if let Err(e) = self.set_status_on_redis(id, &status).await {
-                    tracing::error!("Error updating status for request: {e}");
+                    tracing::error!(target: "world_id_gateway::request_tracker", "Error updating status for request: {e}");
                 }
             }
         } else {
@@ -153,13 +163,13 @@ impl RequestTracker {
                 Ok(Some(json_str)) => match serde_json::from_str::<RequestRecord>(&json_str) {
                     Ok(record) => Some(record),
                     Err(e) => {
-                        tracing::error!("Failed to deserialize request from Redis: {}", e);
+                        tracing::error!(target: "world_id_gateway::request_tracker", "Failed to deserialize request from Redis: {}", e);
                         None
                     }
                 },
                 Ok(None) => None,
                 Err(e) => {
-                    tracing::error!("Failed to get request from Redis: {}", e);
+                    tracing::error!(target: "world_id_gateway::request_tracker", "Failed to get request from Redis: {}", e);
                     None
                 }
             }
@@ -209,6 +219,6 @@ impl RequestTracker {
 }
 
 fn handle_redis_error(e: redis::RedisError) -> GatewayErrorResponse {
-    tracing::error!("Unhandled Redis error: {}", e);
+    tracing::error!(target: "world_id_gateway::request_tracker", "Unhandled Redis error: {}", e);
     GatewayErrorResponse::internal_server_error()
 }

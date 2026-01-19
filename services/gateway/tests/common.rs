@@ -30,8 +30,13 @@ pub(crate) async fn wait_for_finalized(client: &Client, base: &str, request_id: 
             .await
             .unwrap();
         let status_code = resp.status();
+        // Retry on NOT_FOUND - tracking entry may be created asynchronously
         if status_code == StatusCode::NOT_FOUND {
-            panic!("request {request_id} not found");
+            if std::time::Instant::now() > deadline {
+                panic!("timeout: request {request_id} not found");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            continue;
         }
         if !status_code.is_success() {
             let body_text = resp.text().await.unwrap_or_default();

@@ -2,8 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     batcher::{
-        EventBus, OpsBatcher, OpsBatcherConfig, OpsBatcherMetrics,
-        logging_handler, metrics_handler, status_sync_handler,
+        EventsMultiplexerBuilder, LoggingHandler, MetricsHandler, OpAcceptedHandler, OpsBatcher,
+        OpsBatcherConfig, StatusSyncHandler, Waiters,
     },
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     request_tracker::RequestTracker,
@@ -17,8 +17,7 @@ use crate::{
         request_status::request_status,
         update_authenticator::update_authenticator,
     },
-    types::RootExpiry,
-    AppState,
+    types::{AppState, RootExpiry},
 };
 use alloy::providers::DynProvider;
 use axum::{
@@ -45,6 +44,7 @@ mod create_account;
 mod health;
 mod insert_authenticator;
 mod is_valid_root;
+mod middleware;
 mod recover_account;
 mod remove_authenticator;
 mod request_status;
@@ -61,8 +61,8 @@ pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batch_ms: u64,
     max_create_batch_size: usize,
-    max_ops_batch_size: usize,
     redis_url: Option<String>,
+    metrics_enabled: bool,
 ) -> anyhow::Result<Router> {
     let tracker = RequestTracker::new(redis_url).await;
     let (tx, rx) = mpsc::channel(1024);
@@ -79,28 +79,48 @@ pub(crate) async fn build_app(
     // Create OpsBatcher for insert/remove/recover/update operations
     let mut ops_config = OpsBatcherConfig::new(registry.clone());
     ops_config.batch_window = Duration::from_millis(batch_ms);
-    ops_config.max_batch_ops = max_ops_batch_size;
 
-    // Create event bus and spawn event handlers
-    let event_bus = EventBus::with_defaults();
-    let _event_handles = vec![
-        event_bus.spawn_async(status_sync_handler(Arc::new(tracker.clone()))),
-        event_bus.spawn_async(metrics_handler(OpsBatcherMetrics::new())),
-        event_bus.spawn_async(logging_handler()),
-    ];
+    // Create event bus
+    let tracker_arc = Arc::new(tracker.clone());
+    let waiters = Arc::new(Waiters::new());
 
-    let metrics = OpsBatcherMetrics::new();
-    let (ops_batcher, ops_handle) = OpsBatcher::new(
-        provider,
-        ops_config,
-        metrics,
-        event_bus,
-    );
+    let mut builder = EventsMultiplexerBuilder::new()
+        .event_capacity(10_000)
+        .waiters(waiters.clone())
+        .subscribe_all(LoggingHandler)
+        .subscribe_many(
+            &[
+                crate::batcher::EventType::OpFinalized,
+                crate::batcher::EventType::OpFailed,
+                crate::batcher::EventType::OpSubmitted,
+                crate::batcher::EventType::OpBatched,
+            ],
+            StatusSyncHandler::new(tracker_arc.clone()),
+        )
+        .subscribe(
+            crate::batcher::EventType::OpAccepted,
+            OpAcceptedHandler::new(tracker_arc, waiters),
+        );
+
+    if metrics_enabled {
+        builder = builder.subscribe_all(MetricsHandler);
+    }
+
+    let (event_bus, events, cmd_rx) = builder.build().expect("failed to build event bus");
+
+    tokio::task::spawn_blocking({
+        let scope = tracing::span!(tracing::Level::INFO, "event-processor");
+        move || {
+            let _enter = scope.enter();
+            events.run()
+        }
+    });
+
+    let event_bus = Arc::new(event_bus);
+    let ops_batcher = OpsBatcher::new(provider, ops_config, event_bus.clone(), cmd_rx);
 
     // Spawn the OpsBatcher task
     tokio::spawn(ops_batcher.run());
-
-    tracing::info!("OpsBatcher stub initialized - ops processing disabled during refactor");
 
     let root_cache = Cache::builder()
         .max_capacity(ROOT_CACHE_SIZE)
@@ -110,8 +130,8 @@ pub(crate) async fn build_app(
     let state = AppState {
         regsitry: registry.clone(),
         batcher,
-        ops_batcher: ops_handle,
         root_cache,
+        event_bus,
     };
 
     Ok(Router::new()

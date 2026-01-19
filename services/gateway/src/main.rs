@@ -1,10 +1,10 @@
 use std::path::Path;
 
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"); // load env vars in the root of this service
+    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
     let _ = dotenvy::from_path(&env_path);
 
     tracing_subscriber::registry()
@@ -15,13 +15,10 @@ async fn main() -> anyhow::Result<()> {
             tracing_subscriber::fmt::layer()
                 .json()
                 .flatten_event(true)
-                .with_current_span(true),
+                .with_current_span(true)
+                .boxed(),
         )
         .init();
-
-    let _ = dotenvy::dotenv();
-    tracing::info!("Starting world-id-gateway");
-    println!("Starting world-id-gateway");
 
     world_id_gateway::run().await
 }

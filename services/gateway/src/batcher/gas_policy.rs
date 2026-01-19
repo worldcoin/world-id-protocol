@@ -6,9 +6,6 @@ use crate::batcher::types::ChainState;
 pub trait GasPolicyTrait: Send + Sync + 'static {
     /// Compute batch parameters based on current chain state and queue depth.
     fn compute_batch_params(&self, chain: &ChainState, queue_depth: usize) -> BatchParameters;
-
-    /// Update gas calibration based on actual vs estimated gas usage.
-    fn update_calibration(&mut self, estimated: u64, actual: u64);
 }
 
 /// Configuration for adaptive batch sizing
@@ -18,40 +15,19 @@ pub struct GasPolicyConfig {
     pub block_gas_limit: u64,
     /// Maximum base fee we'll pay (wei)
     pub max_base_fee: u64,
-    /// Soft cap where we start being conservative (wei)
-    pub soft_cap_base_fee: u64,
     /// Target base fee for comfortable operation (wei)
     pub target_base_fee: u64,
     /// Queue depth threshold for "backed up" state
     pub backlog_threshold: usize,
-    /// Maximum operations per batch (hard cap)
-    pub max_batch_ops: usize,
-    /// Minimum operations per batch
-    pub min_batch_ops: usize,
 }
 
 impl Default for GasPolicyConfig {
     fn default() -> Self {
         Self {
-            block_gas_limit: 30_000_000,
-            max_base_fee: 200_000_000_000,     // 200 gwei
-            soft_cap_base_fee: 50_000_000_000, // 50 gwei
-            target_base_fee: 20_000_000_000,   // 20 gwei
-            backlog_threshold: 500,
-            max_batch_ops: 100,
-            min_batch_ops: 1,
-        }
-    }
-}
-
-impl GasPolicyConfig {
-    /// Create config with values in gwei for convenience
-    pub fn with_gwei(max_base_fee_gwei: u64, soft_cap_gwei: u64, target_gwei: u64) -> Self {
-        Self {
-            max_base_fee: max_base_fee_gwei * 1_000_000_000,
-            soft_cap_base_fee: soft_cap_gwei * 1_000_000_000,
-            target_base_fee: target_gwei * 1_000_000_000,
-            ..Default::default()
+            block_gas_limit: 100_000_000,
+            max_base_fee: 400_000_000_000, // 200 gwei
+            target_base_fee: 1,
+            backlog_threshold: 2_000,
         }
     }
 }
@@ -65,16 +41,11 @@ impl GasPolicyConfig {
 #[derive(Debug, Clone)]
 pub struct GasPolicy {
     config: GasPolicyConfig,
-    /// Calibration factor for gas estimation (actual/estimated ratio)
-    gas_calibration: f64,
 }
 
 impl GasPolicy {
     pub fn new(config: GasPolicyConfig) -> Self {
-        Self {
-            config,
-            gas_calibration: 1.0,
-        }
+        Self { config }
     }
 
     /// Calculate fee pressure: how much the base fee is pushing against limits.
@@ -137,7 +108,11 @@ impl GasPolicy {
     }
 
     /// Compute batch parameters based on current chain state and queue depth.
-    fn compute_batch_params_inner(&self, chain: &ChainState, queue_depth: usize) -> BatchParameters {
+    fn compute_batch_params_inner(
+        &self,
+        chain: &ChainState,
+        queue_depth: usize,
+    ) -> BatchParameters {
         // Check ceiling
         if chain.base_fee >= self.config.max_base_fee {
             return BatchParameters {
@@ -158,25 +133,13 @@ impl GasPolicy {
             BatchSizeReason::Optimal
         };
 
-        BatchParameters {
-            gas_budget,
-            reason,
-        }
+        BatchParameters { gas_budget, reason }
     }
 }
 
 impl GasPolicyTrait for GasPolicy {
     fn compute_batch_params(&self, chain: &ChainState, queue_depth: usize) -> BatchParameters {
         self.compute_batch_params_inner(chain, queue_depth)
-    }
-
-    fn update_calibration(&mut self, estimated: u64, actual: u64) {
-        if estimated == 0 {
-            return;
-        }
-        let ratio = actual as f64 / estimated as f64;
-        // Exponential moving average
-        self.gas_calibration = self.gas_calibration * 0.9 + ratio * 0.1;
     }
 }
 
@@ -191,7 +154,11 @@ pub struct BatchParameters {
 
 impl std::fmt::Display for BatchParameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BatchParameters {{ gas_budget: {}, reason: {:?} }}", self.gas_budget, self.reason)
+        write!(
+            f,
+            "BatchParameters {{ gas_budget: {}, reason: {:?} }}",
+            self.gas_budget, self.reason
+        )
     }
 }
 
@@ -211,6 +178,7 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
+    #[allow(dead_code)]
     fn make_chain_state(base_fee_gwei: u64, trend: f64) -> ChainState {
         ChainState {
             block_number: 1,

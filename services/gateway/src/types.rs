@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use crate::batcher::OpsBatcherHandle;
+use crate::batcher::EventsMultiplexer;
 use crate::create_batcher::CreateBatcherHandle;
 use alloy::{primitives::U256, providers::DynProvider};
+use axum::extract::FromRef;
 use moka::{future::Cache, Expiry};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
@@ -72,8 +73,14 @@ pub(crate) struct AppState {
     pub(crate) regsitry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     /// Background batcher for create-account.
     pub(crate) batcher: CreateBatcherHandle,
-    /// Background batcher for ops (insert/remove/recover/update).
-    pub(crate) ops_batcher: OpsBatcherHandle,
     /// Cache of valid roots to their expiration timestamps.
     pub(crate) root_cache: Cache<U256, U256>,
+    /// Event bus for publishing events and submitting ops.
+    pub(crate) event_bus: Arc<EventsMultiplexer>,
+}
+
+impl FromRef<AppState> for Arc<EventsMultiplexer> {
+    fn from_ref(state: &AppState) -> Self {
+        state.event_bus.clone()
+    }
 }

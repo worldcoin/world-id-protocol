@@ -21,9 +21,7 @@ alloy = { workspace = true, features = [
 ] }
 
 anyhow = { workspace = true }
-aws-config = "1"
 backon = "1"
-aws-sdk-kms = "1"
 axum = { workspace = true, features = ["macros", "json"] }
 clap = { version = "4", features = ["derive", "env"] }
 crossbeam-channel = "0.5"
@@ -33,9 +31,12 @@ world-id-core = { workspace = true, features = [
     "embed-zkeys",
 ] }
 dotenvy = "0.15"
-hex = "0.4"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+opentelemetry = { version = "0.24", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.24", features = ["rt-tokio", "metrics"] }
+opentelemetry-otlp = { version = "0.17", features = ["metrics", "tonic", "http-json", "http-proto"] }
 moka.workspace = true
-once_cell = "1"
 redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -45,16 +46,9 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tower-http = { version = "0.5", features = ["trace", "timeout"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
-tracing-opentelemetry = "0.27"
-opentelemetry = { version = "0.26", features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.26", features = ["rt-tokio", "metrics"] }
-opentelemetry-otlp = { version = "0.26", features = ["default", "grpc-tonic", "metrics"] }
 utoipa = { workspace = true }
 uuid = { version = "1.11", features = ["v4"] }
-tokio-util = "0.7.18"
-tokio-stream = "0.1.11"
-futures = "0.3"
-futures-util = "0.3"
+
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
 reqwest = { workspace = true }

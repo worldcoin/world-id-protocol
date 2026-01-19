@@ -1,9 +1,8 @@
-use std::{net::SocketAddr, time::Duration};
+use std::net::SocketAddr;
 
 use alloy::primitives::Address;
 use clap::Parser;
 use common::ProviderArgs;
-use serde::Deserialize;
 
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -36,50 +35,62 @@ pub struct GatewayConfig {
     /// If not provided, requests will be stored in-memory
     #[arg(long, env = "REDIS_URL")]
     pub redis_url: Option<String>,
+
+    /// Metrics configuration
+    #[command(flatten)]
+    pub metrics: MetricsArgs,
+}
+
+/// Metrics and observability configuration.
+#[derive(Clone, Debug, clap::Args)]
+#[command(next_help_heading = "Metrics")]
+#[group(id = "metrics", multiple = true, requires = "enabled")]
+pub struct MetricsArgs {
+    /// Enable metrics collection
+    #[arg(long = "metrics", env = "METRICS_ENABLED", default_value = "false")]
+    pub enabled: bool,
+
+    /// Optional address for Prometheus metrics endpoint (e.g. 0.0.0.0:9090)
+    /// If not provided, Prometheus metrics endpoint is disabled
+    #[arg(long = "metrics.addr", env = "METRICS_ADDR", group = "metrics")]
+    pub addr: Option<SocketAddr>,
+
+    /// Optional OTLP endpoint for metrics export (e.g. http://localhost:4317)
+    /// If not provided, OTLP export is disabled
+    #[arg(long = "otlp.endpoint", env = "OTLP_ENDPOINT", group = "metrics")]
+    pub otlp_endpoint: Option<String>,
+
+    /// Service name for metrics reporting
+    #[arg(
+        long = "otlp.service-name",
+        env = "SERVICE_NAME",
+        default_value = "world-id-gateway",
+        group = "metrics"
+    )]
+    pub service_name: String,
+}
+
+impl Default for MetricsArgs {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            addr: None,
+            otlp_endpoint: None,
+            service_name: "world-id-gateway".to_string(),
+        }
+    }
+}
+
+impl MetricsArgs {
+    /// Returns true if metrics collection is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
 }
 
 impl GatewayConfig {
     pub fn from_env() -> Self {
-        let config = Self::parse();
-
-        if config.listen_addr.port() != 8080 {
-            tracing::warn!(
-                "Gateway is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)"
-            );
-        }
-
-        config
-    }
-}
-
-#[derive(Debug, Clone, clap::Args, Default, Deserialize)]
-
-pub struct PendingBatchConfig {
-    #[clap(long, env = "RESUBMIT_TIMEOUT", default_value = "15s", value_parser = parser::parse_duration)]
-    pub resubmit_timeout: Duration,
-    #[clap(long, env = "MAX_FEE_MULTIPLIER", default_value = "2.0")]
-    pub max_fee_multiplier: f64,
-    #[clap(long, env = "FEE_ESCALATION_STEP", default_value = "0.1")]
-    pub fee_escalation_step: f64,
-    #[clap(long, env = "MAX_RESUBMISSIONS", default_value = "5")]
-    pub max_resubmissions: u32,
-    #[clap(long, env = "SIMULATION_TIMEOUT", default_value = "10s", value_parser = parser::parse_duration)]
-    pub simulation_timeout: Duration,
-    #[clap(long, env = "SIMULATION_DEBOUNCE", default_value = "500ms", value_parser = parser::parse_duration)]
-    pub simulation_debounce: Duration,
-    #[clap(long, env = "MAX_PENDING_DURATION", default_value = "5m", value_parser = parser::parse_duration)]
-    pub max_pending_duration: Duration,
-    #[clap(long, env = "RETRY_BASE_DELAY", default_value = "500ms", value_parser = parser::parse_duration)]
-    pub retry_base_delay: Duration,
-}
-
-mod parser {
-    use std::time::Duration;
-
-    pub fn parse_duration(s: &str) -> anyhow::Result<Duration> {
-        Ok(Duration::from_secs(
-            Duration::from_secs(s.parse::<u64>()?).as_secs(),
-        ))
+        Self::parse()
     }
 }
 
@@ -122,6 +133,89 @@ mod tests {
     #[test]
     fn test_neither_option_fails() {
         let result = parse_with_signer_args(&[]);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn test_metrics_disabled_by_default() {
+        let result = parse_with_signer_args(&["--wallet-private-key", "0xdeadbeef"]);
+        assert!(result.is_ok());
+
+        let config = result.unwrap();
+        assert!(!config.metrics.is_enabled());
+        assert!(config.metrics.addr.is_none());
+        assert!(config.metrics.otlp_endpoint.is_none());
+    }
+
+    #[test]
+    fn test_metrics_enabled() {
+        let result = parse_with_signer_args(&["--wallet-private-key", "0xdeadbeef", "--metrics"]);
+        assert!(result.is_ok());
+
+        let config = result.unwrap();
+        assert!(config.metrics.is_enabled());
+    }
+
+    #[test]
+    fn test_metrics_with_addr() {
+        let result = parse_with_signer_args(&[
+            "--wallet-private-key",
+            "0xdeadbeef",
+            "--metrics",
+            "--metrics.addr",
+            "0.0.0.0:9090",
+        ]);
+        assert!(result.is_ok());
+
+        let config = result.unwrap();
+        assert!(config.metrics.is_enabled());
+        assert_eq!(config.metrics.addr, Some("0.0.0.0:9090".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_metrics_with_otlp() {
+        let result = parse_with_signer_args(&[
+            "--wallet-private-key",
+            "0xdeadbeef",
+            "--metrics",
+            "--otlp.endpoint",
+            "http://localhost:4317",
+        ]);
+        assert!(result.is_ok());
+
+        let config = result.unwrap();
+        assert!(config.metrics.is_enabled());
+        assert_eq!(
+            config.metrics.otlp_endpoint,
+            Some("http://localhost:4317".to_string())
+        );
+    }
+
+    #[test]
+    fn test_metrics_addr_requires_metrics_flag() {
+        let result = parse_with_signer_args(&[
+            "--wallet-private-key",
+            "0xdeadbeef",
+            "--metrics.addr",
+            "0.0.0.0:9090",
+        ]);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn test_metrics_otlp_requires_metrics_flag() {
+        let result = parse_with_signer_args(&[
+            "--wallet-private-key",
+            "0xdeadbeef",
+            "--otlp.endpoint",
+            "http://localhost:4317",
+        ]);
         assert!(result.is_err());
 
         let err = result.unwrap_err();

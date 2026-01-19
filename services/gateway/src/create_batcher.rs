@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::RequestTracker;
+use crate::request_tracker::RequestTracker;
 use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use tokio::sync::mpsc;
@@ -49,7 +49,7 @@ impl CreateBatcherRunner {
     pub async fn run(mut self) {
         loop {
             let Some(first) = self.rx.recv().await else {
-                tracing::info!("create batcher channel closed");
+                tracing::info!(target: "world_id_gateway::create_batcher", "create batcher channel closed");
                 return;
             };
 
@@ -63,7 +63,7 @@ impl CreateBatcherRunner {
                 match tokio::time::timeout_at(deadline, self.rx.recv()).await {
                     Ok(Some(req)) => batch.push(req),
                     Ok(None) => {
-                        tracing::info!("create batcher channel closed while batching");
+                        tracing::info!(target: "world_id_gateway::create_batcher", "create batcher channel closed while batching");
                         break;
                     }
                     Err(_) => break, // Timeout expired
@@ -145,7 +145,7 @@ impl CreateBatcherRunner {
                     });
                 }
                 Err(err) => {
-                    tracing::error!(error = %err, "create batch send failed");
+                    tracing::error!(target: "world_id_gateway::create_batcher", error = %err, "create batch send failed");
                     let error_str = err.to_string();
                     let code = parse_contract_error(&error_str);
                     self.tracker

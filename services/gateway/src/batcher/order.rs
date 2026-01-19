@@ -4,107 +4,24 @@ use std::{
 };
 
 use crate::batcher::types::OpEnvelopeInner;
-use alloy::primitives::{Address, U256};
-use std::collections::{BTreeSet, HashMap};
 
-/// Tracks nonce state per signer for dependency ordering.
-///
-/// Ensures operations are included in correct nonce order and
-/// detects nonce gaps that would cause transaction failures.
-#[derive(Debug, Default)]
-pub struct NonceTracker {
-    /// Last confirmed on-chain nonce per signer
-    confirmed: HashMap<Address, U256>,
-    /// Nonces currently in pending batches
-    pending: HashMap<Address, BTreeSet<U256>>,
-}
-
-impl NonceTracker {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Get the confirmed nonce for a signer
-    pub fn get_confirmed(&self, signer: &Address) -> U256 {
-        self.confirmed.get(signer).copied().unwrap_or(U256::ZERO)
-    }
-
-    /// Get the next expected nonce for a signer (confirmed + pending)
-    pub fn next_expected(&self, signer: &Address) -> U256 {
-        let confirmed = self.get_confirmed(signer);
-        self.pending
-            .get(signer)
-            .and_then(|s| s.last().copied())
-            .map(|last_pending| last_pending + U256::from(1))
-            .unwrap_or(confirmed)
-    }
-
-    /// Check if an operation has a nonce that's already been used
-    pub fn is_stale(&self, op: &OpEnvelopeInner) -> bool {
-        let confirmed = self.get_confirmed(&op.signer);
-        op.nonce < confirmed
-    }
-
-    /// Check if an operation has a nonce gap (too high)
-    pub fn has_gap(&self, op: &OpEnvelopeInner) -> bool {
-        let next = self.next_expected(&op.signer);
-        op.nonce > next
-    }
-
-    /// Mark an operation's nonce as pending (in a batch)
-    pub fn mark_pending(&mut self, op: &OpEnvelopeInner) {
-        self.pending.entry(op.signer).or_default().insert(op.nonce);
-    }
-
-    /// Remove an operation's nonce from pending
-    pub fn unmark_pending(&mut self, op: &OpEnvelopeInner) {
-        if let Some(set) = self.pending.get_mut(&op.signer) {
-            set.remove(&op.nonce);
-            if set.is_empty() {
-                self.pending.remove(&op.signer);
-            }
-        }
-    }
-}
-
-
-/// Trait for policy wrapper types that can be used in a BinaryHeap.
-///
-/// Each policy is a newtype wrapper around `OpEnvelopeInner` that implements
-/// `Ord` according to its ordering strategy.
-///
-/// # Example
-///
-/// ```ignore
-/// use std::collections::BinaryHeap;
-///
-/// let mut heap: BinaryHeap<GreedyCreateFirst> = BinaryHeap::new();
-/// heap.push(GreedyCreateFirst::new(op));
-///
-/// // Operations are popped in policy-defined order
-/// while let Some(envelope) = heap.pop() {
-///     process(envelope.into_inner());
-/// }
-/// ```
 pub trait OrderingPolicy:
     Ord + Eq + Clone + Send + Sync + Deref<Target = OpEnvelopeInner> + 'static
 {
     fn new(inner: OpEnvelopeInner) -> Self;
 
     fn into_inner(self) -> OpEnvelopeInner;
-
-    fn name() -> &'static str;
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
-    CreateAccount = 1,
     Other = 0,
+    CreateAccount = 1,
 }
 
-impl From<OpEnvelopeInner> for Priority {
-    fn from(op: OpEnvelopeInner) -> Self {
+impl From<&OpEnvelopeInner> for Priority {
+    fn from(op: &OpEnvelopeInner) -> Self {
         match op.op {
             crate::batcher::types::Operation::CreateAccount(_) => Priority::CreateAccount,
             _ => Priority::Other,
@@ -113,26 +30,12 @@ impl From<OpEnvelopeInner> for Priority {
 }
 
 /// Ordering rules (in precedence):
-/// 1. Higher priority class first (Critical > High > Normal)
-/// 2. Within same priority, older operations first (FIFO by received_at)
+/// 1. Priority (CreateAccount > Other)
+/// 2. Received time (earlier = higher priority)
 #[derive(Debug, Clone)]
-pub struct SignupFifoOrdering<T: Into<Priority>>(pub T);
+pub struct SignupFifoOrdering(OpEnvelopeInner);
 
-impl SignupFifoOrdering<OpEnvelopeInner> {
-    fn compare(a: &OpEnvelopeInner, b: &OpEnvelopeInner) -> Ordering {
-        let a_priority: Priority = a.clone().into();
-        let b_priority: Priority = b.clone().into();
-        let ord = a_priority.partial_cmp(&b_priority);
-
-        match ord {
-            Some(Ordering::Equal) => a.received_at.cmp(&b.received_at),
-            Some(other) => other,
-            None => a.received_at.cmp(&b.received_at),
-        }
-    }
-}
-
-impl OrderingPolicy for SignupFifoOrdering<OpEnvelopeInner> {
+impl OrderingPolicy for SignupFifoOrdering {
     fn new(inner: OpEnvelopeInner) -> Self {
         Self(inner)
     }
@@ -140,13 +43,9 @@ impl OrderingPolicy for SignupFifoOrdering<OpEnvelopeInner> {
     fn into_inner(self) -> OpEnvelopeInner {
         self.0
     }
-
-    fn name() -> &'static str {
-        "signup_fifo"
-    }
 }
 
-impl Deref for SignupFifoOrdering<OpEnvelopeInner> {
+impl Deref for SignupFifoOrdering {
     type Target = OpEnvelopeInner;
 
     fn deref(&self) -> &Self::Target {
@@ -154,74 +53,117 @@ impl Deref for SignupFifoOrdering<OpEnvelopeInner> {
     }
 }
 
-impl DerefMut for SignupFifoOrdering<OpEnvelopeInner> {
+impl DerefMut for SignupFifoOrdering {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl PartialEq for SignupFifoOrdering<OpEnvelopeInner> {
+impl PartialEq for SignupFifoOrdering {
     fn eq(&self, other: &Self) -> bool {
         self.0.id == other.0.id
     }
 }
 
-impl Eq for SignupFifoOrdering<OpEnvelopeInner> {}
+impl Eq for SignupFifoOrdering {}
 
-impl Ord for SignupFifoOrdering<OpEnvelopeInner> {
+impl Ord for SignupFifoOrdering {
     fn cmp(&self, other: &Self) -> Ordering {
         // BinaryHeap is a max-heap (pops greatest first).
-        // We reverse so that "Less" (higher priority) comes out first.
-        Self::compare(&self.0, &other.0).reverse()
+        // We want higher priority and earlier received_at to come out first.
+        let self_priority = Priority::from(&self.0);
+        let other_priority = Priority::from(&other.0);
+
+        // Compare by priority first (higher = greater)
+        match self_priority.cmp(&other_priority) {
+            Ordering::Equal => {
+                // Same priority: earlier received_at should come out first (be "greater")
+                other.0.received_at.cmp(&self.0.received_at)
+            }
+            ord => ord,
+        }
     }
 }
 
-impl PartialOrd for SignupFifoOrdering<OpEnvelopeInner> {
+impl PartialOrd for SignupFifoOrdering {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(<Self as Ord>::cmp(self, other))
+        Some(self.cmp(other))
     }
 }
 
-impl From<OpEnvelopeInner> for SignupFifoOrdering<OpEnvelopeInner> {
+impl From<OpEnvelopeInner> for SignupFifoOrdering {
     fn from(inner: OpEnvelopeInner) -> Self {
         SignupFifoOrdering(inner)
-    }
-}
-
-impl SignupFifoOrdering<OpEnvelopeInner> {
-    /// Create a new wrapper from inner data
-    pub fn new(inner: OpEnvelopeInner) -> Self {
-        Self(inner)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::batcher::types::{CreateAccountOp, Operation};
-    use alloy::primitives::Bytes;
-    use std::time::Instant;
+    use crate::batcher::types::{CreateAccountOp, InsertAuthenticatorOp, Operation};
+    use alloy::primitives::{Address, Bytes, U256};
+    use std::collections::BinaryHeap;
+    use tokio::time::Instant;
     use uuid::Uuid;
 
-    fn make_op(signer: Address, nonce: u64) -> OpEnvelopeInner {
+    fn make_create_op() -> OpEnvelopeInner {
         OpEnvelopeInner {
             id: Uuid::new_v4(),
             op: Operation::CreateAccount(CreateAccountOp {
                 initial_commitment: U256::ZERO,
                 signature: Bytes::new(),
             }),
-            received_at: Instant::now().into(),
-            signer,
-            nonce: U256::from(nonce),
+            received_at: Instant::now(),
+            signer: Address::ZERO,
+            nonce: U256::ZERO,
+        }
+    }
+
+    fn make_insert_op() -> OpEnvelopeInner {
+        OpEnvelopeInner {
+            id: Uuid::new_v4(),
+            op: Operation::InsertAuthenticator(InsertAuthenticatorOp {
+                leaf_index: U256::ZERO,
+                new_authenticator_address: Address::ZERO,
+                pubkey_id: 0,
+                new_authenticator_pubkey: U256::ZERO,
+                old_commit: U256::ZERO,
+                new_commit: U256::ZERO,
+                signature: Bytes::new(),
+                sibling_nodes: vec![],
+                nonce: U256::ZERO,
+            }),
+            received_at: Instant::now(),
+            signer: Address::ZERO,
+            nonce: U256::ZERO,
         }
     }
 
     #[test]
-    fn test_initial_state() {
-        let tracker = NonceTracker::new();
-        let signer = Address::repeat_byte(1);
+    fn test_create_account_has_higher_priority() {
+        let create_op = make_create_op();
+        let insert_op = make_insert_op();
 
-        assert_eq!(tracker.get_confirmed(&signer), U256::ZERO);
-        assert_eq!(tracker.next_expected(&signer), U256::ZERO);
+        let create_wrapped = SignupFifoOrdering::new(create_op);
+        let insert_wrapped = SignupFifoOrdering::new(insert_op);
+
+        // CreateAccount should be greater (higher priority)
+        assert!(create_wrapped > insert_wrapped);
+    }
+
+    #[test]
+    fn test_heap_pops_create_account_first() {
+        let mut heap: BinaryHeap<SignupFifoOrdering> = BinaryHeap::new();
+
+        // Add insert first, then create
+        heap.push(SignupFifoOrdering::new(make_insert_op()));
+        heap.push(SignupFifoOrdering::new(make_create_op()));
+
+        // Should pop CreateAccount first (higher priority)
+        let first = heap.pop().unwrap();
+        assert!(matches!(first.0.op, Operation::CreateAccount(_)));
+
+        let second = heap.pop().unwrap();
+        assert!(matches!(second.0.op, Operation::InsertAuthenticator(_)));
     }
 }

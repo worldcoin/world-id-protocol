@@ -2,11 +2,11 @@ use crate::batcher::types::ChainState;
 use alloy::consensus::Header;
 use alloy::providers::Provider;
 use alloy::rpc::types::BlockNumberOrTag;
-use anyhow::Context;
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::broadcast;
+use tokio::time::Instant;
 
 /// Monitors chain state for adaptive batching decisions.
 ///
@@ -51,7 +51,6 @@ pub struct BaseFeeSnapshot {
     pub base_fee: u64,
     pub gas_used: u64,
     pub gas_limit: u64,
-    pub timestamp: Instant,
 }
 
 impl<P: Provider + Clone + 'static> ChainMonitor<P> {
@@ -70,25 +69,38 @@ impl<P: Provider + Clone + 'static> ChainMonitor<P> {
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         tracing::info!(
+            target: "world_id_gateway::batcher::chain",
             poll_interval_ms = self.config.poll_interval.as_millis(),
             history_window = self.config.history_window,
             "Chain monitor started"
         );
 
-        // Polling loop
+        // Polling loop - continues on transient errors
         loop {
             tokio::select! {
                 _ = interval.tick() => {
                     // Fetch latest block header
-                    let block = self.provider.get_block_by_number(BlockNumberOrTag::Latest)
-                        .await
-                        .context("Failed to fetch latest block")?
-                        .context("No latest block found")?;
-
-                    self.update(block.into_header().into());
+                    match self.provider.get_block_by_number(BlockNumberOrTag::Latest).await {
+                        Ok(Some(block)) => {
+                            self.update(block.into_header().into());
+                        }
+                        Ok(None) => {
+                            tracing::warn!(
+                                target: "world_id_gateway::batcher::chain",
+                                "No latest block found, skipping update"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "world_id_gateway::batcher::chain",
+                                error = %e,
+                                "Failed to fetch latest block, skipping update"
+                            );
+                        }
+                    }
                 }
                 _ = shutdown.recv() => {
-                    tracing::info!("Chain monitor shutting down");
+                    tracing::info!(target: "world_id_gateway::batcher::chain", "Chain monitor shutting down");
                     break;
                 }
             }
@@ -103,7 +115,6 @@ impl<P: Provider + Clone + 'static> ChainMonitor<P> {
             base_fee: block.base_fee_per_gas.unwrap_or(0),
             gas_used: block.gas_used,
             gas_limit: block.gas_limit,
-            timestamp: Instant::now(),
         };
 
         self.record_snapshot(snapshot);
@@ -116,7 +127,10 @@ impl<P: Provider + Clone + 'static> ChainMonitor<P> {
             let mut history = self.history.write().unwrap();
 
             // Avoid duplicate block numbers
-            if history.back().map_or(true, |last| last.block_number != snapshot.block_number) {
+            if history
+                .back()
+                .is_none_or(|last| last.block_number != snapshot.block_number)
+            {
                 history.push_back(snapshot.clone());
 
                 // Trim to window size
@@ -139,15 +153,15 @@ impl<P: Provider + Clone + 'static> ChainMonitor<P> {
 
         // Calculate trend (needs history lock)
         let history = self.history.read().unwrap();
-        state.base_fee_trend = Self::calculate_trend(&*history);
-        state.recent_utilization = Self::calculate_utilization(&*history);
+        state.base_fee_trend = Self::calculate_trend(&history);
+        state.recent_utilization = Self::calculate_utilization(&history);
         drop(history);
 
         // Update current values
         state.block_number = snapshot.block_number;
         state.base_fee = snapshot.base_fee;
         state.block_gas_limit = snapshot.gas_limit;
-        state.last_updated = Instant::now().into();
+        state.last_updated = Instant::now();
     }
 
     /// Calculate base fee trend as normalized rate of change.
@@ -216,7 +230,6 @@ mod tests {
                 base_fee: 20_000_000_000, // 20 gwei, stable
                 gas_used: 15_000_000,
                 gas_limit: 30_000_000,
-                timestamp: Instant::now(),
             })
             .collect();
 
@@ -245,7 +258,6 @@ mod tests {
                     base_fee: fee,
                     gas_used: 30_000_000, // Full blocks
                     gas_limit: 30_000_000,
-                    timestamp: Instant::now(),
                 };
                 fee = (fee as f64 * 1.125) as u64;
                 snapshot

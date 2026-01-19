@@ -1,9 +1,7 @@
 use alloy::primitives::{Address, Bytes, B256, U256};
-use std::collections::HashMap;
-use std::time::Duration;
 use tokio::time::Instant;
 use uuid::Uuid;
-use world_id_core::types::{GatewayErrorCode, GatewayRequestState};
+use world_id_core::types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
 /// Inner data for an operation envelope (policy-agnostic).
 ///
@@ -80,6 +78,17 @@ impl Operation {
             Self::UpdateAuthenticator(_) => "update_authenticator",
             Self::RemoveAuthenticator(_) => "remove_authenticator",
             Self::RecoverAccount(_) => "recover_account",
+        }
+    }
+
+    /// Convert to GatewayRequestKind for request tracking
+    pub fn request_kind(&self) -> GatewayRequestKind {
+        match self {
+            Self::CreateAccount(_) => GatewayRequestKind::CreateAccount,
+            Self::InsertAuthenticator(_) => GatewayRequestKind::InsertAuthenticator,
+            Self::UpdateAuthenticator(_) => GatewayRequestKind::UpdateAuthenticator,
+            Self::RemoveAuthenticator(_) => GatewayRequestKind::RemoveAuthenticator,
+            Self::RecoverAccount(_) => GatewayRequestKind::RecoverAccount,
         }
     }
 }
@@ -284,95 +293,6 @@ impl std::fmt::Display for EvictionReason {
 }
 
 // ============================================================================
-// Batch Types
-// ============================================================================
-
-/// Result of a fully resolved batch
-#[derive(Debug, Clone)]
-pub struct FinalizedBatch {
-    /// Unique batch identifier
-    pub batch_id: Uuid,
-    /// Final transaction hash (if submitted)
-    pub tx_hash: Option<B256>,
-    /// Block number where included
-    pub block_number: Option<u64>,
-    /// Total gas used by the batch
-    pub gas_used: u64,
-    /// Status of each operation by ID
-    pub statuses: HashMap<Uuid, OpStatus>,
-    /// Timing information
-    pub timing: BatchTiming,
-}
-
-impl FinalizedBatch {
-    /// Count of successfully finalized operations
-    pub fn success_count(&self) -> usize {
-        self.statuses.values().filter(|s| s.is_success()).count()
-    }
-
-    /// Count of failed operations
-    pub fn failure_count(&self) -> usize {
-        self.statuses
-            .values()
-            .filter(|s| matches!(s, OpStatus::Failed { .. }))
-            .count()
-    }
-
-    /// Count of evicted operations
-    pub fn evicted_count(&self) -> usize {
-        self.statuses
-            .values()
-            .filter(|s| matches!(s, OpStatus::Evicted { .. }))
-            .count()
-    }
-}
-
-/// Timing metrics for a batch
-#[derive(Debug, Clone)]
-pub struct BatchTiming {
-    /// When the batch was created
-    pub created_at: Instant,
-    /// When simulation completed
-    pub simulation_completed_at: Option<Instant>,
-    /// When transaction was first submitted
-    pub submitted_at: Option<Instant>,
-    /// When batch was finalized
-    pub finalized_at: Instant,
-    /// Total duration from creation to finalization
-    pub total_duration: Duration,
-    /// Number of times transaction was resubmitted
-    pub resubmission_count: u32,
-}
-
-impl BatchTiming {
-    pub fn new(created_at: Instant) -> Self {
-        Self {
-            created_at,
-            simulation_completed_at: None,
-            submitted_at: None,
-            finalized_at: Instant::now(),
-            total_duration: Duration::ZERO,
-            resubmission_count: 0,
-        }
-    }
-
-    pub fn finalize(&mut self) {
-        self.finalized_at = Instant::now();
-        self.total_duration = self.created_at.elapsed();
-    }
-
-    pub fn simulation_duration(&self) -> Option<Duration> {
-        self.simulation_completed_at
-            .map(|t| t.duration_since(self.created_at))
-    }
-
-    pub fn submission_to_finalization(&self) -> Option<Duration> {
-        self.submitted_at
-            .map(|t| self.finalized_at.duration_since(t))
-    }
-}
-
-// ============================================================================
 // Chain State
 // ============================================================================
 
@@ -410,11 +330,6 @@ impl Default for ChainState {
 }
 
 impl ChainState {
-    /// Check if state is stale
-    pub fn is_stale(&self, max_age: Duration) -> bool {
-        self.last_updated.elapsed() > max_age
-    }
-
     /// Base fee in gwei
     pub fn base_fee_gwei(&self) -> f64 {
         self.base_fee as f64 / 1e9
