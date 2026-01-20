@@ -179,10 +179,17 @@ async fn check_and_refresh_cache(
         "Cache is stale, refreshing"
     );
 
-    // Re-initialize tree (will restore from cache + replay missed events)
-    initialize_tree_with_config(tree_cache_cfg, pool).await?;
+    let initializer = tree::TreeInitializer::new(
+        tree_cache_cfg.cache_file_path.clone(),
+        tree_cache_cfg.tree_depth,
+        tree_cache_cfg.dense_tree_prefix_depth,
+        U256::ZERO,
+    );
 
-    Ok(true)
+    let events_synced = initializer.sync_with_db(pool).await?;
+    tracing::info!(events_synced, "Cache refresh complete");
+
+    Ok(events_synced > 0)
 }
 
 async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {

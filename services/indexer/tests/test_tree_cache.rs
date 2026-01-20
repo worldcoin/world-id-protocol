@@ -619,3 +619,231 @@ async fn test_authenticator_removed_replay() {
     cleanup_cache_files(&cache_path);
     cleanup_cache_files(&cache_path_fresh);
 }
+
+/// Test that tree root matches on-chain contract root after fresh initialization
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_init_root_matches_contract() {
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
+    let (tree_cache_config, cache_path) = create_temp_cache_config();
+
+    // Ensure no cache files exist
+    cleanup_cache_files(&cache_path);
+
+    // Create accounts on-chain
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000021"),
+            U256::from(21),
+            100,
+        )
+        .await;
+
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000022"),
+            U256::from(22),
+            200,
+        )
+        .await;
+
+    // Get the on-chain root BEFORE starting indexer
+    let onchain_root = setup.get_root().await;
+
+    // Start indexer to build tree from scratch
+    let global_config = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::Both {
+            indexer_config: IndexerConfig {
+                ws_url: setup.ws_url(),
+                start_block: 0,
+                batch_size: 1000,
+            },
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8100".parse().unwrap(),
+                db_poll_interval_secs: 1,
+                sanity_check_interval_secs: None,
+            },
+        },
+        db_url: setup.db_url.clone(),
+        rpc_url: setup.rpc_url(),
+        registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
+    };
+
+    let indexer_task = tokio::spawn(async move {
+        world_id_indexer::run_indexer(global_config).await.unwrap();
+    });
+
+    // Wait for accounts to be indexed
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let c = query_count(&setup.pool).await;
+        if c >= 2 {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("timeout waiting for accounts to be indexed");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    indexer_task.abort();
+
+    // Read the tree root from metadata
+    let meta_path = cache_path.with_extension("mmap.meta");
+    let meta_content = fs::read_to_string(&meta_path).expect("Should read metadata");
+    let metadata: serde_json::Value =
+        serde_json::from_str(&meta_content).expect("Should parse metadata");
+    let tree_root = metadata["root_hash"].as_str().unwrap();
+
+    // Compare: tree root must match on-chain root
+    let expected_root = format!("0x{:x}", onchain_root);
+    assert_eq!(
+        tree_root, expected_root,
+        "Tree root after fresh init must match on-chain contract root"
+    );
+
+    cleanup_cache_files(&cache_path);
+}
+
+/// Test that tree root matches on-chain contract root after replay
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_replay_root_matches_contract() {
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
+    let (tree_cache_config, cache_path) = create_temp_cache_config();
+
+    // Ensure no cache files exist
+    cleanup_cache_files(&cache_path);
+
+    // Create initial accounts
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000031"),
+            U256::from(31),
+            300,
+        )
+        .await;
+
+    // Build initial cache
+    let cfg1 = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::Both {
+            indexer_config: IndexerConfig {
+                ws_url: setup.ws_url(),
+                start_block: 0,
+                batch_size: 1000,
+            },
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8101".parse().unwrap(),
+                db_poll_interval_secs: 1,
+                sanity_check_interval_secs: None,
+            },
+        },
+        db_url: setup.db_url.clone(),
+        rpc_url: setup.rpc_url(),
+        registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
+    };
+
+    let indexer_task1 = tokio::spawn(async move {
+        world_id_indexer::run_indexer(cfg1).await.unwrap();
+    });
+
+    // Wait for initial account
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let c = query_count(&setup.pool).await;
+        if c >= 1 {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("timeout waiting for initial account");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    indexer_task1.abort();
+
+    // Create more accounts (these will need to be replayed)
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000032"),
+            U256::from(32),
+            400,
+        )
+        .await;
+
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000033"),
+            U256::from(33),
+            500,
+        )
+        .await;
+
+    // Get the on-chain root AFTER creating all accounts
+    let onchain_root = setup.get_root().await;
+
+    // Restart indexer (should restore from cache and replay new events)
+    let cfg2 = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::Both {
+            indexer_config: IndexerConfig {
+                ws_url: setup.ws_url(),
+                start_block: 0,
+                batch_size: 1000,
+            },
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8102".parse().unwrap(),
+                db_poll_interval_secs: 1,
+                sanity_check_interval_secs: None,
+            },
+        },
+        db_url: setup.db_url.clone(),
+        rpc_url: setup.rpc_url(),
+        registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
+    };
+
+    let indexer_task2 = tokio::spawn(async move {
+        world_id_indexer::run_indexer(cfg2).await.unwrap();
+    });
+
+    // Wait for all accounts to be indexed
+    let deadline2 = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let c = query_count(&setup.pool).await;
+        if c >= 3 {
+            break;
+        }
+        if std::time::Instant::now() > deadline2 {
+            panic!("timeout waiting for all accounts");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    indexer_task2.abort();
+
+    // Read the tree root from metadata
+    let meta_path = cache_path.with_extension("mmap.meta");
+    let meta_content = fs::read_to_string(&meta_path).expect("Should read metadata");
+    let metadata: serde_json::Value =
+        serde_json::from_str(&meta_content).expect("Should parse metadata");
+    let tree_root = metadata["root_hash"].as_str().unwrap();
+
+    // Compare: tree root after replay must match on-chain root
+    let expected_root = format!("0x{:x}", onchain_root);
+    assert_eq!(
+        tree_root, expected_root,
+        "Tree root after replay must match on-chain contract root"
+    );
+
+    cleanup_cache_files(&cache_path);
+}

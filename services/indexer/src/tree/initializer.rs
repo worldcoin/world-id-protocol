@@ -222,4 +222,80 @@ impl TreeInitializer {
 
         Ok(tree)
     }
+
+    /// Sync the in-memory GLOBAL_TREE with database events without full reconstruction.
+    /// This is more efficient than full initialization when only catching up with new events.
+    ///
+    /// Returns the number of events applied to the tree.
+    pub async fn sync_with_db(&self, pool: &PgPool) -> anyhow::Result<u64> {
+        use crate::tree::GLOBAL_TREE;
+
+        // 1. Read current metadata to get last_event_id
+        let metadata = metadata::read_metadata(&self.cache_path)?;
+
+        info!(
+            cache_event_id = metadata.last_event_id,
+            cache_block = metadata.last_block_number,
+            "Starting tree sync from cache metadata"
+        );
+
+        // 2. Check if there are new events
+        let current_event_id = get_max_event_id(pool).await?;
+        let events_behind = current_event_id.saturating_sub(metadata.last_event_id);
+
+        if events_behind == 0 {
+            info!("Tree is up-to-date, no sync needed");
+            return Ok(0);
+        }
+
+        info!(
+            current_event_id,
+            events_behind,
+            "Tree is {} events behind, syncing",
+            events_behind
+        );
+
+        // 3. Take the current GLOBAL_TREE, replay events, and replace it
+        // We need to extract the tree, do async replay, then put it back
+        let current_tree = {
+            let mut tree_guard = GLOBAL_TREE.write().await;
+            let temp_tree = MerkleTree::<PoseidonHasher>::new(self.tree_depth, U256::ZERO);
+            std::mem::replace(&mut *tree_guard, temp_tree)
+        };
+
+        let (updated_tree, new_block, new_event_id) = self
+            .builder
+            .replay_events(current_tree, pool, metadata.last_event_id)
+            .await?;
+
+        // 4. Put the updated tree back into GLOBAL_TREE
+        let new_root = {
+            let mut tree_guard = GLOBAL_TREE.write().await;
+            *tree_guard = updated_tree;
+            format!("0x{:x}", tree_guard.root())
+        };
+
+        // 5. Update metadata on disk (read tree again to get reference)
+        let tree_for_metadata = GLOBAL_TREE.read().await;
+        metadata::write_metadata(
+            &self.cache_path,
+            &*tree_for_metadata,
+            pool,
+            new_block,
+            new_event_id,
+            self.tree_depth,
+            self.dense_prefix_depth,
+        )
+        .await?;
+
+        info!(
+            synced_to_block = new_block,
+            synced_to_event_id = new_event_id,
+            new_root = %new_root,
+            events_applied = events_behind,
+            "Tree sync complete"
+        );
+
+        Ok(events_behind as u64)
+    }
 }
