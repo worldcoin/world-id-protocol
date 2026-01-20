@@ -8,6 +8,7 @@
 
 use std::time::Duration;
 
+use crate::metrics::METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE;
 use moka::future::Cache;
 use tracing::instrument;
 
@@ -32,8 +33,30 @@ impl SignatureHistory {
     ///
     /// # Arguments
     /// * `max_signature_age` - Maximum age for signatures before they expire
-    pub(crate) fn init(max_signature_age: Duration) -> Self {
-        let signatures = Cache::builder().time_to_live(max_signature_age).build();
+    /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
+    pub(crate) fn init(max_signature_age: Duration, cache_maintenance_interval: Duration) -> Self {
+        ::metrics::gauge!(METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE).set(0.0);
+        let signatures = Cache::builder()
+            .time_to_live(max_signature_age)
+            .eviction_listener(|_key, _value, cause| {
+                tracing::debug!("evicting signature from history because of {cause:?}");
+                ::metrics::gauge!(METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE).decrement(1);
+            })
+            .build();
+
+        // periodically run maintenance tasks on the cache
+        // this is needed to update metrics in a timely manner, as the eviction listener is only called when an entry is added/removed/accessed
+        tokio::spawn({
+            let signatures = signatures.clone();
+            let mut interval = tokio::time::interval(cache_maintenance_interval);
+            async move {
+                loop {
+                    interval.tick().await;
+                    signatures.run_pending_tasks().await;
+                }
+            }
+        });
+
         SignatureHistory { signatures }
     }
 
@@ -58,6 +81,7 @@ impl SignatureHistory {
             tracing::debug!("duplicate signature");
             return Err(DuplicateSignatureError);
         }
+        ::metrics::gauge!(METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE).increment(1);
         Ok(())
     }
 }
@@ -69,7 +93,9 @@ mod tests {
     #[tokio::test]
     async fn test_signature_history_duplicate_detection() {
         let max_signature_age = Duration::from_secs(60);
-        let signature_history = SignatureHistory::init(max_signature_age);
+        let cache_maintenance_interval = Duration::from_secs(60);
+        let signature_history =
+            SignatureHistory::init(max_signature_age, cache_maintenance_interval);
 
         // First insertion should succeed
         signature_history
@@ -124,7 +150,8 @@ mod tests {
     #[tokio::test]
     async fn test_signature_history_is_clone() {
         let max_signature_age = Duration::from_secs(60);
-        let history1 = SignatureHistory::init(max_signature_age);
+        let cache_maintenance_interval = Duration::from_secs(60);
+        let history1 = SignatureHistory::init(max_signature_age, cache_maintenance_interval);
         let history2 = history1.clone();
 
         // Add signature via first handle

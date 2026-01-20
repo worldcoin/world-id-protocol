@@ -1,9 +1,15 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
-use crate::auth::rp_registry_watcher::RpRegistry::RpUpdated;
+use crate::{
+    auth::rp_registry_watcher::RpRegistry::RpUpdated,
+    metrics::METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+};
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
@@ -64,6 +70,7 @@ impl RpRegistryWatcher {
         contract_address: Address,
         ws_rpc_url: &str,
         max_rp_registry_store_size: u64,
+        cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
@@ -78,11 +85,17 @@ impl RpRegistryWatcher {
         let sub = provider.subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
 
+        ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
+
         // indicate that the RpRegistry watcher has started
         started.store(true, Ordering::Relaxed);
 
         let rp_store: Cache<RpId, RelyingParty> = Cache::builder()
             .max_capacity(max_rp_registry_store_size)
+            .eviction_listener(|key, _value, cause| {
+                tracing::debug!("evicting rp {key} from cache because of {cause:?}");
+                ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).decrement(1);
+            })
             .build();
         tokio::task::spawn({
             let rp_store = rp_store.clone();
@@ -127,6 +140,19 @@ impl RpRegistryWatcher {
             }
         });
 
+        // periodically run maintenance tasks on the cache
+        // this is needed to update metrics in a timely manner, as the eviction listener is only called when an entry is added/removed/accessed
+        tokio::spawn({
+            let rp_store = rp_store.clone();
+            let mut interval = tokio::time::interval(cache_maintenance_interval);
+            async move {
+                loop {
+                    interval.tick().await;
+                    rp_store.run_pending_tasks().await;
+                }
+            }
+        });
+
         Ok(Self {
             rp_store,
             provider: provider.erased(),
@@ -160,6 +186,7 @@ impl RpRegistryWatcher {
             };
             self.rp_store.insert(*rp_id, relying_party.clone()).await;
             tracing::debug!("rp {rp_id} loaded from chain and stored");
+            ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).increment(1);
 
             Ok(relying_party)
         } else {
