@@ -33,11 +33,11 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_RP_REGISTRY_CONTRACT")]
     pub rp_registry_contract: Address,
 
-    /// The maximum size of the merkle store.
+    /// The maximum size of the merkle root cache.
     ///
-    /// Will drop old merkle roots if this capacity is reached.
-    #[clap(long, env = "OPRF_NODE_MERKLE_STORE_SIZE", default_value = "100")]
-    pub max_merkle_store_size: usize,
+    /// Will drop least recently used merkle roots if this capacity is reached.
+    #[clap(long, env = "OPRF_NODE_MERKLE_CACHE_SIZE", default_value = "100")]
+    pub max_merkle_cache_size: u64,
 
     /// The maximum size of the RpRegistry store.
     ///
