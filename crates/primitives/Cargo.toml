@@ -10,6 +10,11 @@ homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
+[features]
+default = ["circuits"]
+# Enable circuit-related types (requires C++ toolchain, not WASM compatible)
+circuits = ["dep:circom-types", "dep:groth16-material"]
+
 [dependencies]
 alloy-primitives = { version = "1", default-features = false, features = [
     "serde",
@@ -22,8 +27,8 @@ ark-groth16 = { workspace = true }
 ark-serde-compat = { workspace = true }
 ark-serialize = { workspace = true }
 arrayvec = { version = "0.7", features = ["serde"] }
-circom-types = { workspace = true, features = ["groth16"] }
-groth16-material = { workspace = true, features = ["circom"] }
+circom-types = { workspace = true, features = ["groth16"], optional = true }
+groth16-material = { workspace = true, features = ["circom"], optional = true }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
 taceo-oprf-types = { workspace = true }

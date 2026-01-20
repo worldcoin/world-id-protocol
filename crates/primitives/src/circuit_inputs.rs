@@ -1,3 +1,7 @@
+//! Circuit input types for the World ID Protocol circuits.
+//!
+//! This module requires the `circuits` feature and is not available in WASM builds.
+
 use std::collections::HashMap;
 
 use groth16_material::circom::ProofInput;
