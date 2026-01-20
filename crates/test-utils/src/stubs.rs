@@ -152,7 +152,6 @@ async fn spawn_orpf_node(
         max_merkle_cache_size: 10,
         max_rp_registry_store_size: 1000,
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
-        signature_history_cleanup_interval: Duration::from_secs(30),
         world_id_registry_contract,
         rp_registry_contract,
         node_config: taceo_oprf_service::config::OprfNodeConfig {

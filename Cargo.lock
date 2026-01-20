@@ -8320,7 +8320,6 @@ dependencies = [
  "futures",
  "humantime",
  "moka",
- "parking_lot",
  "rustls 0.23.36",
  "secrecy",
  "serde_json",
