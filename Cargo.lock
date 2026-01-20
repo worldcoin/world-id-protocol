@@ -8264,6 +8264,7 @@ dependencies = [
  "sqlx",
  "taceo-poseidon2 0.1.0",
  "take_mut",
+ "tempfile",
  "test-utils",
  "tokio",
  "tracing",

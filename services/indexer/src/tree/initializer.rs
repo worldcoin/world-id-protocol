@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -10,6 +11,36 @@ use super::PoseidonHasher;
 
 use super::{builder::TreeBuilder, metadata};
 use crate::db::get_max_event_id;
+
+/// State of cache files on disk
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheState {
+    /// Both mmap and metadata files exist
+    Valid,
+    /// Mmap file exists but metadata is missing
+    MetadataMissing,
+    /// Metadata file exists but mmap is missing
+    MmapMissing,
+    /// Neither file exists (fresh start)
+    BothMissing,
+}
+
+impl fmt::Display for CacheState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CacheState::Valid => write!(f, "cache is valid"),
+            CacheState::MetadataMissing => write!(f, "metadata file missing"),
+            CacheState::MmapMissing => write!(f, "mmap file missing"),
+            CacheState::BothMissing => write!(f, "no cache files found"),
+        }
+    }
+}
+
+impl CacheState {
+    pub fn is_valid(&self) -> bool {
+        matches!(self, CacheState::Valid)
+    }
+}
 
 pub struct TreeInitializer {
     builder: TreeBuilder,
@@ -33,6 +64,19 @@ impl TreeInitializer {
         }
     }
 
+    /// Check the state of cache files on disk
+    pub fn check_cache_files(&self) -> CacheState {
+        let meta_exists = metadata::metadata_path(&self.cache_path).exists();
+        let mmap_exists = self.cache_path.exists();
+
+        match (meta_exists, mmap_exists) {
+            (true, true) => CacheState::Valid,
+            (false, true) => CacheState::MetadataMissing,
+            (true, false) => CacheState::MmapMissing,
+            (false, false) => CacheState::BothMissing,
+        }
+    }
+
     /// Initialize tree: try restore + replay, fallback to full rebuild
     pub async fn initialize(
         &self,
@@ -40,16 +84,24 @@ impl TreeInitializer {
     ) -> anyhow::Result<MerkleTree<PoseidonHasher, Canonical>> {
         let start = Instant::now();
 
-        // Try to use cached tree with replay
-        let tree = match self.try_restore_and_replay(pool).await {
-            Ok(tree) => {
-                info!("Successfully restored and updated tree from cache");
-                tree
+        let cache_state = self.check_cache_files();
+        info!(?cache_state, "Checking cache files");
+
+        // If either file is missing, skip restore attempt and do full rebuild
+        let tree = if cache_state.is_valid() {
+            match self.try_restore_and_replay(pool).await {
+                Ok(tree) => {
+                    info!("Successfully restored and updated tree from cache");
+                    tree
+                }
+                Err(e) => {
+                    warn!("Cache restore failed ({}), doing full rebuild", e);
+                    self.full_rebuild_with_cache(pool).await?
+                }
             }
-            Err(e) => {
-                warn!("Cache restore failed ({}), doing full rebuild", e);
-                self.full_rebuild_with_cache(pool).await?
-            }
+        } else {
+            info!("{}, building tree from scratch", cache_state);
+            self.full_rebuild_with_cache(pool).await?
         };
 
         info!("Tree initialization took {:?}", start.elapsed());
