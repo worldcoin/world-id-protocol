@@ -3,12 +3,14 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
-use taceo_oprf_types::{OprfKeyId, crypto::OprfPublicKey};
+#[cfg(feature = "oprf")]
+use taceo_oprf_types::OprfKeyId;
 
+#[cfg(feature = "oprf")]
 use crate::{
-    Credential, FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet,
-    merkle::MerkleInclusionProof, rp::RpId,
+    Credential, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId,
 };
+use crate::{FieldElement, PrimitiveError};
 
 /// Represents a base World ID proof.
 ///
@@ -123,6 +125,9 @@ impl<'de> Deserialize<'de> for WorldIdProof {
 ///
 /// This request results in a final Uniqueness Proof (π2), but a Query Proof (π1) must be
 /// generated in the process.
+///
+/// Requires the `oprf` feature (not available in WASM builds).
+#[cfg(feature = "oprf")]
 pub struct SingleProofInput<const TREE_DEPTH: usize> {
     // SECTION: User Inputs
     /// The credential of the user which will be proven in the World ID Proof.
@@ -165,10 +170,6 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     ///
     /// TODO: Refactor what is actually signed.
     pub rp_signature: alloy_primitives::Signature,
-    /// The public key used to verify the computed nullifier. It can be retrieved from the `OprfKeyRegistry` contract.
-    ///
-    /// TODO: This requires more details.
-    pub oprf_public_key: OprfPublicKey,
     /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
     /// to ensure the integrity of the proof. For example, in a voting application, the signal could
     /// be used to encode the user's vote.

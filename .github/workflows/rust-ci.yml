@@ -245,6 +245,26 @@ jobs:
           docker rm ${{ matrix.service }}-container
           docker compose down
 
+  wasm:
+    name: WASM Compatibility
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Check primitives compiles for WASM
+        run: |
+          # Test WASM compilation without the 'circuits' feature (which has C++ deps)
+          # This ensures primitives can be used in WASM environments like browsers
+          cargo check -p world-id-primitives --target wasm32-unknown-unknown --no-default-features
+
   docs:
     name: Check docs
     runs-on: ubuntu-latest

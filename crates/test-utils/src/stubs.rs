@@ -149,10 +149,10 @@ async fn spawn_orpf_node(
     let config = WorldOprfNodeConfig {
         bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
         max_wait_time_shutdown: Duration::from_secs(10),
-        max_merkle_store_size: 10,
+        max_merkle_cache_size: 10,
         max_rp_registry_store_size: 1000,
+        root_validity_window: Duration::from_secs(3600),
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
-        signature_history_cleanup_interval: Duration::from_secs(30),
         world_id_registry_contract,
         rp_registry_contract,
         node_config: taceo_oprf_service::config::OprfNodeConfig {

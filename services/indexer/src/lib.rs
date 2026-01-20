@@ -1,35 +1,40 @@
-use std::{
-    net::SocketAddr,
-    sync::{Arc, LazyLock},
-    time::Duration,
-};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::{Address, Log, U256},
+    primitives::{Address, U256},
     providers::{Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
     sol_types::SolEvent,
 };
-use ark_bn254::Fr;
-use poseidon2::{POSEIDON2_BN254_T2_PARAMS, Poseidon2};
-use semaphore_rs_hasher::Hasher;
-use semaphore_rs_trees::{
-    Branch,
-    lazy::{Canonical, LazyMerkleTree as MerkleTree},
-    proof::InclusionProof,
-};
-use sqlx::{PgPool, Row, migrate::Migrator, postgres::PgPoolOptions, types::Json};
-use tokio::sync::RwLock;
+use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry;
-use world_id_primitives::TREE_DEPTH;
 
 pub mod config;
+mod db;
+mod events;
 mod routes;
 mod sanity_check;
-use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
+mod tree;
+
+pub use crate::db::{
+    EventType, fetch_recent_account_updates, get_max_event_id, init_db, insert_account,
+    insert_authenticator_at_index, load_checkpoint, make_db_pool, record_commitment_update,
+    remove_authenticator_at_index, save_checkpoint, update_authenticator_at_index,
+};
+use crate::{
+    config::{AppState, HttpConfig, IndexerConfig, RunMode},
+    events::{RegistryEvent, decoders::decode_registry_event},
+    tree::{GLOBAL_TREE, update_tree_with_commitment},
+};
 pub use config::GlobalConfig;
 
-static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+/// Tree cache parameters needed during indexing
+#[derive(Clone)]
+pub struct TreeCacheParams {
+    pub cache_file_path: String,
+    pub tree_depth: usize,
+    pub dense_prefix_depth: usize,
+}
 
 #[derive(Debug, Clone)]
 pub struct AccountCreatedEvent {
@@ -80,106 +85,105 @@ pub struct AccountRecoveredEvent {
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
-pub enum RegistryEvent {
-    AccountCreated(AccountCreatedEvent),
-    AccountUpdated(AccountUpdatedEvent),
-    AuthenticatorInserted(AuthenticatorInsertedEvent),
-    AuthenticatorRemoved(AuthenticatorRemovedEvent),
-    AccountRecovered(AccountRecoveredEvent),
-}
+async fn initialize_tree_with_config(
+    tree_cache_cfg: &config::TreeCacheConfig,
+    pool: &PgPool,
+) -> anyhow::Result<()> {
+    // Set the configured tree depth globally
+    tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
 
-static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> =
-    LazyLock::new(|| Poseidon2::new(&POSEIDON2_BN254_T2_PARAMS));
+    let initializer = tree::TreeInitializer::new(
+        tree_cache_cfg.cache_file_path.clone(),
+        tree_cache_cfg.tree_depth,
+        tree_cache_cfg.dense_tree_prefix_depth,
+        U256::ZERO,
+    );
 
-struct PoseidonHasher {}
-
-impl Hasher for PoseidonHasher {
-    type Hash = U256;
-
-    fn hash_node(left: &Self::Hash, right: &Self::Hash) -> Self::Hash {
-        let left: Fr = left.try_into().unwrap();
-        let right: Fr = right.try_into().unwrap();
-        let mut input = [left, right];
-        let feed_forward = input[0];
-        POSEIDON_HASHER.permutation_in_place(&mut input);
-        input[0] += feed_forward;
-        input[0].into()
-    }
-}
-
-fn tree_capacity() -> usize {
-    1usize << TREE_DEPTH
-}
-
-// Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
-pub(crate) static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
-    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
-
-async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
-    if leaf_index >= tree_capacity() {
-        anyhow::bail!("leaf index {leaf_index} out of range for tree depth {TREE_DEPTH}");
-    }
-
-    let mut tree = GLOBAL_TREE.write().await;
-    take_mut::take(&mut *tree, |tree| {
-        tree.update_with_mutation(leaf_index, &value)
-    });
-    Ok(())
-}
-
-async fn build_tree_from_db(pool: &PgPool) -> anyhow::Result<()> {
-    let rows = sqlx::query(
-        "select leaf_index, offchain_signer_commitment from accounts order by leaf_index asc",
-    )
-    .fetch_all(pool)
-    .await?;
-
-    tracing::info!("There are {:?} rows in the table.", rows.len());
-
-    let mut leaves: Vec<(usize, U256)> = Vec::with_capacity(rows.len());
-    for r in rows {
-        let leaf_index: String = r.get("leaf_index");
-        let offchain: String = r.get("offchain_signer_commitment");
-        let leaf_index: U256 = leaf_index.parse::<U256>()?;
-        if leaf_index == U256::ZERO {
-            continue;
-        }
-        let leaf_index = leaf_index.as_limbs()[0] as usize;
-        let leaf_val = offchain.parse::<U256>()?;
-        leaves.push((leaf_index, leaf_val));
-    }
-
-    let mut new_tree = MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO);
-    for (idx, value) in leaves {
-        if idx >= tree_capacity() {
-            anyhow::bail!(
-                "leaf index {idx} out of range while rebuilding tree (depth {TREE_DEPTH})",
-            );
-        }
-        new_tree = new_tree.update_with_mutation(idx, &value);
-    }
+    let new_tree = initializer.initialize(pool).await?;
 
     let root = new_tree.root();
     {
         let mut tree = GLOBAL_TREE.write().await;
         *tree = new_tree;
     }
+
+    // Read the metadata to get the last block number and update checkpoint
+    // This ensures backfill doesn't re-process blocks that were included in tree initialization
+    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
+    if let Ok(metadata) = tree::metadata::read_metadata(&cache_path) {
+        save_checkpoint(pool, metadata.last_block_number).await?;
+        tracing::debug!(
+            block = metadata.last_block_number,
+            "Updated checkpoint from tree metadata"
+        );
+    }
+
     tracing::info!(
         root = %format!("0x{:x}", root),
-        depth = TREE_DEPTH,
-        "tree built from DB"
+        depth = tree_cache_cfg.tree_depth,
+        "Tree initialized successfully"
     );
     Ok(())
 }
 
-async fn update_tree_with_commitment(leaf_index: U256, new_commitment: U256) -> anyhow::Result<()> {
-    if leaf_index == 0 {
-        anyhow::bail!("account index cannot be zero");
+/// Background task for HttpOnly mode: periodically check for stale cache and refresh
+async fn cache_refresh_loop(
+    tree_cache_cfg: config::TreeCacheConfig,
+    pool: PgPool,
+    refresh_interval_secs: u64,
+) -> anyhow::Result<()> {
+    let check_interval = Duration::from_secs(refresh_interval_secs);
+    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
+
+    loop {
+        tokio::time::sleep(check_interval).await;
+
+        // Check if cache needs refresh
+        match check_and_refresh_cache(&tree_cache_cfg, &pool, &cache_path).await {
+            Ok(refreshed) => {
+                if refreshed {
+                    tracing::info!("Cache refreshed with new events");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(?e, "Cache refresh check failed, will retry");
+            }
+        }
     }
-    let leaf_index = leaf_index.as_limbs()[0] as usize;
-    set_leaf_at_index(leaf_index, new_commitment).await?;
-    Ok(())
+}
+
+/// Check if cache is stale and refresh if needed
+async fn check_and_refresh_cache(
+    tree_cache_cfg: &config::TreeCacheConfig,
+    pool: &PgPool,
+    cache_path: &std::path::Path,
+) -> anyhow::Result<bool> {
+    // Read current cache metadata
+    let metadata = tree::metadata::read_metadata(cache_path)?;
+
+    // Get current DB state
+    let db_state = tree::metadata::get_db_state(pool).await?;
+
+    let blocks_behind = db_state
+        .max_block_number
+        .saturating_sub(metadata.last_block_number);
+
+    if blocks_behind == 0 {
+        tracing::debug!("Cache is up-to-date");
+        return Ok(false);
+    }
+
+    tracing::info!(
+        cache_block = metadata.last_block_number,
+        current_block = db_state.max_block_number,
+        blocks_behind,
+        "Cache is stale, refreshing"
+    );
+
+    // Re-initialize tree (will restore from cache + replay missed events)
+    initialize_tree_with_config(tree_cache_cfg, pool).await?;
+
+    Ok(true)
 }
 
 async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
@@ -202,17 +206,6 @@ async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
     }
 }
 
-fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
-    proof
-        .0
-        .iter()
-        .map(|b| match b {
-            Branch::Left(sib) => *sib,
-            Branch::Right(sib) => *sib,
-        })
-        .collect()
-}
-
 async fn start_http_server(
     rpc_url: &str,
     registry_address: Address,
@@ -229,14 +222,13 @@ async fn start_http_server(
 
 pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     let pool = make_db_pool(&cfg.db_url).await?;
+    tracing::info!("Connection to DB successful. Initializing database...");
     init_db(&pool).await?;
-
-    tracing::info!("Connection to DB successful, running migrations.");
-    MIGRATOR.run(&pool).await.expect("failed to run migrations");
-    tracing::info!("🟢 Migrations synced successfully.");
+    tracing::info!("🟢 Database successfully initialized.");
 
     let rpc_url = &cfg.rpc_url;
     let registry_address = cfg.registry_address;
+    let tree_cache_cfg = &cfg.tree_cache;
 
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
@@ -244,23 +236,42 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             run_indexer_only(rpc_url, registry_address, indexer_config, pool).await
         }
         RunMode::HttpOnly { http_config } => {
-            tracing::info!("Running in HTTP-ONLY mode (building tree from DB)");
-            // Build tree from DB for HTTP-only mode
+            tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
+            // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
-            build_tree_from_db(&pool).await?;
-            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_http_only(rpc_url, registry_address, http_config, pool).await
+            initialize_tree_with_config(tree_cache_cfg, &pool).await?;
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            run_http_only(
+                rpc_url,
+                registry_address,
+                http_config,
+                pool,
+                tree_cache_cfg.clone(),
+            )
+            .await
         }
         RunMode::Both {
             indexer_config,
             http_config,
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
-            // Build tree from DB for both mode
+            // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
-            build_tree_from_db(&pool).await?;
-            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_both(rpc_url, registry_address, indexer_config, http_config, pool).await
+            initialize_tree_with_config(tree_cache_cfg, &pool).await?;
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            run_both(
+                rpc_url,
+                registry_address,
+                indexer_config,
+                http_config,
+                pool,
+                TreeCacheParams {
+                    cache_file_path: tree_cache_cfg.cache_file_path.clone(),
+                    tree_depth: tree_cache_cfg.tree_depth,
+                    dense_prefix_depth: tree_cache_cfg.dense_tree_prefix_depth,
+                },
+            )
+            .await
         }
     }
 }
@@ -285,12 +296,19 @@ async fn run_indexer_only(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        false, // Don't update in-memory tree
+        None, // Don't update in-memory tree or cache in indexer-only mode
     )
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, false).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        registry_address,
+        from,
+        None, // Don't update in-memory tree or cache in indexer-only mode
+    )
+    .await?;
 
     Ok(())
 }
@@ -300,6 +318,7 @@ async fn run_http_only(
     registry_address: Address,
     http_cfg: HttpConfig,
     pool: PgPool,
+    tree_cache_cfg: config::TreeCacheConfig,
 ) -> anyhow::Result<()> {
     // Start DB poller for account updates
     let poller_pool = pool.clone();
@@ -324,10 +343,22 @@ async fn run_http_only(
         }));
     }
 
+    // Start cache refresh task in the background
+    let refresh_pool = pool.clone();
+    let refresh_interval = tree_cache_cfg.http_cache_refresh_interval_secs;
+    let refresh_cache_cfg = tree_cache_cfg.clone();
+    let cache_refresh_handle = tokio::spawn(async move {
+        if let Err(e) = cache_refresh_loop(refresh_cache_cfg, refresh_pool, refresh_interval).await
+        {
+            tracing::error!(?e, "Cache refresh task failed");
+        }
+    });
+
     // Start HTTP server
     let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
+    cache_refresh_handle.abort();
     if let Some(handle) = sanity_handle {
         handle.abort();
     }
@@ -340,6 +371,7 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     pool: PgPool,
+    tree_cache_params: TreeCacheParams,
 ) -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
@@ -377,50 +409,24 @@ async fn run_both(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        true, // Update in-memory tree directly from events
+        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each batch
     )
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, true).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        registry_address,
+        from,
+        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each event
+    )
+    .await?;
 
     http_handle.abort();
     if let Some(handle) = sanity_handle {
         handle.abort();
     }
-    Ok(())
-}
-
-pub async fn make_db_pool(db_url: &str) -> anyhow::Result<PgPool> {
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .connect(db_url)
-        .await?;
-    Ok(pool)
-}
-
-pub async fn init_db(pool: &PgPool) -> anyhow::Result<()> {
-    // Run sqlx migrations from ./migrations
-    sqlx::migrate!("./migrations").run(pool).await?;
-    Ok(())
-}
-
-pub async fn load_checkpoint(pool: &PgPool) -> anyhow::Result<Option<u64>> {
-    let rec: Option<(i64,)> = sqlx::query_as("select last_block from checkpoints where name = $1")
-        .bind("account_created")
-        .fetch_optional(pool)
-        .await?;
-    Ok(rec.map(|t| t.0 as u64))
-}
-
-pub async fn save_checkpoint(pool: &PgPool, block: u64) -> anyhow::Result<()> {
-    sqlx::query(
-        "insert into checkpoints (name, last_block) values ($1, $2) on conflict (name) do update set last_block = excluded.last_block",
-    )
-    .bind("account_created")
-    .bind(block as i64)
-    .execute(pool)
-    .await?;
     Ok(())
 }
 
@@ -430,8 +436,8 @@ async fn backfill_batch<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    update_tree: bool,
     head: u64,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     if *from_block == 0 {
         *from_block = 1;
@@ -477,8 +483,10 @@ async fn backfill_batch<P: Provider>(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree && let Err(e) = update_tree_with_event(&event).await {
-                    tracing::error!(?e, ?event, "failed to update tree for event");
+                if tree_cache_params.is_some() {
+                    if let Err(e) = update_tree_with_event(&event).await {
+                        tracing::error!(?e, ?event, "failed to update tree for event");
+                    }
                 }
             }
             Err(e) => {
@@ -488,6 +496,28 @@ async fn backfill_batch<P: Provider>(
     }
 
     save_checkpoint(pool, to_block).await?;
+
+    // Update cache metadata if tree was updated
+    if let Some(cache_params) = tree_cache_params {
+        let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
+        let tree = GLOBAL_TREE.read().await;
+        // Get the current max event ID to track replay position
+        let current_event_id = get_max_event_id(pool).await.unwrap_or(0);
+        tree::metadata::write_metadata(
+            &cache_path_buf,
+            &tree,
+            pool,
+            to_block,
+            current_event_id,
+            cache_params.tree_depth,
+            cache_params.dense_prefix_depth,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(?e, "Failed to update cache metadata");
+        });
+    }
+
     tracing::debug!(
         from = *from_block,
         to = to_block,
@@ -504,7 +534,7 @@ pub async fn backfill<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    update_tree: bool,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     let mut head = provider.get_block_number().await?;
     loop {
@@ -514,8 +544,8 @@ pub async fn backfill<P: Provider>(
             registry,
             from_block,
             batch_size,
-            update_tree,
             head,
+            tree_cache_params,
         )
         .await
         {
@@ -547,259 +577,6 @@ pub async fn backfill<P: Provider>(
     Ok(())
 }
 
-pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountCreatedEvent> {
-    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = WorldIdRegistry::AccountCreated::decode_log(&prim)?;
-
-    // TODO: Validate pubkey is valid affine compressed
-    Ok(AccountCreatedEvent {
-        leaf_index: typed.data.leafIndex,
-        recovery_address: typed.data.recoveryAddress,
-        authenticator_addresses: typed.data.authenticatorAddresses,
-        authenticator_pubkeys: typed.data.authenticatorPubkeys,
-        offchain_signer_commitment: typed.data.offchainSignerCommitment,
-    })
-}
-
-pub fn decode_account_updated(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountUpdatedEvent> {
-    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = WorldIdRegistry::AccountUpdated::decode_log(&prim)?;
-
-    Ok(AccountUpdatedEvent {
-        leaf_index: typed.data.leafIndex,
-        pubkey_id: typed.data.pubkeyId,
-        new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
-        old_authenticator_address: typed.data.oldAuthenticatorAddress,
-        new_authenticator_address: typed.data.newAuthenticatorAddress,
-        old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
-        new_offchain_signer_commitment: typed.data.newOffchainSignerCommitment,
-    })
-}
-
-pub fn decode_authenticator_inserted(
-    lg: &alloy::rpc::types::Log,
-) -> anyhow::Result<AuthenticatorInsertedEvent> {
-    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = WorldIdRegistry::AuthenticatorInserted::decode_log(&prim)?;
-
-    Ok(AuthenticatorInsertedEvent {
-        leaf_index: typed.data.leafIndex,
-        pubkey_id: typed.data.pubkeyId,
-        authenticator_address: typed.data.authenticatorAddress,
-        new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
-        old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
-        new_offchain_signer_commitment: typed.data.newOffchainSignerCommitment,
-    })
-}
-
-pub fn decode_authenticator_removed(
-    lg: &alloy::rpc::types::Log,
-) -> anyhow::Result<AuthenticatorRemovedEvent> {
-    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = WorldIdRegistry::AuthenticatorRemoved::decode_log(&prim)?;
-
-    Ok(AuthenticatorRemovedEvent {
-        leaf_index: typed.data.leafIndex,
-        pubkey_id: typed.data.pubkeyId,
-        authenticator_address: typed.data.authenticatorAddress,
-        authenticator_pubkey: typed.data.authenticatorPubkey,
-        old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
-        new_offchain_signer_commitment: typed.data.newOffchainSignerCommitment,
-    })
-}
-
-pub fn decode_account_recovered(
-    lg: &alloy::rpc::types::Log,
-) -> anyhow::Result<AccountRecoveredEvent> {
-    let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-        .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-    let typed = WorldIdRegistry::AccountRecovered::decode_log(&prim)?;
-
-    Ok(AccountRecoveredEvent {
-        leaf_index: typed.data.leafIndex,
-        new_authenticator_address: typed.data.newAuthenticatorAddress,
-        new_authenticator_pubkey: typed.data.newAuthenticatorPubkey,
-        old_offchain_signer_commitment: typed.data.oldOffchainSignerCommitment,
-        new_offchain_signer_commitment: typed.data.newOffchainSignerCommitment,
-    })
-}
-
-pub fn decode_registry_event(lg: &alloy::rpc::types::Log) -> anyhow::Result<RegistryEvent> {
-    if lg.topics().is_empty() {
-        anyhow::bail!("log has no topics");
-    }
-
-    let event_sig = lg.topics()[0];
-
-    if event_sig == WorldIdRegistry::AccountCreated::SIGNATURE_HASH {
-        Ok(RegistryEvent::AccountCreated(decode_account_created(lg)?))
-    } else if event_sig == WorldIdRegistry::AccountUpdated::SIGNATURE_HASH {
-        Ok(RegistryEvent::AccountUpdated(decode_account_updated(lg)?))
-    } else if event_sig == WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH {
-        Ok(RegistryEvent::AuthenticatorInserted(
-            decode_authenticator_inserted(lg)?,
-        ))
-    } else if event_sig == WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH {
-        Ok(RegistryEvent::AuthenticatorRemoved(
-            decode_authenticator_removed(lg)?,
-        ))
-    } else if event_sig == WorldIdRegistry::AccountRecovered::SIGNATURE_HASH {
-        Ok(RegistryEvent::AccountRecovered(decode_account_recovered(
-            lg,
-        )?))
-    } else {
-        anyhow::bail!("unknown event signature: {event_sig:?}")
-    }
-}
-
-pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::Result<()> {
-    sqlx::query(
-        r#"insert into accounts
-        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
-        values ($1, $2, $3, $4, $5)
-        on conflict (leaf_index) do nothing"#,
-    )
-    .bind(ev.leaf_index.to_string())
-    .bind(ev.recovery_address.to_string())
-    .bind(Json(
-        ev.authenticator_addresses
-            .iter()
-            .map(|a| a.to_string())
-            .collect::<Vec<_>>(),
-    ))
-    .bind(Json(
-        ev.authenticator_pubkeys
-            .iter()
-            .map(|p| p.to_string())
-            .collect::<Vec<_>>(),
-    ))
-    .bind(ev.offchain_signer_commitment.to_string())
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn update_commitment(
-    pool: &PgPool,
-    leaf_index: U256,
-    new_commitment: U256,
-) -> anyhow::Result<()> {
-    sqlx::query(
-        r#"update accounts
-        set offchain_signer_commitment = $2
-        where leaf_index = $1"#,
-    )
-    .bind(leaf_index.to_string())
-    .bind(new_commitment.to_string())
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn update_authenticator_at_index(
-    pool: &PgPool,
-    leaf_index: U256,
-    pubkey_id: u32,
-    new_address: Address,
-    new_pubkey: U256,
-    new_commitment: U256,
-) -> anyhow::Result<()> {
-    // Update authenticator at specific index (pubkey_id)
-    sqlx::query(
-        r#"update accounts
-        set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), false),
-            authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), false),
-            offchain_signer_commitment = $5
-        where leaf_index = $1"#,
-    )
-    .bind(leaf_index.to_string())
-    .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
-    .bind(new_address.to_string())
-    .bind(new_pubkey.to_string())
-    .bind(new_commitment.to_string())
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn insert_authenticator_at_index(
-    pool: &PgPool,
-    leaf_index: U256,
-    pubkey_id: u32,
-    new_address: Address,
-    new_pubkey: U256,
-    new_commitment: U256,
-) -> anyhow::Result<()> {
-    // Ensure arrays are large enough and insert at specific index
-    sqlx::query(
-        r#"update accounts
-        set authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), true),
-            authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), true),
-            offchain_signer_commitment = $5
-        where leaf_index = $1"#,
-    )
-    .bind(leaf_index.to_string())
-    .bind(format!("{{{pubkey_id}}}"))
-    .bind(new_address.to_string())
-    .bind(new_pubkey.to_string())
-    .bind(new_commitment.to_string())
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn remove_authenticator_at_index(
-    pool: &PgPool,
-    leaf_index: U256,
-    pubkey_id: u32,
-    new_commitment: U256,
-) -> anyhow::Result<()> {
-    // Remove authenticator at specific index by setting to null
-    sqlx::query(
-        r#"update accounts
-        set authenticator_addresses = jsonb_set(authenticator_addresses, $2, 'null'::jsonb, false),
-            authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, 'null'::jsonb, false),
-            offchain_signer_commitment = $3
-        where leaf_index = $1"#,
-    )
-    .bind(leaf_index.to_string())
-    .bind(format!("{{{pubkey_id}}}"))
-    .bind(new_commitment.to_string())
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn record_commitment_update(
-    pool: &PgPool,
-    leaf_index: U256,
-    event_type: &str,
-    new_commitment: U256,
-    block_number: u64,
-    tx_hash: &str,
-    log_index: u64,
-) -> anyhow::Result<()> {
-    sqlx::query(
-        r#"insert into commitment_update_events
-        (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
-        values ($1, $2, $3, $4, $5, $6)
-        on conflict (tx_hash, log_index) do nothing"#,
-    )
-    .bind(leaf_index.to_string())
-    .bind(event_type)
-    .bind(new_commitment.to_string())
-    .bind(block_number as i64)
-    .bind(tx_hash)
-    .bind(log_index as i64)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn handle_registry_event(
     pool: &PgPool,
     event: &RegistryEvent,
@@ -814,7 +591,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "created",
+                    EventType::Created,
                     ev.offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -837,7 +614,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "updated",
+                    EventType::Updated,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -860,7 +637,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "inserted",
+                    EventType::Inserted,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -881,7 +658,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "removed",
+                    EventType::Removed,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -905,7 +682,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "recovered",
+                    EventType::Recovered,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -964,53 +741,12 @@ pub async fn poll_db_changes(pool: PgPool, poll_interval_secs: u64) -> anyhow::R
     }
 }
 
-async fn fetch_recent_account_updates(
-    pool: &PgPool,
-    since: std::time::SystemTime,
-) -> anyhow::Result<Vec<(U256, U256)>> {
-    // Convert SystemTime to timestamp
-    let since_duration = since
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let since_timestamp = since_duration.as_secs() as i64;
-
-    // Query commitment_update_events for recent changes
-    let rows = sqlx::query(
-        r#"
-        SELECT DISTINCT ON (leaf_index)
-            leaf_index,
-            new_commitment
-        FROM commitment_update_events
-        WHERE created_at > to_timestamp($1)
-        ORDER BY leaf_index, created_at DESC
-        "#,
-    )
-    .bind(since_timestamp)
-    .fetch_all(pool)
-    .await?;
-
-    let mut updates = Vec::new();
-    for row in rows {
-        let leaf_index_str: String = row.try_get("leaf_index")?;
-        let commitment_str: String = row.try_get("new_commitment")?;
-
-        if let (Ok(idx), Ok(comm)) = (
-            leaf_index_str.parse::<U256>(),
-            commitment_str.parse::<U256>(),
-        ) {
-            updates.push((idx, comm));
-        }
-    }
-
-    Ok(updates)
-}
-
 pub async fn stream_logs(
     ws_url: &str,
     pool: &PgPool,
     registry: Address,
     start_from: u64,
-    update_tree: bool,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
@@ -1045,12 +781,36 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree && let Err(e) = update_tree_with_event(&event).await {
-                    tracing::error!(?e, ?event, "failed to update tree for live event");
+                if tree_cache_params.is_some() {
+                    if let Err(e) = update_tree_with_event(&event).await {
+                        tracing::error!(?e, ?event, "failed to update tree for live event");
+                    }
                 }
 
                 if let Some(bn) = log.block_number {
                     save_checkpoint(pool, bn).await?;
+
+                    // Update cache metadata if tree was updated
+                    if let Some(cache_params) = tree_cache_params {
+                        let cache_path_buf =
+                            std::path::PathBuf::from(&cache_params.cache_file_path);
+                        let tree = GLOBAL_TREE.read().await;
+                        // Get the current max event ID to track replay position
+                        let current_event_id = get_max_event_id(pool).await.unwrap_or(0);
+                        tree::metadata::write_metadata(
+                            &cache_path_buf,
+                            &tree,
+                            pool,
+                            bn,
+                            current_event_id,
+                            cache_params.tree_depth,
+                            cache_params.dense_prefix_depth,
+                        )
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!(?e, "Failed to update cache metadata");
+                        });
+                    }
                 }
             }
             Err(e) => {
@@ -1059,25 +819,4 @@ pub async fn stream_logs(
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use alloy::uint;
-    use semaphore_rs_trees::Branch;
-
-    use super::*;
-
-    #[test]
-    fn test_poseidon2_merkle_tree() {
-        let tree = MerkleTree::<PoseidonHasher>::new(10, U256::ZERO);
-        let proof = tree.proof(0);
-        let proof = proof.0.iter().collect::<Vec<_>>();
-        assert!(
-            *proof[1]
-                == Branch::Left(uint!(
-                15621590199821056450610068202457788725601603091791048810523422053872049975191_U256
-            ))
-        );
-    }
 }

@@ -44,7 +44,8 @@ pub async fn start(
     let merkle_watcher = MerkleWatcher::init(
         config.world_id_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
-        config.max_merkle_store_size,
+        config.max_merkle_cache_size,
+        config.root_validity_window,
         started_services.new_service(),
         cancellation_token.clone(),
     )
@@ -67,7 +68,6 @@ pub async fn start(
         merkle_watcher,
         rp_registry_watcher,
         config.current_time_stamp_max_difference,
-        config.signature_history_cleanup_interval,
     ));
 
     tracing::info!("init oprf service..");

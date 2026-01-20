@@ -1,19 +1,36 @@
-use crate::{GLOBAL_TREE, config::AppState, proof_to_vec, tree_capacity};
+use crate::config::AppState;
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;
+use semaphore_rs_trees::{Branch, proof::InclusionProof};
 use sqlx::Row;
 use world_id_core::{
     EdDSAPublicKey,
-    types::{
-        AccountInclusionProof, AccountInclusionProofSchema, IndexerErrorCode, IndexerErrorResponse,
-        IndexerQueryRequest,
-    },
+    types::{AccountInclusionProof, IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest},
 };
 use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
     merkle::MerkleInclusionProof,
 };
+
+use crate::tree::{GLOBAL_TREE, PoseidonHasher};
+
+/// OpenAPI schema representation of the `AccountInclusionProof` response.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct AccountInclusionProofSchema {
+    /// The root hash of the Merkle tree (hex string)
+    #[schema(value_type = String, format = "hex", example = "0x1a2b3c4d5e6f7890")]
+    root: String,
+    /// The World ID's leaf position in the Merkle tree
+    #[schema(value_type = String, format = "hex", example = "0x2a")]
+    leaf_index: String,
+    /// The sibling path up to the Merkle root (array of hex strings)
+    #[schema(value_type = Vec<String>, format = "hex")]
+    siblings: Vec<String>,
+    /// The compressed authenticator public keys for the account (array of hex strings)
+    #[schema(value_type = Vec<String>, format = "hex")]
+    authenticator_pubkeys: Vec<String>,
+}
 
 /// Get Inclusion Proof
 ///
@@ -84,7 +101,8 @@ pub(crate) async fn handler(
     let tree = GLOBAL_TREE.read().await;
 
     let index_as_usize = leaf_index.as_limbs()[0] as usize;
-    if index_as_usize >= tree_capacity() {
+    let capacity = crate::tree::tree_capacity().await;
+    if index_as_usize >= capacity {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
             "Leaf index out of range.".to_string(),
@@ -118,7 +136,16 @@ pub(crate) async fn handler(
         .into_iter()
         .map(|u| u.try_into().unwrap())
         .collect();
-    let siblings: [FieldElement; TREE_DEPTH] = siblings_vec.try_into().unwrap();
+
+    // Pad the siblings array to TREE_DEPTH (the compile-time constant used in the type system)
+    // This is needed because the actual tree may have a smaller depth (e.g., 6 in tests)
+    // but the response type uses the hardcoded TREE_DEPTH constant (30)
+    let mut siblings = [FieldElement::default(); TREE_DEPTH];
+    for (i, sibling) in siblings_vec.into_iter().enumerate() {
+        if i < TREE_DEPTH {
+            siblings[i] = sibling;
+        }
+    }
 
     let merkle_proof = MerkleInclusionProof::new(
         tree.root().try_into().unwrap(),
@@ -129,4 +156,15 @@ pub(crate) async fn handler(
     let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
         .expect("authenticator_pubkeys already validated");
     Ok(Json(resp))
+}
+
+fn proof_to_vec(proof: &InclusionProof<PoseidonHasher>) -> Vec<U256> {
+    proof
+        .0
+        .iter()
+        .map(|b| match b {
+            Branch::Left(sib) => *sib,
+            Branch::Right(sib) => *sib,
+        })
+        .collect()
 }

@@ -6,7 +6,7 @@ use alloy::{
 };
 use world_id_core::world_id_registry::WorldIdRegistry;
 
-use crate::GLOBAL_TREE;
+use crate::tree::GLOBAL_TREE;
 
 /// Periodically checks that the local in-memory Merkle root remains valid on-chain.
 pub async fn root_sanity_check_loop(
