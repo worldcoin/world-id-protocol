@@ -11,9 +11,11 @@ rust-version.workspace = true
 repository.workspace = true
 
 [features]
-default = ["circuits"]
+default = ["circuits", "oprf"]
 # Enable circuit-related types (requires C++ toolchain, not WASM compatible)
 circuits = ["dep:circom-types", "dep:groth16-material"]
+# Enable OPRF types (not WASM compatible due to uuid dependency)
+oprf = ["dep:taceo-oprf-types"]
 
 [dependencies]
 alloy-primitives = { version = "1", default-features = false, features = [
@@ -31,7 +33,7 @@ circom-types = { workspace = true, features = ["groth16"], optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
-taceo-oprf-types = { workspace = true }
+taceo-oprf-types = { workspace = true, optional = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
@@ -41,6 +43,10 @@ k256 = { workspace = true, features = ["ecdsa", "serde"] }
 poseidon2 = { workspace = true }
 sha3 = { version = "0.10", default-features = false }
 rand.workspace = true
+
+# WASM support: getrandom needs 'js' feature to work in browsers
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 ciborium = "0.2.2"

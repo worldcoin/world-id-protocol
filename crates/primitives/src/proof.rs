@@ -3,12 +3,14 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+#[cfg(feature = "oprf")]
 use taceo_oprf_types::{crypto::OprfPublicKey, OprfKeyId};
 
+#[cfg(feature = "oprf")]
 use crate::{
     authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId, Credential,
-    FieldElement, PrimitiveError,
 };
+use crate::{FieldElement, PrimitiveError};
 
 /// Represents a base World ID proof.
 ///
@@ -123,6 +125,9 @@ impl<'de> Deserialize<'de> for WorldIdProof {
 ///
 /// This request results in a final Uniqueness Proof (π2), but a Query Proof (π1) must be
 /// generated in the process.
+///
+/// Requires the `oprf` feature (not available in WASM builds).
+#[cfg(feature = "oprf")]
 pub struct SingleProofInput<const TREE_DEPTH: usize> {
     // SECTION: User Inputs
     /// The credential of the user which will be proven in the World ID Proof.

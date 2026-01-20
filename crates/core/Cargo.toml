@@ -31,7 +31,7 @@ path = "bin/issuer.rs"
 required-features = ["issuer", "cli"]
 
 [dependencies]
-alloy = { workspace = true, features = ["sol-types", "rpc"] }
+alloy = { workspace = true, features = ["sol-types"] }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 backon = { workspace = true, optional = true, features = ["tokio-sleep"] }
@@ -49,7 +49,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"], optional = true }
 circom-types = { workspace = true, optional = true }
 rand = { workspace = true }
 ark-ec = { workspace = true }
@@ -75,6 +75,7 @@ authenticator = [
     "alloy/contract",
     "alloy/signer-local",
     "alloy/reqwest-rustls-tls",
+    "alloy/rpc",
     "dep:backon",
     "dep:circom-types",
     "dep:reqwest",
@@ -86,13 +87,14 @@ authenticator = [
     "dep:rustls",
     "dep:webpki-roots",
     "dep:axum",
+    "dep:tokio",
 ]
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
-issuer = ["alloy/signer-local", "dep:secrecy"]
+issuer = ["alloy/signer-local", "dep:secrecy", "dep:tokio"]
 
-rp = ["dep:taceo-oprf-types"]
+rp = ["dep:taceo-oprf-types", "alloy/signers"]
 
 cli = []
 
