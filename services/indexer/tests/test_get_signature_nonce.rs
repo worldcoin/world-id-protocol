@@ -33,7 +33,6 @@ async fn test_signature_nonce_endpoint() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -44,7 +43,8 @@ async fn test_signature_nonce_endpoint() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),

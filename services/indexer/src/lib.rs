@@ -1,32 +1,27 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use alloy::{
-    primitives::{Address, U256},
-    providers::{Provider, ProviderBuilder, WsConnect},
-    rpc::types::Filter,
-    sol_types::SolEvent,
-};
+use alloy::primitives::{Address, U256};
+use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+use futures_util::StreamExt;
 use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
+mod blockchain;
 pub mod config;
 mod db;
-mod events;
 mod routes;
 mod sanity_check;
 mod tree;
 
+use crate::blockchain::{Blockchain, BlockchainEvent, RegistryEvent};
+use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
+use crate::db::get_max_event_id;
 pub use crate::db::{
     EventType, fetch_recent_account_updates, get_latest_block, init_db, insert_account,
     insert_authenticator_at_index, make_db_pool, record_commitment_update,
     remove_authenticator_at_index, update_authenticator_at_index,
 };
-use crate::{
-    config::{AppState, HttpConfig, IndexerConfig, RunMode},
-    events::{RegistryEvent, decoders::decode_registry_event},
-    tree::GLOBAL_TREE,
-};
-use crate::{db::get_max_event_id, tree::update_tree_with_commitment};
+use crate::tree::{GLOBAL_TREE, update_tree_with_commitment};
 pub use config::GlobalConfig;
 
 /// Tree cache parameters needed during indexing
@@ -35,55 +30,6 @@ pub struct TreeCacheParams {
     pub cache_file_path: String,
     pub tree_depth: usize,
     pub dense_prefix_depth: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct AccountCreatedEvent {
-    pub leaf_index: U256,
-    pub recovery_address: Address,
-    pub authenticator_addresses: Vec<Address>,
-    pub authenticator_pubkeys: Vec<U256>,
-    pub offchain_signer_commitment: U256,
-}
-
-#[derive(Debug, Clone)]
-pub struct AccountUpdatedEvent {
-    pub leaf_index: U256,
-    pub pubkey_id: u32,
-    pub new_authenticator_pubkey: U256,
-    pub old_authenticator_address: Address,
-    pub new_authenticator_address: Address,
-    pub old_offchain_signer_commitment: U256,
-    pub new_offchain_signer_commitment: U256,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthenticatorInsertedEvent {
-    pub leaf_index: U256,
-    pub pubkey_id: u32,
-    pub authenticator_address: Address,
-    pub new_authenticator_pubkey: U256,
-    pub old_offchain_signer_commitment: U256,
-    pub new_offchain_signer_commitment: U256,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthenticatorRemovedEvent {
-    pub leaf_index: U256,
-    pub pubkey_id: u32,
-    pub authenticator_address: Address,
-    pub authenticator_pubkey: U256,
-    pub old_offchain_signer_commitment: U256,
-    pub new_offchain_signer_commitment: U256,
-}
-
-#[derive(Debug, Clone)]
-pub struct AccountRecoveredEvent {
-    pub leaf_index: U256,
-    pub new_authenticator_address: Address,
-    pub new_authenticator_pubkey: U256,
-    pub old_offchain_signer_commitment: U256,
-    pub new_offchain_signer_commitment: U256,
 }
 
 async fn initialize_tree_with_config(
@@ -216,14 +162,18 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     init_db(&pool).await?;
     tracing::info!("🟢 Database successfully initialized.");
 
-    let rpc_url = &cfg.rpc_url;
-    let registry_address = cfg.registry_address;
+    let blockchain = Blockchain::<DynProvider, DynProvider>::new(
+        &cfg.http_rpc_url,
+        &cfg.ws_rpc_url,
+        cfg.registry_address,
+    )
+    .await?;
     let tree_cache_cfg = &cfg.tree_cache;
 
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
-            run_indexer_only(rpc_url, registry_address, indexer_config, pool).await
+            run_indexer_only(&blockchain, indexer_config, pool).await
         }
         RunMode::HttpOnly { http_config } => {
             tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
@@ -232,8 +182,8 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             initialize_tree_with_config(tree_cache_cfg, &pool).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
             run_http_only(
-                rpc_url,
-                registry_address,
+                &cfg.http_rpc_url,
+                cfg.registry_address,
                 http_config,
                 pool,
                 tree_cache_cfg.clone(),
@@ -250,8 +200,9 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             initialize_tree_with_config(tree_cache_cfg, &pool).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
             run_both(
-                rpc_url,
-                registry_address,
+                &blockchain,
+                &cfg.http_rpc_url,
+                cfg.registry_address,
                 indexer_config,
                 http_config,
                 pool,
@@ -266,14 +217,11 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     }
 }
 
-async fn run_indexer_only(
-    rpc_url: &str,
-    registry_address: Address,
+async fn run_indexer_only<HP: Provider, WP: Provider>(
+    blockchain: &Blockchain<HP, WP>,
     indexer_cfg: IndexerConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-
     // Determine starting block from checkpoint or env
     let mut from = get_latest_block(&pool)
         .await?
@@ -281,9 +229,8 @@ async fn run_indexer_only(
 
     // Backfill until head (update_tree = false for indexer-only mode)
     backfill(
-        &provider,
+        blockchain,
         &pool,
-        registry_address,
         &mut from,
         indexer_cfg.batch_size,
         None, // Don't update in-memory tree or cache in indexer-only mode
@@ -292,10 +239,7 @@ async fn run_indexer_only(
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
-        &indexer_cfg.ws_url,
-        &pool,
-        registry_address,
-        from,
+        blockchain, &pool, from,
         None, // Don't update in-memory tree or cache in indexer-only mode
     )
     .await?;
@@ -355,7 +299,8 @@ async fn run_http_only(
     http_result
 }
 
-async fn run_both(
+async fn run_both<HP: Provider, WP: Provider>(
+    blockchain: &Blockchain<HP, WP>,
     rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
@@ -363,8 +308,6 @@ async fn run_both(
     pool: PgPool,
     tree_cache_params: TreeCacheParams,
 ) -> anyhow::Result<()> {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-
     // Start HTTP server
     let http_pool = pool.clone();
     let http_addr = http_cfg.http_addr;
@@ -394,9 +337,8 @@ async fn run_both(
 
     // Backfill until head (update_tree = true for both mode)
     backfill(
-        &provider,
+        &blockchain,
         &pool,
-        registry_address,
         &mut from,
         indexer_cfg.batch_size,
         Some(&tree_cache_params), // Update in-memory tree and cache metadata after each batch
@@ -405,9 +347,8 @@ async fn run_both(
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
-        &indexer_cfg.ws_url,
+        &blockchain,
         &pool,
-        registry_address,
         from,
         Some(&tree_cache_params), // Update in-memory tree and cache metadata after each event
     )
@@ -420,10 +361,9 @@ async fn run_both(
     Ok(())
 }
 
-async fn backfill_batch<P: Provider>(
-    provider: &P,
+async fn backfill_batch<HP: Provider, WP: Provider>(
+    blockchain: &Blockchain<HP, WP>,
     pool: &PgPool,
-    registry: Address,
     from_block: &mut u64,
     batch_size: u64,
     head: u64,
@@ -435,52 +375,37 @@ async fn backfill_batch<P: Provider>(
 
     let to_block = (*from_block + batch_size - 1).min(head);
 
-    // Listen for all events that change commitment
-    let event_signatures = vec![
-        WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-        WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-        WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-    ];
+    let events = blockchain
+        .get_world_id_events(*from_block, to_block)
+        .await?;
 
-    let filter = Filter::new()
-        .address(registry)
-        .event_signature(event_signatures)
-        .from_block(*from_block)
-        .to_block(to_block);
-
-    let logs = provider.get_logs(&filter).await?;
-    if !logs.is_empty() {
+    if events.is_empty() {
         tracing::info!(
-            count = logs.len(),
+            count = events.len(),
             from = *from_block,
             to = to_block,
-            "processing registry logs"
+            "no events to process"
         );
+        return Ok(());
     }
-    for lg in logs {
-        match decode_registry_event(&lg) {
-            Ok(event) => {
-                tracing::debug!(?event, "decoded registry event");
-                let block_number = lg.block_number;
-                let tx_hash = lg.transaction_hash;
-                let log_index = lg.log_index;
 
-                if let Err(e) =
-                    handle_registry_event(pool, &event, block_number, tx_hash, log_index).await
-                {
-                    tracing::error!(?e, ?event, "failed to handle registry event in DB");
-                }
+    tracing::info!(
+        count = events.len(),
+        from = *from_block,
+        to = to_block,
+        "processing registry logs"
+    );
 
-                if tree_cache_params.is_some() {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for event");
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!(?e, ?lg, "failed to decode registry event");
+    for event in events {
+        tracing::debug!(?event, "decoded registry event");
+
+        if let Err(e) = handle_registry_event(pool, &event).await {
+            tracing::error!(?e, ?event, "failed to handle registry event in DB");
+        }
+
+        if tree_cache_params.is_some() {
+            if let Err(e) = update_tree_with_event(&event.details).await {
+                tracing::error!(?e, ?event, "failed to update tree for event");
             }
         }
     }
@@ -516,20 +441,18 @@ async fn backfill_batch<P: Provider>(
 }
 
 /// Backfill the entire history of the registry.
-pub async fn backfill<P: Provider>(
-    provider: &P,
+pub async fn backfill<HP: Provider, WP: Provider>(
+    blockchain: &Blockchain<HP, WP>,
     pool: &PgPool,
-    registry: Address,
     from_block: &mut u64,
     batch_size: u64,
     tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
-    let mut head = provider.get_block_number().await?;
+    let mut head = blockchain.get_block_number().await?;
     loop {
         match backfill_batch(
-            provider,
+            blockchain,
             pool,
-            registry,
             from_block,
             batch_size,
             head,
@@ -539,7 +462,7 @@ pub async fn backfill<P: Provider>(
         {
             Ok(()) => {
                 // Check if we're caught up to chain head
-                let new_head = provider.get_block_number().await;
+                let new_head = blockchain.get_block_number().await;
                 if let Ok(new_head) = new_head {
                     head = new_head;
                 } else {
@@ -567,26 +490,29 @@ pub async fn backfill<P: Provider>(
 
 pub async fn handle_registry_event(
     pool: &PgPool,
-    event: &RegistryEvent,
-    block_number: Option<u64>,
-    tx_hash: Option<alloy::primitives::B256>,
-    log_index: Option<u64>,
+    event: &BlockchainEvent<RegistryEvent>,
 ) -> anyhow::Result<()> {
-    match event {
+    match &event.details {
         RegistryEvent::AccountCreated(ev) => {
-            insert_account(pool, ev).await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
-                record_commitment_update(
-                    pool,
-                    ev.leaf_index,
-                    EventType::AccountCreated,
-                    ev.offchain_signer_commitment,
-                    bn,
-                    &format!("{tx:?}"),
-                    li,
-                )
-                .await?;
-            }
+            insert_account(
+                pool,
+                &ev.leaf_index,
+                &ev.recovery_address,
+                &ev.authenticator_addresses,
+                &ev.authenticator_pubkeys,
+                &ev.offchain_signer_commitment,
+            )
+            .await?;
+            record_commitment_update(
+                pool,
+                ev.leaf_index,
+                EventType::AccountCreated,
+                ev.offchain_signer_commitment,
+                event.block_number,
+                &format!("{:?}", event.tx_hash),
+                event.log_index,
+            )
+            .await?;
         }
         RegistryEvent::AccountUpdated(ev) => {
             update_authenticator_at_index(
@@ -598,18 +524,16 @@ pub async fn handle_registry_event(
                 ev.new_offchain_signer_commitment,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
-                record_commitment_update(
-                    pool,
-                    ev.leaf_index,
-                    EventType::AccountUpdated,
-                    ev.new_offchain_signer_commitment,
-                    bn,
-                    &format!("{tx:?}"),
-                    li,
-                )
-                .await?;
-            }
+            record_commitment_update(
+                pool,
+                ev.leaf_index,
+                EventType::AccountUpdated,
+                ev.new_offchain_signer_commitment,
+                event.block_number,
+                &format!("{:?}", event.tx_hash),
+                event.log_index,
+            )
+            .await?;
         }
         RegistryEvent::AuthenticatorInserted(ev) => {
             insert_authenticator_at_index(
@@ -621,18 +545,16 @@ pub async fn handle_registry_event(
                 ev.new_offchain_signer_commitment,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
-                record_commitment_update(
-                    pool,
-                    ev.leaf_index,
-                    EventType::AuthenticationInserted,
-                    ev.new_offchain_signer_commitment,
-                    bn,
-                    &format!("{tx:?}"),
-                    li,
-                )
-                .await?;
-            }
+            record_commitment_update(
+                pool,
+                ev.leaf_index,
+                EventType::AuthenticationInserted,
+                ev.new_offchain_signer_commitment,
+                event.block_number,
+                &format!("{:?}", event.tx_hash),
+                event.log_index,
+            )
+            .await?;
         }
         RegistryEvent::AuthenticatorRemoved(ev) => {
             remove_authenticator_at_index(
@@ -642,18 +564,16 @@ pub async fn handle_registry_event(
                 ev.new_offchain_signer_commitment,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
-                record_commitment_update(
-                    pool,
-                    ev.leaf_index,
-                    EventType::AuthenticationRemoved,
-                    ev.new_offchain_signer_commitment,
-                    bn,
-                    &format!("{tx:?}"),
-                    li,
-                )
-                .await?;
-            }
+            record_commitment_update(
+                pool,
+                ev.leaf_index,
+                EventType::AuthenticationRemoved,
+                ev.new_offchain_signer_commitment,
+                event.block_number,
+                &format!("{:?}", event.tx_hash),
+                event.log_index,
+            )
+            .await?;
         }
         RegistryEvent::AccountRecovered(ev) => {
             // Recovery resets to a single authenticator at index 0
@@ -666,18 +586,16 @@ pub async fn handle_registry_event(
                 ev.new_offchain_signer_commitment,
             )
             .await?;
-            if let (Some(bn), Some(tx), Some(li)) = (block_number, tx_hash, log_index) {
-                record_commitment_update(
-                    pool,
-                    ev.leaf_index,
-                    EventType::AccountRecovered,
-                    ev.new_offchain_signer_commitment,
-                    bn,
-                    &format!("{tx:?}"),
-                    li,
-                )
-                .await?;
-            }
+            record_commitment_update(
+                pool,
+                ev.leaf_index,
+                EventType::AccountRecovered,
+                ev.new_offchain_signer_commitment,
+                event.block_number,
+                &format!("{:?}", event.tx_hash),
+                event.log_index,
+            )
+            .await?;
         }
     }
     Ok(())
@@ -729,77 +647,51 @@ pub async fn poll_db_changes(pool: PgPool, poll_interval_secs: u64) -> anyhow::R
     }
 }
 
-pub async fn stream_logs(
-    ws_url: &str,
+pub async fn stream_logs<HP: Provider, WP: Provider>(
+    blockchain: &Blockchain<HP, WP>,
     pool: &PgPool,
-    registry: Address,
     start_from: u64,
     tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
-    use futures_util::StreamExt;
-    let ws = WsConnect::new(ws_url);
-    let provider = ProviderBuilder::new().connect_ws(ws).await?;
-
-    let event_signatures = vec![
-        WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-        WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-        WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-        WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-    ];
-
-    let filter = Filter::new()
-        .address(registry)
-        .event_signature(event_signatures)
-        .from_block(start_from);
-    let sub = provider.subscribe_logs(&filter).await?;
-    let mut stream = sub.into_stream();
+    let mut stream = blockchain.stream_world_id_events(start_from).await?;
     while let Some(log) = stream.next().await {
         tracing::info!(?log, "processing live registry log");
-        match decode_registry_event(&log) {
+        match log {
             Ok(event) => {
                 tracing::info!(?event, "decoded live registry event");
-                let block_number = log.block_number;
-                let tx_hash = log.transaction_hash;
-                let log_index = log.log_index;
 
-                if let Err(e) =
-                    handle_registry_event(pool, &event, block_number, tx_hash, log_index).await
-                {
+                if let Err(e) = handle_registry_event(pool, &event).await {
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
                 if tree_cache_params.is_some() {
-                    if let Err(e) = update_tree_with_event(&event).await {
+                    if let Err(e) = update_tree_with_event(&event.details).await {
                         tracing::error!(?e, ?event, "failed to update tree for live event");
                     }
                 }
 
-                if let Some(bn) = log.block_number {
-                    // Update cache metadata if tree was updated
-                    if let Some(cache_params) = tree_cache_params {
-                        let cache_path_buf =
-                            std::path::PathBuf::from(&cache_params.cache_file_path);
-                        let tree = GLOBAL_TREE.read().await;
-                        // Get the current max event ID to track replay position
-                        let current_event_id = get_max_event_id(pool).await.unwrap_or(0);
-                        tree::metadata::write_metadata(
-                            &cache_path_buf,
-                            &tree,
-                            pool,
-                            bn,
-                            current_event_id,
-                            cache_params.tree_depth,
-                            cache_params.dense_prefix_depth,
-                        )
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::warn!(?e, "Failed to update cache metadata");
-                        });
-                    }
+                // Update cache metadata if tree was updated
+                if let Some(cache_params) = tree_cache_params {
+                    let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
+                    let tree = GLOBAL_TREE.read().await;
+                    // Get the current max event ID to track replay position
+                    let current_event_id = get_max_event_id(pool).await.unwrap_or(0);
+                    tree::metadata::write_metadata(
+                        &cache_path_buf,
+                        &tree,
+                        pool,
+                        event.block_number,
+                        current_event_id,
+                        cache_params.tree_depth,
+                        cache_params.dense_prefix_depth,
+                    )
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::warn!(?e, "Failed to update cache metadata");
+                    });
                 }
             }
-            Err(e) => {
+            Err(ref e) => {
                 tracing::warn!(?e, ?log, "failed to decode live registry event");
             }
         }

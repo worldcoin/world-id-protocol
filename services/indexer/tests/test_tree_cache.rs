@@ -60,7 +60,6 @@ async fn test_cache_creation_and_restoration() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -71,7 +70,8 @@ async fn test_cache_creation_and_restoration() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -145,7 +145,6 @@ async fn test_incremental_replay() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -156,7 +155,8 @@ async fn test_incremental_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -202,7 +202,6 @@ async fn test_incremental_replay() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -213,7 +212,8 @@ async fn test_incremental_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -275,7 +275,6 @@ async fn test_missing_cache_creates_new() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -286,7 +285,8 @@ async fn test_missing_cache_creates_new() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -339,7 +339,6 @@ async fn test_http_only_cache_refresh() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -350,7 +349,8 @@ async fn test_http_only_cache_refresh() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -392,7 +392,8 @@ async fn test_http_only_cache_refresh() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -462,7 +463,6 @@ async fn test_authenticator_removed_replay() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -473,7 +473,8 @@ async fn test_authenticator_removed_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -510,7 +511,7 @@ async fn test_authenticator_removed_replay() {
     let new_commitment_after_removal = U256::from(999);
 
     sqlx::query(
-        r#"INSERT INTO commitment_update_events
+        r#"INSERT INTO world_id_events
         (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
         VALUES ($1, $2, $3, $4, $5, $6)"#,
     )
@@ -526,7 +527,7 @@ async fn test_authenticator_removed_replay() {
 
     // Update the account table to reflect the removal
     sqlx::query(
-        r#"UPDATE accounts 
+        r#"UPDATE accounts
         SET offchain_signer_commitment = $1
         WHERE leaf_index = '1'"#,
     )
@@ -540,7 +541,6 @@ async fn test_authenticator_removed_replay() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -551,7 +551,8 @@ async fn test_authenticator_removed_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -576,7 +577,6 @@ async fn test_authenticator_removed_replay() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -587,7 +587,8 @@ async fn test_authenticator_removed_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config_fresh.clone(),
     };

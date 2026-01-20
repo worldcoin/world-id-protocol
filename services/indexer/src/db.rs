@@ -1,6 +1,5 @@
 use std::{fmt, str::FromStr};
 
-use crate::events::AccountCreatedEvent;
 use alloy::primitives::{Address, U256};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions, types::Json};
 
@@ -60,35 +59,42 @@ pub async fn init_db(pool: &PgPool) -> anyhow::Result<()> {
 }
 
 pub async fn get_latest_block(pool: &PgPool) -> anyhow::Result<Option<u64>> {
-    let rec: Option<(i64,)> = sqlx::query_as("SELECT MAX(block_number) FROM world_id_events")
-        .bind("account_created")
-        .fetch_optional(pool)
-        .await?;
-    Ok(rec.map(|t| t.0 as u64))
+    let rec: Option<(Option<i64>,)> =
+        sqlx::query_as("SELECT MAX(block_number) FROM world_id_events")
+            .fetch_optional(pool)
+            .await?;
+    Ok(rec.map(|t| t.0.map(|v| v as u64)).flatten())
 }
 
-pub async fn insert_account(pool: &PgPool, ev: &AccountCreatedEvent) -> anyhow::Result<()> {
+pub async fn insert_account(
+    pool: &PgPool,
+    leaf_index: &U256,
+    recovery_address: &Address,
+    authenticator_addresses: &Vec<Address>,
+    authenticator_pubkeys: &Vec<U256>,
+    offchain_signer_commitment: &U256,
+) -> anyhow::Result<()> {
     sqlx::query(
         r#"insert into accounts
         (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
         values ($1, $2, $3, $4, $5)
         on conflict (leaf_index) do nothing"#,
     )
-        .bind(ev.leaf_index.to_string())
-        .bind(ev.recovery_address.to_string())
+        .bind(leaf_index.to_string())
+        .bind(recovery_address.to_string())
         .bind(Json(
-            ev.authenticator_addresses
+            authenticator_addresses
                 .iter()
                 .map(|a| a.to_string())
                 .collect::<Vec<_>>(),
         ))
         .bind(Json(
-            ev.authenticator_pubkeys
+            authenticator_pubkeys
                 .iter()
                 .map(|p| p.to_string())
                 .collect::<Vec<_>>(),
         ))
-        .bind(ev.offchain_signer_commitment.to_string())
+        .bind(offchain_signer_commitment.to_string())
         .execute(pool)
         .await?;
     Ok(())
@@ -270,7 +276,7 @@ pub async fn get_max_event_block(pool: &PgPool) -> anyhow::Result<u64> {
     Ok(result as u64)
 }
 
-/// Get the maximum event ID from commitment_update_events.
+/// Get the maximum event ID from world_id_events.
 /// This is the primary key that auto-increments with each insertion.
 pub async fn get_max_event_id(pool: &PgPool) -> anyhow::Result<i64> {
     let result =
@@ -292,7 +298,7 @@ pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
     Ok(result as u64)
 }
 
-/// Count total events in commitment_update_events.
+/// Count total events in world_id_events.
 pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
     let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM world_id_events")
         .fetch_one(pool)
