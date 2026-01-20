@@ -60,7 +60,10 @@ impl MerkleWatcher {
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
-        eyre::ensure!(max_merkle_cache_size > 0, "max merkle cache size must be > 0");
+        eyre::ensure!(
+            max_merkle_cache_size > 0,
+            "max merkle cache size must be > 0"
+        );
 
         tracing::info!("creating provider...");
         let ws = WsConnect::new(ws_rpc_url);
@@ -71,14 +74,11 @@ impl MerkleWatcher {
         let current_root = contract.currentRoot().call().await?;
         tracing::info!("root = {current_root}");
 
-        let merkle_root_cache: Cache<FieldElement, ()> = Cache::builder()
-            .max_capacity(max_merkle_cache_size)
-            .build();
+        let merkle_root_cache: Cache<FieldElement, ()> =
+            Cache::builder().max_capacity(max_merkle_cache_size).build();
 
         // Insert current root
-        merkle_root_cache
-            .insert(current_root.try_into()?, ())
-            .await;
+        merkle_root_cache.insert(current_root.try_into()?, ()).await;
         tracing::info!("starting with cache size: 1");
 
         tracing::info!("listening for events...");
@@ -102,10 +102,7 @@ impl MerkleWatcher {
                         Ok(event) => {
                             tracing::info!("got root {} timestamp {}", event.root, event.timestamp);
                             merkle_root_cache
-                                .insert(
-                                    event.root.try_into().expect("root is in field"),
-                                    (),
-                                )
+                                .insert(event.root.try_into().expect("root is in field"), ())
                                 .await;
                             tracing::trace!("registered new root: {}", event.root);
                         }
