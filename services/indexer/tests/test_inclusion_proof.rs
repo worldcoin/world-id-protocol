@@ -16,22 +16,26 @@ use world_id_indexer::config::{
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_backfill_and_live_sync() {
-    let setup = TestSetup::new().await;
-    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
-    let pk = sk.public().to_compressed_bytes().unwrap();
-    let pk = U256::from_le_slice(&pk);
+    let setup = TestSetup::new_with_tree_depth(6).await;
+    
+    // Generate valid EdDSA public keys
+    let sk1 = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let pk1 = U256::from_le_slice(&sk1.public().to_compressed_bytes().unwrap());
+    
+    let sk2 = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let pk2 = U256::from_le_slice(&sk2.public().to_compressed_bytes().unwrap());
 
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000011"),
-            pk,
+            pk1,
             1,
         )
         .await;
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000012"),
-            U256::from(12),
+            pk2,
             2,
         )
         .await;
@@ -80,17 +84,24 @@ async fn test_backfill_and_live_sync() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
+    // Generate more valid EdDSA public keys for live sync test
+    let sk3 = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let pk3 = U256::from_le_slice(&sk3.public().to_compressed_bytes().unwrap());
+    
+    let sk4 = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let pk4 = U256::from_le_slice(&sk4.public().to_compressed_bytes().unwrap());
+    
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000013"),
-            U256::from(13),
+            pk3,
             3,
         )
         .await;
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000014"),
-            U256::from(14),
+            pk4,
             4,
         )
         .await;
@@ -143,7 +154,7 @@ async fn test_backfill_and_live_sync() {
 #[cfg(feature = "integration-tests")]
 #[serial]
 async fn test_insertion_cycle_and_avoids_race_condition() {
-    let setup = TestSetup::new().await;
+    let setup = TestSetup::new_with_tree_depth(6).await;
 
     let temp_cache_path =
         std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
@@ -173,6 +184,11 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     TestSetup::wait_for_health("http://127.0.0.1:8082").await;
 
+    // Generate a valid EdDSA public key instead of using a raw integer
+    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let pk = sk.public().to_compressed_bytes().unwrap();
+    let pk = U256::from_le_slice(&pk);
+
     sqlx::query(
         r#"insert into accounts
         (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
@@ -183,7 +199,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     .bind(Json(vec![
         "0x0000000000000000000000000000000000000011".to_string()
     ]))
-    .bind(Json(vec!["11".to_string()]))
+    .bind(Json(vec![pk.to_string()]))
     .bind("99")
     .execute(&setup.pool)
     .await
