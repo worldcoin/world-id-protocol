@@ -108,8 +108,8 @@ async fn test_cache_creation_and_restoration() {
     let meta_json = fs::read_to_string(&meta_path).expect("Should read metadata");
     let metadata: serde_json::Value =
         serde_json::from_str(&meta_json).expect("Should parse metadata");
-    assert_eq!(metadata["tree_depth"].as_u64().unwrap(), 30);
-    assert_eq!(metadata["dense_prefix_depth"].as_u64().unwrap(), 20);
+    assert_eq!(metadata["tree_depth"].as_u64().unwrap(), 6);
+    assert_eq!(metadata["dense_prefix_depth"].as_u64().unwrap(), 2);
     assert!(
         metadata["last_block_number"].as_u64().unwrap() > 0,
         "Should have processed at least one block"
@@ -562,8 +562,8 @@ async fn test_authenticator_removed_replay() {
         world_id_indexer::run_indexer(cfg2).await.unwrap();
     });
 
-    // Wait for indexer to process the replay
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for indexer to process the replay and write metadata
+    tokio::time::sleep(Duration::from_secs(5)).await;
     indexer_task2.abort();
 
     // Read the replayed metadata

@@ -31,6 +31,7 @@ pub use config::GlobalConfig;
 #[derive(Clone)]
 pub struct TreeCacheParams {
     pub cache_file_path: String,
+    pub tree_depth: usize,
     pub dense_prefix_depth: usize,
 }
 
@@ -103,6 +104,17 @@ async fn initialize_tree_with_config(
     {
         let mut tree = GLOBAL_TREE.write().await;
         *tree = new_tree;
+    }
+
+    // Read the metadata to get the last block number and update checkpoint
+    // This ensures backfill doesn't re-process blocks that were included in tree initialization
+    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
+    if let Ok(metadata) = tree::metadata::read_metadata(&cache_path) {
+        save_checkpoint(pool, metadata.last_block_number).await?;
+        tracing::debug!(
+            block = metadata.last_block_number,
+            "Updated checkpoint from tree metadata"
+        );
     }
 
     tracing::info!(
@@ -254,6 +266,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
                 pool,
                 TreeCacheParams {
                     cache_file_path: tree_cache_cfg.cache_file_path.clone(),
+                    tree_depth: tree_cache_cfg.tree_depth,
                     dense_prefix_depth: tree_cache_cfg.dense_tree_prefix_depth,
                 },
             )
@@ -495,6 +508,7 @@ async fn backfill_batch<P: Provider>(
             pool,
             to_block,
             current_event_id,
+            cache_params.tree_depth,
             cache_params.dense_prefix_depth,
         )
         .await
@@ -788,6 +802,7 @@ pub async fn stream_logs(
                             pool,
                             bn,
                             current_event_id,
+                            cache_params.tree_depth,
                             cache_params.dense_prefix_depth,
                         )
                         .await

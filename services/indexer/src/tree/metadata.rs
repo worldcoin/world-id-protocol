@@ -73,12 +73,11 @@ pub async fn write_metadata(
     pool: &PgPool,
     last_block_number: u64,
     last_event_id: i64,
+    tree_depth: usize,
     dense_prefix_depth: usize,
 ) -> anyhow::Result<()> {
     // Get current database state
     let active_leaf_count = get_active_leaf_count(pool).await?;
-
-    let tree_depth = super::get_tree_depth().await;
 
     // Create metadata
     let metadata = TreeCacheMetadata {

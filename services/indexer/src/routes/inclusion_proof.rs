@@ -137,7 +137,7 @@ pub(crate) async fn handler(
         .into_iter()
         .map(|u| u.try_into().unwrap())
         .collect();
-    
+
     // Pad the siblings array to TREE_DEPTH (the compile-time constant used in the type system)
     // This is needed because the actual tree may have a smaller depth (e.g., 6 in tests)
     // but the response type uses the hardcoded TREE_DEPTH constant (30)

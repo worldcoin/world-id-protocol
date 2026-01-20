@@ -17,11 +17,11 @@ use world_id_indexer::config::{
 #[serial]
 async fn test_backfill_and_live_sync() {
     let setup = TestSetup::new_with_tree_depth(6).await;
-    
+
     // Generate valid EdDSA public keys
     let sk1 = EdDSAPrivateKey::random(&mut rand::thread_rng());
     let pk1 = U256::from_le_slice(&sk1.public().to_compressed_bytes().unwrap());
-    
+
     let sk2 = EdDSAPrivateKey::random(&mut rand::thread_rng());
     let pk2 = U256::from_le_slice(&sk2.public().to_compressed_bytes().unwrap());
 
@@ -87,10 +87,10 @@ async fn test_backfill_and_live_sync() {
     // Generate more valid EdDSA public keys for live sync test
     let sk3 = EdDSAPrivateKey::random(&mut rand::thread_rng());
     let pk3 = U256::from_le_slice(&sk3.public().to_compressed_bytes().unwrap());
-    
+
     let sk4 = EdDSAPrivateKey::random(&mut rand::thread_rng());
     let pk4 = U256::from_le_slice(&sk4.public().to_compressed_bytes().unwrap());
-    
+
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000013"),

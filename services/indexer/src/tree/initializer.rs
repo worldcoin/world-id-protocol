@@ -14,6 +14,7 @@ use crate::db::get_max_event_id;
 pub struct TreeInitializer {
     builder: TreeBuilder,
     cache_path: PathBuf,
+    tree_depth: usize,
     dense_prefix_depth: usize,
 }
 
@@ -27,6 +28,7 @@ impl TreeInitializer {
         Self {
             builder: TreeBuilder::new(tree_depth, dense_prefix_depth, empty_value),
             cache_path: PathBuf::from(cache_file_path),
+            tree_depth,
             dense_prefix_depth,
         }
     }
@@ -120,6 +122,7 @@ impl TreeInitializer {
             pool,
             new_block,
             new_event_id,
+            self.tree_depth,
             self.dense_prefix_depth,
         )
         .await?;
@@ -153,6 +156,7 @@ impl TreeInitializer {
             pool,
             last_block,
             last_event_id,
+            self.tree_depth,
             self.dense_prefix_depth,
         )
         .await?;
