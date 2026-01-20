@@ -1,6 +1,6 @@
 use alloy::{
     primitives::Address,
-    providers::{ProviderBuilder, WsConnect},
+    providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
     sol_types::SolEvent,
 };
@@ -12,34 +12,34 @@ pub use crate::blockchain::events::{BlockchainEvent, RegistryEvent};
 
 mod events;
 
-pub struct Blockchain<HP, WP> {
-    http_provider: HP,
-    ws_provider: WP,
+pub struct Blockchain {
+    http_provider: DynProvider,
+    ws_provider: DynProvider,
     world_id_registry: Address,
 }
 
-impl<HP, WP> Blockchain<HP, WP> {
+impl Blockchain {
     pub async fn new(
         http_rpc_url: &str,
         ws_rpc_url: &str,
         world_id_registry: Address,
-    ) -> anyhow::Result<Blockchain<impl alloy::providers::Provider, impl alloy::providers::Provider>>
-    {
-        let http_provider = ProviderBuilder::new().connect_http(Url::parse(http_rpc_url)?);
+    ) -> anyhow::Result<Self> {
+        let http_provider =
+            DynProvider::new(ProviderBuilder::new().connect_http(Url::parse(http_rpc_url)?));
 
-        let ws_provider = ProviderBuilder::new()
-            .connect_ws(WsConnect::new(ws_rpc_url))
-            .await?;
+        let ws_provider = DynProvider::new(
+            ProviderBuilder::new()
+                .connect_ws(WsConnect::new(ws_rpc_url))
+                .await?,
+        );
 
-        Ok(Blockchain {
+        Ok(Self {
             http_provider,
             ws_provider,
             world_id_registry,
         })
     }
-}
 
-impl<HP: alloy::providers::Provider, WP: alloy::providers::Provider> Blockchain<HP, WP> {
     pub async fn get_world_id_events(
         &self,
         from_block: u64,

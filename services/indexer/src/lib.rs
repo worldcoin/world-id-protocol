@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
-use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+use alloy::providers::{Provider, ProviderBuilder};
 use futures_util::StreamExt;
 use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry;
@@ -162,12 +162,8 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     init_db(&pool).await?;
     tracing::info!("🟢 Database successfully initialized.");
 
-    let blockchain = Blockchain::<DynProvider, DynProvider>::new(
-        &cfg.http_rpc_url,
-        &cfg.ws_rpc_url,
-        cfg.registry_address,
-    )
-    .await?;
+    let blockchain =
+        Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
     let tree_cache_cfg = &cfg.tree_cache;
 
     match cfg.run_mode {
@@ -217,8 +213,8 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
     }
 }
 
-async fn run_indexer_only<HP: Provider, WP: Provider>(
-    blockchain: &Blockchain<HP, WP>,
+async fn run_indexer_only(
+    blockchain: &Blockchain,
     indexer_cfg: IndexerConfig,
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -299,8 +295,8 @@ async fn run_http_only(
     http_result
 }
 
-async fn run_both<HP: Provider, WP: Provider>(
-    blockchain: &Blockchain<HP, WP>,
+async fn run_both(
+    blockchain: &Blockchain,
     rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
@@ -361,8 +357,8 @@ async fn run_both<HP: Provider, WP: Provider>(
     Ok(())
 }
 
-async fn backfill_batch<HP: Provider, WP: Provider>(
-    blockchain: &Blockchain<HP, WP>,
+async fn backfill_batch(
+    blockchain: &Blockchain,
     pool: &PgPool,
     from_block: &mut u64,
     batch_size: u64,
@@ -441,8 +437,8 @@ async fn backfill_batch<HP: Provider, WP: Provider>(
 }
 
 /// Backfill the entire history of the registry.
-pub async fn backfill<HP: Provider, WP: Provider>(
-    blockchain: &Blockchain<HP, WP>,
+pub async fn backfill(
+    blockchain: &Blockchain,
     pool: &PgPool,
     from_block: &mut u64,
     batch_size: u64,
@@ -647,8 +643,8 @@ pub async fn poll_db_changes(pool: PgPool, poll_interval_secs: u64) -> anyhow::R
     }
 }
 
-pub async fn stream_logs<HP: Provider, WP: Provider>(
-    blockchain: &Blockchain<HP, WP>,
+pub async fn stream_logs(
+    blockchain: &Blockchain,
     pool: &PgPool,
     start_from: u64,
     tree_cache_params: Option<&TreeCacheParams>,
