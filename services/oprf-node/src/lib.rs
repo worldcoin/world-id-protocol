@@ -67,7 +67,6 @@ pub async fn start(
         merkle_watcher,
         rp_registry_watcher,
         config.current_time_stamp_max_difference,
-        config.signature_history_cleanup_interval,
     ));
 
     tracing::info!("init oprf service..");

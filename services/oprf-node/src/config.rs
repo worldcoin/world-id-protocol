@@ -55,16 +55,6 @@ pub struct WorldOprfNodeConfig {
     )]
     pub current_time_stamp_max_difference: Duration,
 
-    /// Interval to cleanup the signature history
-    #[clap(
-        long,
-        env = "OPRF_NODE_SIGNATURE_HISTORY_CLEANUP_INTERVAL",
-        default_value = "10min",
-        value_parser = humantime::parse_duration
-
-    )]
-    pub signature_history_cleanup_interval: Duration,
-
     /// The OPRF node config
     #[clap(flatten)]
     pub node_config: OprfNodeConfig,
