@@ -8,6 +8,7 @@ use alloy::providers::ProviderBuilder;
 use sqlx::{postgres::PgPoolOptions, Executor, PgPool};
 use test_utils::anvil::TestAnvil;
 use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_primitives::TREE_DEPTH;
 
 pub const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 const TEST_DB_NAME: &str = "indexer_tests";
@@ -21,6 +22,10 @@ pub struct TestSetup {
 
 impl TestSetup {
     pub async fn new() -> Self {
+        Self::new_with_tree_depth(TREE_DEPTH as u64).await
+    }
+
+    pub async fn new_with_tree_depth(tree_depth: u64) -> Self {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .try_init();
@@ -38,7 +43,7 @@ impl TestSetup {
         let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
         let deployer = anvil.signer(0).expect("failed to obtain deployer signer");
         let registry_address = anvil
-            .deploy_world_id_registry(deployer)
+            .deploy_world_id_registry_with_depth(deployer, tree_depth)
             .await
             .expect("failed to deploy WorldIDRegistry");
 

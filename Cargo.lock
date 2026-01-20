@@ -8270,6 +8270,7 @@ dependencies = [
  "tracing-subscriber 0.3.22",
  "url",
  "utoipa",
+ "uuid",
  "world-id-core",
  "world-id-primitives",
 ]

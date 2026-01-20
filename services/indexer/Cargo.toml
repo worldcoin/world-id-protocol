@@ -35,6 +35,7 @@ test-utils = { path = "../../crates/test-utils" }
 rand = { workspace = true }
 reqwest = { workspace = true }
 serial_test = "3"
+uuid = { version = "1", features = ["v4"] }
 
 [features]
 integration-tests = [] # running integration tests requires running external services (i.e. Postgres)

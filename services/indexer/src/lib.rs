@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
@@ -18,14 +18,192 @@ mod tree;
 
 use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
 pub use crate::db::{
-    fetch_recent_account_updates, init_db, insert_account, insert_authenticator_at_index,
-    load_checkpoint, make_db_pool, record_commitment_update, remove_authenticator_at_index,
-    save_checkpoint, update_authenticator_at_index,
+    fetch_recent_account_updates, get_max_event_id, init_db, insert_account,
+    insert_authenticator_at_index, load_checkpoint, make_db_pool, record_commitment_update,
+    remove_authenticator_at_index, save_checkpoint, update_authenticator_at_index, EventType,
 };
 use crate::events::decoders::decode_registry_event;
 use crate::events::RegistryEvent;
-use crate::tree::{build_tree_from_db, update_tree_with_commitment};
+use crate::tree::{update_tree_with_commitment, GLOBAL_TREE};
 pub use config::GlobalConfig;
+
+/// Tree cache parameters needed during indexing
+#[derive(Clone)]
+pub struct TreeCacheParams {
+    pub cache_file_path: String,
+    pub tree_depth: usize,
+    pub dense_prefix_depth: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountCreatedEvent {
+    pub leaf_index: U256,
+    pub recovery_address: Address,
+    pub authenticator_addresses: Vec<Address>,
+    pub authenticator_pubkeys: Vec<U256>,
+    pub offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountUpdatedEvent {
+    pub leaf_index: U256,
+    pub pubkey_id: u32,
+    pub new_authenticator_pubkey: U256,
+    pub old_authenticator_address: Address,
+    pub new_authenticator_address: Address,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatorInsertedEvent {
+    pub leaf_index: U256,
+    pub pubkey_id: u32,
+    pub authenticator_address: Address,
+    pub new_authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatorRemovedEvent {
+    pub leaf_index: U256,
+    pub pubkey_id: u32,
+    pub authenticator_address: Address,
+    pub authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountRecoveredEvent {
+    pub leaf_index: U256,
+    pub new_authenticator_address: Address,
+    pub new_authenticator_pubkey: U256,
+    pub old_offchain_signer_commitment: U256,
+    pub new_offchain_signer_commitment: U256,
+}
+
+async fn initialize_tree_with_config(
+    tree_cache_cfg: &config::TreeCacheConfig,
+    pool: &PgPool,
+) -> anyhow::Result<()> {
+    // Set the configured tree depth globally
+    tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
+
+    let initializer = tree::TreeInitializer::new(
+        tree_cache_cfg.cache_file_path.clone(),
+        tree_cache_cfg.tree_depth,
+        tree_cache_cfg.dense_tree_prefix_depth,
+        U256::ZERO,
+    );
+
+    let new_tree = initializer.initialize(pool).await?;
+
+    let root = new_tree.root();
+    {
+        let mut tree = GLOBAL_TREE.write().await;
+        *tree = new_tree;
+    }
+
+    // Read the metadata to get the last block number and update checkpoint
+    // This ensures backfill doesn't re-process blocks that were included in tree initialization
+    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
+    if let Ok(metadata) = tree::metadata::read_metadata(&cache_path) {
+        save_checkpoint(pool, metadata.last_block_number).await?;
+        tracing::debug!(
+            block = metadata.last_block_number,
+            "Updated checkpoint from tree metadata"
+        );
+    }
+
+    tracing::info!(
+        root = %format!("0x{:x}", root),
+        depth = tree_cache_cfg.tree_depth,
+        "Tree initialized successfully"
+    );
+    Ok(())
+}
+
+/// Background task for HttpOnly mode: periodically check for stale cache and refresh
+async fn cache_refresh_loop(
+    tree_cache_cfg: config::TreeCacheConfig,
+    pool: PgPool,
+    refresh_interval_secs: u64,
+) -> anyhow::Result<()> {
+    let check_interval = Duration::from_secs(refresh_interval_secs);
+    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
+
+    loop {
+        tokio::time::sleep(check_interval).await;
+
+        // Check if cache needs refresh
+        match check_and_refresh_cache(&tree_cache_cfg, &pool, &cache_path).await {
+            Ok(refreshed) => {
+                if refreshed {
+                    tracing::info!("Cache refreshed with new events");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(?e, "Cache refresh check failed, will retry");
+            }
+        }
+    }
+}
+
+/// Check if cache is stale and refresh if needed
+async fn check_and_refresh_cache(
+    tree_cache_cfg: &config::TreeCacheConfig,
+    pool: &PgPool,
+    cache_path: &std::path::Path,
+) -> anyhow::Result<bool> {
+    // Read current cache metadata
+    let metadata = tree::metadata::read_metadata(cache_path)?;
+
+    // Get current DB state
+    let db_state = tree::metadata::get_db_state(pool).await?;
+
+    let blocks_behind = db_state
+        .max_block_number
+        .saturating_sub(metadata.last_block_number);
+
+    if blocks_behind == 0 {
+        tracing::debug!("Cache is up-to-date");
+        return Ok(false);
+    }
+
+    tracing::info!(
+        cache_block = metadata.last_block_number,
+        current_block = db_state.max_block_number,
+        blocks_behind,
+        "Cache is stale, refreshing"
+    );
+
+    // Re-initialize tree (will restore from cache + replay missed events)
+    initialize_tree_with_config(tree_cache_cfg, pool).await?;
+
+    Ok(true)
+}
+
+async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
+    match ev {
+        RegistryEvent::AccountCreated(e) => {
+            update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment).await
+        }
+        RegistryEvent::AccountUpdated(e) => {
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AuthenticatorInserted(e) => {
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AuthenticatorRemoved(e) => {
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
+        }
+        RegistryEvent::AccountRecovered(e) => {
+            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
+        }
+    }
+}
 
 async fn start_http_server(
     rpc_url: &str,
@@ -49,6 +227,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
 
     let rpc_url = &cfg.rpc_url;
     let registry_address = cfg.registry_address;
+    let tree_cache_cfg = &cfg.tree_cache;
 
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
@@ -56,23 +235,42 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             run_indexer_only(rpc_url, registry_address, indexer_config, pool).await
         }
         RunMode::HttpOnly { http_config } => {
-            tracing::info!("Running in HTTP-ONLY mode (building tree from DB)");
-            // Build tree from DB for HTTP-only mode
+            tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
+            // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
-            build_tree_from_db(&pool).await?;
-            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_http_only(rpc_url, registry_address, http_config, pool).await
+            initialize_tree_with_config(tree_cache_cfg, &pool).await?;
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            run_http_only(
+                rpc_url,
+                registry_address,
+                http_config,
+                pool,
+                tree_cache_cfg.clone(),
+            )
+            .await
         }
         RunMode::Both {
             indexer_config,
             http_config,
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
-            // Build tree from DB for both mode
+            // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
-            build_tree_from_db(&pool).await?;
-            tracing::info!("building tree from DB took {:?}", start_time.elapsed());
-            run_both(rpc_url, registry_address, indexer_config, http_config, pool).await
+            initialize_tree_with_config(tree_cache_cfg, &pool).await?;
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            run_both(
+                rpc_url,
+                registry_address,
+                indexer_config,
+                http_config,
+                pool,
+                TreeCacheParams {
+                    cache_file_path: tree_cache_cfg.cache_file_path.clone(),
+                    tree_depth: tree_cache_cfg.tree_depth,
+                    dense_prefix_depth: tree_cache_cfg.dense_tree_prefix_depth,
+                },
+            )
+            .await
         }
     }
 }
@@ -97,12 +295,19 @@ async fn run_indexer_only(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        false, // Don't update in-memory tree
+        None, // Don't update in-memory tree or cache in indexer-only mode
     )
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, false).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        registry_address,
+        from,
+        None, // Don't update in-memory tree or cache in indexer-only mode
+    )
+    .await?;
 
     Ok(())
 }
@@ -112,6 +317,7 @@ async fn run_http_only(
     registry_address: Address,
     http_cfg: HttpConfig,
     pool: PgPool,
+    tree_cache_cfg: config::TreeCacheConfig,
 ) -> anyhow::Result<()> {
     // Start DB poller for account updates
     let poller_pool = pool.clone();
@@ -136,10 +342,22 @@ async fn run_http_only(
         }));
     }
 
+    // Start cache refresh task in the background
+    let refresh_pool = pool.clone();
+    let refresh_interval = tree_cache_cfg.http_cache_refresh_interval_secs;
+    let refresh_cache_cfg = tree_cache_cfg.clone();
+    let cache_refresh_handle = tokio::spawn(async move {
+        if let Err(e) = cache_refresh_loop(refresh_cache_cfg, refresh_pool, refresh_interval).await
+        {
+            tracing::error!(?e, "Cache refresh task failed");
+        }
+    });
+
     // Start HTTP server
     let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, pool).await;
 
     poller_handle.abort();
+    cache_refresh_handle.abort();
     if let Some(handle) = sanity_handle {
         handle.abort();
     }
@@ -152,6 +370,7 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     pool: PgPool,
+    tree_cache_params: TreeCacheParams,
 ) -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
 
@@ -189,12 +408,19 @@ async fn run_both(
         registry_address,
         &mut from,
         indexer_cfg.batch_size,
-        true, // Update in-memory tree directly from events
+        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each batch
     )
     .await?;
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(&indexer_cfg.ws_url, &pool, registry_address, from, true).await?;
+    stream_logs(
+        &indexer_cfg.ws_url,
+        &pool,
+        registry_address,
+        from,
+        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each event
+    )
+    .await?;
 
     http_handle.abort();
     if let Some(handle) = sanity_handle {
@@ -209,8 +435,8 @@ async fn backfill_batch<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    update_tree: bool,
     head: u64,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     if *from_block == 0 {
         *from_block = 1;
@@ -256,7 +482,7 @@ async fn backfill_batch<P: Provider>(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree {
+                if tree_cache_params.is_some() {
                     if let Err(e) = update_tree_with_event(&event).await {
                         tracing::error!(?e, ?event, "failed to update tree for event");
                     }
@@ -269,6 +495,28 @@ async fn backfill_batch<P: Provider>(
     }
 
     save_checkpoint(pool, to_block).await?;
+
+    // Update cache metadata if tree was updated
+    if let Some(cache_params) = tree_cache_params {
+        let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
+        let tree = GLOBAL_TREE.read().await;
+        // Get the current max event ID to track replay position
+        let current_event_id = get_max_event_id(pool).await.unwrap_or(0);
+        tree::metadata::write_metadata(
+            &cache_path_buf,
+            &tree,
+            pool,
+            to_block,
+            current_event_id,
+            cache_params.tree_depth,
+            cache_params.dense_prefix_depth,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(?e, "Failed to update cache metadata");
+        });
+    }
+
     tracing::debug!(
         from = *from_block,
         to = to_block,
@@ -285,7 +533,7 @@ pub async fn backfill<P: Provider>(
     registry: Address,
     from_block: &mut u64,
     batch_size: u64,
-    update_tree: bool,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     let mut head = provider.get_block_number().await?;
     loop {
@@ -295,8 +543,8 @@ pub async fn backfill<P: Provider>(
             registry,
             from_block,
             batch_size,
-            update_tree,
             head,
+            tree_cache_params,
         )
         .await
         {
@@ -342,7 +590,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "created",
+                    EventType::Created,
                     ev.offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -365,7 +613,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "updated",
+                    EventType::Updated,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -388,7 +636,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "inserted",
+                    EventType::Inserted,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -409,7 +657,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "removed",
+                    EventType::Removed,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -433,7 +681,7 @@ pub async fn handle_registry_event(
                 record_commitment_update(
                     pool,
                     ev.leaf_index,
-                    "recovered",
+                    EventType::Recovered,
                     ev.new_offchain_signer_commitment,
                     bn,
                     &format!("{tx:?}"),
@@ -492,32 +740,12 @@ pub async fn poll_db_changes(pool: PgPool, poll_interval_secs: u64) -> anyhow::R
     }
 }
 
-pub async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
-    match ev {
-        RegistryEvent::AccountCreated(e) => {
-            update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment).await
-        }
-        RegistryEvent::AccountUpdated(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AuthenticatorInserted(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AuthenticatorRemoved(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AccountRecovered(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-    }
-}
-
 pub async fn stream_logs(
     ws_url: &str,
     pool: &PgPool,
     registry: Address,
     start_from: u64,
-    update_tree: bool,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
     let ws = WsConnect::new(ws_url);
@@ -552,7 +780,7 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if update_tree {
+                if tree_cache_params.is_some() {
                     if let Err(e) = update_tree_with_event(&event).await {
                         tracing::error!(?e, ?event, "failed to update tree for live event");
                     }
@@ -560,6 +788,28 @@ pub async fn stream_logs(
 
                 if let Some(bn) = log.block_number {
                     save_checkpoint(pool, bn).await?;
+
+                    // Update cache metadata if tree was updated
+                    if let Some(cache_params) = tree_cache_params {
+                        let cache_path_buf =
+                            std::path::PathBuf::from(&cache_params.cache_file_path);
+                        let tree = GLOBAL_TREE.read().await;
+                        // Get the current max event ID to track replay position
+                        let current_event_id = get_max_event_id(pool).await.unwrap_or(0);
+                        tree::metadata::write_metadata(
+                            &cache_path_buf,
+                            &tree,
+                            pool,
+                            bn,
+                            current_event_id,
+                            cache_params.tree_depth,
+                            cache_params.dense_prefix_depth,
+                        )
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!(?e, "Failed to update cache metadata");
+                        });
+                    }
                 }
             }
             Err(e) => {

@@ -14,7 +14,7 @@ use world_id_primitives::{
     TREE_DEPTH,
 };
 
-use crate::tree::{tree_capacity, PoseidonHasher, GLOBAL_TREE};
+use crate::tree::{PoseidonHasher, GLOBAL_TREE};
 
 /// OpenAPI schema representation of the `AccountInclusionProof` response.
 #[derive(serde::Serialize, utoipa::ToSchema)]
@@ -102,7 +102,8 @@ pub(crate) async fn handler(
     let tree = GLOBAL_TREE.read().await;
 
     let index_as_usize = leaf_index.as_limbs()[0] as usize;
-    if index_as_usize >= tree_capacity() {
+    let capacity = crate::tree::tree_capacity().await;
+    if index_as_usize >= capacity {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
             "Leaf index out of range.".to_string(),
@@ -136,7 +137,16 @@ pub(crate) async fn handler(
         .into_iter()
         .map(|u| u.try_into().unwrap())
         .collect();
-    let siblings: [FieldElement; TREE_DEPTH] = siblings_vec.try_into().unwrap();
+
+    // Pad the siblings array to TREE_DEPTH (the compile-time constant used in the type system)
+    // This is needed because the actual tree may have a smaller depth (e.g., 6 in tests)
+    // but the response type uses the hardcoded TREE_DEPTH constant (30)
+    let mut siblings = [FieldElement::default(); TREE_DEPTH];
+    for (i, sibling) in siblings_vec.into_iter().enumerate() {
+        if i < TREE_DEPTH {
+            siblings[i] = sibling;
+        }
+    }
 
     let merkle_proof = MerkleInclusionProof::new(
         tree.root().try_into().unwrap(),
