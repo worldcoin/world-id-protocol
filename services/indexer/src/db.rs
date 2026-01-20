@@ -1,9 +1,8 @@
-use std::fmt;
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 use crate::events::AccountCreatedEvent;
 use alloy::primitives::{Address, U256};
-use sqlx::{postgres::PgPoolOptions, types::Json, PgPool, Row};
+use sqlx::{PgPool, Row, postgres::PgPoolOptions, types::Json};
 
 /// Type of commitment update event stored in the database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

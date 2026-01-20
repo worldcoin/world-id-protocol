@@ -1,13 +1,16 @@
-use alloy::network::EthereumWallet;
-use alloy::primitives::{address, Address, Bytes, TxKind, U256};
-use alloy::providers::{DynProvider, Provider, ProviderBuilder};
-use alloy::rpc::types::TransactionRequest;
-use alloy::signers::local::PrivateKeySigner;
-use alloy::sol_types::SolCall;
-use alloy::{sol, uint};
+use alloy::{
+    network::EthereumWallet,
+    primitives::{Address, Bytes, TxKind, U256, address},
+    providers::{DynProvider, Provider, ProviderBuilder},
+    rpc::types::TransactionRequest,
+    signers::local::PrivateKeySigner,
+    sol,
+    sol_types::SolCall,
+    uint,
+};
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
-use world_id_primitives::{rp::RpId, TREE_DEPTH};
+use world_id_primitives::{TREE_DEPTH, rp::RpId};
 
 /// Canonical Multicall3 address (same on all EVM chains).
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");

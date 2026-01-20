@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use moka::{future::Cache, ops::compute::Op, Expiry};
-use redis::{aio::ConnectionManager, AsyncTypedCommands, Client, SetExpiry, SetOptions};
+use moka::{Expiry, future::Cache, ops::compute::Op};
+use redis::{AsyncTypedCommands, Client, SetExpiry, SetOptions, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use world_id_core::types::{GatewayErrorResponse, GatewayRequestKind, GatewayRequestState};

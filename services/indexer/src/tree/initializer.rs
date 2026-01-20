@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-use std::time::Instant;
+use std::{path::PathBuf, time::Instant};
 
 use alloy::primitives::U256;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};

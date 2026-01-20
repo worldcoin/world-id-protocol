@@ -10,9 +10,9 @@ use alloy::{
     primitives::{Address, U160},
     providers::{Provider as _, ProviderBuilder},
     signers::{
+        SignerSync as _,
         k256::ecdsa::SigningKey,
         local::{LocalSigner, PrivateKeySigner},
-        SignerSync as _,
     },
 };
 use ark_ff::UniformRand as _;
@@ -25,29 +25,28 @@ use taceo_oprf_client::Connector;
 use taceo_oprf_core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor};
 use taceo_oprf_test::health_checks;
 use taceo_oprf_types::{
+    OprfKeyId, ShareEpoch,
     api::v1::{OprfRequest, ShareIdentifier},
     crypto::OprfPublicKey,
-    OprfKeyId, ShareEpoch,
 };
-use test_utils::anvil::RpRegistry;
-use test_utils::fixtures::build_base_credential;
+use test_utils::{anvil::RpRegistry, fixtures::build_base_credential};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 use world_id_core::{
-    proof::CircomGroth16Material,
-    requests::{ProofRequest, RequestItem, RequestVersion},
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, FieldElement,
     HashableCredential,
+    proof::CircomGroth16Material,
+    requests::{ProofRequest, RequestItem, RequestVersion},
 };
 
 use world_id_primitives::{
+    Config, TREE_DEPTH,
     authenticator::AuthenticatorPublicKeySet,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
     merkle::MerkleInclusionProof,
     oprf::OprfRequestAuthV1,
     proof::SingleProofInput,
     rp::RpId,
-    Config, TREE_DEPTH,
 };
 
 const ISSUER_SCHEMA_ID: u64 = 1;

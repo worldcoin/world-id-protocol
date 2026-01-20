@@ -3,8 +3,8 @@
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use test_utils::anvil::TestAnvil;
-use world_id_core::{types::GatewayRequestState, Authenticator, AuthenticatorError};
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
+use world_id_core::{Authenticator, AuthenticatorError, types::GatewayRequestState};
+use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
 use world_id_primitives::Config;
 
 const GW_PORT: u16 = 4102;

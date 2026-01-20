@@ -1,11 +1,11 @@
 use ark_babyjubjub::EdwardsAffine;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T3_PARAMS};
+use poseidon2::{POSEIDON2_BN254_T3_PARAMS, Poseidon2};
 use rand::Rng;
 use ruint::aliases::U256;
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
-use crate::{sponge::hash_bytes_to_field_element, FieldElement, PrimitiveError};
+use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_to_field_element};
 
 /// Domain separation tag to avoid collisions with other Poseidon2 usages.
 const ASSOCIATED_DATA_HASH_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
@@ -150,7 +150,7 @@ impl Credential {
     pub fn new() -> Self {
         let mut rng = rand::thread_rng();
         Self {
-            id: rng.gen(),
+            id: rng.r#gen(),
             version: CredentialVersion::V1,
             issuer_schema_id: 0,
             sub: FieldElement::ZERO,

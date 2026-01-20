@@ -1,9 +1,6 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
-use alloy::primitives::Address;
-use alloy::providers::DynProvider;
+use alloy::{primitives::Address, providers::DynProvider};
 use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
@@ -110,11 +107,7 @@ impl HttpConfig {
             sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS").ok().and_then(
                 |s| {
                     let val = s.parse::<u64>().ok().unwrap_or(0);
-                    if val == 0 {
-                        None
-                    } else {
-                        Some(val)
-                    }
+                    if val == 0 { None } else { Some(val) }
                 },
             ),
         };

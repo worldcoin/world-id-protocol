@@ -101,18 +101,24 @@ mod tests {
         }
 
         // All previously added signatures should still be rejected
-        assert!(signature_history
-            .add_signature(b"foo".to_vec())
-            .await
-            .is_err());
-        assert!(signature_history
-            .add_signature(b"bar".to_vec())
-            .await
-            .is_err());
-        assert!(signature_history
-            .add_signature(b"sig_5".to_vec())
-            .await
-            .is_err());
+        assert!(
+            signature_history
+                .add_signature(b"foo".to_vec())
+                .await
+                .is_err()
+        );
+        assert!(
+            signature_history
+                .add_signature(b"bar".to_vec())
+                .await
+                .is_err()
+        );
+        assert!(
+            signature_history
+                .add_signature(b"sig_5".to_vec())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

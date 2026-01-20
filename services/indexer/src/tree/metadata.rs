@@ -1,6 +1,8 @@
-use std::fs;
-use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    fs,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
