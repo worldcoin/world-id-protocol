@@ -187,7 +187,7 @@ impl TreeCacheConfig {
             dense_tree_prefix_depth: std::env::var("TREE_DENSE_PREFIX_DEPTH")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(20),
+                .unwrap_or(26),
             http_cache_refresh_interval_secs: std::env::var(
                 "TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS",
             )

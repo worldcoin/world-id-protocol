@@ -78,13 +78,15 @@ pub async fn write_metadata(
     // Get current database state
     let active_leaf_count = get_active_leaf_count(pool).await?;
 
+    let tree_depth = super::get_tree_depth().await;
+
     // Create metadata
     let metadata = TreeCacheMetadata {
         root_hash: format!("0x{:x}", tree.root()),
         last_block_number,
         last_event_id,
         active_leaf_count,
-        tree_depth: crate::tree::TREE_DEPTH,
+        tree_depth,
         dense_prefix_depth,
         created_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
