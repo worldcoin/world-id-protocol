@@ -166,6 +166,7 @@ async fn spawn_orpf_node(
             get_oprf_key_material_timeout: Duration::from_secs(60),
             start_block: Some(0),
             version_req: VersionReq::STAR,
+            region: "test-region".to_string(),
         },
     };
     let never = async { futures::future::pending::<()>().await };
@@ -248,7 +249,6 @@ async fn spawn_key_gen(
         key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.13.arks.zkey"),
         key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.13.bin"),
         max_wait_time_shutdown: Duration::from_secs(10),
-        max_epoch_cache_size: 3,
         start_block: Some(0),
         max_transaction_attempts: 3,
         max_wait_time_transaction_confirmation: Duration::from_secs(60),
