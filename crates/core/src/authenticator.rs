@@ -428,6 +428,9 @@ impl Authenticator {
 
         let mut rng = rand::thread_rng();
 
+        // use the provided session id or default to zero
+        let session_id = request_item.session_id.unwrap_or(FieldElement::ZERO);
+        // TODO store this somewhere to use for potential session proofs
         let session_id_r_seed = FieldElement::random(&mut rng);
 
         let args = SingleProofInput::<TREE_DEPTH> {
@@ -436,6 +439,7 @@ impl Authenticator {
             key_set,
             key_index,
             session_id_r_seed,
+            session_id,
             credential_sub_blinding_factor,
             rp_id: proof_request.rp_id,
             oprf_key_id: proof_request.oprf_key_id,
@@ -466,7 +470,7 @@ impl Authenticator {
         let threshold = requested_threshold.min(services.len());
 
         let mut rng = rand::thread_rng();
-        let (proof, _public, nullifier, _id_commitment) = crate::proof::nullifier(
+        let (proof, _public, nullifier) = crate::proof::nullifier(
             services,
             threshold,
             &query_material,

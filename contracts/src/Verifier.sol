@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Types} from "oprf-key-registry/src/Types.sol";
+import {OprfKeyGen} from "oprf-key-registry/src/OprfKeyGen.sol";
 import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
+import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -146,7 +147,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 authenticatorRoot,
         uint256 proofTimestamp,
         uint256 credentialIssuerId,
-        Types.Groth16Proof calldata proof
+        OprfKeyGen.Groth16Proof calldata proof
     ) external view virtual onlyProxy onlyInitialized returns (bool) {
         require(worldIDRegistry.isValidRoot(authenticatorRoot), "Invalid authenticator root");
 
@@ -157,7 +158,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
         // TODO get from rpId -> oprfKeyId mapping?
         uint160 oprfKeyId = rpId;
-        Types.BabyJubJubElement memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
+        BabyJubJub.Affine memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
         require(address(groth16VerifierNullifier) != address(0), "Groth16Verifier not set");
 

@@ -138,10 +138,12 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     pub key_set: AuthenticatorPublicKeySet,
     /// The index of the public key which will be used to sign from the set of public keys.
     pub key_index: u64,
-    /// The `r_seed` is a random seed used to generate the `session_id`. The `session_id` is a unique identifier
+    /// The `r_seed` is a random seed used to generate the `session_id`.
+    pub session_id_r_seed: FieldElement,
+    /// The `session_id` is a unique identifier
     /// for the RP+User+Action, and it lets prove the same World ID is being used
     /// in future proofs if the RP provides the valid `session_id`.
-    pub session_id_r_seed: FieldElement,
+    pub session_id: FieldElement,
     /// The factor used to blind the subject of the credential to avoid issuer correlation.
     ///
     /// This factor is hashed with the `leaf_index` to get the credential's `sub`.

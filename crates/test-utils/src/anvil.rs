@@ -80,7 +80,7 @@ sol!(
     BabyJubJub,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/src/BabyJubJub.sol/BabyJubJub.json"
+        "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
     )
 );
 
@@ -397,28 +397,72 @@ impl TestAnvil {
             .await
             .context("failed to deploy Groth16VerifierKeyGen13 contract")?;
 
-        // Step 2: Deploy BabyJubJub contract (no dependencies)
-        let babyjubjub = BabyJubJub::deploy(provider.clone())
-            .await
-            .context("failed to deploy BabyJubJub contract")?;
+        // Step 2: Deploy BabyJubJub library (no dependencies)
+        let baby_jub_jub_json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
+        ));
+        let json_value: serde_json::Value = serde_json::from_str(baby_jub_jub_json)?;
+        let bytecode_str = json_value["bytecode"]["object"]
+            .as_str()
+            .context("bytecode not found in JSON")?
+            .strip_prefix("0x")
+            .unwrap_or_else(|| {
+                json_value["bytecode"]["object"]
+                    .as_str()
+                    .expect("bytecode should be a string")
+            })
+            .to_string();
+        let baby_jub_jub_bytecode = Bytes::from(hex::decode(bytecode_str)?);
 
-        // Step 2: Deploy OprfKeyRegistry contract
-        let oprf_key_registry = OprfKeyRegistry::deploy(provider.clone())
-            .await
-            .context("failed to deploy OprfKeyRegistry contract")?;
+        let baby_jub_jub_address =
+            Self::deploy_contract(provider.clone(), baby_jub_jub_bytecode, Bytes::new())
+                .await
+                .context("failed to deploy BabyJubJub library")?;
+
+        // Step 3: Link BabyJubJub to OprfKeyRegistry
+        let oprf_key_registry_json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/OprfKeyRegistry.sol/OprfKeyRegistry.json"
+        ));
+        let json_value: serde_json::Value = serde_json::from_str(oprf_key_registry_json)?;
+        let mut bytecode_str = json_value["bytecode"]["object"]
+            .as_str()
+            .context("bytecode not found in JSON")?
+            .strip_prefix("0x")
+            .unwrap_or_else(|| {
+                json_value["bytecode"]["object"]
+                    .as_str()
+                    .expect("bytecode should be a string")
+            })
+            .to_string();
+
+        bytecode_str = Self::link_bytecode_hex(
+            oprf_key_registry_json,
+            &bytecode_str,
+            "lib/oprf-key-registry/src/BabyJubJub.sol:BabyJubJub",
+            baby_jub_jub_address,
+        )?;
+
+        // Decode the fully-linked bytecode
+        let oprf_key_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
+
+        let implementation_address =
+            Self::deploy_contract(provider.clone(), oprf_key_registry_bytecode, Bytes::new())
+                .await
+                .context("failed to deploy OprfKeyRegistry implementation")?;
 
         let init_data = Bytes::from(
             OprfKeyRegistry::initializeCall {
                 _keygenAdmin: signer.address(),
                 _keyGenVerifierAddress: *key_gen_verifier.address(),
-                _accumulatorAddress: *babyjubjub.address(),
-                _threshold: uint!(2_U256),
-                _numPeers: uint!(3_U256),
+                _threshold: 2,
+                _numPeers: 3,
             }
             .abi_encode(),
         );
 
-        let proxy = ERC1967Proxy::deploy(provider, *oprf_key_registry.address(), init_data)
+        let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await
             .context("failed to deploy OprfKeyRegistry proxy")?;
 
