@@ -78,7 +78,8 @@ pub struct GlobalConfig {
     pub environment: Environment,
     pub run_mode: RunMode,
     pub db_url: String,
-    pub rpc_url: String,
+    pub http_rpc_url: String,
+    pub ws_rpc_url: String,
     pub registry_address: Address,
     pub tree_cache: TreeCacheConfig,
 }
@@ -128,7 +129,6 @@ impl HttpConfig {
 
 #[derive(Debug)]
 pub struct IndexerConfig {
-    pub ws_url: String,
     pub start_block: u64,
     pub batch_size: u64,
 }
@@ -136,7 +136,6 @@ pub struct IndexerConfig {
 impl IndexerConfig {
     pub fn from_env() -> Self {
         let config = Self {
-            ws_url: std::env::var("WS_URL").expect("WS_URL must be set."),
             start_block: std::env::var("START_BLOCK")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -208,7 +207,8 @@ impl GlobalConfig {
 
         let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set.");
 
-        let rpc_url = std::env::var("RPC_URL").expect("RPC_URL must be set.");
+        let http_rpc_url = std::env::var("RPC_URL").expect("RPC_URL must be set.");
+        let ws_rpc_url = std::env::var("WS_URL").expect("WS_URL must be set.");
 
         let registry_address = std::env::var("REGISTRY_ADDRESS")
             .expect("REGISTRY_ADDRESS must be set.")
@@ -222,7 +222,8 @@ impl GlobalConfig {
             environment,
             run_mode,
             db_url,
-            rpc_url,
+            http_rpc_url,
+            ws_rpc_url,
             registry_address,
             tree_cache,
         }

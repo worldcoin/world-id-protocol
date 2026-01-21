@@ -25,7 +25,7 @@ pub struct TreeCacheMetadata {
     pub last_block_number: u64,
 
     /// Last event ID processed (PRIMARY CURSOR for replay)
-    /// This is the auto-incrementing ID from commitment_update_events table
+    /// This is the auto-incrementing ID from world_id_events table
     /// Using event_id instead of block_number ensures we catch all events,
     /// including those inserted later with older block numbers (e.g., during reorgs)
     pub last_event_id: i64,
