@@ -12,6 +12,9 @@ pub mod builder;
 pub mod initializer;
 pub mod metadata;
 
+#[cfg(test)]
+mod tests;
+
 pub use initializer::TreeInitializer;
 
 // Poseidon2 hasher singleton
@@ -80,26 +83,4 @@ pub async fn update_tree_with_commitment(
     let leaf_index = leaf_index.as_limbs()[0] as usize;
     set_leaf_at_index(leaf_index, new_commitment).await?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use semaphore_rs_trees::Branch;
-
-    use super::*;
-
-    #[test]
-    fn test_poseidon2_merkle_tree() {
-        use alloy::uint;
-
-        let tree = MerkleTree::<PoseidonHasher>::new(10, U256::ZERO);
-        let proof = tree.proof(0);
-        let proof = proof.0.iter().collect::<Vec<_>>();
-        assert!(
-            *proof[1]
-                == Branch::Left(uint!(
-                    15621590199821056450610068202457788725601603091791048810523422053872049975191_U256
-                ))
-        );
-    }
 }

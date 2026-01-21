@@ -75,6 +75,18 @@ async fn cache_refresh_loop(
     let check_interval = Duration::from_secs(refresh_interval_secs);
     let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
 
+    // Perform initial check immediately on startup (before first sleep)
+    match check_and_refresh_cache(&tree_cache_cfg, &pool, &cache_path).await {
+        Ok(refreshed) => {
+            if refreshed {
+                tracing::info!("Initial cache refresh completed with new events");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(?e, "Initial cache refresh check failed, will retry");
+        }
+    }
+
     loop {
         tokio::time::sleep(check_interval).await;
 
@@ -120,10 +132,17 @@ async fn check_and_refresh_cache(
         "Cache is stale, refreshing"
     );
 
-    // Re-initialize tree (will restore from cache + replay missed events)
-    initialize_tree_with_config(tree_cache_cfg, pool).await?;
+    let initializer = tree::TreeInitializer::new(
+        tree_cache_cfg.cache_file_path.clone(),
+        tree_cache_cfg.tree_depth,
+        tree_cache_cfg.dense_tree_prefix_depth,
+        U256::ZERO,
+    );
 
-    Ok(true)
+    let events_synced = initializer.sync_with_db(pool).await?;
+    tracing::info!(events_synced, "Cache refresh complete");
+
+    Ok(events_synced > 0)
 }
 
 async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {

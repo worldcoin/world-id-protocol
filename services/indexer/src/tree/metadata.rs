@@ -1,15 +1,20 @@
-use std::{
-    fs,
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use super::{MerkleTree, PoseidonHasher};
 use crate::db::{get_active_leaf_count, get_max_event_block, get_total_event_count};
+
+/// Get the metadata file path for a given cache path.
+/// Cache file: `/path/to/tree.mmap` → Metadata: `/path/to/tree.mmap.meta`
+pub fn metadata_path(cache_path: &Path) -> PathBuf {
+    cache_path.with_extension("mmap.meta")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeCacheMetadata {
@@ -53,7 +58,7 @@ pub struct DbState {
 
 /// Read metadata from .meta file
 pub fn read_metadata(cache_path: &Path) -> anyhow::Result<TreeCacheMetadata> {
-    let meta_path = cache_path.with_extension("mmap.meta");
+    let meta_path = metadata_path(cache_path);
 
     if !meta_path.exists() {
         anyhow::bail!("Metadata file does not exist: {}", meta_path.display());
@@ -97,7 +102,7 @@ pub async fn write_metadata(
     };
 
     // Write to temporary file
-    let meta_path = cache_path.with_extension("mmap.meta");
+    let meta_path = metadata_path(cache_path);
     let temp_path = cache_path.with_extension("mmap.meta.tmp");
 
     let meta_json =
