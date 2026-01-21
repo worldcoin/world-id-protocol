@@ -1,9 +1,11 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use super::{MerkleTree, PoseidonHasher};
 use crate::db::{get_active_leaf_count, get_max_event_block, get_total_event_count};

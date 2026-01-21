@@ -135,6 +135,18 @@ async fn cache_refresh_loop(
     let check_interval = Duration::from_secs(refresh_interval_secs);
     let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
 
+    // Perform initial check immediately on startup (before first sleep)
+    match check_and_refresh_cache(&tree_cache_cfg, &pool, &cache_path).await {
+        Ok(refreshed) => {
+            if refreshed {
+                tracing::info!("Initial cache refresh completed with new events");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(?e, "Initial cache refresh check failed, will retry");
+        }
+    }
+
     loop {
         tokio::time::sleep(check_interval).await;
 

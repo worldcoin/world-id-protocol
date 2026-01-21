@@ -298,17 +298,22 @@ pub async fn sync_with_db(&self, pool: &PgPool) -> Result<u64>
    - **GLOBAL_TREE continues serving requests**
    - No interruption to API availability
 
-4. **Replay Events**
+4. **Validate Root Hash**
+   - Compute root from restored tree
+   - Compare with metadata `root_hash`
+   - **If mismatch**: trigger full rebuild (corruption recovery)
+
+5. **Replay Events**
    - Fetch events in batches (10,000 per batch)
    - Deduplicate in memory (HashMap of final leaf states)
    - Apply to restored tree
 
-5. **Atomic Replacement**
+6. **Atomic Replacement**
    - Acquire write lock on `GLOBAL_TREE`
    - Assign updated tree: `*tree = updated_tree`
    - Release write lock
 
-6. **Update Metadata**
+7. **Update Metadata**
    - Write new `.mmap.meta` with updated cursor
 
 **Concurrency Guarantees**:
@@ -402,9 +407,24 @@ TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS=30   # HttpOnly mode sync interval
 - Exclusive writer access during updates
 - No internal mutability beyond RwLock
 
-### Error Handling
+### Error Handling & Cache Corruption Recovery
 
-- Metadata read failures trigger full rebuild
-- Mmap restore failures trigger full rebuild
-- Root hash mismatch triggers full rebuild
-- Event replay errors propagate to caller
+**Validation on Restore:**
+- Tree root hash is validated against metadata after mmap restore
+- Detects cache corruption from disk errors, partial writes, or tampering
+
+**Automatic Recovery:**
+- `initialize()`: Falls back to full rebuild on validation failure
+- `sync_with_db()`: Triggers full rebuild and replaces GLOBAL_TREE atomically
+- HttpOnly mode checks cache integrity on startup and during periodic refresh
+
+**Recovery Flow:**
+```
+Root Mismatch → Log Warning → Full Rebuild from DB → Replace GLOBAL_TREE → Write New Metadata
+```
+
+**Error Scenarios:**
+- Metadata read failures → full rebuild
+- Mmap restore failures → full rebuild
+- Root hash mismatch → full rebuild (automatic recovery)
+- Event replay errors → propagate to caller

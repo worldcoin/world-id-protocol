@@ -6,9 +6,11 @@ use alloy::primitives::U256;
 use semaphore_rs_trees::Branch;
 use tempfile::TempDir;
 
-use super::initializer::CacheState;
-use super::metadata::{self, TreeCacheMetadata};
-use super::{MerkleTree, PoseidonHasher, TreeInitializer};
+use super::{
+    MerkleTree, PoseidonHasher, TreeInitializer,
+    initializer::CacheState,
+    metadata::{self, TreeCacheMetadata},
+};
 
 // =============================================================================
 // Test Constants
