@@ -1,4 +1,3 @@
-use alloy::providers::DynProvider;
 use std::path::Path;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use world_id_indexer::GlobalConfig;

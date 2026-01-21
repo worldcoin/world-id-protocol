@@ -63,7 +63,7 @@ impl Blockchain {
             .get_logs(&filter)
             .await?
             .iter()
-            .map(|log| events::decode_registry_event(&log))
+            .map(events::decode_registry_event)
             .collect()
     }
 

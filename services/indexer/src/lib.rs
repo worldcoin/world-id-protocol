@@ -344,7 +344,7 @@ async fn run_both(
 
     // Backfill until head (update_tree = true for both mode)
     backfill(
-        &blockchain,
+        blockchain,
         &pool,
         &mut from,
         indexer_cfg.batch_size,
@@ -354,7 +354,7 @@ async fn run_both(
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
-        &blockchain,
+        blockchain,
         &pool,
         from,
         Some(&tree_cache_params), // Update in-memory tree and cache metadata after each event
@@ -410,11 +410,10 @@ async fn backfill_batch(
             tracing::error!(?e, ?event, "failed to handle registry event in DB");
         }
 
-        if tree_cache_params.is_some() {
-            if let Err(e) = update_tree_with_event(&event.details).await {
+        if tree_cache_params.is_some()
+            && let Err(e) = update_tree_with_event(&event.details).await {
                 tracing::error!(?e, ?event, "failed to update tree for event");
             }
-        }
     }
 
     // Update cache metadata if tree was updated
@@ -671,11 +670,10 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if tree_cache_params.is_some() {
-                    if let Err(e) = update_tree_with_event(&event.details).await {
+                if tree_cache_params.is_some()
+                    && let Err(e) = update_tree_with_event(&event.details).await {
                         tracing::error!(?e, ?event, "failed to update tree for live event");
                     }
-                }
 
                 // Update cache metadata if tree was updated
                 if let Some(cache_params) = tree_cache_params {

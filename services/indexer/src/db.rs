@@ -63,7 +63,7 @@ pub async fn get_latest_block(pool: &PgPool) -> anyhow::Result<Option<u64>> {
         sqlx::query_as("SELECT MAX(block_number) FROM world_id_events")
             .fetch_optional(pool)
             .await?;
-    Ok(rec.map(|t| t.0.map(|v| v as u64)).flatten())
+    Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
 }
 
 pub async fn insert_account(
