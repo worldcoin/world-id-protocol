@@ -654,7 +654,6 @@ async fn test_init_root_matches_contract() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -665,7 +664,8 @@ async fn test_init_root_matches_contract() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -732,7 +732,6 @@ async fn test_replay_root_matches_contract() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -743,7 +742,8 @@ async fn test_replay_root_matches_contract() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -793,7 +793,6 @@ async fn test_replay_root_matches_contract() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -804,7 +803,8 @@ async fn test_replay_root_matches_contract() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -880,7 +880,6 @@ async fn test_corrupted_cache_triggers_rebuild() {
         environment: Environment::Development,
         run_mode: RunMode::Both {
             indexer_config: IndexerConfig {
-                ws_url: setup.ws_url(),
                 start_block: 0,
                 batch_size: 1000,
             },
@@ -891,7 +890,8 @@ async fn test_corrupted_cache_triggers_rebuild() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -958,7 +958,8 @@ async fn test_corrupted_cache_triggers_rebuild() {
             },
         },
         db_url: setup.db_url.clone(),
-        rpc_url: setup.rpc_url(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
