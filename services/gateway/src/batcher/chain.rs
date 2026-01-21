@@ -30,7 +30,7 @@ pub struct ChainMonitorConfig {
     pub poll_interval: Duration,
     /// Number of blocks to keep in history
     pub history_window: usize,
-    /// EMA smoothing factor (0-1, higher = more reactive)
+    /// EMA smoothing factor
     pub ema_alpha: f64,
 }
 

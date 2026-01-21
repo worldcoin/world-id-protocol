@@ -86,6 +86,14 @@ impl StorageBackend for InMemoryBackend {
     async fn update_status(&self, id: Uuid, status: Status) -> Result<(), StorageError> {
         match self.cache.get(&id).await {
             Some(mut record) => {
+                let current = &record.status;
+                if !current.can_transition_to(&status) {
+                    return Err(StorageError::InvalidTransition {
+                        id,
+                        from: current.clone(),
+                        to: status,
+                    });
+                }
                 record.status = status;
                 self.cache.insert(id, record).await;
                 Ok(())
@@ -145,6 +153,19 @@ impl StorageBackend for RedisBackend {
     }
 
     async fn update_status(&self, id: Uuid, status: Status) -> Result<(), StorageError> {
+        match self.get(id).await? {
+            Some(record) => match record.status.can_transition_to(&status) {
+                true => record.status,
+                false => {
+                    return Err(StorageError::InvalidTransition {
+                        id,
+                        from: record.status,
+                        to: status,
+                    })
+                }
+            },
+            None => return Err(StorageError::NotFound(id)),
+        };
         let mut conn = self.conn.clone();
         let key = Self::key(id);
         let status_json = serde_json::to_string(&status)?;

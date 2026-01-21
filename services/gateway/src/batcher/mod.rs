@@ -86,13 +86,13 @@ pub enum Command {
         id: Uuid,
         request: CreateAccountRequest,
         gas: u64,
-        received_at: Instant,
+        _received_at: Instant,
     },
     Operation {
         id: Uuid,
         calldata: Bytes,
         gas: u64,
-        received_at: Instant,
+        _received_at: Instant,
     },
 }
 
@@ -103,7 +103,7 @@ impl Command {
             id,
             request,
             gas,
-            received_at: Instant::now(),
+            _received_at: Instant::now(),
         }
     }
 
@@ -113,7 +113,7 @@ impl Command {
             id,
             calldata,
             gas,
-            received_at: Instant::now(),
+            _received_at: Instant::now(),
         }
     }
 
