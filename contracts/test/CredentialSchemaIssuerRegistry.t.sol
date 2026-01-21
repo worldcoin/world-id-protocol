@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract MockOprfKeyRegistry {
     function initKeyGen(uint160 oprfKeyId) external {}
@@ -15,17 +16,25 @@ contract CredentialIssuerRegistryTest is Test {
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     CredentialSchemaIssuerRegistry private registry;
+    ERC20Mock private feeToken;
+    address private feeRecipient;
 
     function setUp() public {
+        feeRecipient = vm.addr(0x9999);
+
+        // Deploy mock ERC20 token
+        feeToken = new ERC20Mock();
+
         // Deploy implementation
         CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry();
 
         // Deploy mock OPRF key registry
         address oprfKeyRegistry = address(new MockOprfKeyRegistry());
 
-        // Deploy proxy
-        bytes memory initData =
-            abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector, oprfKeyRegistry);
+        // Deploy proxy with fee recipient, fee token, and zero fee
+        bytes memory initData = abi.encodeWithSelector(
+            CredentialSchemaIssuerRegistry.initialize.selector, feeRecipient, address(feeToken), 0, oprfKeyRegistry
+        );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         registry = CredentialSchemaIssuerRegistry(address(proxy));
@@ -362,5 +371,161 @@ contract CredentialIssuerRegistryTest is Test {
         registry.updateIssuerSchemaUri(1, schemaUri, sig);
         assertEq(registry.getIssuerSchemaUri(1), schemaUri);
         assertEq(registry.nonceOf(1), 1);
+    }
+
+    // Fee Management Tests
+
+    function testSetFeeRecipient() public {
+        address newRecipient = vm.addr(0xAAAA);
+
+        vm.expectEmit(true, true, false, true);
+        emit CredentialSchemaIssuerRegistry.FeeRecipientUpdated(feeRecipient, newRecipient);
+
+        registry.setFeeRecipient(newRecipient);
+
+        assertEq(registry.getFeeRecipient(), newRecipient);
+    }
+
+    function testCannotSetFeeRecipientToZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.ZeroAddress.selector));
+        registry.setFeeRecipient(address(0));
+    }
+
+    function testOnlyOwnerCanSetFeeRecipient() public {
+        address newRecipient = vm.addr(0xAAAA);
+        address nonOwner = vm.addr(0xBBBB);
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        registry.setFeeRecipient(newRecipient);
+        assertEq(registry.getFeeRecipient(), feeRecipient);
+    }
+
+    function testSetRegistrationFee() public {
+        uint256 newFee = 0.01 ether;
+
+        vm.expectEmit(false, false, false, true);
+        emit CredentialSchemaIssuerRegistry.RegistrationFeeUpdated(0, newFee);
+
+        registry.setRegistrationFee(newFee);
+
+        assertEq(registry.getRegistrationFee(), newFee);
+    }
+
+    function testOnlyOwnerCanSetRegistrationFee() public {
+        uint256 newFee = 1 ether;
+        address nonOwner = vm.addr(0xCCCC);
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        registry.setRegistrationFee(newFee);
+    }
+
+    function testSetFeeToken() public {
+        ERC20Mock newToken = new ERC20Mock();
+
+        vm.expectEmit(true, true, false, true);
+        emit CredentialSchemaIssuerRegistry.FeeTokenUpdated(address(feeToken), address(newToken));
+
+        registry.setFeeToken(address(newToken));
+
+        assertEq(registry.getFeeToken(), address(newToken));
+    }
+
+    function testCannotSetFeeTokenToZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.ZeroAddress.selector));
+        registry.setFeeToken(address(0));
+    }
+
+    function testOnlyOwnerCanSetFeeToken() public {
+        ERC20Mock newToken = new ERC20Mock();
+        address nonOwner = vm.addr(0xDDDD);
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        registry.setFeeToken(address(newToken));
+
+        assertEq(registry.getFeeToken(), address(feeToken));
+    }
+
+    function testRegisterWithFee() public {
+        uint256 fee = 100e18;
+        registry.setRegistrationFee(fee);
+
+        uint256 signerPk = 0xCCC1;
+        address signer = vm.addr(signerPk);
+        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("fee-test");
+
+        // Mint tokens to signer and approve registry
+        feeToken.mint(signer, fee);
+        vm.prank(signer);
+        feeToken.approve(address(registry), fee);
+
+        uint256 recipientBalanceBefore = feeToken.balanceOf(feeRecipient);
+
+        vm.prank(signer);
+        uint256 issuerSchemaId = registry.register(pubkey, signer);
+
+        assertEq(issuerSchemaId, 1);
+        assertEq(feeToken.balanceOf(feeRecipient), recipientBalanceBefore + fee);
+        assertEq(feeToken.balanceOf(signer), 0);
+    }
+
+    function testRegisterWithExcessFee() public {
+        uint256 fee = 100e18;
+        registry.setRegistrationFee(fee);
+
+        uint256 signerPk = 0xCCC2;
+        address signer = vm.addr(signerPk);
+        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("excess-fee-test");
+
+        // Mint more tokens than required and approve registry
+        feeToken.mint(signer, fee * 2);
+        vm.prank(signer);
+        feeToken.approve(address(registry), fee * 2);
+
+        uint256 recipientBalanceBefore = feeToken.balanceOf(feeRecipient);
+
+        vm.prank(signer);
+        uint256 issuerSchemaId = registry.register(pubkey, signer);
+
+        assertEq(issuerSchemaId, 1);
+        // Only the fee amount should be transferred
+        assertEq(feeToken.balanceOf(feeRecipient), recipientBalanceBefore + fee);
+        assertEq(feeToken.balanceOf(signer), fee);
+    }
+
+    function testCannotRegisterWithInsufficientFee() public {
+        uint256 fee = 100e18;
+        registry.setRegistrationFee(fee);
+
+        uint256 signerPk = 0xCCC3;
+        address signer = vm.addr(signerPk);
+        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("insufficient-fee-test");
+
+        // Mint insufficient tokens
+        feeToken.mint(signer, fee - 1);
+        vm.prank(signer);
+        feeToken.approve(address(registry), fee - 1);
+
+        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InsufficientFunds.selector));
+        vm.prank(signer);
+        registry.register(pubkey, signer);
+    }
+
+    function testRegisterWithZeroFee() public {
+        // Fee is already 0 from setUp
+        assertEq(registry.getRegistrationFee(), 0);
+
+        uint256 signerPk = 0xCCC4;
+        address signer = vm.addr(signerPk);
+        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("zero-fee-test");
+
+        // No need to mint or approve tokens when fee is 0
+        vm.prank(signer);
+        uint256 issuerSchemaId = registry.register(pubkey, signer);
+
+        assertEq(issuerSchemaId, 1);
+        assertEq(feeToken.balanceOf(feeRecipient), 0);
     }
 }
