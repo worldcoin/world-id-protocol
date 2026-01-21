@@ -193,21 +193,21 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
 
         uint256[15] memory pubSignals;
 
-        pubSignals[0] = sessionId;
-        pubSignals[1] = nullifier;
-        pubSignals[2] = credentialIssuerId;
-        pubSignals[3] = credentialIssuerPubkey.x;
-        pubSignals[4] = credentialIssuerPubkey.y;
-        pubSignals[5] = proofTimestamp;
-        pubSignals[6] = credentialGenesisIssuedAtMin;
-        pubSignals[7] = authenticatorRoot;
-        pubSignals[8] = treeDepth;
-        pubSignals[9] = uint256(rpId);
-        pubSignals[10] = action;
-        pubSignals[11] = oprfPublicKey.x;
-        pubSignals[12] = oprfPublicKey.y;
-        pubSignals[13] = signalHash;
-        pubSignals[14] = nonce;
+        pubSignals[0] = nullifier;
+        pubSignals[1] = credentialIssuerId;
+        pubSignals[2] = credentialIssuerPubkey.x;
+        pubSignals[3] = credentialIssuerPubkey.y;
+        pubSignals[4] = proofTimestamp;
+        pubSignals[5] = credentialGenesisIssuedAtMin;
+        pubSignals[6] = authenticatorRoot;
+        pubSignals[7] = treeDepth;
+        pubSignals[8] = uint256(rpId);
+        pubSignals[9] = action;
+        pubSignals[10] = oprfPublicKey.x;
+        pubSignals[11] = oprfPublicKey.y;
+        pubSignals[12] = signalHash;
+        pubSignals[13] = nonce;
+        pubSignals[14] = sessionId;
 
         verifierNullifier.verifyCompressedProof(compressedProof, pubSignals);
     }

@@ -14,27 +14,27 @@ contract NullififerVerifier is Test {
     function testVerifyNullifier() public view {
         verifier.verifyCompressedProof(
             [
-                0x11a62a784302af372005a5f6bba5881b31305f3c13b82350ce02ed9bc127c4d0,
-                0xd1d3fe4aec085b183afb7ab4508e52d87563d96a881636bca3d8e15afbce3ef,
-                0x1d03401954bff6b2b46053fa08d5d3b60c935746a435307f8ca1dbef5add6947,
-                0x4e7fbfd14327ce56399deeb81afe79c23527920e128b71f1e3e63f9f97641e6d
+                0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8,
+                0x79a6dee01c030080298a09adfd0294edc84f1650b68763d0aab5d6a1c1bbd8,
+                0x850d06c33658c9d2cc0e873cb45ad5375a31a6661cd4a11d833466ffe79b8bdd,
+                0x2c4257a1f6ab47e8432f815b1a48e8e760b541d92a1bbd7cedf1fa2ec51b4eed
             ],
             [
-                0x2e48ba260f6ee4c1fc61db48cffda1d1abf65821e37eef35125a0298417a91c0,
-                0x48611d24f30e734a57a6e3cc64908f48aa9e98f1b97e3a5ead88e4b5305c57a,
+                0x18a48a7958bc33c7fb3f6351e52a76da4615cd366dabff91fec68e0df1e8cf42,
                 0x1,
-                0x2154832e9e7a0689923ec05cc6a548e9efde6d3202df65ae86606ea768655fa0,
-                0x2915e9fea96b5e6c8ab0d7b1b1670f7fc253c2d3236ce5d1fcc170d896c8c7e8,
-                0x696e5409,
+                0x13792652ea0af01565bbb64d51607bf96447930b33e52d1bae28ad027dfddc15,
+                0x1a03e277ea354e453878e02f6e151a7a497c53e6cd9772ad33829235f89d6496,
+                0x6970f9bf,
                 0x0,
                 0xaf727d9412a9d5c73b685fd09dc39e727064e65b8269b233009edfc105f9853,
                 0x1e,
-                0xf6ddb6592eb648ff,
-                0x3ac892062c48339dd301947f75c02063e25b4ce859ebe1ef37027c6d60033d4,
-                0x2f6d3b9cfd75e5e3320da1b72f5b79c58e1f1e09a2694e453b3ce33c1a177957,
-                0x16ef9937250a3d05099d135515ecd0f1116ce760a4ae2737c2e5857eabd0519b,
+                0x3207461bd9fc9797,
+                0x29271a44e95107ab7b69f320ea73605f7651ac5ee61927205999662e3f620bd3,
+                0x1d988b77dfe70c867df95aede734b9c52cd99810f58ff109f9f13d9093cd58e2,
+                0x1c33af244fd6b4d1bec338f99a73b800633fbfa027b2b45811e715cd5b66994b,
                 0x1578ed0de47522ad0b38e87031739c6a65caecc39ce3410bf3799e756a220f,
-                0x593651f65f824ac2b289e33d52f5a785c917afcaa89816e62229d5e84508c54
+                0x2c42d5fb6f893752c1f8e6a7178a3400762a64039ded1af1190109a3f5e63a1b,
+                0x0
             ]
         );
     }
