@@ -245,22 +245,37 @@ pub async fn fetch_recent_account_updates(
 // Tree-related DB queries (extracted from tree module)
 // =============================================================================
 
-/// Fetch all account leaves for tree building.
+/// Fetch all account leaves for tree building using cursor-based pagination.
 /// Returns raw strings to let the caller handle parsing and tree-specific logic.
 pub async fn fetch_all_leaves(pool: &PgPool) -> anyhow::Result<Vec<(String, String)>> {
-    let rows = sqlx::query(
-        "SELECT leaf_index, offchain_signer_commitment FROM accounts ORDER BY leaf_index ASC",
-    )
-    .fetch_all(pool)
-    .await?;
+    const BATCH_SIZE: i64 = 100_000;
+    let mut leaves = Vec::new();
+    let mut last_leaf_index = String::from("0");
 
-    let mut leaves = Vec::with_capacity(rows.len());
-    for row in rows {
-        let leaf_index: String = row.try_get("leaf_index")?;
-        let commitment: String = row.try_get("offchain_signer_commitment")?;
-        leaves.push((leaf_index, commitment));
+    loop {
+        let rows = sqlx::query(
+            "SELECT leaf_index, offchain_signer_commitment
+             FROM accounts
+             WHERE leaf_index > $1
+             ORDER BY leaf_index ASC
+             LIMIT $2",
+        )
+        .bind(&last_leaf_index)
+        .bind(BATCH_SIZE)
+        .fetch_all(pool)
+        .await?;
+
+        if rows.is_empty() {
+            break;
+        }
+
+        for row in &rows {
+            let leaf_index: String = row.try_get("leaf_index")?;
+            let commitment: String = row.try_get("offchain_signer_commitment")?;
+            leaves.push((leaf_index.clone(), commitment));
+            last_leaf_index = leaf_index;
+        }
     }
-
     Ok(leaves)
 }
 
