@@ -711,4 +711,25 @@ contract WorldIDRegistryTest is Test {
             alternateRecoveryAddress, twoAuthenticators, twoAuthenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
     }
+
+    function test_SetMaxAuthenticators_RevertWhen_ValueAtLimit() public {
+        // Should revert when trying to set maxAuthenticators to exactly 160 (the limit)
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
+        worldIDRegistry.setMaxAuthenticators(160);
+    }
+
+    function test_SetMaxAuthenticators_RevertWhen_ValueAboveLimit() public {
+        // Should revert when trying to set maxAuthenticators above 160
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
+        worldIDRegistry.setMaxAuthenticators(200);
+
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
+        worldIDRegistry.setMaxAuthenticators(type(uint256).max);
+    }
+
+    function test_SetMaxAuthenticators_SucceedsAtMaxValidValue() public {
+        // Should succeed when setting to 159 (one below the limit)
+        worldIDRegistry.setMaxAuthenticators(159);
+        assertEq(worldIDRegistry.maxAuthenticators(), 159);
+    }
 }
