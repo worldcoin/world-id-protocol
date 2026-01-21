@@ -30,7 +30,7 @@ pub use world_id_primitives::merkle::AccountInclusionProof;
 /// The request to create a new World ID account.
 #[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateAccountRequest {
     /// The recovery address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -390,6 +390,7 @@ pub enum IndexerErrorCode {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
+#[derive(PartialEq, Eq)]
 pub enum GatewayErrorCode {
     /// Internal server error occurred in the gateway.
     InternalServerError,

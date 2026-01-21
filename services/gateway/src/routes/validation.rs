@@ -1,11 +1,58 @@
-use crate::types::MAX_AUTHENTICATORS;
+use std::sync::Arc;
+
+use alloy::primitives::{Bytes, U256};
+use alloy::providers::DynProvider;
 use world_id_core::types::{
     CreateAccountRequest, GatewayErrorResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+
+use crate::types::MAX_AUTHENTICATORS;
+
+/// Type alias for the registry instance used in validation.
+pub(crate) type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
 
 /// Standard ECDSA signature length.
 const ECDSA_SIGNATURE_LEN: usize = 65;
+
+/// Trait for validating gateway requests before processing.
+///
+/// Validation consists of two phases:
+/// 1. **Pre-flight**: Synchronous checks for basic field validation
+/// 2. **Simulation**: Async contract call to verify the transaction would succeed
+pub(crate) trait RequestValidation: Sized + Sync {
+    /// Synchronous pre-flight validation.
+    ///
+    /// Checks basic constraints like field lengths, zero values, etc.
+    fn pre_flight(&self) -> Result<(), GatewayErrorResponse>;
+
+    /// Get the encoded calldata for this request.
+    ///
+    /// This produces the ABI-encoded calldata that can be used for both
+    /// simulation and actual transaction submission.
+    fn calldata(&self, registry: &Registry) -> Bytes;
+
+    /// Simulate the request against the contract.
+    ///
+    /// Calls the contract with `.call()` to check if the transaction would revert
+    /// without actually spending gas.
+    fn simulate(
+        &self,
+        registry: &Registry,
+    ) -> impl std::future::Future<Output = Result<(), GatewayErrorResponse>> + Send;
+
+    /// Full validation: pre-flight checks followed by contract simulation.
+    fn validate(
+        &self,
+        registry: &Registry,
+    ) -> impl std::future::Future<Output = Result<(), GatewayErrorResponse>> + Send {
+        async move {
+            self.pre_flight()?;
+            self.simulate(registry).await
+        }
+    }
+}
 
 /// Basic ECDSA signature validation.
 ///
@@ -24,14 +71,12 @@ fn validate_ecdsa_signature(signature: &[u8]) -> Result<(), GatewayErrorResponse
     Ok(())
 }
 
-/// Trait that performs input validation on specific requests to the gateway.
-pub(crate) trait ValidateRequest {
-    /// Perform input validation on the specific request.
-    fn validate(&self) -> Result<(), GatewayErrorResponse>;
-}
+// =============================================================================
+// CreateAccountRequest
+// =============================================================================
 
-impl ValidateRequest for CreateAccountRequest {
-    fn validate(&self) -> Result<(), GatewayErrorResponse> {
+impl RequestValidation for CreateAccountRequest {
+    fn pre_flight(&self) -> Result<(), GatewayErrorResponse> {
         if self.authenticator_addresses.len() > MAX_AUTHENTICATORS as usize {
             return Err(GatewayErrorResponse::bad_request_message(format!(
                 "authenticators cannot be more than {MAX_AUTHENTICATORS}"
@@ -59,10 +104,40 @@ impl ValidateRequest for CreateAccountRequest {
         }
         Ok(())
     }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        registry
+            .createAccount(
+                self.recovery_address.unwrap_or_default(),
+                self.authenticator_addresses.clone(),
+                self.authenticator_pubkeys.clone(),
+                self.offchain_signer_commitment,
+            )
+            .calldata()
+            .clone()
+    }
+
+    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
+        registry
+            .createAccount(
+                self.recovery_address.unwrap_or_default(),
+                self.authenticator_addresses.clone(),
+                self.authenticator_pubkeys.clone(),
+                self.offchain_signer_commitment,
+            )
+            .call()
+            .await
+            .map_err(GatewayErrorResponse::from_simulation_error)?;
+        Ok(())
+    }
 }
 
-impl ValidateRequest for InsertAuthenticatorRequest {
-    fn validate(&self) -> Result<(), GatewayErrorResponse> {
+// =============================================================================
+// InsertAuthenticatorRequest
+// =============================================================================
+
+impl RequestValidation for InsertAuthenticatorRequest {
+    fn pre_flight(&self) -> Result<(), GatewayErrorResponse> {
         if self.new_authenticator_address.is_zero() {
             return Err(GatewayErrorResponse::bad_request_message(
                 "new_authenticator_address cannot be zero".to_string(),
@@ -88,10 +163,50 @@ impl ValidateRequest for InsertAuthenticatorRequest {
         validate_ecdsa_signature(&self.signature)?;
         Ok(())
     }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        registry
+            .insertAuthenticator(
+                self.leaf_index,
+                self.new_authenticator_address,
+                self.pubkey_id,
+                self.new_authenticator_pubkey,
+                self.old_offchain_signer_commitment,
+                self.new_offchain_signer_commitment,
+                Bytes::from(self.signature.clone()),
+                self.sibling_nodes.clone(),
+                self.nonce,
+            )
+            .calldata()
+            .clone()
+    }
+
+    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
+        registry
+            .insertAuthenticator(
+                self.leaf_index,
+                self.new_authenticator_address,
+                self.pubkey_id,
+                self.new_authenticator_pubkey,
+                self.old_offchain_signer_commitment,
+                self.new_offchain_signer_commitment,
+                Bytes::from(self.signature.clone()),
+                self.sibling_nodes.clone(),
+                self.nonce,
+            )
+            .call()
+            .await
+            .map_err(GatewayErrorResponse::from_simulation_error)?;
+        Ok(())
+    }
 }
 
-impl ValidateRequest for UpdateAuthenticatorRequest {
-    fn validate(&self) -> Result<(), GatewayErrorResponse> {
+// =============================================================================
+// UpdateAuthenticatorRequest
+// =============================================================================
+
+impl RequestValidation for UpdateAuthenticatorRequest {
+    fn pre_flight(&self) -> Result<(), GatewayErrorResponse> {
         if self.leaf_index.is_zero() {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
@@ -117,10 +232,53 @@ impl ValidateRequest for UpdateAuthenticatorRequest {
         validate_ecdsa_signature(&self.signature)?;
         Ok(())
     }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        registry
+            .updateAuthenticator(
+                self.leaf_index,
+                self.old_authenticator_address,
+                self.new_authenticator_address,
+                self.pubkey_id,
+                self.new_authenticator_pubkey,
+                self.old_offchain_signer_commitment,
+                self.new_offchain_signer_commitment,
+                Bytes::from(self.signature.clone()),
+                self.sibling_nodes.clone(),
+                self.nonce,
+            )
+            .calldata()
+            .clone()
+    }
+
+    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
+        registry
+            .updateAuthenticator(
+                self.leaf_index,
+                self.old_authenticator_address,
+                self.new_authenticator_address,
+                self.pubkey_id,
+                self.new_authenticator_pubkey,
+                self.old_offchain_signer_commitment,
+                self.new_offchain_signer_commitment,
+                Bytes::from(self.signature.clone()),
+                self.sibling_nodes.clone(),
+                self.nonce,
+            )
+            .call()
+            .await
+            .map_err(GatewayErrorResponse::from_simulation_error)?;
+
+        Ok(())
+    }
 }
 
-impl ValidateRequest for RemoveAuthenticatorRequest {
-    fn validate(&self) -> Result<(), GatewayErrorResponse> {
+// =============================================================================
+// RemoveAuthenticatorRequest
+// =============================================================================
+
+impl RequestValidation for RemoveAuthenticatorRequest {
+    fn pre_flight(&self) -> Result<(), GatewayErrorResponse> {
         let pubkey_id = self.pubkey_id.unwrap_or(0);
 
         if self.leaf_index.is_zero() {
@@ -148,10 +306,56 @@ impl ValidateRequest for RemoveAuthenticatorRequest {
         validate_ecdsa_signature(&self.signature)?;
         Ok(())
     }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        let pubkey_id = self.pubkey_id.unwrap_or(0);
+        let authenticator_pubkey = self.authenticator_pubkey.unwrap_or(U256::ZERO);
+
+        registry
+            .removeAuthenticator(
+                self.leaf_index,
+                self.authenticator_address,
+                pubkey_id,
+                authenticator_pubkey,
+                self.old_offchain_signer_commitment,
+                self.new_offchain_signer_commitment,
+                Bytes::from(self.signature.clone()),
+                self.sibling_nodes.clone(),
+                self.nonce,
+            )
+            .calldata()
+            .clone()
+    }
+
+    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
+        let pubkey_id = self.pubkey_id.unwrap_or(0);
+        let authenticator_pubkey = self.authenticator_pubkey.unwrap_or(U256::ZERO);
+
+        registry
+            .removeAuthenticator(
+                self.leaf_index,
+                self.authenticator_address,
+                pubkey_id,
+                authenticator_pubkey,
+                self.old_offchain_signer_commitment,
+                self.new_offchain_signer_commitment,
+                Bytes::from(self.signature.clone()),
+                self.sibling_nodes.clone(),
+                self.nonce,
+            )
+            .call()
+            .await
+            .map(|_| ())
+            .map_err(GatewayErrorResponse::from_simulation_error)
+    }
 }
 
-impl ValidateRequest for RecoverAccountRequest {
-    fn validate(&self) -> Result<(), GatewayErrorResponse> {
+// =============================================================================
+// RecoverAccountRequest
+// =============================================================================
+
+impl RequestValidation for RecoverAccountRequest {
+    fn pre_flight(&self) -> Result<(), GatewayErrorResponse> {
         if self.leaf_index.is_zero() {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
@@ -170,6 +374,45 @@ impl ValidateRequest for RecoverAccountRequest {
             ));
         }
         validate_ecdsa_signature(&self.signature)?;
+        Ok(())
+    }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        let new_pubkey = self.new_authenticator_pubkey.unwrap_or(U256::ZERO);
+
+        registry
+            .recoverAccount(
+                self.leaf_index,
+                self.new_authenticator_address,
+                new_pubkey,
+                self.old_offchain_signer_commitment,
+                self.new_offchain_signer_commitment,
+                Bytes::from(self.signature.clone()),
+                self.sibling_nodes.clone(),
+                self.nonce,
+            )
+            .calldata()
+            .clone()
+    }
+
+    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
+        let new_pubkey = self.new_authenticator_pubkey.unwrap_or(U256::ZERO);
+
+        registry
+            .recoverAccount(
+                self.leaf_index,
+                self.new_authenticator_address,
+                new_pubkey,
+                self.old_offchain_signer_commitment,
+                self.new_offchain_signer_commitment,
+                Bytes::from(self.signature.clone()),
+                self.sibling_nodes.clone(),
+                self.nonce,
+            )
+            .call()
+            .await
+            .map_err(GatewayErrorResponse::from_simulation_error)?;
+
         Ok(())
     }
 }

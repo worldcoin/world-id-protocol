@@ -3,15 +3,14 @@ use std::sync::Arc;
 
 use crate::routes::build_app;
 use crate::types::AppState;
-use request_tracker::RequestTracker;
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
+mod batcher;
 mod config;
-mod create_batcher;
-mod ops_batcher;
-mod request_tracker;
+mod request;
 mod routes;
+mod storage;
 mod types;
 
 pub use crate::config::GatewayConfig;
