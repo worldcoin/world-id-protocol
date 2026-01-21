@@ -351,3 +351,155 @@ impl TreeBuilder {
         Ok(max_index)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_builder(tree_depth: usize, dense_prefix_depth: usize) -> TreeBuilder {
+        TreeBuilder::new(tree_depth, dense_prefix_depth, U256::ZERO)
+    }
+
+    #[test]
+    fn test_sparse_allocation_bounded_by_max_index_not_tree_depth() {
+        // This test verifies the key memory optimization:
+        // We allocate O(max_leaf_index), not O(2^tree_depth)
+        let builder = create_builder(20, 16); // 2^20 = 1M leaves if fully allocated
+
+        let rows = vec![
+            ("1".to_string(), "100".to_string()),
+            ("10000".to_string(), "200".to_string()), // max index = 10k
+        ];
+
+        let sparse = builder.build_sparse_leaves(&rows).unwrap();
+
+        // Allocation should be max_index + 1, not 2^20
+        assert_eq!(sparse.len(), 10_001);
+        assert!(
+            sparse.len() < 1 << 16,
+            "Sparse vec size {} should be less than dense prefix size {}",
+            sparse.len(),
+            1 << 16
+        );
+    }
+
+    #[test]
+    fn test_sparse_leaves_empty_input() {
+        let builder = create_builder(10, 8);
+        let rows: Vec<(String, String)> = vec![];
+
+        let sparse = builder.build_sparse_leaves(&rows).unwrap();
+
+        assert!(sparse.is_empty());
+    }
+
+    #[test]
+    fn test_sparse_leaves_skips_index_zero() {
+        let builder = create_builder(10, 8);
+        let rows = vec![
+            ("0".to_string(), "999".to_string()), // Reserved, should be skipped
+            ("5".to_string(), "123".to_string()),
+        ];
+
+        let sparse = builder.build_sparse_leaves(&rows).unwrap();
+
+        assert_eq!(sparse.len(), 6); // 0..=5
+        assert!(sparse[0].is_none()); // Index 0 not set
+        assert_eq!(sparse[5], Some(U256::from(123)));
+    }
+
+    #[test]
+    fn test_sparse_leaves_rejects_out_of_range() {
+        let builder = create_builder(10, 8); // max capacity = 2^10 = 1024
+
+        let rows = vec![("2000".to_string(), "100".to_string())]; // Out of range
+
+        let result = builder.build_sparse_leaves(&rows);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sparse_build_produces_same_root_as_dense_allocation() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let depth = 10;
+        let dense_prefix = 8;
+        let dense_prefix_size = 1 << dense_prefix; // 256
+        let empty = U256::ZERO;
+
+        // Test data with leaves both within and beyond dense prefix (256)
+        let leaf_data: Vec<(usize, U256)> = vec![
+            (1, U256::from(100)),
+            (5, U256::from(200)),
+            (100, U256::from(300)),
+            (300, U256::from(400)), // Beyond dense prefix
+        ];
+
+        // REFERENCE: Dense allocation for prefix + incremental for rest
+        // This is how the library is designed to be used
+        let mut dense_leaves = vec![U256::ZERO; dense_prefix_size];
+        for (idx, val) in &leaf_data {
+            if *idx < dense_prefix_size {
+                dense_leaves[*idx] = *val;
+            }
+        }
+        let mut reference_tree =
+            MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
+                depth,
+                dense_prefix,
+                &empty,
+                &dense_leaves,
+                temp_dir.path().join("ref.mmap").to_str().unwrap(),
+            )
+            .unwrap();
+
+        // Apply leaves beyond dense prefix
+        for (idx, val) in &leaf_data {
+            if *idx >= dense_prefix_size {
+                reference_tree = reference_tree.update_with_mutation(*idx, val);
+            }
+        }
+
+        // SPARSE METHOD: Allocate only up to max_index, split at dense boundary
+        let max_idx = leaf_data.iter().map(|(i, _)| *i).max().unwrap();
+        let mut sparse: Vec<Option<U256>> = vec![None; max_idx + 1];
+        for (idx, val) in &leaf_data {
+            sparse[*idx] = Some(*val);
+        }
+
+        let dense_count = std::cmp::min(sparse.len(), dense_prefix_size);
+        let (dense_part, sparse_part) = sparse.split_at(dense_count);
+
+        // Pad dense part to full dense_prefix_size
+        let dense_vec: Vec<U256> = dense_part
+            .iter()
+            .map(|opt| opt.unwrap_or(empty))
+            .chain(std::iter::repeat_n(empty, dense_prefix_size - dense_count))
+            .collect();
+
+        let mut sparse_tree =
+            MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
+                depth,
+                dense_prefix,
+                &empty,
+                &dense_vec,
+                temp_dir.path().join("sparse.mmap").to_str().unwrap(),
+            )
+            .unwrap();
+
+        // Apply sparse remainder incrementally
+        for (i, opt) in sparse_part.iter().enumerate() {
+            if let Some(val) = opt {
+                sparse_tree = sparse_tree.update_with_mutation(dense_prefix_size + i, val);
+            }
+        }
+
+        // THE KEY INVARIANT: roots must match
+        assert_eq!(
+            reference_tree.root(),
+            sparse_tree.root(),
+            "Sparse build must produce identical root to dense allocation"
+        );
+    }
+}
