@@ -1,7 +1,9 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256};
-use alloy::providers::{Provider, ProviderBuilder};
+use alloy::{
+    primitives::{Address, U256},
+    providers::{Provider, ProviderBuilder},
+};
 use futures_util::StreamExt;
 use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry;
@@ -13,15 +15,17 @@ mod routes;
 mod sanity_check;
 mod tree;
 
-use crate::blockchain::{Blockchain, BlockchainEvent, RegistryEvent};
-use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
-use crate::db::get_max_event_id;
 pub use crate::db::{
     EventType, fetch_recent_account_updates, get_latest_block, init_db, insert_account,
     insert_authenticator_at_index, make_db_pool, record_commitment_update,
     remove_authenticator_at_index, update_authenticator_at_index,
 };
-use crate::tree::{GLOBAL_TREE, update_tree_with_commitment};
+use crate::{
+    blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
+    config::{AppState, HttpConfig, IndexerConfig, RunMode},
+    db::get_max_event_id,
+    tree::{GLOBAL_TREE, update_tree_with_commitment},
+};
 pub use config::GlobalConfig;
 
 /// Tree cache parameters needed during indexing
@@ -411,9 +415,10 @@ async fn backfill_batch(
         }
 
         if tree_cache_params.is_some()
-            && let Err(e) = update_tree_with_event(&event.details).await {
-                tracing::error!(?e, ?event, "failed to update tree for event");
-            }
+            && let Err(e) = update_tree_with_event(&event.details).await
+        {
+            tracing::error!(?e, ?event, "failed to update tree for event");
+        }
     }
 
     // Update cache metadata if tree was updated
@@ -671,9 +676,10 @@ pub async fn stream_logs(
                 }
 
                 if tree_cache_params.is_some()
-                    && let Err(e) = update_tree_with_event(&event.details).await {
-                        tracing::error!(?e, ?event, "failed to update tree for live event");
-                    }
+                    && let Err(e) = update_tree_with_event(&event.details).await
+                {
+                    tracing::error!(?e, ?event, "failed to update tree for live event");
+                }
 
                 // Update cache metadata if tree was updated
                 if let Some(cache_params) = tree_cache_params {

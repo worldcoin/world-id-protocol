@@ -1,6 +1,7 @@
-use alloy::primitives::{Address, U256};
-use alloy::primitives::{FixedBytes, Log};
-use alloy::sol_types::SolEvent;
+use alloy::{
+    primitives::{Address, FixedBytes, Log, U256},
+    sol_types::SolEvent,
+};
 use world_id_core::world_id_registry::WorldIdRegistry;
 
 #[derive(Debug, Clone)]
