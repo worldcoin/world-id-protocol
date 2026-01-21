@@ -182,7 +182,11 @@ pub fn generate_rp_fixture() -> RpFixture {
     let signing_key = SigningKey::random(&mut rng);
     let signer = PrivateKeySigner::from_signing_key(signing_key.clone());
 
-    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
+    let msg = world_id_primitives::rp_signature::compute_rp_signature_msg(
+        nonce,
+        action,
+        current_timestamp,
+    );
     let signature = signer.sign_message_sync(&msg).expect("can sign");
 
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));

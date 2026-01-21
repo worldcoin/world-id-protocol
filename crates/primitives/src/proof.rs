@@ -162,15 +162,12 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     pub action: FieldElement,
     /// The unique identifier for this proof request. Provided by the RP.
     pub nonce: FieldElement,
-    /// The timestamp from the RP's request.
-    /// TODO: Document why this is required.
+    /// The timestamp from the RP's request (unix seconds).
     pub current_timestamp: u64,
     /// The RP's signature over the request. This is used to ensure the RP is legitimately requesting the proof
     /// from the user and reduce phishing surface area.
     ///
-    /// The signature is computed over `H(nonce || timestamp)`, ECDSA on the `secp256k1` curve.
-    ///
-    /// TODO: Refactor what is actually signed.
+    /// The signature is computed over `nonce || action || timestamp`, ECDSA on the `secp256k1` curve.
     pub rp_signature: alloy_primitives::Signature,
     /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
     /// to ensure the integrity of the proof. For example, in a voting application, the signal could

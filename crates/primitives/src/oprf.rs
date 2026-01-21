@@ -24,15 +24,8 @@ pub struct OprfRequestAuthV1 {
     pub merkle_root: ark_babyjubjub::Fq,
     /// The current time stamp (unix secs)
     pub current_time_stamp: u64,
-    /// The signature of the nonce || timestamp
+    /// The signature of the nonce || action || timestamp
     pub signature: alloy_primitives::Signature,
     /// The `rp_id`
     pub rp_id: RpId,
 }
-
-/// Computes the message to be signed for the RP signature over the nonce and timestamp.
-///
-/// # Deprecated
-/// This function has been moved to `crate::rp_signature::compute_rp_signature_msg`.
-/// This re-export is provided for backwards compatibility.
-pub use crate::rp_signature::compute_rp_signature_msg;
