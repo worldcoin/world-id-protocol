@@ -141,12 +141,14 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @param nullifier The nullifier hash to verify uniqueness
      * @param action The action identifier
      * @param rpId The relying party identifier
-     * @param sessionId The identifier for a specific RP<>World ID session.
+     * @param sessionId The identifier for a specific RPW-specific session.
      * @param nonce The nonce used in the proof
-     * @param signalHash The hash of the signal being signed
+     * @param signalHash The hash of the signal which was committed in the proof
      * @param authenticatorRoot The merkle root of the authenticator set
      * @param proofTimestamp The timestamp when the proof was generated
      * @param credentialIssuerId The ID of the credential issuer
+     * @param credentialGenesisIssuedAtMin (Proof constraint, public input). The minimum timestamp for when the credential
+     *   was **initially** issued. This may be set to `0` to essentially skip the constraint.
      * @param compressedProof The compressed Groth16 proof
      */
     function verify(
@@ -159,6 +161,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 authenticatorRoot,
         uint256 proofTimestamp,
         uint256 credentialIssuerId,
+        uint256 credentialGenesisIssuedAtMin,
         uint256[4] calldata compressedProof
     ) external view virtual onlyProxy onlyInitialized {
         require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
@@ -196,7 +199,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         pubSignals[3] = credentialIssuerPubkey.x;
         pubSignals[4] = credentialIssuerPubkey.y;
         pubSignals[5] = proofTimestamp;
-        pubSignals[6] = 0; // TODO get cred_genesis_issued_at_min from somewhere
+        pubSignals[6] = credentialGenesisIssuedAtMin;
         pubSignals[7] = authenticatorRoot;
         pubSignals[8] = treeDepth;
         pubSignals[9] = uint256(rpId);
