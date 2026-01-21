@@ -157,18 +157,23 @@ async fn start_http_server(
 }
 
 pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
+    tracing::info!("Connecting to DB...");
     let pool = make_db_pool(&cfg.db_url).await?;
     tracing::info!("Connection to DB successful. Initializing database...");
     init_db(&pool).await?;
     tracing::info!("🟢 Database successfully initialized.");
 
-    let blockchain =
-        Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
     let tree_cache_cfg = &cfg.tree_cache;
 
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
+
+            tracing::info!("Connecting to blockchain...");
+            let blockchain =
+                Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
+            tracing::info!("Connection to blockchain successful.");
+
             run_indexer_only(&blockchain, indexer_config, pool).await
         }
         RunMode::HttpOnly { http_config } => {
@@ -191,6 +196,12 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             http_config,
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
+
+            tracing::info!("Connecting to blockchain...");
+            let blockchain =
+                Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
+            tracing::info!("Connection to blockchain successful.");
+
             // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
             initialize_tree_with_config(tree_cache_cfg, &pool).await?;
