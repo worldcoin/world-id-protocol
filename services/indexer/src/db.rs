@@ -70,8 +70,8 @@ pub async fn insert_account(
     pool: &PgPool,
     leaf_index: &U256,
     recovery_address: &Address,
-    authenticator_addresses: &Vec<Address>,
-    authenticator_pubkeys: &Vec<U256>,
+    authenticator_addresses: &[Address],
+    authenticator_pubkeys: &[U256],
     offchain_signer_commitment: &U256,
 ) -> anyhow::Result<()> {
     sqlx::query(
