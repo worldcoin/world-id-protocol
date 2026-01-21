@@ -490,10 +490,10 @@ async fn backfill_batch<P: Provider>(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if tree_cache_params.is_some() {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for event");
-                    }
+                if tree_cache_params.is_some()
+                    && let Err(e) = update_tree_with_event(&event).await
+                {
+                    tracing::error!(?e, ?event, "failed to update tree for event");
                 }
             }
             Err(e) => {
@@ -788,10 +788,10 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if tree_cache_params.is_some() {
-                    if let Err(e) = update_tree_with_event(&event).await {
-                        tracing::error!(?e, ?event, "failed to update tree for live event");
-                    }
+                if tree_cache_params.is_some()
+                    && let Err(e) = update_tree_with_event(&event).await
+                {
+                    tracing::error!(?e, ?event, "failed to update tree for live event");
                 }
 
                 if let Some(bn) = log.block_number {

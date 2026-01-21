@@ -282,7 +282,7 @@ impl TreeInitializer {
         let tree_for_metadata = GLOBAL_TREE.read().await;
         metadata::write_metadata(
             &self.cache_path,
-            &*tree_for_metadata,
+            &tree_for_metadata,
             pool,
             new_block,
             new_event_id,
