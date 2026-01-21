@@ -50,29 +50,103 @@ impl TreeBuilder {
         Ok(tree)
     }
 
-    /// Build tree from DB with mmap backing
+    /// Build tree from DB with mmap backing using memory-efficient sparse allocation.
+    ///
+    /// Instead of allocating a full 2^depth vector (32GB for depth 30), this method:
+    /// 1. Allocates a sparse vector only up to max_leaf_index
+    /// 2. Splits leaves at the dense_prefix_depth boundary
+    /// 3. Creates mmap with only the dense portion (2^dense_prefix_depth leaves)
+    /// 4. Applies sparse remainder incrementally via update_with_mutation
+    ///
     /// Returns (tree, last_block_number, last_event_id)
     pub async fn build_from_db_with_cache(
         &self,
         pool: &PgPool,
         cache_path: &Path,
     ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, u64, i64)> {
-        info!("Building tree from database with mmap cache");
+        info!("Building tree from database with mmap cache (memory-efficient)");
 
-        let leaves = self.process_leaves_from_db(pool).await?;
+        let rows = fetch_all_leaves(pool).await?;
+        info!("Fetched {} accounts from database", rows.len());
 
         let cache_path_str = cache_path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Invalid cache file path"))?;
 
-        let tree = MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
-            self.tree_depth,
-            self.dense_prefix_depth,
-            &self.empty_value,
-            &leaves,
-            cache_path_str,
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
+        // Step 1: Build sparse vector only up to max_leaf_index (NOT 2^depth)
+        // This is the key optimization - we only allocate what we need
+        let sparse_leaves = self.build_sparse_leaves(&rows)?;
+        let sparse_len = sparse_leaves.len();
+
+        info!(
+            sparse_vec_size = sparse_len,
+            dense_prefix_size = 1usize << self.dense_prefix_depth,
+            "Built sparse leaves vector"
+        );
+
+        // Step 2: Split at dense_prefix_depth boundary
+        let dense_prefix_size = 1usize << self.dense_prefix_depth;
+        let dense_count = std::cmp::min(sparse_len, dense_prefix_size);
+        let (dense_leaves, sparse_remainder) = sparse_leaves.split_at(dense_count);
+
+        // Step 3: Build dense vector for mmap creation (only 2^dense_prefix_depth items max)
+        // Pad with empty values if we have fewer leaves than dense_prefix_size
+        let dense_vec: Vec<U256> = if dense_count < dense_prefix_size {
+            // Pad sparse leaves to fill dense prefix
+            dense_leaves
+                .iter()
+                .map(|opt| opt.unwrap_or(self.empty_value))
+                .chain(std::iter::repeat_n(self.empty_value, dense_prefix_size - dense_count))
+                .collect()
+        } else {
+            dense_leaves
+                .iter()
+                .map(|opt| opt.unwrap_or(self.empty_value))
+                .collect()
+        };
+
+        info!(
+            dense_vec_len = dense_vec.len(),
+            sparse_remainder_len = sparse_remainder.len(),
+            "Split leaves into dense and sparse portions"
+        );
+
+        // Step 4: Create mmap tree with dense portion only
+        let mut tree =
+            MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
+                self.tree_depth,
+                self.dense_prefix_depth,
+                &self.empty_value,
+                &dense_vec,
+                cache_path_str,
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
+
+        // Step 5: Apply sparse remainder incrementally
+        if !sparse_remainder.is_empty() {
+            let sparse_count = sparse_remainder.iter().filter(|opt| opt.is_some()).count();
+            info!(
+                total_sparse = sparse_remainder.len(),
+                non_empty_sparse = sparse_count,
+                "Applying sparse leaves beyond dense prefix"
+            );
+
+            let base_index = dense_prefix_size;
+            for (i, opt_value) in sparse_remainder.iter().enumerate() {
+                if let Some(value) = opt_value {
+                    let leaf_index = base_index + i;
+                    tree = tree.update_with_mutation(leaf_index, value);
+                }
+                // Progress logging every 100k leaves
+                if i > 0 && i % 100_000 == 0 {
+                    info!(
+                        progress = i,
+                        total = sparse_remainder.len(),
+                        "Applying sparse leaves"
+                    );
+                }
+            }
+        }
 
         // Get the last block number and event ID from DB
         let last_block_number = get_max_event_block(pool).await?;
@@ -204,14 +278,30 @@ impl TreeBuilder {
         Ok((tree, final_block, final_event_id))
     }
 
-    /// Helper: fetch and process all leaves from DB into a tree-ready format
-    async fn process_leaves_from_db(&self, pool: &PgPool) -> anyhow::Result<Vec<U256>> {
-        let rows = fetch_all_leaves(pool).await?;
+    /// Helper: build sparse leaves vector from DB rows.
+    ///
+    /// Key optimization: allocates only up to max_leaf_index + 1, not 2^depth.
+    /// For a tree with 1M accounts, this uses ~32MB instead of 32GB.
+    fn build_sparse_leaves(&self, rows: &[(String, String)]) -> anyhow::Result<Vec<Option<U256>>> {
+        if rows.is_empty() {
+            return Ok(vec![]);
+        }
 
-        info!("Fetched {} accounts from database", rows.len());
+        // Find max leaf index to determine sparse vector size
+        // Rows are already sorted by leaf_index ASC from the DB query
+        let max_leaf_index = self.find_max_leaf_index(rows)?;
 
         let capacity = 1usize << self.tree_depth;
-        let mut leaves = vec![U256::ZERO; capacity];
+        if max_leaf_index >= capacity {
+            anyhow::bail!(
+                "max leaf index {} out of range for tree depth {}",
+                max_leaf_index,
+                self.tree_depth
+            );
+        }
+
+        // Allocate sparse vector only up to max_leaf_index (NOT 2^depth)
+        let mut sparse_leaves: Vec<Option<U256>> = vec![None; max_leaf_index + 1];
 
         for (leaf_index_str, offchain_str) in rows {
             let leaf_index: U256 = leaf_index_str
@@ -224,13 +314,6 @@ impl TreeBuilder {
             }
 
             let leaf_index = leaf_index.as_limbs()[0] as usize;
-            if leaf_index >= capacity {
-                anyhow::bail!(
-                    "leaf index {} out of range for tree depth {}",
-                    leaf_index,
-                    self.tree_depth
-                );
-            }
 
             let leaf_val = offchain_str.parse::<U256>().with_context(|| {
                 format!(
@@ -238,9 +321,33 @@ impl TreeBuilder {
                     offchain_str
                 )
             })?;
-            leaves[leaf_index] = leaf_val;
+            sparse_leaves[leaf_index] = Some(leaf_val);
         }
 
-        Ok(leaves)
+        Ok(sparse_leaves)
+    }
+
+    /// Find the maximum leaf index from sorted DB rows.
+    fn find_max_leaf_index(&self, rows: &[(String, String)]) -> anyhow::Result<usize> {
+        // Rows are sorted ASC, so we need to find the actual max
+        // (last row should have highest index, but let's be safe)
+        let mut max_index: usize = 0;
+
+        for (leaf_index_str, _) in rows {
+            let leaf_index: U256 = leaf_index_str
+                .parse()
+                .with_context(|| format!("Failed to parse leaf_index: {}", leaf_index_str))?;
+
+            if leaf_index == U256::ZERO {
+                continue;
+            }
+
+            let idx = leaf_index.as_limbs()[0] as usize;
+            if idx > max_index {
+                max_index = idx;
+            }
+        }
+
+        Ok(max_index)
     }
 }
