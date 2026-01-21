@@ -1,3 +1,7 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+use dotenvy as _;
+use tracing_subscriber as _;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
