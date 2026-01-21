@@ -35,7 +35,7 @@ rust-test:
 	cargo test --workspace -q
 
 rust-fmt:
-	cargo fmt --all
+	cargo +nightly fmt --all
 
 rust-clippy:
 	cargo clippy --workspace --all-targets -- -D warnings

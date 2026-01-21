@@ -7,7 +7,7 @@ use ark_babyjubjub::Fq;
 use ark_ec::CurveGroup;
 use ark_ff::{AdditiveGroup, PrimeField};
 use eddsa_babyjubjub::EdDSAPrivateKey;
-use eyre::{eyre, WrapErr as _};
+use eyre::{WrapErr as _, eyre};
 use rand::thread_rng;
 use ruint::aliases::U256;
 use taceo_oprf_client::BlindingFactor;
@@ -15,14 +15,15 @@ use taceo_oprf_core::{dlog_equality::DLogEqualityProof, oprf::BlindedOprfRespons
 use taceo_oprf_types::crypto::OprfPublicKey;
 use test_utils::{
     anvil::{CredentialSchemaIssuerRegistry, WorldIDRegistry},
-    fixtures::{build_base_credential, generate_rp_fixture, RegistryTestContext},
+    fixtures::{RegistryTestContext, build_base_credential, generate_rp_fixture},
     merkle::first_leaf_merkle_path,
 };
 
-use world_id_core::{proof, FieldElement, HashableCredential, OnchainKeyRepresentable};
+use world_id_core::{FieldElement, HashableCredential, OnchainKeyRepresentable, proof};
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
-    merkle::MerkleInclusionProof, proof::SingleProofInput, TREE_DEPTH,
+    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
+    circuit_inputs::NullifierProofCircuitInput, merkle::MerkleInclusionProof,
+    proof::SingleProofInput,
 };
 
 /// Tests and verifies a Nullifier Proof with locally deployed contracts on Anvil and

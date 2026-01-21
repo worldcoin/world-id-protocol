@@ -3,7 +3,7 @@
 #![allow(clippy::missing_errors_doc)]
 
 use ruint::aliases::U256;
-use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 /// Serialize/deserialize `U256` as a `0x`-prefixed hex string.
 pub mod hex_u256 {

@@ -1,11 +1,11 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256};
-use alloy::providers::{Provider, ProviderBuilder, WsConnect};
-use alloy::rpc::types::Filter;
-use alloy::sol_types::SolEvent;
+use alloy::{
+    primitives::{Address, U256},
+    providers::{Provider, ProviderBuilder, WsConnect},
+    rpc::types::Filter,
+    sol_types::SolEvent,
+};
 use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
@@ -16,15 +16,16 @@ mod routes;
 mod sanity_check;
 mod tree;
 
-use crate::config::{AppState, HttpConfig, IndexerConfig, RunMode};
 pub use crate::db::{
-    fetch_recent_account_updates, get_max_event_id, init_db, insert_account,
+    EventType, fetch_recent_account_updates, get_max_event_id, init_db, insert_account,
     insert_authenticator_at_index, load_checkpoint, make_db_pool, record_commitment_update,
-    remove_authenticator_at_index, save_checkpoint, update_authenticator_at_index, EventType,
+    remove_authenticator_at_index, save_checkpoint, update_authenticator_at_index,
 };
-use crate::events::decoders::decode_registry_event;
-use crate::events::RegistryEvent;
-use crate::tree::{update_tree_with_commitment, GLOBAL_TREE};
+use crate::{
+    config::{AppState, HttpConfig, IndexerConfig, RunMode},
+    events::{RegistryEvent, decoders::decode_registry_event},
+    tree::{GLOBAL_TREE, update_tree_with_commitment},
+};
 pub use config::GlobalConfig;
 
 /// Tree cache parameters needed during indexing

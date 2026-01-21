@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use alloy::primitives::U256;
 use ark_bn254::Fr;
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T2_PARAMS};
+use poseidon2::{POSEIDON2_BN254_T2_PARAMS, Poseidon2};
 use semaphore_rs_hasher::Hasher;
 pub use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use tokio::sync::RwLock;

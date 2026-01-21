@@ -1,12 +1,10 @@
 #![cfg(feature = "integration-tests")]
 mod common;
 
-use std::fs;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::{fs, path::PathBuf, time::Duration};
 
-use alloy::primitives::{address, U256};
-use common::{query_count, TestSetup};
+use alloy::primitives::{U256, address};
+use common::{TestSetup, query_count};
 use serial_test::serial;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,

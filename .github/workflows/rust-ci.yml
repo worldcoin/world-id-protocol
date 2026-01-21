@@ -53,8 +53,12 @@ jobs:
             exit 1
           fi
 
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
       - name: Check code formatting
-        run: cargo fmt -- --check
+        run: cargo +nightly fmt --all -- --check
 
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features

@@ -23,7 +23,7 @@ use std::{
 use taceo_oprf_service::OprfRequestAuthenticator;
 use taceo_oprf_types::api::v1::OprfRequest;
 use uuid::Uuid;
-use world_id_primitives::{oprf::OprfRequestAuthV1, TREE_DEPTH};
+use world_id_primitives::{TREE_DEPTH, oprf::OprfRequestAuthV1};
 
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
@@ -127,15 +127,11 @@ impl WorldOprfRequestAuthenticator {
         merkle_watcher: MerkleWatcher,
         rp_registry_watcher: RpRegistryWatcher,
         current_time_stamp_max_difference: Duration,
-        signature_history_cleanup_interval: Duration,
     ) -> Self {
         let vk: VerificationKey<Bn254> =
             serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
         Self {
-            signature_history: SignatureHistory::init(
-                current_time_stamp_max_difference * 2,
-                signature_history_cleanup_interval,
-            ),
+            signature_history: SignatureHistory::init(current_time_stamp_max_difference * 2),
             merkle_watcher,
             rp_registry_watcher,
             vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
@@ -183,7 +179,8 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
 
         // add signature to history to check if the nonces where only used once
         self.signature_history
-            .add_signature(request.auth.signature.as_bytes().to_vec(), req_time_stamp)?;
+            .add_signature(request.auth.signature.as_bytes().to_vec())
+            .await?;
 
         // check if the merkle root is valid
         let valid = self

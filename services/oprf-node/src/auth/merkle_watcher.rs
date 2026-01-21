@@ -6,9 +6,12 @@
 //! - alloy (uses the alloy crate to interact with smart contracts)
 //! - test (contains initially provided merkle roots)
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use alloy::{
@@ -51,12 +54,15 @@ impl MerkleWatcher {
     /// * `contract_address` - Address of the `WorldIDRegistry` contract
     /// * `ws_rpc_url` - WebSocket RPC URL for blockchain connection
     /// * `max_merkle_cache_size` - Maximum number of merkle roots to cache
+    /// * `root_validity_window` - Duration for which a merkle root is considered valid
+    /// * `started` - AtomicBool to indicate when the service has started
     /// * `cancellation_token` - CancellationToken to cancel the service in case of an error
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
         ws_rpc_url: &str,
         max_merkle_cache_size: u64,
+        root_validity_window: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
@@ -74,8 +80,10 @@ impl MerkleWatcher {
         let current_root = contract.currentRoot().call().await?;
         tracing::info!("root = {current_root}");
 
-        let merkle_root_cache: Cache<FieldElement, ()> =
-            Cache::builder().max_capacity(max_merkle_cache_size).build();
+        let merkle_root_cache: Cache<FieldElement, ()> = Cache::builder()
+            .max_capacity(max_merkle_cache_size)
+            .time_to_live(root_validity_window)
+            .build();
 
         // Insert current root
         merkle_root_cache.insert(current_root.try_into()?, ()).await;
@@ -176,6 +184,7 @@ mod tests {
             registry_address,
             anvil.ws_endpoint(),
             100,
+            Duration::from_secs(3600),
             started_services.new_service(),
             cancellation_token,
         )
@@ -208,5 +217,55 @@ mod tests {
             .expect("second is_root_valid call should not error");
 
         assert!(valid, "Second call should return true for valid root");
+    }
+
+    #[tokio::test]
+    async fn test_root_not_valid_after_window() {
+        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+        let signer = anvil.signer(0).expect("failed to get signer");
+        let registry_address = anvil
+            .deploy_world_id_registry(signer)
+            .await
+            .expect("failed to deploy WorldIDRegistry");
+
+        let mut started_services = StartedServices::default();
+
+        let cancellation_token = CancellationToken::new();
+
+        let merkle_watcher = MerkleWatcher::init(
+            registry_address,
+            anvil.ws_endpoint(),
+            100,
+            Duration::from_secs(1),
+            started_services.new_service(),
+            cancellation_token,
+        )
+        .await
+        .expect("failed to init MerkleWatcher");
+
+        let valid_root = WorldIdRegistry::new(registry_address, anvil.provider().unwrap())
+            .latestRoot()
+            .call()
+            .await
+            .expect("failed to fetch root");
+
+        let valid = merkle_watcher
+            .merkle_root_cache
+            .contains_key(&FieldElement::try_from(valid_root).expect("root in field"));
+        assert!(
+            valid,
+            "Root should be valid immediately after being recorded"
+        );
+
+        // wait for validity window to pass
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let valid = merkle_watcher
+            .merkle_root_cache
+            .contains_key(&FieldElement::try_from(valid_root).expect("root in field"));
+        assert!(
+            !valid,
+            "Root should not be valid after the validity window has passed"
+        );
     }
 }

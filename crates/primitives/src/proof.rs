@@ -2,13 +2,13 @@ use std::io::Cursor;
 
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
 #[cfg(feature = "oprf")]
 use taceo_oprf_types::OprfKeyId;
 
 #[cfg(feature = "oprf")]
 use crate::{
-    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId, Credential,
+    Credential, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId,
 };
 use crate::{FieldElement, PrimitiveError};
 

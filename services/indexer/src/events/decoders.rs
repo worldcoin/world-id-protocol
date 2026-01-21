@@ -2,8 +2,7 @@ use crate::events::{
     AccountCreatedEvent, AccountRecoveredEvent, AccountUpdatedEvent, AuthenticatorInsertedEvent,
     AuthenticatorRemovedEvent, RegistryEvent,
 };
-use alloy::primitives::Log;
-use alloy::sol_types::SolEvent;
+use alloy::{primitives::Log, sol_types::SolEvent};
 use world_id_core::world_id_registry::WorldIdRegistry;
 
 pub fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountCreatedEvent> {

@@ -1,13 +1,15 @@
 use std::time::Duration;
 
 use crate::RequestTracker;
-use alloy::primitives::{Address, U256};
-use alloy::providers::DynProvider;
-use tokio::sync::mpsc;
-use world_id_core::types::{
-    parse_contract_error, CreateAccountRequest, GatewayErrorCode, GatewayRequestState,
+use alloy::{
+    primitives::{Address, U256},
+    providers::DynProvider,
 };
-use world_id_core::world_id_registry::WorldIdRegistry;
+use tokio::sync::mpsc;
+use world_id_core::{
+    types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error},
+    world_id_registry::WorldIdRegistry,
+};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {

@@ -1,8 +1,7 @@
 use std::net::SocketAddr;
 
 pub use crate::config::{GatewayConfig, SignerArgs, SignerConfig};
-use crate::routes::build_app;
-use crate::types::AppState;
+use crate::{routes::build_app, types::AppState};
 use request_tracker::RequestTracker;
 use tokio::sync::oneshot;
 

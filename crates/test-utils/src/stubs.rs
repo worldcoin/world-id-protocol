@@ -1,16 +1,16 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
 use taceo_oprf_test::{
-    test_secret_manager::TestSecretManager, OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1,
-    OPRF_PEER_ADDRESS_2,
+    OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1, OPRF_PEER_ADDRESS_2,
+    test_secret_manager::TestSecretManager,
 };
 use tokio::{net::TcpListener, task::JoinHandle};
 use world_id_oprf_node::config::WorldOprfNodeConfig;
-use world_id_primitives::{merkle::AccountInclusionProof, TREE_DEPTH};
+use world_id_primitives::{TREE_DEPTH, merkle::AccountInclusionProof};
 
 use std::sync::RwLock;
 
@@ -151,8 +151,8 @@ async fn spawn_orpf_node(
         max_wait_time_shutdown: Duration::from_secs(10),
         max_merkle_cache_size: 10,
         max_rp_registry_store_size: 1000,
+        root_validity_window: Duration::from_secs(3600),
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
-        signature_history_cleanup_interval: Duration::from_secs(30),
         world_id_registry_contract,
         rp_registry_contract,
         node_config: taceo_oprf_service::config::OprfNodeConfig {

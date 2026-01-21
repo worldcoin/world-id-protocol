@@ -1,20 +1,19 @@
 use crate::config::AppState;
 use alloy::primitives::U256;
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use http::StatusCode;
-use semaphore_rs_trees::proof::InclusionProof;
-use semaphore_rs_trees::Branch;
+use semaphore_rs_trees::{Branch, proof::InclusionProof};
 use sqlx::Row;
 use world_id_core::{
-    types::{AccountInclusionProof, IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest},
     EdDSAPublicKey,
+    types::{AccountInclusionProof, IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest},
 };
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, FieldElement,
-    TREE_DEPTH,
+    FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
+    merkle::MerkleInclusionProof,
 };
 
-use crate::tree::{PoseidonHasher, GLOBAL_TREE};
+use crate::tree::{GLOBAL_TREE, PoseidonHasher};
 
 /// OpenAPI schema representation of the `AccountInclusionProof` response.
 #[derive(serde::Serialize, utoipa::ToSchema)]
