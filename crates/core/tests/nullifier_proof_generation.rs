@@ -271,12 +271,9 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .verify_proof(&proof, &public)
         .wrap_err("failed to verify nullifier proof offline")?;
 
-    // 2 outputs, 0 is id_commitment, 1 is nullifier
-    let id_commitment = public[0];
-    let nullifier = public[1];
+    let nullifier = public[0];
 
     // Basic checks on public outputs
-    assert_ne!(id_commitment, Fq::ZERO);
     assert_ne!(nullifier, Fq::ZERO);
 
     Ok(())
