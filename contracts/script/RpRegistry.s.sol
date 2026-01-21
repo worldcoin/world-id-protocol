@@ -14,7 +14,7 @@ contract DeployScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        address oprfKeyRegitryAddress = vm.envAddress("OPRF_KEY_REGISTRY_ADDRESS");
+        address oprfKeyRegistryAddress = vm.envAddress("OPRF_KEY_REGISTRY_ADDRESS");
         address feeToken = vm.envAddress("FEE_TOKEN");
         address feeRecipient = vm.envAddress("FEE_RECIPIENT");
         uint256 registrationFee = vm.envUint("REGISTRATION_FEE");
@@ -24,7 +24,7 @@ contract DeployScript is Script {
 
         // Encode initializer call
         bytes memory initData = abi.encodeWithSelector(
-            RpRegistry.initialize.selector, feeRecipient, feeToken, registrationFee, oprfKeyRegitryAddress
+            RpRegistry.initialize.selector, feeRecipient, feeToken, registrationFee, oprfKeyRegistryAddress
         );
 
         // Deploy proxy

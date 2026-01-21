@@ -80,7 +80,7 @@ sol!(
     BabyJubJub,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
+        "/../../contracts/out/src/BabyJubJub.sol/BabyJubJub.json"
     )
 );
 
@@ -224,6 +224,10 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
+        let erc20_mock = ERC20Mock::deploy(provider.clone())
+            .await
+            .context("failed to deploy ERC20Mock contract")?;
+
         let implementation = CredentialSchemaIssuerRegistry::deploy(provider.clone())
             .await
             .context("failed to deploy CredentialSchemaIssuerRegistry implementation")?;
@@ -232,6 +236,9 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             CredentialSchemaIssuerRegistry::initializeCall {
+                feeRecipient: signer.address(),
+                feeToken: *erc20_mock.address(),
+                registrationFee: uint!(0_U256),
                 oprfKeyRegistry: oprf_key_registry_address,
             }
             .abi_encode(),
