@@ -439,6 +439,7 @@ async fn execute_create_batch(
     {
         Ok(hash) => hash,
         Err(e) => {
+            // TODO: This should be retryable
             let code = parse_contract_error(&e);
             tracing::error!(target: "world_id_gateway::batcher", %e, "createManyAccounts failed");
             tracker
@@ -588,10 +589,6 @@ async fn execute_ops_batch(
         }
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// TRANSACTION HELPERS
-// ═══════════════════════════════════════════════════════════════════════════════
 
 /// Wait for transaction receipt and return success status.
 async fn await_receipt(
