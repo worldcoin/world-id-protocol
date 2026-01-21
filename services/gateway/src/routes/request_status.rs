@@ -1,5 +1,5 @@
 use crate::request_tracker::RequestTracker;
-use axum::{extract::Path, Json};
+use axum::{Json, extract::Path};
 use world_id_core::types::{GatewayErrorResponse, GatewayStatusResponse};
 
 pub(crate) async fn request_status(

@@ -6,21 +6,21 @@ use std::{
 };
 
 use alloy::{primitives::U256, signers::local::LocalSigner};
-use eyre::{eyre, Context as _, Result};
+use eyre::{Context as _, Result, eyre};
 use taceo_oprf_types::ShareEpoch;
 use test_utils::{
     fixtures::{
-        build_base_credential, generate_rp_fixture, single_leaf_merkle_fixture, MerkleFixture,
-        RegistryTestContext,
+        MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
+        single_leaf_merkle_fixture,
     },
     stubs::spawn_indexer_stub,
 };
 use world_id_core::{
-    requests::{ProofRequest, RequestItem, RequestVersion},
     Authenticator, AuthenticatorError, HashableCredential,
+    requests::{ProofRequest, RequestItem, RequestVersion},
 };
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
-use world_id_primitives::{merkle::AccountInclusionProof, Config, FieldElement, TREE_DEPTH};
+use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
 
 const GW_PORT: u16 = 4104;
 
@@ -178,7 +178,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         )
         .await?;
 
-    let oprf_public_key =
+    // Wait for OPRF key-gen and until the public key is available from the nodes.
+    let _oprf_public_key =
         test_utils::taceo_oprf_test::health_checks::oprf_public_key_from_services(
             rp_fixture.oprf_key_id,
             ShareEpoch::default(),
@@ -230,7 +231,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
         action: rp_fixture.action.into(),
-        oprf_public_key,
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {

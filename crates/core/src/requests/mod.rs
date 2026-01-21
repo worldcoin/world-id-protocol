@@ -6,13 +6,10 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
-use serde::de::Error as _;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
-use taceo_oprf_types::crypto::OprfPublicKey;
 use taceo_oprf_types::OprfKeyId;
-use world_id_primitives::rp::RpId;
-use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof};
+use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof, rp::RpId};
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -66,8 +63,6 @@ pub struct ProofRequest {
     /// When dealing with strings or bytes, such value can be hashed e.g. with a byte-friendly
     /// hash function like keccak256 or SHA256 and then reduced to a field element.
     pub action: FieldElement,
-    /// The nullifier key of the RP (FIXME: documentation & serialization after #129)
-    pub oprf_public_key: OprfPublicKey,
     /// The RP's ECDSA signature over the request
     pub signature: alloy::signers::Signature,
     /// Unique nonce for this request (serialized as hex string)
@@ -464,7 +459,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::{signers::local::PrivateKeySigner, signers::SignerSync, uint};
+    use alloy::{
+        signers::{SignerSync, local::PrivateKeySigner},
+        uint,
+    };
     use k256::ecdsa::SigningKey;
 
     // Test helpers
@@ -472,12 +470,6 @@ mod tests {
         let signer =
             PrivateKeySigner::from_signing_key(SigningKey::from_bytes(&[1u8; 32].into()).unwrap());
         signer.sign_message_sync(b"test").expect("can sign")
-    }
-
-    fn test_oprf_public_key() -> OprfPublicKey {
-        // Create a dummy point for testing
-        use ark_ec::AffineRepr;
-        OprfPublicKey::new(ark_babyjubjub::EdwardsAffine::generator())
     }
 
     fn test_nonce() -> FieldElement {
@@ -561,7 +553,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: FieldElement::ZERO,
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -601,7 +592,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: FieldElement::ZERO,
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -682,7 +672,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -757,7 +746,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -900,7 +888,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1006,7 +993,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -1048,7 +1034,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1113,7 +1098,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1250,7 +1234,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1295,7 +1278,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(5),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1344,7 +1326,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             action: test_field_element(1),
-            oprf_public_key: test_oprf_public_key(),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![

@@ -2,24 +2,27 @@
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use crate::requests::ProofRequest;
-use crate::types::{
-    AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-    IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-    IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
-    RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+use crate::{
+    Credential, FieldElement, Signer,
+    requests::ProofRequest,
+    types::{
+        AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
+        IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+        IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
+        RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+    },
+    world_id_registry::{
+        WorldIdRegistry::{self, WorldIdRegistryInstance},
+        domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
+    },
 };
-use crate::world_id_registry::WorldIdRegistry::{self, WorldIdRegistryInstance};
-use crate::world_id_registry::{
-    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
+use alloy::{
+    primitives::{Address, U256},
+    providers::{DynProvider, Provider, ProviderBuilder},
+    uint,
 };
-use crate::{Credential, FieldElement, Signer};
-use alloy::primitives::{Address, U256};
-use alloy::providers::{DynProvider, Provider, ProviderBuilder};
-use alloy::uint;
 use ark_babyjubjub::EdwardsAffine;
 use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
@@ -31,11 +34,11 @@ use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use taceo_oprf_client::Connector;
 use taceo_oprf_types::ShareEpoch;
-use world_id_primitives::authenticator::AuthenticatorPublicKeySet;
-use world_id_primitives::merkle::MerkleInclusionProof;
-use world_id_primitives::proof::SingleProofInput;
-use world_id_primitives::PrimitiveError;
-pub use world_id_primitives::{authenticator::ProtocolSigner, Config, TREE_DEPTH};
+pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
+use world_id_primitives::{
+    PrimitiveError, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    proof::SingleProofInput,
+};
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -441,7 +444,6 @@ impl Authenticator {
             nonce: proof_request.nonce,
             current_timestamp: proof_request.created_at,
             rp_signature: proof_request.signature,
-            oprf_public_key: proof_request.oprf_public_key,
             signal_hash: request_item.signal_hash(),
             genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0), // When not provided, the minimum is set to 0 to "ignore" the constraint
         };
@@ -948,7 +950,7 @@ enum PollResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::{address, U256};
+    use alloy::primitives::{U256, address};
 
     /// Tests that `get_packed_account_data` correctly fetches the packed account data from the indexer
     /// when no RPC is configured.
