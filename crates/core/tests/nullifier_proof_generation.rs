@@ -198,6 +198,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         rp_signature: rp_fixture.signature,
         signal_hash,
         session_id_r_seed: rp_fixture.rp_session_id_r_seed,
+        session_id: FieldElement::ZERO,
         genesis_issued_at_min: 0,
     };
 
@@ -252,6 +253,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
         id_commitment_r: *args.session_id_r_seed,
+        id_commitment: *args.session_id,
         dlog_e: dlog_proof.e,
         dlog_s: dlog_proof.s,
         oprf_pk: oprf_public_key.inner(),
@@ -269,12 +271,9 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .verify_proof(&proof, &public)
         .wrap_err("failed to verify nullifier proof offline")?;
 
-    // 2 outputs, 0 is id_commitment, 1 is nullifier
-    let id_commitment = public[0];
-    let nullifier = public[1];
+    let nullifier = public[0];
 
     // Basic checks on public outputs
-    assert_ne!(id_commitment, Fq::ZERO);
     assert_ne!(nullifier, Fq::ZERO);
 
     Ok(())
