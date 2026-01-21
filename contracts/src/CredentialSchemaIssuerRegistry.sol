@@ -60,12 +60,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @dev Thrown when the fee payment is not enough to cover registration.
      */
     error InsufficientFunds();
-
-    /**
-     * @dev Thrown when the registration fee is not paid.
-     */
-    error PaymentFailure();
-
     /**
      * @dev Thrown when trying to set an address to the zero address.
      */

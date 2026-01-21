@@ -157,11 +157,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     error InsufficientFunds();
 
     /**
-     * @dev Thrown when the registration fee is not paid.
-     */
-    error PaymentFailure();
-
-    /**
      * @dev Thrown when trying to set an address to the zero address.
      */
     error ZeroAddress();
