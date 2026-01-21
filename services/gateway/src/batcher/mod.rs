@@ -150,10 +150,6 @@ impl Commands {
 // Re-export for backwards compatibility
 pub type BatcherHandle = Commands;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CONFIG
-// ═══════════════════════════════════════════════════════════════════════════════
-
 /// Configuration for the batcher.
 #[derive(Clone)]
 pub struct BatcherConfig {
