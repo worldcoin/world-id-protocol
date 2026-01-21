@@ -125,6 +125,7 @@ contract ProofVerifier is Test {
             rootCorrect,
             proofTimestamp,
             credentialIssuerIdCorrect,
+            0,
             proof
         );
     }
@@ -142,6 +143,7 @@ contract ProofVerifier is Test {
             rootCorrect,
             proofTimestamp,
             credentialIssuerIdCorrect,
+            0,
             proof
         );
     }
@@ -159,6 +161,7 @@ contract ProofVerifier is Test {
             rootCorrect,
             proofTimestamp,
             credentialIssuerIdWrong, // NOTE incorrect credential issuer id
+            0,
             proof
         );
     }
@@ -182,6 +185,7 @@ contract ProofVerifier is Test {
             rootCorrect,
             proofTimestamp,
             credentialIssuerIdCorrect,
+            0,
             brokenProof
         );
     }
@@ -199,6 +203,7 @@ contract ProofVerifier is Test {
             rootWrong,
             proofTimestamp,
             credentialIssuerIdCorrect,
+            0,
             proof
         );
     }
@@ -216,6 +221,7 @@ contract ProofVerifier is Test {
             rootCorrect,
             proofTimestamp,
             credentialIssuerIdCorrect,
+            0,
             proof
         );
     }
@@ -233,6 +239,7 @@ contract ProofVerifier is Test {
             rootCorrect,
             proofTimestamp,
             credentialIssuerIdCorrect,
+            0,
             proof
         );
     }

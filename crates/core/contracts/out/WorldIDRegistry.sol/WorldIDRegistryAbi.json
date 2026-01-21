@@ -45,7 +45,7 @@
   },
   {
     "type": "function",
-    "name": "MAX_AUTHENTICATORS_LIMIT",
+    "name": "MAX_AUTHENTICATORS_HARD_LIMIT",
     "inputs": [],
     "outputs": [
       {
