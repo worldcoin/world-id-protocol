@@ -31,13 +31,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     ////////////////////////////////////////////////////////////
-    //                        Constants                       //
-    ////////////////////////////////////////////////////////////
-
-    /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
-    uint256 public constant MAX_AUTHENTICATORS_LIMIT = 160;
-
-    ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
@@ -135,6 +128,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     string public constant EIP712_NAME = "WorldIDRegistry";
     string public constant EIP712_VERSION = "1.0";
+
+    /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
+    uint256 public constant MAX_AUTHENTICATORS_LIMIT = 160;
 
     ////////////////////////////////////////////////////////////
     //                        Errors                         //
