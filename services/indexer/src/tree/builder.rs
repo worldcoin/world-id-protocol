@@ -80,8 +80,10 @@ impl TreeBuilder {
         let mut last_cursor = String::from("0");
 
         loop {
-            let batch = self.fetch_and_parse_leaves_batch(pool, &last_cursor).await?;
-            
+            let batch = self
+                .fetch_and_parse_leaves_batch(pool, &last_cursor)
+                .await?;
+
             if batch.is_empty() {
                 break;
             }
@@ -106,16 +108,14 @@ impl TreeBuilder {
             }
 
             // Progress logging every 500k rows
-            if total_leaves % 500_000 == 0 {
+            if total_leaves.is_multiple_of(500_000) {
                 info!(progress = total_leaves, "Processing leaves (first pass)");
             }
         }
 
         info!(
             total_leaves,
-            max_leaf_index,
-            dense_prefix_size,
-            "First pass complete"
+            max_leaf_index, dense_prefix_size, "First pass complete"
         );
 
         // Step 2: Convert dense leaves to vector for mmap creation
@@ -144,8 +144,10 @@ impl TreeBuilder {
             let mut last_cursor = String::from("0");
 
             loop {
-                let batch = self.fetch_and_parse_leaves_batch(pool, &last_cursor).await?;
-                
+                let batch = self
+                    .fetch_and_parse_leaves_batch(pool, &last_cursor)
+                    .await?;
+
                 if batch.is_empty() {
                     break;
                 }
@@ -163,7 +165,7 @@ impl TreeBuilder {
                 }
 
                 // Progress logging
-                if sparse_updates.len() % 500_000 == 0 {
+                if sparse_updates.len().is_multiple_of(500_000) {
                     info!(
                         sparse_collected = sparse_updates.len(),
                         "Collecting sparse leaves (second pass)"
@@ -191,7 +193,10 @@ impl TreeBuilder {
                 }
             }
 
-            info!(sparse_updates = sparse_updates.len(), "Second pass complete");
+            info!(
+                sparse_updates = sparse_updates.len(),
+                "Second pass complete"
+            );
         } else {
             info!("All leaves within dense prefix");
         }
@@ -225,9 +230,9 @@ impl TreeBuilder {
         let mut parsed_batch = Vec::with_capacity(raw_batch.len());
 
         for (leaf_index_str, commitment_str) in raw_batch {
-            let leaf_index: U256 = leaf_index_str.parse().with_context(|| {
-                format!("Failed to parse leaf_index: {}", leaf_index_str)
-            })?;
+            let leaf_index: U256 = leaf_index_str
+                .parse()
+                .with_context(|| format!("Failed to parse leaf_index: {}", leaf_index_str))?;
 
             if leaf_index == U256::ZERO {
                 continue;
@@ -373,16 +378,11 @@ impl TreeBuilder {
 
         Ok((tree, final_block, final_event_id))
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn create_builder(tree_depth: usize, dense_prefix_depth: usize) -> TreeBuilder {
-        TreeBuilder::new(tree_depth, dense_prefix_depth, U256::ZERO)
-    }
 
     #[test]
     fn test_chunk_based_tree_building() {
@@ -410,7 +410,7 @@ mod tests {
                 dense_leaves[*idx] = *val;
             }
         }
-        
+
         let mut reference_tree =
             MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
                 depth,
@@ -440,10 +440,8 @@ mod tests {
             }
         }
 
-        let chunk_dense_vec: Vec<U256> = chunk_dense
-            .iter()
-            .map(|opt| opt.unwrap_or(empty))
-            .collect();
+        let chunk_dense_vec: Vec<U256> =
+            chunk_dense.iter().map(|opt| opt.unwrap_or(empty)).collect();
 
         let mut chunk_tree =
             MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(

@@ -50,14 +50,11 @@ async fn initialize_tree_with_config(
         U256::ZERO,
     );
 
-    let new_tree = initializer.initialize(pool).await?;
+    // initialize() now updates GLOBAL_TREE internally
+    initializer.initialize(pool).await?;
 
-    let root = new_tree.root();
-    {
-        let mut tree = GLOBAL_TREE.write().await;
-        *tree = new_tree;
-    }
-
+    // Log the initialized root
+    let root = GLOBAL_TREE.read().await.root();
     tracing::info!(
         root = %format!("0x{:x}", root),
         depth = tree_cache_cfg.tree_depth,
