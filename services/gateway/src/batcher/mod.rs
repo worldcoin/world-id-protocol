@@ -5,15 +5,11 @@
 mod chain;
 pub mod gas_policy;
 
-use alloy::contract::TransportErrorExt;
-use alloy::transports::{RpcError, TransportErrorKind};
 use chain::{ChainMonitor, ChainMonitorConfig};
 pub use gas_policy::{GasPolicy, GasPolicyConfig, GasPolicyTrait};
 
-use alloy::network::TransactionBuilder;
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::{DynProvider, Provider};
-use alloy::rpc::types::TransactionRequest;
 use backon::{ExponentialBuilder, Retryable};
 use std::sync::Arc;
 use std::time::Duration;
@@ -504,7 +500,7 @@ async fn submit_create_many(
     authenticator_pubkeys: Vec<Vec<U256>>,
     offchain_signer_commitments: Vec<U256>,
 ) -> Result<alloy::primitives::TxHash, String> {
-    Ok(registry
+    registry
         .createManyAccounts(
             recovery_addresses,
             authenticator_addresses,
@@ -514,7 +510,7 @@ async fn submit_create_many(
         .send()
         .await
         .map(|pending| *pending.tx_hash())
-        .map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
 }
 
 /// Execute a batch of operations using Multicall3.
