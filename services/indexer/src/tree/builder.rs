@@ -96,7 +96,10 @@ impl TreeBuilder {
             dense_leaves
                 .iter()
                 .map(|opt| opt.unwrap_or(self.empty_value))
-                .chain(std::iter::repeat_n(self.empty_value, dense_prefix_size - dense_count))
+                .chain(std::iter::repeat_n(
+                    self.empty_value,
+                    dense_prefix_size - dense_count,
+                ))
                 .collect()
         } else {
             dense_leaves
