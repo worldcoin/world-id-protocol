@@ -260,6 +260,7 @@ async fn run_indexer_only(
         &pool,
         &mut from,
         indexer_cfg.batch_size,
+        indexer_cfg.poll_interval_secs,
         None, // Don't update in-memory tree or cache in indexer-only mode
     )
     .await?;
@@ -368,6 +369,7 @@ async fn run_both(
         &pool,
         &mut from,
         indexer_cfg.batch_size,
+        indexer_cfg.poll_interval_secs,
         Some(&tree_cache_params), // Update in-memory tree and cache metadata after each batch
     )
     .await?;
@@ -473,6 +475,7 @@ pub async fn backfill(
     pool: &PgPool,
     from_block: &mut u64,
     batch_size: u64,
+    poll_interval_secs: u64,
     tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     let mut head = blockchain.get_block_number().await?;
@@ -505,6 +508,8 @@ pub async fn backfill(
                     );
                     break;
                 }
+                // Sleep before next iteration to avoid aggressive polling
+                tokio::time::sleep(Duration::from_secs(poll_interval_secs)).await;
             }
             Err(err) => {
                 tracing::error!(?err, "backfill error; retrying after delay");
