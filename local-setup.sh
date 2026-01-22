@@ -4,6 +4,13 @@ killall -9 anvil
 killall -9 world-id-indexer
 killall -9 world-id-gateway
 
+# Clean up stale cache and database from previous runs
+echo "Cleaning up stale cache files..."
+rm -f /tmp/tree.mmap /tmp/tree.mmap.meta
+
+echo "Cleaning up stale database tables..."
+PGPASSWORD=postgres psql -h localhost -U postgres -d world_id_indexer -c "TRUNCATE accounts, world_id_events RESTART IDENTITY CASCADE;" 2>/dev/null || true
+
 anvil &
 sleep 1
 cd contracts
