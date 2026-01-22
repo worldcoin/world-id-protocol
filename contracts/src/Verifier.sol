@@ -13,6 +13,7 @@ import {IVerifier} from "./interfaces/IVerifier.sol";
 
 /**
  * @title Verifier
+ * @author World Contributors
  * @notice Verifies nullifier proofs for World ID credentials
  * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
  */

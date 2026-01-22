@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+/**
+ * @title Poseidon2T2
+ * @author World Contributors
+ * @dev Library for Poseidon2 hash function with 2 inputs
+ */
 library Poseidon2T2 {
     uint256 constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
 

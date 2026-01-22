@@ -29,6 +29,7 @@ error LeafIndexOutOfRange();
 error WrongMerkleProofPath();
 
 /// @title Incremental binary Merkle tree.
+/// @author World Contributors
 /// @dev The incremental tree allows to calculate the root hash each time a leaf is added, ensuring
 /// the integrity of the tree.
 library InternalBinaryIMT {

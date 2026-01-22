@@ -3,6 +3,11 @@ pragma solidity ^0.8.4;
 
 import {InternalBinaryIMT, BinaryIMTData} from "./InternalBinaryIMT.sol";
 
+/**
+ * @title BinaryIMT
+ * @author World Contributors
+ * @dev Library for binary incremental Merkle tree operations
+ */
 library BinaryIMT {
     using InternalBinaryIMT for *;
 

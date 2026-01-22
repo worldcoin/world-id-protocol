@@ -2,6 +2,11 @@
 
 pragma solidity >=0.8.8;
 
+/**
+ * @title Poseidon2T2Reference
+ * @author World Contributors
+ * @dev Reference implementation of Poseidon2 hash function with 2 inputs
+ */
 library Poseidon2T2Reference {
     // BN256 scalar field
     uint256 constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;

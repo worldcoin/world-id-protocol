@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IVerifierNullifier
- * @author Remco Bloemen
  * @notice Interface for Groth16 verifier supporting compressed and uncompressed proofs
  */
 interface IVerifierNullifier {

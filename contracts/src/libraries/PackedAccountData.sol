@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 /**
  * @title PackedAccountData
+ * @author World Contributors
  * @dev Library for packing and unpacking a World ID. A World ID
  * is identified primarily by its `leaf_index` which is the index of the
  * leaf of the Merkle tree where it is stored. Additional metadata is encoded

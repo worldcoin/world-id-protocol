@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 /**
  * @title ICredentialSchemaIssuerRegistry
- * @author world
+ * @author World Contributors
  * @dev Interface for the Credential Schema Issuer Registry contract
  */
 interface ICredentialSchemaIssuerRegistry {

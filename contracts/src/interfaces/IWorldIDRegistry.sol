@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 /**
  * @title IWorldIDRegistry
+ * @author World Contributors
  * @dev Interface for the World ID Registry contract
  */
 interface IWorldIDRegistry {

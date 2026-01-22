@@ -11,7 +11,7 @@ import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIss
 
 /**
  * @title CredentialSchemaIssuerRegistry
- * @author world
+ * @author World Contributors
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
 contract CredentialSchemaIssuerRegistry is
