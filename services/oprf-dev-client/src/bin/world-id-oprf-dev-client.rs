@@ -192,11 +192,7 @@ async fn run_nullifier(
         .expect("system time after epoch")
         .as_secs();
 
-    let msg = world_id_primitives::rp_signature::compute_rp_signature_msg(
-        nonce,
-        action,
-        current_timestamp,
-    );
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(nonce, action, current_timestamp);
     let signature = signer.sign_message_sync(&msg)?;
 
     let proof_request = ProofRequest {
@@ -264,11 +260,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         .expect("system time after epoch")
         .as_secs();
 
-    let msg = world_id_primitives::rp_signature::compute_rp_signature_msg(
-        nonce,
-        action,
-        current_timestamp,
-    );
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(nonce, action, current_timestamp);
     let signature = signer.sign_message_sync(&msg)?;
 
     let signal_hash = ark_babyjubjub::Fq::rand(&mut rng);

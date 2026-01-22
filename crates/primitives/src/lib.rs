@@ -63,9 +63,6 @@ pub use proof::WorldIdProof;
 /// Contains types specifically related to relying parties.
 pub mod rp;
 
-/// Contains utilities for RP signatures.
-pub mod rp_signature;
-
 /// The scalar field used in the World ID Protocol.
 ///
 /// This is the scalar field of the `BabyJubJub` curve.

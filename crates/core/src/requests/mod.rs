@@ -275,10 +275,10 @@ impl ProofRequest {
     /// Returns a `PrimitiveError` if `FieldElement` serialization fails (which should never occur in practice).
     ///
     /// The digest is computed as: `SHA256(nonce || action || created_at)`.
-    /// This mirrors the RP signature message format from `rp_signature::compute_rp_signature_msg`.
+    /// This mirrors the RP signature message format from `rp::compute_rp_signature_msg`.
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
         use k256::sha2::{Digest, Sha256};
-        use world_id_primitives::rp_signature::compute_rp_signature_msg;
+        use world_id_primitives::rp::compute_rp_signature_msg;
 
         let msg = compute_rp_signature_msg(*self.nonce, *self.action, self.created_at);
         let mut hasher = Sha256::new();
