@@ -7,8 +7,6 @@ import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
 import {PackedAccountData} from "../src/libraries/PackedAccountData.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 
 contract WorldIDRegistryTest is Test {
@@ -43,7 +41,7 @@ contract WorldIDRegistryTest is Test {
         // Ensure the initial root is recorded as valid
         uint256 root = worldIDRegistry.currentRoot();
         assertTrue(worldIDRegistry.isValidRoot(root));
-        assertEq(worldIDRegistry.rootToTimestamp(root), block.timestamp);
+        assertEq(worldIDRegistry.getRootTimestamp(root), block.timestamp);
 
         alternateRecoveryAddress = vm.addr(RECOVERY_PRIVATE_KEY_ALT);
         authenticatorAddress1 = vm.addr(AUTH1_PRIVATE_KEY);
@@ -106,18 +104,18 @@ contract WorldIDRegistryTest is Test {
         authenticatorAddresses[0] = authenticatorAddress1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);
         authenticatorPubkeys[0] = 0;
-        uint256 size = worldIDRegistry.nextLeafIndex();
+        uint256 size = worldIDRegistry.getNextLeafIndex();
         uint256 startGas = gasleft();
         worldIDRegistry.createAccount(
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
         uint256 endGas = gasleft();
         console.log("Gas used per create account:", (startGas - endGas));
-        assertEq(worldIDRegistry.nextLeafIndex(), size + 1);
+        assertEq(worldIDRegistry.getNextLeafIndex(), size + 1);
     }
 
     function test_CreateManyAccounts() public {
-        uint256 size = worldIDRegistry.nextLeafIndex();
+        uint256 size = worldIDRegistry.getNextLeafIndex();
         uint256 numAccounts = 100;
         address[] memory recoveryAddresses = new address[](numAccounts);
         address[][] memory authenticatorAddresses = new address[][](numAccounts);
@@ -139,7 +137,7 @@ contract WorldIDRegistryTest is Test {
         );
         uint256 endGas = gasleft();
         console.log("Gas used per account:", (startGas - endGas) / numAccounts);
-        assertEq(worldIDRegistry.nextLeafIndex(), size + numAccounts);
+        assertEq(worldIDRegistry.getNextLeafIndex(), size + numAccounts);
     }
 
     function test_UpdateAuthenticatorSuccess() public {
@@ -156,7 +154,7 @@ contract WorldIDRegistryTest is Test {
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // authenticatorAddress1 is assigned to account 1
-        uint256 packed1 = worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1);
+        uint256 packed1 = worldIDRegistry.getPackedAccountData(authenticatorAddress1);
         assertEq(uint192(packed1), leafIndex);
 
         (bytes memory signature, uint256[] memory proof) =
@@ -179,9 +177,9 @@ contract WorldIDRegistryTest is Test {
         console.log("Gas used per update:", (startGas - endGas));
 
         // authenticatorAddress1 has been removed
-        assertEq(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1), 0);
+        assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress1), 0);
         // authenticatorAddress2 has been added
-        uint256 packed2 = worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress2);
+        uint256 packed2 = worldIDRegistry.getPackedAccountData(authenticatorAddress2);
         assertEq(uint192(packed2), 1);
     }
 
@@ -231,7 +229,7 @@ contract WorldIDRegistryTest is Test {
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // authenticatorAddress1 is assigned to account 1
-        uint256 packed = worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1);
+        uint256 packed = worldIDRegistry.getPackedAccountData(authenticatorAddress1);
         assertEq(uint192(packed), leafIndex);
 
         (bytes memory signature, uint256[] memory proof) =
@@ -288,8 +286,8 @@ contract WorldIDRegistryTest is Test {
         console.log("Gas used per insert:", (startGas - endGas));
 
         // Both authenticators should now belong to the same account
-        assertEq(uint192(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)), leafIndex);
-        assertEq(uint192(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress2)), leafIndex);
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), leafIndex);
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress2)), leafIndex);
     }
 
     function test_InsertAuthenticatorDuplicatePubkeyId() public {
@@ -385,8 +383,8 @@ contract WorldIDRegistryTest is Test {
         );
 
         // authenticatorAddress2 should be removed; authenticatorAddress1 remains
-        assertEq(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress2), 0);
-        assertEq(uint192(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)), leafIndex);
+        assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress2), 0);
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), leafIndex);
     }
 
     function test_UpdateRecoveryAddress_SetNewAddress() public {
@@ -408,7 +406,7 @@ contract WorldIDRegistryTest is Test {
         worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
 
         assertEq(worldIDRegistry.getRecoveryAddress(leafIndex), newRecovery);
-        assertEq(worldIDRegistry.leafIndexToSignatureNonce(leafIndex), 1);
+        assertEq(worldIDRegistry.getSignatureNonce(leafIndex), 1);
     }
 
     function test_UpdateRecoveryAddress_RevertInvalidNonce() public {
@@ -469,28 +467,13 @@ contract WorldIDRegistryTest is Test {
         );
 
         // authenticatorAddress1 still associated with leafIndex = 1
-        assertEq(
-            uint192(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)), uint192(leafIndex)
-        );
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), uint192(leafIndex));
         // Recovery counter is 0 as it will only be incremented on the NEW_AUTHENTICATOR
-        assertEq(
-            PackedAccountData.recoveryCounter(
-                worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)
-            ),
-            0
-        );
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 0);
 
         // New authenticator added with higher recovery counter
-        assertEq(
-            uint192(worldIDRegistry.authenticatorAddressToPackedAccountData(newAuthenticatorAddress)),
-            uint192(leafIndex)
-        );
-        assertEq(
-            PackedAccountData.recoveryCounter(
-                worldIDRegistry.authenticatorAddressToPackedAccountData(newAuthenticatorAddress)
-            ),
-            1
-        );
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), uint192(leafIndex));
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), 1);
 
         // Check that we can create a new account with authenticatorAddress1 after recovery
         address[] memory authenticatorAddressesNew = new address[](1);
@@ -503,17 +486,9 @@ contract WorldIDRegistryTest is Test {
         );
 
         // authenticatorAddress1 now associated with leafIndex = 2
-        assertEq(
-            PackedAccountData.leafIndex(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)),
-            2
-        );
+        assertEq(PackedAccountData.leafIndex(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 2);
         // Recovery counter is 0 for leafIndex = 2
-        assertEq(
-            PackedAccountData.recoveryCounter(
-                worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1)
-            ),
-            0
-        );
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 0);
     }
 
     function test_CannotRegisterAuthenticatorAddressThatIsAlreadyInUse() public {
@@ -533,11 +508,11 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        assertEq(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1), 1);
+        assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress1), 1);
     }
 
     function test_TreeDepth() public view {
-        assertEq(worldIDRegistry.treeDepth(), 30);
+        assertEq(worldIDRegistry.getTreeDepth(), 30);
     }
 
     function test_RecoverAccountWithERC1271Wallet() public {
@@ -580,17 +555,9 @@ contract WorldIDRegistryTest is Test {
         console.log("Gas used for ERC-1271 recovery:", (startGas - endGas));
 
         // Verify recovery was successful
-        assertEq(
-            uint192(worldIDRegistry.authenticatorAddressToPackedAccountData(newAuthenticatorAddress)),
-            uint192(leafIndex)
-        );
-        assertEq(
-            PackedAccountData.recoveryCounter(
-                worldIDRegistry.authenticatorAddressToPackedAccountData(newAuthenticatorAddress)
-            ),
-            1
-        );
-        assertEq(worldIDRegistry.leafIndexToRecoveryCounter(leafIndex), 1);
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), uint192(leafIndex));
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), 1);
+        assertEq(worldIDRegistry.getRecoveryCounter(leafIndex), 1);
     }
 
     function test_MockERC1271Wallet_Validation() public {
@@ -633,7 +600,7 @@ contract WorldIDRegistryTest is Test {
         worldIDRegistry.createAccount(
             address(0), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
-        assertEq(worldIDRegistry.authenticatorAddressToPackedAccountData(authenticatorAddress1), 1);
+        assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress1), 1);
         assertEq(worldIDRegistry.getRecoveryAddress(1), address(0));
 
         // Now test that we can update the recovery address to a non-zero address
@@ -686,7 +653,7 @@ contract WorldIDRegistryTest is Test {
     function test_SetMaxAuthenticators() public {
         // Set max authenticators to 1
         worldIDRegistry.setMaxAuthenticators(1);
-        assertEq(worldIDRegistry.maxAuthenticators(), 1);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 1);
 
         // Create account with 1 authenticator should succeed
         address[] memory authenticatorAddresses = new address[](1);
@@ -730,7 +697,149 @@ contract WorldIDRegistryTest is Test {
     function test_SetMaxAuthenticators_SucceedsAtMaxValidValue() public {
         // Should succeed when setting to 159 (one below the limit)
         worldIDRegistry.setMaxAuthenticators(159);
-        assertEq(worldIDRegistry.maxAuthenticators(), 159);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 159);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //              Tests for Getter Functions                //
+    ////////////////////////////////////////////////////////////
+
+    function test_GetPackedAccountData() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 packedData = worldIDRegistry.getPackedAccountData(authenticatorAddress1);
+        assertGt(packedData, 0, "Packed data should be non-zero for registered authenticator");
+
+        // Test non-existent authenticator returns 0
+        uint256 nonExistentData = worldIDRegistry.getPackedAccountData(address(0xdead));
+        assertEq(nonExistentData, 0, "Packed data should be zero for non-existent authenticator");
+    }
+
+    function test_GetSignatureNonce() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 leafIndex = 1;
+        uint256 nonce = worldIDRegistry.getSignatureNonce(leafIndex);
+        assertEq(nonce, 0, "Initial nonce should be 0");
+
+        // Update authenticator to increment nonce
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+        (bytes memory signature, uint256[] memory proof) =
+            updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
+
+        worldIDRegistry.updateAuthenticator(
+            leafIndex,
+            authenticatorAddress1,
+            authenticatorAddress2,
+            0,
+            newCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            signature,
+            proof,
+            nonce
+        );
+
+        uint256 newNonce = worldIDRegistry.getSignatureNonce(leafIndex);
+        assertEq(newNonce, 1, "Nonce should increment after operation");
+    }
+
+    function test_GetRecoveryCounter() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 leafIndex = 1;
+        uint256 counter = worldIDRegistry.getRecoveryCounter(leafIndex);
+        assertEq(counter, 0, "Initial recovery counter should be 0");
+    }
+
+    function test_GetNextLeafIndex() public {
+        uint256 initialIndex = worldIDRegistry.getNextLeafIndex();
+        assertEq(initialIndex, 1, "Initial next leaf index should be 1");
+
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 newIndex = worldIDRegistry.getNextLeafIndex();
+        assertEq(newIndex, initialIndex + 1, "Next leaf index should increment after account creation");
+    }
+
+    function test_GetTreeDepth() public {
+        uint256 depth = worldIDRegistry.getTreeDepth();
+        assertEq(depth, 30, "Tree depth should match initialization value");
+    }
+
+    function test_GetMaxAuthenticators() public {
+        uint256 maxAuth = worldIDRegistry.getMaxAuthenticators();
+        assertEq(maxAuth, 7, "Default max authenticators should be 7");
+
+        worldIDRegistry.setMaxAuthenticators(10);
+        maxAuth = worldIDRegistry.getMaxAuthenticators();
+        assertEq(maxAuth, 10, "Max authenticators should update after setter is called");
+    }
+
+    function test_GetRootTimestamp() public {
+        uint256 currentRoot = worldIDRegistry.currentRoot();
+        uint256 timestamp = worldIDRegistry.getRootTimestamp(currentRoot);
+        assertEq(timestamp, block.timestamp, "Current root timestamp should match block timestamp");
+
+        // Test non-existent root returns 0
+        uint256 nonExistentTimestamp = worldIDRegistry.getRootTimestamp(12345);
+        assertEq(nonExistentTimestamp, 0, "Non-existent root should have timestamp of 0");
+    }
+
+    function test_GetLatestRoot() public {
+        uint256 latestRoot = worldIDRegistry.getLatestRoot();
+        uint256 currentRoot = worldIDRegistry.currentRoot();
+        assertEq(latestRoot, currentRoot, "Latest root should match current root");
+
+        // Create an account to generate a new root
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 newLatestRoot = worldIDRegistry.getLatestRoot();
+        assertNotEq(newLatestRoot, latestRoot, "Latest root should change after account creation");
+    }
+
+    function test_GetRootValidityWindow() public {
+        uint256 window = worldIDRegistry.getRootValidityWindow();
+        assertEq(window, 3600, "Default root validity window should be 3600 seconds");
+
+        worldIDRegistry.setRootValidityWindow(7200);
+        window = worldIDRegistry.getRootValidityWindow();
+        assertEq(window, 7200, "Root validity window should update after setter is called");
     }
 
     function test_isValidRoot_latestRootAlwaysValid() public {
