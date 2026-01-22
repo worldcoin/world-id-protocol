@@ -53,7 +53,7 @@ async fn cache_policy_for_root(
     now: U256,
 ) -> Result<CachePolicy, GatewayErrorResponse> {
     let ts = contract
-        .rootToTimestamp(root)
+        .getRootTimestamp(root)
         .call()
         .await
         .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
@@ -63,7 +63,7 @@ async fn cache_policy_for_root(
     }
 
     let validity_window = contract
-        .rootValidityWindow()
+        .getRootValidityWindow()
         .call()
         .await
         .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;

@@ -117,3 +117,4 @@ taceo-oprf-core = { workspace = true }
 mockito = "1.6"
 taceo-oprf-service = { workspace = true }
 taceo-oprf-test-utils = { workspace = true }
+taceo-groth16-sol = "0.1"

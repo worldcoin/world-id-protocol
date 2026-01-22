@@ -8170,6 +8170,7 @@ dependencies = [
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
+ "taceo-groth16-sol",
  "taceo-oprf-client",
  "taceo-oprf-core",
  "taceo-oprf-service",
