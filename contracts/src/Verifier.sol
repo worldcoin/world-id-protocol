@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {OprfKeyGen} from "oprf-key-registry/src/OprfKeyGen.sol";
 import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";

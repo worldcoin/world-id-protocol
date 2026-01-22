@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {Verifier} from "../src/Verifier.sol";
-import {OprfKeyGen} from "oprf-key-registry/src/OprfKeyGen.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 import {Verifier as VerifierNullifier} from "../src/VerifierNullifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
