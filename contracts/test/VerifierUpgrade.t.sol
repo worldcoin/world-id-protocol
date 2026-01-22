@@ -168,7 +168,7 @@ contract VerifierUpgradeTest is Test {
     }
 
     function test_UpdateWorldIDRegistry() public {
-        address newRegistry = address(0x6666);
+        address newRegistry = address(new WorldIDRegistryMock());
 
         vm.expectEmit(true, true, true, true);
         emit Verifier.WorldIDRegistryUpdated(worldIDRegistry, newRegistry);
