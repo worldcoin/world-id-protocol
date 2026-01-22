@@ -8,7 +8,7 @@ pragma solidity ^0.8.13;
  */
 interface IRpRegistry {
     // ========================================
-    // TYPES
+    // STRUCTS
     // ========================================
 
     struct RelyingParty {

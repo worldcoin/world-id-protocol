@@ -8,7 +8,7 @@ pragma solidity ^0.8.13;
  */
 interface ICredentialSchemaIssuerRegistry {
     // ========================================
-    // TYPES
+    // STRUCTS
     // ========================================
 
     struct Pubkey {
