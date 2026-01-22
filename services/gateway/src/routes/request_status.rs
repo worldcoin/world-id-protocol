@@ -21,6 +21,6 @@ pub(crate) async fn request_status(
     Ok(Json(GatewayStatusResponse {
         request_id: id,
         kind: record.kind,
-        status: record.status.into(),
+        status: record.status,
     }))
 }

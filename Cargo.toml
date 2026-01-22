@@ -12,7 +12,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 version = "0.3.0"
 license = "MIT"
 authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
@@ -43,11 +43,12 @@ itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
 taceo-oprf-core = { version = "0.3", default-features = false }
-taceo-oprf-types = { version = "0.3" }
-taceo-oprf-client = { version = "0.2" }
-taceo-oprf-service = { version = "0.2" }
-taceo-oprf-test = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "7ffff84" }
-taceo-oprf-key-gen = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "7ffff84" }
+taceo-oprf-types = { version = "0.4" }
+taceo-oprf-client = { version = "0.3" }
+taceo-oprf-service = { version = "0.3" }
+taceo-oprf-test-utils = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "02c6442" }
+taceo-oprf-dev-client = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "02c6442" }
+taceo-oprf-key-gen = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "02c6442" }
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
 rand = "0.8"
@@ -75,7 +76,7 @@ axum = { version = "0.8", features = ["macros", "json"] }
 moka = { version = "0.12.12", features = ["future"] }
 
 [patch.crates-io]
-taceo-oprf-core = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "7ffff84" }
-taceo-oprf-types = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "7ffff84" }
-taceo-oprf-client = { version = "0.2", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "7ffff84" }
-taceo-oprf-service = { version = "0.2", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "7ffff84" }
+taceo-oprf-core = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "02c6442" }
+taceo-oprf-types = { version = "0.4", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "02c6442" }
+taceo-oprf-client = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "02c6442" }
+taceo-oprf-service = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "02c6442" }

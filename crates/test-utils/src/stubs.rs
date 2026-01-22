@@ -1,18 +1,28 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256};
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use alloy::primitives::{Address, U256, address};
+use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
-use taceo_oprf_test::{
-    test_secret_manager::TestSecretManager, OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1,
-    OPRF_PEER_ADDRESS_2,
-};
+use taceo_oprf_test_utils::test_secret_manager::TestSecretManager;
 use tokio::{net::TcpListener, task::JoinHandle};
 use world_id_oprf_node::config::WorldOprfNodeConfig;
-use world_id_primitives::{merkle::AccountInclusionProof, TREE_DEPTH};
+use world_id_primitives::{TREE_DEPTH, merkle::AccountInclusionProof};
 
 use std::sync::RwLock;
+
+/// anvil wallet 5
+pub const OPRF_PEER_PRIVATE_KEY_0: &str =
+    "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba";
+pub const OPRF_PEER_ADDRESS_0: Address = address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc");
+/// anvil wallet 6
+pub const OPRF_PEER_PRIVATE_KEY_1: &str =
+    "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e";
+pub const OPRF_PEER_ADDRESS_1: Address = address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9");
+/// anvil wallet 7
+pub const OPRF_PEER_PRIVATE_KEY_2: &str =
+    "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356";
+pub const OPRF_PEER_ADDRESS_2: Address = address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955");
 
 #[derive(Clone)]
 struct IndexerState {
@@ -136,6 +146,14 @@ impl MutableIndexerStub {
     }
 }
 
+pub fn create_secret_managers() -> [TestSecretManager; 3] {
+    [
+        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_0),
+        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_1),
+        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_2),
+    ]
+}
+
 async fn spawn_orpf_node(
     id: usize,
     chain_ws_rpc_url: &str,
@@ -149,10 +167,10 @@ async fn spawn_orpf_node(
     let config = WorldOprfNodeConfig {
         bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
         max_wait_time_shutdown: Duration::from_secs(10),
-        max_merkle_store_size: 10,
+        max_merkle_cache_size: 10,
         max_rp_registry_store_size: 1000,
+        root_validity_window: Duration::from_secs(3600),
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
-        signature_history_cleanup_interval: Duration::from_secs(30),
         world_id_registry_contract,
         rp_registry_contract,
         node_config: taceo_oprf_service::config::OprfNodeConfig {
@@ -166,6 +184,7 @@ async fn spawn_orpf_node(
             get_oprf_key_material_timeout: Duration::from_secs(60),
             start_block: Some(0),
             version_req: VersionReq::STAR,
+            region: "test-region".to_string(),
         },
     };
     let never = async { futures::future::pending::<()>().await };
@@ -248,7 +267,6 @@ async fn spawn_key_gen(
         key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.13.arks.zkey"),
         key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.13.bin"),
         max_wait_time_shutdown: Duration::from_secs(10),
-        max_epoch_cache_size: 3,
         start_block: Some(0),
         max_transaction_attempts: 3,
         max_wait_time_transaction_confirmation: Duration::from_secs(60),

@@ -39,23 +39,23 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     mapping(uint256 => uint256) internal _leafIndexToRecoveryAddressPacked;
 
     // authenticatorAddress -> `PackedAccountData`
-    mapping(address => uint256) public authenticatorAddressToPackedAccountData;
+    mapping(address => uint256) private authenticatorAddressToPackedAccountData;
 
     // leafIndex -> nonce, used to prevent replays
-    mapping(uint256 => uint256) public leafIndexToSignatureNonce;
+    mapping(uint256 => uint256) private leafIndexToSignatureNonce;
 
     // leafIndex -> recoveryCounter
-    mapping(uint256 => uint256) public leafIndexToRecoveryCounter;
+    mapping(uint256 => uint256) private leafIndexToRecoveryCounter;
 
-    BinaryIMTData public tree;
-    uint256 public nextLeafIndex;
-    uint256 public treeDepth;
-    uint256 public maxAuthenticators;
+    BinaryIMTData private tree;
+    uint256 private nextLeafIndex;
+    uint256 private treeDepth;
+    uint256 private maxAuthenticators;
 
     // Root history tracking
-    mapping(uint256 => uint256) public rootToTimestamp;
-    uint256 public latestRoot;
-    uint256 public rootValidityWindow;
+    mapping(uint256 => uint256) private rootToTimestamp;
+    uint256 private latestRoot;
+    uint256 private rootValidityWindow;
 
     ////////////////////////////////////////////////////////////
     //                        Events                          //
@@ -128,6 +128,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     string public constant EIP712_NAME = "WorldIDRegistry";
     string public constant EIP712_VERSION = "1.0";
+
+    /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
+    uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 160;
 
     ////////////////////////////////////////////////////////////
     //                        Errors                         //
@@ -306,7 +309,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     ////////////////////////////////////////////////////////////
-    //                        Functions                       //
+    //                  Public View Functions                 //
     ////////////////////////////////////////////////////////////
 
     /**
@@ -345,6 +348,84 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     }
 
     /**
+     * @dev Returns the packed account data for an authenticator address.
+     * @param authenticatorAddress The authenticator address to query.
+     */
+    function getPackedAccountData(address authenticatorAddress)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256)
+    {
+        return authenticatorAddressToPackedAccountData[authenticatorAddress];
+    }
+
+    /**
+     * @dev Returns the signature nonce for a leaf index.
+     * @param leafIndex The leaf index to query.
+     */
+    function getSignatureNonce(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return leafIndexToSignatureNonce[leafIndex];
+    }
+
+    /**
+     * @dev Returns the recovery counter for a leaf index.
+     * @param leafIndex The leaf index to query.
+     */
+    function getRecoveryCounter(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return leafIndexToRecoveryCounter[leafIndex];
+    }
+
+    /**
+     * @dev Returns the next available leaf index.
+     */
+    function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return nextLeafIndex;
+    }
+
+    /**
+     * @dev Returns the depth of the Merkle tree.
+     */
+    function getTreeDepth() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return treeDepth;
+    }
+
+    /**
+     * @dev Returns the maximum number of authenticators allowed per account.
+     */
+    function getMaxAuthenticators() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return maxAuthenticators;
+    }
+
+    /**
+     * @dev Returns the timestamp when a root was recorded.
+     * @param root The root to query.
+     */
+    function getRootTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return rootToTimestamp[root];
+    }
+
+    /**
+     * @dev Returns the latest root.
+     */
+    function getLatestRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return latestRoot;
+    }
+
+    /**
+     * @dev Returns the root validity window in seconds.
+     */
+    function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return rootValidityWindow;
+    }
+
+    ////////////////////////////////////////////////////////////
+    //              Internal View Helper Functions            //
+    ////////////////////////////////////////////////////////////
+
+    /**
      * @dev Helper function to get recovery address from the packed storage.
      */
     function _getRecoveryAddress(uint256 leafIndex) internal view returns (address) {
@@ -356,52 +437,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     function _getPubkeyBitmap(uint256 leafIndex) internal view returns (uint256) {
         return _leafIndexToRecoveryAddressPacked[leafIndex] >> 160;
-    }
-
-    /**
-     * @dev Helper function to set pubkey bitmap packed, preserving the recovery address. The
-     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
-     */
-    function _setPubkeyBitmap(uint256 leafIndex, uint256 bitmap) internal {
-        if (bitmap >> 96 != 0) {
-            revert BitmapOverflow();
-        }
-
-        uint256 packed = _leafIndexToRecoveryAddressPacked[leafIndex];
-        // Clear bitmap bits and set new bitmap
-        packed = (packed & uint256(type(uint160).max)) | (bitmap << 160);
-        _leafIndexToRecoveryAddressPacked[leafIndex] = packed;
-    }
-
-    /**
-     * @dev Helper function to set recovery address and pubkey bitmap packed. The
-     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
-     */
-    function _setRecoveryAddressAndBitmap(uint256 leafIndex, address recoveryAddress, uint256 bitmap) internal {
-        if (bitmap >> 96 != 0) {
-            revert BitmapOverflow();
-        }
-        _leafIndexToRecoveryAddressPacked[leafIndex] = uint256(uint160(recoveryAddress)) | (bitmap << 160);
-    }
-
-    /**
-     * @dev Records the current tree root.
-     */
-    function _recordCurrentRoot() internal virtual {
-        uint256 root = tree.root;
-        rootToTimestamp[root] = block.timestamp;
-        latestRoot = root;
-        emit RootRecorded(root, block.timestamp);
-    }
-
-    function _updateLeafAndRecord(
-        uint256 leafIndex,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment,
-        uint256[] calldata siblingNodes
-    ) internal virtual {
-        tree.update(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
-        _recordCurrentRoot();
     }
 
     /**
@@ -454,6 +489,62 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         }
     }
 
+    ////////////////////////////////////////////////////////////
+    //       Internal State-Changing Helper Functions         //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Helper function to set pubkey bitmap packed, preserving the recovery address. The
+     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
+     */
+    function _setPubkeyBitmap(uint256 leafIndex, uint256 bitmap) internal {
+        if (bitmap >> 96 != 0) {
+            revert BitmapOverflow();
+        }
+
+        uint256 packed = _leafIndexToRecoveryAddressPacked[leafIndex];
+        // Clear bitmap bits and set new bitmap
+        packed = (packed & uint256(type(uint160).max)) | (bitmap << 160);
+        _leafIndexToRecoveryAddressPacked[leafIndex] = packed;
+    }
+
+    /**
+     * @dev Helper function to set recovery address and pubkey bitmap packed. The
+     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
+     */
+    function _setRecoveryAddressAndBitmap(uint256 leafIndex, address recoveryAddress, uint256 bitmap) internal {
+        if (bitmap >> 96 != 0) {
+            revert BitmapOverflow();
+        }
+        _leafIndexToRecoveryAddressPacked[leafIndex] = uint256(uint160(recoveryAddress)) | (bitmap << 160);
+    }
+
+    /**
+     * @dev Records the current tree root.
+     */
+    function _recordCurrentRoot() internal virtual {
+        uint256 root = tree.root;
+        rootToTimestamp[root] = block.timestamp;
+        latestRoot = root;
+        emit RootRecorded(root, block.timestamp);
+    }
+
+    /**
+     * @dev Updates a leaf in the tree and records the new root.
+     */
+    function _updateLeafAndRecord(
+        uint256 leafIndex,
+        uint256 oldOffchainSignerCommitment,
+        uint256 newOffchainSignerCommitment,
+        uint256[] calldata siblingNodes
+    ) internal virtual {
+        tree.update(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _recordCurrentRoot();
+    }
+
+    /**
+     * @dev Internal function to register an account.
+     */
     function _registerAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
@@ -491,6 +582,10 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         nextLeafIndex = leafIndex + 1;
     }
+
+    ////////////////////////////////////////////////////////////
+    //         Public State-Changing Functions                //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Creates a new World ID account.
@@ -917,8 +1012,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
-        if (maxAuthenticators >= 160) {
-            // 160 because we use a pubkey bitmap that has 160 bits available
+        if (newMaxAuthenticators >= MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
         }
         uint256 old = maxAuthenticators;

@@ -19,7 +19,7 @@ use tracing::{debug, error};
 use uuid::Uuid;
 use world_id_core::types::parse_contract_error;
 
-use crate::storage::RequestTracker;
+use crate::request_tracker::RequestTracker;
 use world_id_core::types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState};
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 

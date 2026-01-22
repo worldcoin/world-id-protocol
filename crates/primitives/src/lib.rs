@@ -19,7 +19,7 @@ use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ruint::aliases::{U160, U256};
-use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
 use std::{
     fmt,
     io::{Cursor, Read, Write},
@@ -37,6 +37,8 @@ pub use config::Config;
 /// Contains the raw circuit input types for the World ID Protocol.
 ///
 /// These types are used to prepare the inputs for the Groth16 circuits.
+/// Requires the `circuits` feature (not available in WASM builds).
+#[cfg(feature = "circuits")]
 pub mod circuit_inputs;
 
 /// SAFE-style sponge utilities and helpers.
@@ -50,6 +52,8 @@ pub use credential::{Credential, CredentialVersion};
 pub mod merkle;
 
 /// Contains types specifically related to the OPRF services.
+/// Requires the `circuits` feature (not available in WASM builds).
+#[cfg(feature = "circuits")]
 pub mod oprf;
 
 /// Contains the quintessential proof type.

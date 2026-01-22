@@ -22,7 +22,7 @@ use crate::world_id_registry::WorldIdRegistry::{
 use axum::{http::StatusCode, response::IntoResponse};
 #[cfg(feature = "authenticator")]
 use world_id_primitives::serde_utils::{
-    hex_u256, hex_u256_opt, hex_u256_vec, hex_u32, hex_u32_opt,
+    hex_u32, hex_u32_opt, hex_u256, hex_u256_opt, hex_u256_vec,
 };
 
 pub use world_id_primitives::merkle::AccountInclusionProof;

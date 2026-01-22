@@ -35,7 +35,6 @@ moka.workspace = true
 redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tower-http = { version = "0.5", features = ["trace", "timeout"] }
 tracing = { workspace = true }

@@ -5,8 +5,8 @@ use tracing_subscriber as _;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::routes::build_app;
-use crate::types::AppState;
+pub use crate::config::{GatewayConfig};
+use crate::{routes::build_app, types::AppState};
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
@@ -14,13 +14,13 @@ mod batcher;
 mod config;
 mod request;
 mod routes;
-mod storage;
 mod types;
+mod request_tracker;
 
-pub use crate::config::GatewayConfig;
 
 // Re-export common types
 pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};
+pub use request_tracker::{RequestTracker};
 
 #[derive(Debug)]
 pub struct GatewayHandle {

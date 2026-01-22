@@ -7,7 +7,7 @@ use ark_babyjubjub::Fq;
 use ark_ec::CurveGroup;
 use ark_ff::{AdditiveGroup, PrimeField};
 use eddsa_babyjubjub::EdDSAPrivateKey;
-use eyre::{eyre, WrapErr as _};
+use eyre::{WrapErr as _, eyre};
 use rand::thread_rng;
 use ruint::aliases::U256;
 use taceo_oprf_client::BlindingFactor;
@@ -15,14 +15,15 @@ use taceo_oprf_core::{dlog_equality::DLogEqualityProof, oprf::BlindedOprfRespons
 use taceo_oprf_types::crypto::OprfPublicKey;
 use test_utils::{
     anvil::{CredentialSchemaIssuerRegistry, WorldIDRegistry},
-    fixtures::{build_base_credential, generate_rp_fixture, RegistryTestContext},
+    fixtures::{RegistryTestContext, build_base_credential, generate_rp_fixture},
     merkle::first_leaf_merkle_path,
 };
 
-use world_id_core::{proof, FieldElement, HashableCredential, OnchainKeyRepresentable};
+use world_id_core::{FieldElement, HashableCredential, OnchainKeyRepresentable, proof};
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, circuit_inputs::NullifierProofCircuitInput,
-    merkle::MerkleInclusionProof, proof::SingleProofInput, TREE_DEPTH,
+    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
+    circuit_inputs::NullifierProofCircuitInput, merkle::MerkleInclusionProof,
+    proof::SingleProofInput,
 };
 
 /// Tests and verifies a Nullifier Proof with locally deployed contracts on Anvil and
@@ -39,6 +40,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,
+        ..
     } = RegistryTestContext::new().await?;
 
     let mut rng = thread_rng();
@@ -195,9 +197,9 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         nonce: rp_fixture.nonce.into(),
         current_timestamp: rp_fixture.current_timestamp,
         rp_signature: rp_fixture.signature,
-        oprf_public_key,
         signal_hash,
         session_id_r_seed: rp_fixture.rp_session_id_r_seed,
+        session_id: FieldElement::ZERO,
         genesis_issued_at_min: 0,
     };
 
@@ -252,9 +254,10 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
         id_commitment_r: *args.session_id_r_seed,
+        id_commitment: *args.session_id,
         dlog_e: dlog_proof.e,
         dlog_s: dlog_proof.s,
-        oprf_pk: args.oprf_public_key.inner(),
+        oprf_pk: oprf_public_key.inner(),
         oprf_response_blinded: blinded_response,
         oprf_response: unblinded_response,
         signal_hash: *args.signal_hash,
@@ -269,12 +272,9 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .verify_proof(&proof, &public)
         .wrap_err("failed to verify nullifier proof offline")?;
 
-    // 2 outputs, 0 is id_commitment, 1 is nullifier
-    let id_commitment = public[0];
-    let nullifier = public[1];
+    let nullifier = public[0];
 
     // Basic checks on public outputs
-    assert_ne!(id_commitment, Fq::ZERO);
     assert_ne!(nullifier, Fq::ZERO);
 
     Ok(())

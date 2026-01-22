@@ -2,12 +2,15 @@
 
 use std::time::Duration;
 
-use alloy::network::EthereumWallet;
-use alloy::primitives::{address, Address, U256};
-use alloy::providers::ProviderBuilder;
-use sqlx::{postgres::PgPoolOptions, Executor, PgPool};
+use alloy::{
+    network::EthereumWallet,
+    primitives::{Address, U256, address},
+    providers::ProviderBuilder,
+};
+use sqlx::{Executor, PgPool, postgres::PgPoolOptions};
 use test_utils::anvil::TestAnvil;
 use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_primitives::TREE_DEPTH;
 
 pub const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 const TEST_DB_NAME: &str = "indexer_tests";
@@ -21,6 +24,10 @@ pub struct TestSetup {
 
 impl TestSetup {
     pub async fn new() -> Self {
+        Self::new_with_tree_depth(TREE_DEPTH as u64).await
+    }
+
+    pub async fn new_with_tree_depth(tree_depth: u64) -> Self {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .try_init();
@@ -38,7 +45,7 @@ impl TestSetup {
         let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
         let deployer = anvil.signer(0).expect("failed to obtain deployer signer");
         let registry_address = anvil
-            .deploy_world_id_registry(deployer)
+            .deploy_world_id_registry_with_depth(deployer, tree_depth)
             .await
             .expect("failed to deploy WorldIDRegistry");
 
@@ -110,13 +117,11 @@ impl TestSetup {
             .await
             .unwrap();
 
-        let test_db_url = if let Some(idx) = base_url.rfind('/') {
+        if let Some(idx) = base_url.rfind('/') {
             format!("{}/{}", &base_url[..idx], TEST_DB_NAME)
         } else {
             panic!("Invalid database URL format: {base_url}");
-        };
-
-        test_db_url
+        }
     }
 
     async fn cleanup_test_database() {
@@ -140,10 +145,10 @@ impl TestSetup {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
 
         loop {
-            if let Ok(resp) = client.get(format!("{host_url}/health")).send().await {
-                if resp.status().is_success() {
-                    return;
-                }
+            if let Ok(resp) = client.get(format!("{host_url}/health")).send().await
+                && resp.status().is_success()
+            {
+                return;
             }
 
             if std::time::Instant::now() > deadline {

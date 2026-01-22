@@ -1,10 +1,10 @@
 //! This module allows interactions with the `WorldIDRegistry`.
 
-use alloy::sol_types::{eip712_domain, Eip712Domain, SolStruct};
 use alloy::{
     primitives::{Address, Signature, U256},
     signers::Signer,
     sol,
+    sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
 
 sol!(

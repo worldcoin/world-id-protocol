@@ -6,7 +6,7 @@
 
 use crate::batcher::{BatcherHandle, Command, GAS_CREATE_ACCOUNT, GAS_DEFAULT_OP};
 use crate::routes::validation::{Registry, RequestValidation};
-use crate::storage::RequestTracker;
+use crate::request_tracker::RequestTracker;
 use alloy::primitives::Bytes;
 use uuid::Uuid;
 use world_id_core::types::{

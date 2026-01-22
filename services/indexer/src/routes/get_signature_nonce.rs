@@ -1,5 +1,5 @@
 use alloy::primitives::U256;
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use world_id_core::types::{
     IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
@@ -34,7 +34,7 @@ pub(crate) async fn handler(
 
     let signature_nonce = state
         .registry
-        .leafIndexToSignatureNonce(req.leaf_index)
+        .getSignatureNonce(req.leaf_index)
         .call()
         .await
         .map_err(|e| {

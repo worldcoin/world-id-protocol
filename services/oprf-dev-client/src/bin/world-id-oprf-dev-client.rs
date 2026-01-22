@@ -2,90 +2,72 @@ use std::{
     collections::HashMap,
     str::FromStr,
     sync::Arc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, U160},
-    providers::{Provider as _, ProviderBuilder},
+    providers::{DynProvider, Provider as _, ProviderBuilder},
     signers::{
+        SignerSync as _,
         k256::ecdsa::SigningKey,
         local::{LocalSigner, PrivateKeySigner},
-        SignerSync as _,
     },
 };
 use ark_ff::UniformRand as _;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use eyre::Context as _;
 use rand::SeedableRng;
 use rustls::{ClientConfig, RootCertStore};
 use secrecy::{ExposeSecret, SecretString};
 use taceo_oprf_client::Connector;
 use taceo_oprf_core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor};
-use taceo_oprf_test::health_checks;
+use taceo_oprf_dev_client::{Command, StressTestCommand};
+use taceo_oprf_test_utils::health_checks;
 use taceo_oprf_types::{
+    OprfKeyId, ShareEpoch,
     api::v1::{OprfRequest, ShareIdentifier},
     crypto::OprfPublicKey,
-    OprfKeyId, ShareEpoch,
 };
-use test_utils::anvil::RpRegistry;
-use test_utils::fixtures::build_base_credential;
-use tokio::task::JoinSet;
+use test_utils::{
+    anvil::RpRegistry,
+    fixtures::{MerkleFixture, build_base_credential},
+};
 use uuid::Uuid;
 use world_id_core::{
-    proof::CircomGroth16Material,
-    requests::{ProofRequest, RequestItem, RequestVersion},
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, FieldElement,
     HashableCredential,
+    proof::CircomGroth16Material,
+    requests::{ProofRequest, RequestItem, RequestVersion},
+    types::AccountInclusionProof,
 };
-
+use world_id_gateway::{GatewayConfig, ProviderArgs, SignerArgs};
 use world_id_primitives::{
+    Config, TREE_DEPTH,
     authenticator::AuthenticatorPublicKeySet,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
     merkle::MerkleInclusionProof,
     oprf::OprfRequestAuthV1,
     proof::SingleProofInput,
     rp::RpId,
-    Config, TREE_DEPTH,
 };
 
 const ISSUER_SCHEMA_ID: u64 = 1;
-
-#[derive(Parser, Debug)]
-pub struct StressTestCommand {
-    /// The amount of nullifiers to generate
-    #[clap(long, env = "OPRF_DEV_CLIENT_NULLIFIER_NUM", default_value = "10")]
-    pub nullifier_num: usize,
-
-    /// Send requests sequentially instead of concurrently
-    #[clap(long, env = "OPRF_DEV_CLIENT_SEQUENTIAL")]
-    pub sequential: bool,
-
-    /// Send requests sequentially instead of concurrently
-    #[clap(long, env = "OPRF_DEV_CLIENT_SEQUENTIAL")]
-    pub skip_checks: bool,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum Command {
-    Test,
-    StressTest(StressTestCommand),
-}
 
 /// The configuration for the OPRF client.
 ///
 /// It can be configured via environment variables or command line arguments using `clap`.
 #[derive(Parser, Debug)]
 pub struct OprfDevClientConfig {
-    /// The URLs to all OPRF Services
+    /// The URLs to all OPRF nodes
     #[clap(
         long,
-        env = "OPRF_DEV_CLIENT_SERVICES",
+        env = "OPRF_DEV_CLIENT_NODES",
         value_delimiter = ',',
         default_value = "http://127.0.0.1:10000,http://127.0.0.1:10001,http://127.0.0.1:10002"
     )]
-    pub services: Vec<String>,
+    pub nodes: Vec<String>,
 
     /// The threshold of services that need to respond
     #[clap(long, env = "OPRF_DEV_CLIENT_THRESHOLD", default_value = "2")]
@@ -122,28 +104,24 @@ pub struct OprfDevClientConfig {
     pub taceo_private_key: SecretString,
 
     /// Indexer address
-    #[clap(
-        long,
-        env = "OPRF_DEV_CLIENT_INDEXER_URL",
-        default_value = "http://localhost:8080"
-    )]
-    pub indexer_url: String,
+    #[clap(long, env = "OPRF_DEV_CLIENT_INDEXER_URL")]
+    pub indexer_url: Option<String>,
 
     /// Gateway address
-    #[clap(
-        long,
-        env = "OPRF_DEV_CLIENT_GATEWAY_URL",
-        default_value = "http://localhost:8081"
-    )]
-    pub gateway_url: String,
+    #[clap(long, env = "OPRF_DEV_CLIENT_GATEWAY_URL")]
+    pub gateway_url: Option<String>,
 
     /// rp id of already registered rp
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
     pub rp_id: Option<u64>,
 
-    /// max wait time for init key-gen to succeed.
-    #[clap(long, env = "OPRF_DEV_CLIENT_KEY_GEN_WAIT_TIME", default_value="2min", value_parser=humantime::parse_duration)]
-    pub max_wait_time_key_gen: Duration,
+    /// The share epoch. Will be ignored if `rp_id` is `None`.
+    #[clap(long, env = "OPRF_DEV_CLIENT_SHARE_EPOCH", default_value = "0")]
+    pub share_epoch: u128,
+
+    /// max wait time for init key-gen/reshare to succeed.
+    #[clap(long, env = "OPRF_DEV_CLIENT_MAX_WAIT_TIME", default_value="2min", value_parser=humantime::parse_duration)]
+    pub max_wait_time: Duration,
 
     /// Command
     #[command(subcommand)]
@@ -174,7 +152,7 @@ async fn run_nullifier(
     authenticator: &Authenticator,
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
-    oprf_public_key: OprfPublicKey,
+    share_epoch: ShareEpoch,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
@@ -207,8 +185,8 @@ async fn run_nullifier(
         expires_at: current_timestamp + 300, // 5 minutes from now
         rp_id,
         oprf_key_id,
+        share_epoch,
         action: FieldElement::from(action),
-        oprf_public_key,
         signature,
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {
@@ -235,13 +213,14 @@ fn prepare_nullifier_stress_test_oprf_request(
     authenticator_private_key: &EdDSAPrivateKey,
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
-    oprf_public_key: OprfPublicKey,
+    share_epoch: ShareEpoch,
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
     key_index: u64,
     query_material: &CircomGroth16Material,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<(
+    Uuid,
     SingleProofInput<TREE_DEPTH>,
     QueryProofCircuitInput<TREE_DEPTH>,
     BlindingFactor,
@@ -282,14 +261,14 @@ fn prepare_nullifier_stress_test_oprf_request(
         key_set,
         key_index,
         session_id_r_seed: FieldElement::random(&mut rng),
+        session_id: FieldElement::ZERO,
         rp_id,
         oprf_key_id,
-        share_epoch: ShareEpoch::default().into_inner(),
+        share_epoch: share_epoch.into_inner(),
         action: action.into(),
         nonce: nonce.into(),
         current_timestamp,
         rp_signature: signature,
-        oprf_public_key,
         signal_hash: signal_hash.into(),
         credential_sub_blinding_factor,
         genesis_issued_at_min: 0,
@@ -321,17 +300,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         auth: oprf_request_auth,
     };
 
-    Ok((args, query_input, blinding_factor, req))
-}
-
-fn avg(durations: &[Duration]) -> Duration {
-    let n = durations.len();
-    if n != 0 {
-        let total = durations.iter().sum::<Duration>();
-        total / n as u32
-    } else {
-        Duration::ZERO
-    }
+    Ok((request_id, args, query_input, blinding_factor, req))
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -340,11 +309,15 @@ async fn stress_test(
     authenticator_private_key: EdDSAPrivateKey,
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
+    share_epoch: ShareEpoch,
     oprf_public_key: OprfPublicKey,
     cmd: StressTestCommand,
     connector: Connector,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
+    let mut rng = rand::thread_rng();
+    let nodes = authenticator.config.nullifier_oracle_urls().to_vec();
+    let threshold = authenticator.config.nullifier_oracle_threshold();
     let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
 
     let key_index = key_set
@@ -355,178 +328,176 @@ async fn stress_test(
     let query_material = world_id_core::proof::load_embedded_query_material();
     let nullifier_material = world_id_core::proof::load_embedded_nullifier_material();
 
+    let mut oprf_args = HashMap::with_capacity(cmd.runs);
+    let mut query_inputs = HashMap::with_capacity(cmd.runs);
+    let mut blinded_requests = HashMap::with_capacity(cmd.runs);
+    let mut blinding_factors = HashMap::with_capacity(cmd.runs);
+    let mut init_requests = HashMap::with_capacity(cmd.runs);
+
     tracing::info!("preparing requests..");
-    let mut request_ids = HashMap::with_capacity(cmd.nullifier_num);
-    let mut oprf_args = HashMap::with_capacity(cmd.nullifier_num);
-    let mut query_inputs = HashMap::with_capacity(cmd.nullifier_num);
-    let mut blinded_queries = HashMap::with_capacity(cmd.nullifier_num);
-    let mut blinding_factors = HashMap::with_capacity(cmd.nullifier_num);
-    let mut init_requests = Vec::with_capacity(cmd.nullifier_num);
-
-    for idx in 0..cmd.nullifier_num {
-        let (args, query_input, blinding_factor, req) = prepare_nullifier_stress_test_oprf_request(
-            authenticator,
-            &authenticator_private_key,
-            rp_id,
-            oprf_key_id,
-            oprf_public_key,
-            inclusion_proof.clone(),
-            key_set.clone(),
-            key_index,
-            &query_material,
-            signer,
-        )?;
-        request_ids.insert(idx, req.request_id);
-        oprf_args.insert(idx, args);
-        query_inputs.insert(idx, query_input);
-        blinded_queries.insert(idx, req.blinded_query);
-        blinding_factors.insert(idx, blinding_factor);
-        init_requests.push(req);
+    for _ in 0..cmd.runs {
+        let (request_id, args, query_input, blinding_factor, req) =
+            prepare_nullifier_stress_test_oprf_request(
+                authenticator,
+                &authenticator_private_key,
+                rp_id,
+                oprf_key_id,
+                share_epoch,
+                inclusion_proof.clone(),
+                key_set.clone(),
+                key_index,
+                &query_material,
+                signer,
+            )?;
+        oprf_args.insert(request_id, args);
+        query_inputs.insert(request_id, query_input);
+        blinded_requests.insert(request_id, req.blinded_query);
+        blinding_factors.insert(request_id, blinding_factor);
+        init_requests.insert(request_id, req);
     }
 
-    let mut init_results = JoinSet::new();
+    tracing::info!("sending init requests..");
+    let (sessions, finish_requests) = taceo_oprf_dev_client::send_init_requests(
+        threshold,
+        &nodes,
+        connector,
+        cmd.sequential,
+        init_requests,
+    )
+    .await?;
 
-    tracing::info!("start sending init requests..");
-    let start = Instant::now();
-    for (idx, req) in init_requests.into_iter().enumerate() {
-        let services = authenticator.config.nullifier_oracle_urls().to_vec();
-        let threshold = authenticator.config.nullifier_oracle_threshold();
-        let connector = connector.clone();
-        init_results.spawn(async move {
-            let init_start = Instant::now();
-            let sessions =
-                taceo_oprf_client::init_sessions(&services, threshold, req, connector).await?;
-            eyre::Ok((idx, sessions, init_start.elapsed()))
-        });
-        if cmd.sequential {
-            init_results.join_next().await;
-        }
-    }
-    let init_results = init_results.join_all().await;
-    let init_full_duration = start.elapsed();
-    let mut sessions = Vec::with_capacity(cmd.nullifier_num);
-    let mut durations = Vec::with_capacity(cmd.nullifier_num);
-    for result in init_results {
-        match result {
-            Ok((idx, session, duration)) => {
-                sessions.push((idx, session));
-                durations.push(duration);
-            }
-            Err(err) => tracing::error!("Got an error during init: {err:?}"),
-        }
-    }
-    if durations.len() != cmd.nullifier_num {
-        eyre::bail!("init did encounter errors - see logs");
-    }
-    let init_throughput = cmd.nullifier_num as f64 / init_full_duration.as_secs_f64();
-    let init_avg = avg(&durations);
+    tracing::info!("sending finish requests..");
+    let responses = taceo_oprf_dev_client::send_finish_requests(
+        sessions,
+        cmd.sequential,
+        finish_requests.clone(),
+    )
+    .await?;
 
-    let mut finish_challenges = sessions
-        .iter()
-        .map(|(idx, sessions)| {
-            let challenge_request = taceo_oprf_client::generate_challenge_request(sessions);
-            eyre::Ok((*idx, challenge_request))
-        })
-        .collect::<eyre::Result<HashMap<_, _>>>()?;
-
-    let mut finish_results = JoinSet::new();
-
-    tracing::info!("start sending finish requests..");
-    durations.clear();
-    let start = Instant::now();
-    for (idx, sessions) in sessions {
-        let challenge = finish_challenges.remove(&idx).expect("is there");
-        finish_results.spawn(async move {
-            let finish_start = Instant::now();
-            let responses = taceo_oprf_client::finish_sessions(sessions, challenge.clone()).await?;
-            let duration = finish_start.elapsed();
-            eyre::Ok((idx, responses, challenge, duration))
-        });
-        if cmd.sequential {
-            finish_results.join_next().await;
-        }
-    }
-    let finish_results = finish_results.join_all().await;
-    if cmd.skip_checks {
-        tracing::info!("got all results - skipping checks");
-    } else {
-        tracing::info!("got all results - checking nullifiers + proofs");
-    }
-    let finish_full_duration = start.elapsed();
-
-    let mut durations = Vec::with_capacity(cmd.nullifier_num);
-
-    let mut rng = rand::thread_rng();
-    for result in finish_results {
-        match result {
-            Ok((idx, responses, challenge, duration)) => {
-                if !cmd.skip_checks {
-                    let request_id = request_ids.remove(&idx).expect("is there");
-                    let args = oprf_args.remove(&idx).expect("is there");
-                    let query_input = query_inputs.remove(&idx).expect("is there");
-                    let blinded_query = blinded_queries.remove(&idx).expect("is there");
-                    let blinding_factor = blinding_factors.remove(&idx).expect("is there");
-                    let dlog_proof = taceo_oprf_client::verify_dlog_equality(
-                        request_id,
-                        oprf_public_key,
-                        &BlindedOprfRequest::new(blinded_query),
-                        responses,
-                        challenge.clone(),
-                    )?;
-                    let blinded_response = challenge.blinded_response();
-                    let blinding_factor_prepared = blinding_factor.prepare();
-                    let oprf_blinded_response = BlindedOprfResponse::new(blinded_response);
-                    let unblinded_response =
-                        oprf_blinded_response.unblind_response(&blinding_factor_prepared);
-                    let cred_signature = args.credential.signature.clone().expect("signed cred");
-                    let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
-                        query_input,
-                        dlog_e: dlog_proof.e,
-                        dlog_s: dlog_proof.s,
-                        oprf_pk: oprf_public_key.inner(),
-                        oprf_response_blinded: blinded_response,
-                        oprf_response: unblinded_response,
-                        signal_hash: *args.signal_hash,
-                        id_commitment_r: *args.session_id_r_seed,
-                        issuer_schema_id: args.credential.issuer_schema_id.into(),
-                        cred_pk: args.credential.issuer.pk,
-                        cred_hashes: [
-                            *args.credential.claims_hash()?,
-                            *args.credential.associated_data_hash,
-                        ],
-                        cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
-                        cred_expires_at: args.credential.expires_at.into(),
-                        cred_s: cred_signature.s,
-                        cred_r: cred_signature.r,
-                        current_timestamp: args.current_timestamp.into(),
-                        cred_genesis_issued_at_min: args.genesis_issued_at_min.into(),
-                        cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
-                        cred_id: args.credential.id.into(),
-                    };
-                    let (proof, public) =
-                        nullifier_material.generate_proof(&nullifier_input, &mut rng)?;
-                    nullifier_material.verify_proof(&proof, &public)?;
-                }
-                durations.push(duration);
-            }
-            Err(err) => tracing::error!("Got an error during finish: {err:?}"),
+    if !cmd.skip_checks {
+        tracing::info!("checking nullifier + proofs");
+        for (id, res) in responses {
+            let args = oprf_args.get(&id).expect("is there");
+            let query_input = query_inputs.get(&id).expect("is there").clone();
+            let blinded_req = blinded_requests.get(&id).expect("is there");
+            let blinding_factor = blinding_factors.get(&id).expect("is there").clone();
+            let finish_request = finish_requests.get(&id).expect("is there").clone();
+            let dlog_proof = taceo_oprf_client::verify_dlog_equality(
+                id,
+                oprf_public_key,
+                &BlindedOprfRequest::new(*blinded_req),
+                res,
+                finish_request.clone(),
+            )?;
+            let blinded_response = finish_request.blinded_response();
+            let blinding_factor_prepared = blinding_factor.prepare();
+            let oprf_blinded_response = BlindedOprfResponse::new(blinded_response);
+            let unblinded_response =
+                oprf_blinded_response.unblind_response(&blinding_factor_prepared);
+            let cred_signature = args.credential.signature.clone().expect("signed cred");
+            let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
+                query_input,
+                dlog_e: dlog_proof.e,
+                dlog_s: dlog_proof.s,
+                oprf_pk: oprf_public_key.inner(),
+                oprf_response_blinded: blinded_response,
+                oprf_response: unblinded_response,
+                signal_hash: *args.signal_hash,
+                id_commitment_r: *args.session_id_r_seed,
+                id_commitment: *args.session_id,
+                issuer_schema_id: args.credential.issuer_schema_id.into(),
+                cred_pk: args.credential.issuer.pk,
+                cred_hashes: [
+                    *args.credential.claims_hash()?,
+                    *args.credential.associated_data_hash,
+                ],
+                cred_genesis_issued_at: args.credential.genesis_issued_at.into(),
+                cred_expires_at: args.credential.expires_at.into(),
+                cred_s: cred_signature.s,
+                cred_r: cred_signature.r,
+                current_timestamp: args.current_timestamp.into(),
+                cred_genesis_issued_at_min: args.genesis_issued_at_min.into(),
+                cred_sub_blinding_factor: *args.credential_sub_blinding_factor,
+                cred_id: args.credential.id.into(),
+            };
+            let (proof, public) = nullifier_material.generate_proof(&nullifier_input, &mut rng)?;
+            nullifier_material.verify_proof(&proof, &public)?;
         }
     }
 
-    tracing::info!(
-        "init req - total time: {init_full_duration:?} avg: {init_avg:?} throughput: {init_throughput} req/s"
-    );
-    let final_throughput = cmd.nullifier_num as f64 / finish_full_duration.as_secs_f64();
-    let finish_avg = avg(&durations);
-    tracing::info!(
-        "finish req - total time: {finish_full_duration:?} avg: {finish_avg:?} throughput: {final_throughput} req/s"
-    );
+    Ok(())
+}
+
+#[expect(clippy::too_many_arguments)]
+async fn reshare_test(
+    authenticator: &Authenticator,
+    rp_id: RpId,
+    oprf_key_id: OprfKeyId,
+    share_epoch: ShareEpoch,
+    oprf_public_key: OprfPublicKey,
+    signer: &LocalSigner<SigningKey>,
+    provider: DynProvider,
+    oprf_key_registry: Address,
+    max_wait_time: Duration,
+) -> eyre::Result<()> {
+    let nodes = authenticator.config.nullifier_oracle_urls().to_vec();
+
+    tracing::info!("running single nullifier");
+    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch, signer).await?;
+    tracing::info!("nullifier successful");
+
+    let (share_epoch_1, oprf_public_key_1) = taceo_oprf_dev_client::reshare(
+        &nodes,
+        oprf_key_registry,
+        provider.clone(),
+        max_wait_time,
+        oprf_key_id,
+        share_epoch,
+    )
+    .await?;
+    assert_eq!(oprf_public_key, oprf_public_key_1);
+
+    tracing::info!("running nullifier with epoch 0 after 1st reshare");
+    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch, signer).await?;
+    tracing::info!("nullifier successful");
+
+    tracing::info!("running nullifier with epoch 1 after 1st reshare");
+    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch_1, signer).await?;
+    tracing::info!("nullifier successful");
+
+    let (share_epoch_2, oprf_public_key_2) = taceo_oprf_dev_client::reshare(
+        &nodes,
+        oprf_key_registry,
+        provider,
+        max_wait_time,
+        oprf_key_id,
+        share_epoch_1,
+    )
+    .await?;
+    assert_eq!(oprf_public_key, oprf_public_key_2);
+
+    tracing::info!("running nullifier with epoch 1 after 2nd reshare");
+    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch_1, signer).await?;
+    tracing::info!("nullifier successful");
+
+    tracing::info!("running nullifier with epoch 2 after 2nd reshare");
+    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch_2, signer).await?;
+    tracing::info!("nullifier successful");
+
+    tracing::info!("running nullifier with epoch 0 after 2nd reshare - should fail");
+    let _ = run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch, signer)
+        .await
+        .expect_err("should fail");
+    tracing::info!("nullifier failed as expected");
+
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    taceo_nodes_observability::install_tracing("world_id_oprf_dev_client=trace,warn");
+    taceo_nodes_observability::install_tracing(
+        "world_id_oprf_dev_client=trace,taceo_oprf_dev_client=trace,warn",
+    );
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");
@@ -534,7 +505,7 @@ async fn main() -> eyre::Result<()> {
     tracing::info!("starting oprf-dev-client with config: {config:#?}");
 
     tracing::info!("health check for all peers...");
-    health_checks::services_health_check(&config.services, Duration::from_secs(5))
+    health_checks::services_health_check(&config.nodes, Duration::from_secs(5))
         .await
         .context("while doing health checks")?;
     tracing::info!("everyone online..");
@@ -551,20 +522,21 @@ async fn main() -> eyre::Result<()> {
         .context("while connecting to RPC")?
         .erased();
 
-    let (rp_id, oprf_key_id, oprf_public_key) = if let Some(rp_id) = config.rp_id {
+    let (rp_id, oprf_key_id, share_epoch, oprf_public_key) = if let Some(rp_id) = config.rp_id {
         // TODO should maybe check if the oprf key id matches the registered one in case it was changed
         // in case they are not the same, we return them both
         let oprf_key_id = OprfKeyId::new(U160::from(rp_id));
-        let oprf_public_key = taceo_oprf_test::health_checks::oprf_public_key_from_services(
+        let share_epoch = ShareEpoch::new(config.share_epoch);
+        let oprf_public_key = health_checks::oprf_public_key_from_services(
             oprf_key_id,
-            ShareEpoch::default(),
-            &config.services,
+            share_epoch,
+            &config.nodes,
             Duration::from_secs(10), // should already be there
         )
         .await?;
-        (RpId::new(rp_id), oprf_key_id, oprf_public_key)
+        (RpId::new(rp_id), oprf_key_id, share_epoch, oprf_public_key)
     } else {
-        let rp_registry = RpRegistry::new(config.rp_registry_contract, provider);
+        let rp_registry = RpRegistry::new(config.rp_registry_contract, provider.clone());
         let rp_id = RpId::new(rand::random());
         let oprf_key_id = OprfKeyId::new(U160::from(rp_id.into_inner()));
         tracing::info!("registering new RP");
@@ -584,23 +556,56 @@ async fn main() -> eyre::Result<()> {
             eyre::bail!("failed to register RP");
         }
         tracing::info!("registered RP with OPRF key: {oprf_key_id}");
-        let oprf_public_key = taceo_oprf_test::health_checks::oprf_public_key_from_services(
+        let oprf_public_key = health_checks::oprf_public_key_from_services(
             oprf_key_id,
             ShareEpoch::default(),
-            &config.services,
-            config.max_wait_time_key_gen,
+            &config.nodes,
+            config.max_wait_time,
         )
         .await?;
-        (rp_id, oprf_key_id, oprf_public_key)
+        (rp_id, oprf_key_id, ShareEpoch::default(), oprf_public_key)
+    };
+
+    let (gateway_url, _gateway_handle) = if let Some(gateway_url) = &config.gateway_url {
+        (gateway_url.clone(), None)
+    } else {
+        // anvil wallet 0, only used for local tests
+        let signer_args = SignerArgs::from_wallet(
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string(),
+        );
+        let gateway_config = GatewayConfig {
+            registry_addr: config.world_id_registry_contract,
+            provider: ProviderArgs {
+                http: Some(vec![
+                    config
+                        .chain_rpc_url
+                        .expose_secret()
+                        .to_string()
+                        .parse()
+                        .expect("Invalid RPC secret"),
+                ]),
+                signer: Some(signer_args.clone()),
+                ..Default::default()
+            },
+            batch_ms: 200,
+            listen_addr: (std::net::Ipv4Addr::LOCALHOST, 8081).into(),
+            max_create_batch_size: 10,
+            max_ops_batch_size: 10,
+            redis_url: None,
+        };
+        let gateway_handle = world_id_gateway::spawn_gateway_for_tests(gateway_config)
+            .await
+            .map_err(|e| eyre::eyre!("failed to spawn gateway for tests: {e}"))?;
+        ("http://localhost:8081".to_string(), Some(gateway_handle))
     };
 
     let world_config = Config::new(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         31_337, // anvil hardhat chain id
         config.world_id_registry_contract,
-        config.indexer_url,
-        config.gateway_url,
-        config.services.clone(),
+        "http://localhost:8080".to_string(), // stub indexer url - will be replaced later
+        gateway_url.clone(),
+        config.nodes.clone(),
         config.threshold,
     )
     .unwrap();
@@ -609,6 +614,49 @@ async fn main() -> eyre::Result<()> {
     let seed = [7u8; 32];
     let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None).await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
+
+    let (indexer_url, _indexer_handle) = if let Some(indexer_url) = &config.indexer_url {
+        (indexer_url.clone(), None)
+    } else {
+        // Local indexer stub serving inclusion proof.
+        let leaf_index_u64: u64 = authenticator
+            .leaf_index()
+            .try_into()
+            .expect("account id fits in u64");
+        let MerkleFixture {
+            key_set,
+            inclusion_proof: merkle_inclusion_proof,
+            root: _,
+            ..
+        } = test_utils::fixtures::single_leaf_merkle_fixture(
+            vec![authenticator.offchain_pubkey()],
+            leaf_index_u64,
+        )
+        .wrap_err("failed to construct merkle fixture")?;
+
+        let inclusion_proof =
+            AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
+                .wrap_err("failed to build inclusion proof")?;
+
+        let (indexer_url, indexer_handle) =
+            test_utils::stubs::spawn_indexer_stub(leaf_index_u64, inclusion_proof.clone())
+                .await
+                .wrap_err("failed to start indexer stub")?;
+        (indexer_url, Some(indexer_handle))
+    };
+
+    let world_config = Config::new(
+        Some(config.chain_rpc_url.expose_secret().to_string()),
+        31_337, // anvil hardhat chain id
+        config.world_id_registry_contract,
+        indexer_url,
+        gateway_url,
+        config.nodes.clone(),
+        config.threshold,
+    )
+    .unwrap();
+
+    let authenticator = Authenticator::init(&seed, world_config.clone()).await?;
 
     // setup TLS config - even if we are http
     let mut root_store = RootCertStore::empty();
@@ -625,7 +673,7 @@ async fn main() -> eyre::Result<()> {
                 &authenticator,
                 rp_id,
                 oprf_key_id,
-                oprf_public_key,
+                share_epoch,
                 &private_key,
             )
             .await?;
@@ -638,6 +686,7 @@ async fn main() -> eyre::Result<()> {
                 authenticator_private_key,
                 rp_id,
                 oprf_key_id,
+                share_epoch,
                 oprf_public_key,
                 cmd,
                 connector,
@@ -645,6 +694,22 @@ async fn main() -> eyre::Result<()> {
             )
             .await?;
             tracing::info!("stress-test successful");
+        }
+        Command::ReshareTest => {
+            tracing::info!("running reshare test");
+            reshare_test(
+                &authenticator,
+                rp_id,
+                oprf_key_id,
+                share_epoch,
+                oprf_public_key,
+                &private_key,
+                provider,
+                config.oprf_key_registry_contract,
+                config.max_wait_time,
+            )
+            .await?;
+            tracing::info!("reshare test successful");
         }
     }
 

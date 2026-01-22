@@ -1,7 +1,9 @@
-use std::env;
-use std::fs::File;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::{
+    env,
+    fs::File,
+    io,
+    path::{Path, PathBuf},
+};
 
 #[cfg(feature = "embed-zkeys")]
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";

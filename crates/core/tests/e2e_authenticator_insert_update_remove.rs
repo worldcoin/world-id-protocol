@@ -2,20 +2,24 @@
 
 use std::time::Duration;
 
-use alloy::primitives::{Address, U256};
-use alloy::providers::ProviderBuilder;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{
+    primitives::{Address, U256},
+    providers::ProviderBuilder,
+    signers::local::PrivateKeySigner,
+};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::Client;
 use test_utils::{
     anvil::{TestAnvil, WorldIDRegistry},
-    fixtures::{single_leaf_merkle_fixture, MerkleFixture},
+    fixtures::{MerkleFixture, single_leaf_merkle_fixture},
     stubs::MutableIndexerStub,
 };
-use world_id_core::types::{GatewayRequestState, GatewayStatusResponse};
-use world_id_core::{Authenticator, AuthenticatorError};
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
-use world_id_primitives::{merkle::AccountInclusionProof, Config, TREE_DEPTH};
+use world_id_core::{
+    Authenticator, AuthenticatorError,
+    types::{GatewayRequestState, GatewayStatusResponse},
+};
+use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof};
 
 const GW_PORT: u16 = 4105;
 
@@ -186,7 +190,7 @@ async fn e2e_authenticator_insert_update_remove() {
     let provider = ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let contract = WorldIDRegistry::new(registry_address, provider);
     let packed = contract
-        .authenticatorAddressToPackedAccountData(secondary_address)
+        .getPackedAccountData(secondary_address)
         .call()
         .await
         .unwrap();
@@ -225,7 +229,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Primary authenticator is now invalid, query contract directly
     let nonce = contract
-        .leafIndexToSignatureNonce(U256::from(1))
+        .getSignatureNonce(U256::from(1))
         .call()
         .await
         .unwrap();
@@ -233,7 +237,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify updated authenticator is registered and old primary is cleared
     let packed = contract
-        .authenticatorAddressToPackedAccountData(updated_address)
+        .getPackedAccountData(updated_address)
         .call()
         .await
         .unwrap();
@@ -243,7 +247,7 @@ async fn e2e_authenticator_insert_update_remove() {
         "updated authenticator should be registered after update"
     );
     let packed = contract
-        .authenticatorAddressToPackedAccountData(primary_address)
+        .getPackedAccountData(primary_address)
         .call()
         .await
         .unwrap();
@@ -276,7 +280,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify updated authenticator is cleared after removal
     let packed = contract
-        .authenticatorAddressToPackedAccountData(updated_address)
+        .getPackedAccountData(updated_address)
         .call()
         .await
         .unwrap();
@@ -288,7 +292,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify secondary authenticator is still registered (it was the signer for removal)
     let packed = contract
-        .authenticatorAddressToPackedAccountData(secondary_address)
+        .getPackedAccountData(secondary_address)
         .call()
         .await
         .unwrap();
