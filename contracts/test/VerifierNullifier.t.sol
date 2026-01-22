@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {Verifier} from "../src/VerifierNullifier.sol";
