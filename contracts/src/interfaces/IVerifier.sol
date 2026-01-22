@@ -11,19 +11,38 @@ import {IVerifierNullifier} from "./IVerifierNullifier.sol";
  * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
  */
 interface IVerifier {
-    ////////////////////////////////////////////////////////////
-    //                        Errors                         //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // ERRORS
+    // ========================================
 
+    /**
+     * @dev Thrown when the contract implementation has not been initialized.
+     */
     error ImplementationNotInitialized();
+
+    /**
+     * @dev Thrown when the proof timestamp is too old, exceeding the allowed proof timestamp delta.
+     */
     error OutdatedNullifier();
+
+    /**
+     * @dev Thrown when the proof timestamp is in the future (greater than the current block timestamp).
+     */
     error NullifierFromFuture();
+
+    /**
+     * @dev Thrown when the provided authenticator root is not valid in the World ID registry.
+     */
     error InvalidMerkleRoot();
+
+    /**
+     * @dev Thrown when the credential issuer schema ID is not registered in the credential schema issuer registry.
+     */
     error UnregisteredIssuerSchemaId();
 
-    ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // EVENTS
+    // ========================================
 
     /**
      * @notice Emitted when the credential schema issuer registry is updated
@@ -52,26 +71,9 @@ interface IVerifier {
      */
     event ProofTimestampDeltaUpdated(uint256 oldProofTimestampDelta, uint256 newProofTimestampDelta);
 
-    ////////////////////////////////////////////////////////////
-    //                        Functions                       //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @notice Verifies a Uniqueness Proof for a specific World ID.
-     */
-    function verify(
-        uint256 nullifier,
-        uint256 action,
-        uint64 rpId,
-        uint256 sessionId,
-        uint256 nonce,
-        uint256 signalHash,
-        uint256 authenticatorRoot,
-        uint256 proofTimestamp,
-        uint256 credentialIssuerId,
-        uint256 credentialGenesisIssuedAtMin,
-        uint256[4] calldata compressedProof
-    ) external view;
+    // ========================================
+    // OWNER FUNCTIONS
+    // ========================================
 
     /**
      * @notice Updates the credential schema issuer registry address
@@ -97,5 +99,26 @@ interface IVerifier {
      * @notice Updates the proof timestamp delta
      */
     function updateProofTimestampDelta(uint256 _proofTimestampDelta) external;
+
+    // ========================================
+    // VIEW FUNCTIONS
+    // ========================================
+
+    /**
+     * @notice Verifies a Uniqueness Proof for a specific World ID.
+     */
+    function verify(
+        uint256 nullifier,
+        uint256 action,
+        uint64 rpId,
+        uint256 sessionId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint256 authenticatorRoot,
+        uint256 proofTimestamp,
+        uint256 credentialIssuerId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256[4] calldata compressedProof
+    ) external view;
 }
 

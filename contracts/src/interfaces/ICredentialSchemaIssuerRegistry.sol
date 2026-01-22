@@ -7,28 +7,18 @@ pragma solidity ^0.8.13;
  * @dev Interface for the Credential Schema Issuer Registry contract
  */
 interface ICredentialSchemaIssuerRegistry {
-    ////////////////////////////////////////////////////////////
-    //                         Types                          //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // TYPES
+    // ========================================
 
     struct Pubkey {
         uint256 x;
         uint256 y;
     }
 
-    ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
-    event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
-    event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
-
-    ////////////////////////////////////////////////////////////
-    //                        Errors                         //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // ERRORS
+    // ========================================
 
     error ImplementationNotInitialized();
 
@@ -47,9 +37,19 @@ interface ICredentialSchemaIssuerRegistry {
      */
     error InvalidPubkey();
 
-    ////////////////////////////////////////////////////////////
-    //                        Functions                       //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // EVENTS
+    // ========================================
+
+    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
+    event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
+    event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
+    event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
+    event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
+
+    // ========================================
+    // PUBLIC FUNCTIONS
+    // ========================================
 
     function register(Pubkey memory pubkey, address signer) external returns (uint256);
 
@@ -60,16 +60,20 @@ interface ICredentialSchemaIssuerRegistry {
     function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature) external;
 
     /**
+     * @dev Updates the schema URI for a specific issuer schema ID.
+     */
+    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature) external;
+
+    // ========================================
+    // VIEW FUNCTIONS
+    // ========================================
+
+    /**
      * @dev Returns the schema URI for a specific issuerSchemaId.
      * @param issuerSchemaId The issuer+schema ID.
      * @return The schema URI for the issuerSchemaId.
      */
     function getIssuerSchemaUri(uint256 issuerSchemaId) external view returns (string memory);
-
-    /**
-     * @dev Updates the schema URI for a specific issuer schema ID.
-     */
-    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature) external;
 
     /**
      * @dev Returns the off-chain pubkey for a specific issuerSchemaId which signs credentials and whose signature is verified on World ID ZKPs.

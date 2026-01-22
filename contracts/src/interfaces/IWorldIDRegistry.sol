@@ -6,59 +6,9 @@ pragma solidity ^0.8.13;
  * @dev Interface for the World ID Registry contract
  */
 interface IWorldIDRegistry {
-    ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event AccountCreated(
-        uint256 indexed leafIndex,
-        address indexed recoveryAddress,
-        address[] authenticatorAddresses,
-        uint256[] authenticatorPubkeys,
-        uint256 offchainSignerCommitment
-    );
-    event AccountUpdated(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        uint256 newAuthenticatorPubkey,
-        address indexed oldAuthenticatorAddress,
-        address indexed newAuthenticatorAddress,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event AccountRecovered(
-        uint256 indexed leafIndex,
-        address indexed newAuthenticatorAddress,
-        uint256 indexed newAuthenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event RecoveryAddressUpdated(
-        uint256 indexed leafIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
-    );
-    event AuthenticatorInserted(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        address indexed authenticatorAddress,
-        uint256 indexed newAuthenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event AuthenticatorRemoved(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        address indexed authenticatorAddress,
-        uint256 indexed authenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event RootRecorded(uint256 indexed root, uint256 timestamp);
-    event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
-    event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
-
-    ////////////////////////////////////////////////////////////
-    //                        Errors                         //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // ERRORS
+    // ========================================
 
     error ImplementationNotInitialized();
 
@@ -182,83 +132,59 @@ interface IWorldIDRegistry {
      */
     error OwnerMaxAuthenticatorsOutOfBounds();
 
-    ////////////////////////////////////////////////////////////
-    //                  Public View Functions                 //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // EVENTS
+    // ========================================
 
-    /**
-     * @dev Returns the domain separator for the EIP712 structs.
-     */
-    function domainSeparatorV4() external view returns (bytes32);
+    event AccountCreated(
+        uint256 indexed leafIndex,
+        address indexed recoveryAddress,
+        address[] authenticatorAddresses,
+        uint256[] authenticatorPubkeys,
+        uint256 offchainSignerCommitment
+    );
+    event AccountUpdated(
+        uint256 indexed leafIndex,
+        uint32 pubkeyId,
+        uint256 newAuthenticatorPubkey,
+        address indexed oldAuthenticatorAddress,
+        address indexed newAuthenticatorAddress,
+        uint256 oldOffchainSignerCommitment,
+        uint256 newOffchainSignerCommitment
+    );
+    event AccountRecovered(
+        uint256 indexed leafIndex,
+        address indexed newAuthenticatorAddress,
+        uint256 indexed newAuthenticatorPubkey,
+        uint256 oldOffchainSignerCommitment,
+        uint256 newOffchainSignerCommitment
+    );
+    event RecoveryAddressUpdated(
+        uint256 indexed leafIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
+    );
+    event AuthenticatorInserted(
+        uint256 indexed leafIndex,
+        uint32 pubkeyId,
+        address indexed authenticatorAddress,
+        uint256 indexed newAuthenticatorPubkey,
+        uint256 oldOffchainSignerCommitment,
+        uint256 newOffchainSignerCommitment
+    );
+    event AuthenticatorRemoved(
+        uint256 indexed leafIndex,
+        uint32 pubkeyId,
+        address indexed authenticatorAddress,
+        uint256 indexed authenticatorPubkey,
+        uint256 oldOffchainSignerCommitment,
+        uint256 newOffchainSignerCommitment
+    );
+    event RootRecorded(uint256 indexed root, uint256 timestamp);
+    event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
+    event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
 
-    /**
-     * @dev Returns the current tree root.
-     */
-    function currentRoot() external view returns (uint256);
-
-    /**
-     * @dev Returns the recovery address for the given World ID (based on its leaf index).
-     * @param leafIndex The index of the leaf.
-     */
-    function getRecoveryAddress(uint256 leafIndex) external view returns (address);
-
-    /**
-     * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
-     */
-    function isValidRoot(uint256 root) external view returns (bool);
-
-    /**
-     * @dev Returns the packed account data for an authenticator address.
-     * @param authenticatorAddress The authenticator address to query.
-     */
-    function getPackedAccountData(address authenticatorAddress) external view returns (uint256);
-
-    /**
-     * @dev Returns the signature nonce for a leaf index.
-     * @param leafIndex The leaf index to query.
-     */
-    function getSignatureNonce(uint256 leafIndex) external view returns (uint256);
-
-    /**
-     * @dev Returns the recovery counter for a leaf index.
-     * @param leafIndex The leaf index to query.
-     */
-    function getRecoveryCounter(uint256 leafIndex) external view returns (uint256);
-
-    /**
-     * @dev Returns the next available leaf index.
-     */
-    function getNextLeafIndex() external view returns (uint256);
-
-    /**
-     * @dev Returns the depth of the Merkle tree.
-     */
-    function getTreeDepth() external view returns (uint256);
-
-    /**
-     * @dev Returns the maximum number of authenticators allowed per account.
-     */
-    function getMaxAuthenticators() external view returns (uint256);
-
-    /**
-     * @dev Returns the timestamp when a root was recorded.
-     * @param root The root to query.
-     */
-    function getRootTimestamp(uint256 root) external view returns (uint256);
-
-    /**
-     * @dev Returns the latest root.
-     */
-    function getLatestRoot() external view returns (uint256);
-
-    /**
-     * @dev Returns the root validity window in seconds.
-     */
-    function getRootValidityWindow() external view returns (uint256);
-
-    ////////////////////////////////////////////////////////////
-    //         Public State-Changing Functions                //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // FUNCTIONS
+    // ========================================
 
     /**
      * @dev Creates a new World ID account.
@@ -352,9 +278,9 @@ interface IWorldIDRegistry {
     function updateRecoveryAddress(uint256 leafIndex, address newRecoveryAddress, bytes memory signature, uint256 nonce)
         external;
 
-    ////////////////////////////////////////////////////////////
-    //                      Owner Functions                   //
-    ////////////////////////////////////////////////////////////
+    // ========================================
+    // OWNER FUNCTIONS
+    // ========================================
 
     /**
      * @dev Sets the validity window for historic roots. 0 means roots never expire.
@@ -365,5 +291,79 @@ interface IWorldIDRegistry {
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external;
+
+    // ========================================
+    // VIEW FUNCTIONS
+    // ========================================
+
+    /**
+     * @dev Returns the domain separator for the EIP712 structs.
+     */
+    function domainSeparatorV4() external view returns (bytes32);
+
+    /**
+     * @dev Returns the current tree root.
+     */
+    function currentRoot() external view returns (uint256);
+
+    /**
+     * @dev Returns the recovery address for the given World ID (based on its leaf index).
+     * @param leafIndex The index of the leaf.
+     */
+    function getRecoveryAddress(uint256 leafIndex) external view returns (address);
+
+    /**
+     * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
+     */
+    function isValidRoot(uint256 root) external view returns (bool);
+
+    /**
+     * @dev Returns the packed account data for an authenticator address.
+     * @param authenticatorAddress The authenticator address to query.
+     */
+    function getPackedAccountData(address authenticatorAddress) external view returns (uint256);
+
+    /**
+     * @dev Returns the signature nonce for a leaf index.
+     * @param leafIndex The leaf index to query.
+     */
+    function getSignatureNonce(uint256 leafIndex) external view returns (uint256);
+
+    /**
+     * @dev Returns the recovery counter for a leaf index.
+     * @param leafIndex The leaf index to query.
+     */
+    function getRecoveryCounter(uint256 leafIndex) external view returns (uint256);
+
+    /**
+     * @dev Returns the next available leaf index.
+     */
+    function getNextLeafIndex() external view returns (uint256);
+
+    /**
+     * @dev Returns the depth of the Merkle tree.
+     */
+    function getTreeDepth() external view returns (uint256);
+
+    /**
+     * @dev Returns the maximum number of authenticators allowed per account.
+     */
+    function getMaxAuthenticators() external view returns (uint256);
+
+    /**
+     * @dev Returns the timestamp when a root was recorded.
+     * @param root The root to query.
+     */
+    function getRootTimestamp(uint256 root) external view returns (uint256);
+
+    /**
+     * @dev Returns the latest root.
+     */
+    function getLatestRoot() external view returns (uint256);
+
+    /**
+     * @dev Returns the root validity window in seconds.
+     */
+    function getRootValidityWindow() external view returns (uint256);
 }
 
