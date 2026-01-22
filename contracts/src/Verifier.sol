@@ -237,6 +237,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     function updateWorldIDRegistry(address _worldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldWorldIDRegistry = address(worldIDRegistry);
         worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
+        treeDepth = worldIDRegistry.getTreeDepth();
         emit WorldIDRegistryUpdated(oldWorldIDRegistry, _worldIDRegistry);
     }
 
