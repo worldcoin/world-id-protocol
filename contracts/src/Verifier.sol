@@ -77,20 +77,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     }
 
     /**
-     * @notice Verifies a Uniqueness Proof for a specific World ID.
-     * @dev Validates the authenticator root, credential issuer registration, and delegates to Groth16VerifierNullifier for proof verification
-     * @param nullifier The nullifier hash to verify uniqueness
-     * @param action The action identifier
-     * @param rpId The relying party identifier
-     * @param sessionId The identifier for a specific RPW-specific session.
-     * @param nonce The nonce used in the proof
-     * @param signalHash The hash of the signal which was committed in the proof
-     * @param authenticatorRoot The merkle root of the authenticator set
-     * @param proofTimestamp The timestamp when the proof was generated
-     * @param credentialIssuerId The ID of the credential issuer
-     * @param credentialGenesisIssuedAtMin (Proof constraint, public input). The minimum timestamp for when the credential
-     *   was **initially** issued. This may be set to `0` to essentially skip the constraint.
-     * @param compressedProof The compressed Groth16 proof
+     * @inheritdoc IVerifier
      */
     function verify(
         uint256 nullifier,
@@ -154,9 +141,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     }
 
     /**
-     * @notice Updates the credential schema issuer registry address
-     * @dev Only callable by the contract owner
-     * @param _credentialSchemaIssuerRegistry The new credential schema issuer registry address
+     * @inheritdoc IVerifier
      */
     function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry)
         external
@@ -171,9 +156,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     }
 
     /**
-     * @notice Updates the World ID registry address
-     * @dev Only callable by the contract owner
-     * @param _worldIDRegistry The new World ID Registry address
+     * @inheritdoc IVerifier
      */
     function updateWorldIDRegistry(address _worldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldWorldIDRegistry = address(worldIDRegistry);
@@ -183,9 +166,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     }
 
     /**
-     * @notice Updates the OPRF key registry address
-     * @dev Only callable by the contract owner
-     * @param _oprfKeyRegistry The new OPRF key registry address
+     * @inheritdoc IVerifier
      */
     function updateOprfKeyRegistry(address _oprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldOprfKeyRegistry = address(oprfKeyRegistry);
@@ -194,9 +175,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     }
 
     /**
-     * @notice Updates the Nullifier Verifier address
-     * @dev Only callable by the contract owner
-     * @param _verifierNullifier The new Groth16 Verifier address
+     * @inheritdoc IVerifier
      */
     function updateVerifierNullifier(address _verifierNullifier) external virtual onlyOwner onlyProxy onlyInitialized {
         address oldVerifier = address(verifierNullifier);
@@ -205,9 +184,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     }
 
     /**
-     * @notice Updates the proof timestamp delta
-     * @dev Only callable by the contract owner
-     * @param _proofTimestampDelta The new proof timestamp delta
+     * @inheritdoc IVerifier
      */
     function updateProofTimestampDelta(uint256 _proofTimestampDelta)
         external

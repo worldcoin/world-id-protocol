@@ -93,6 +93,9 @@ contract CredentialSchemaIssuerRegistry is
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
+    /**
+     * @inheritdoc ICredentialSchemaIssuerRegistry
+     */
     function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
@@ -107,6 +110,9 @@ contract CredentialSchemaIssuerRegistry is
         return issuerSchemaId;
     }
 
+    /**
+     * @inheritdoc ICredentialSchemaIssuerRegistry
+     */
     function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
@@ -126,6 +132,9 @@ contract CredentialSchemaIssuerRegistry is
         delete idToSchemaUri[issuerSchemaId];
     }
 
+    /**
+     * @inheritdoc ICredentialSchemaIssuerRegistry
+     */
     function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
         public
         virtual
@@ -160,6 +169,9 @@ contract CredentialSchemaIssuerRegistry is
         _nonces[issuerSchemaId]++;
     }
 
+    /**
+     * @inheritdoc ICredentialSchemaIssuerRegistry
+     */
     function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature)
         public
         virtual
@@ -187,9 +199,7 @@ contract CredentialSchemaIssuerRegistry is
     }
 
     /**
-     * @dev Returns the schema URI for a specific issuerSchemaId.
-     * @param issuerSchemaId The issuer+schema ID.
-     * @return The schema URI for the issuerSchemaId.
+     * @inheritdoc ICredentialSchemaIssuerRegistry
      */
     function getIssuerSchemaUri(uint256 issuerSchemaId)
         public
@@ -203,10 +213,7 @@ contract CredentialSchemaIssuerRegistry is
     }
 
     /**
-     * @dev Updates the schema URI for a specific issuer schema ID.
-     * @param issuerSchemaId The issuer-schema ID whose schema URI will be updated.
-     * @param schemaUri The new schema URI to set.
-     * @param signature The signature of the issuer authorizing the update.
+     * @inheritdoc ICredentialSchemaIssuerRegistry
      */
     function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature)
         public
@@ -240,9 +247,7 @@ contract CredentialSchemaIssuerRegistry is
     }
 
     /**
-     * @dev Returns the off-chain pubkey for a specific issuerSchemaId which signs credentials and whose signature is verified on World ID ZKPs.
-     * @param issuerSchemaId The issuer-schema ID whose pubkey will be returned.
-     * @return The pubkey for the issuerSchemaId.
+     * @inheritdoc ICredentialSchemaIssuerRegistry
      */
     function issuerSchemaIdToPubkey(uint256 issuerSchemaId)
         public
@@ -256,9 +261,7 @@ contract CredentialSchemaIssuerRegistry is
     }
 
     /**
-     * @dev Returns the on-chain signer address authorized to perform updates on a specific issuerSchemaId.
-     * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
-     * @return The on-chain signer address for the issuerSchemaId.
+     * @inheritdoc ICredentialSchemaIssuerRegistry
      */
     function getSignerForIssuerSchemaId(uint256 issuerSchemaId)
         public
@@ -271,10 +274,16 @@ contract CredentialSchemaIssuerRegistry is
         return _idToAddress[issuerSchemaId];
     }
 
+    /**
+     * @inheritdoc ICredentialSchemaIssuerRegistry
+     */
     function nextIssuerSchemaId() public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _nextId;
     }
 
+    /**
+     * @inheritdoc ICredentialSchemaIssuerRegistry
+     */
     function nonceOf(uint256 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _nonces[issuerSchemaId];
     }

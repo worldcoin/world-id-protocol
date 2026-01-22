@@ -110,18 +110,14 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Returns the domain separator for the EIP712 structs.
+     * @inheritdoc IRpRegistry
      */
     function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
 
     /**
-     * @dev Registers a new relying party.
-     * @param rpId The ID of the relying party. A random ID is recommended.
-     * @param manager The address of the manager (on-chain operations).
-     * @param signer The address of the signer (Proof requests).
-     * @param unverifiedWellKnownDomain The (unverified) well-known domain of the relying party.
+     * @inheritdoc IRpRegistry
      */
     function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain)
         external
@@ -134,11 +130,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     /**
-     * @dev Registers multiple new relying parties at once.
-     * @param rpIds the list of rpIds
-     * @param managers the list of managers
-     * @param signers the list of signers
-     * @param unverifiedWellKnownDomains the list of unverified well-known domains
+     * @inheritdoc IRpRegistry
      */
     function registerMany(
         uint64[] calldata rpIds,
@@ -161,8 +153,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     /**
-     * @dev Get a relying party by id. will revert if it's not a valid id or is inactive.
-     * @param rpId the id of the relying party to get
+     * @inheritdoc IRpRegistry
      */
     function getRp(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
@@ -173,8 +164,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     /**
-     * @dev Get a relying party by id. will return even if the rp is inactive.
-     * @param rpId the id of the relying party to get
+     * @inheritdoc IRpRegistry
      */
     function getRpUnchecked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
@@ -183,8 +173,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     /**
-     * @dev Convenience method to get the oprf key id and signer of a relying party. Useful for proof generation/verification.
-     * @param rpId the id of the relying party to get
+     * @inheritdoc IRpRegistry
      */
     function getOprfKeyIdAndSigner(uint64 rpId)
         external
@@ -202,48 +191,42 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     /**
-     * @dev Returns the current nonce for a relying party. will return 0 even if the rpId does not exist.
-     * @param rpId the id of the relying party to get
+     * @inheritdoc IRpRegistry
      */
     function nonceOf(uint64 rpId) public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _rpIdToSignatureNonce[rpId];
     }
 
     /**
-     * @dev Returns the current registration fee for a relying party.
+     * @inheritdoc IRpRegistry
      */
     function getRegistrationFee() public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _registrationFee;
     }
 
     /**
-     * @dev Returns the current recipient for RP registration fees.
+     * @inheritdoc IRpRegistry
      */
     function getFeeRecipient() public view virtual onlyProxy onlyInitialized returns (address) {
         return _feeRecipient;
     }
 
     /**
-     * @dev Returns the current token with which fees are paid.
+     * @inheritdoc IRpRegistry
      */
     function getFeeToken() public view virtual onlyProxy onlyInitialized returns (address) {
         return address(_feeToken);
     }
 
+    /**
+     * @inheritdoc IRpRegistry
+     */
     function getOprfKeyRegistry() public view virtual onlyProxy onlyInitialized returns (address) {
         return address(_oprfKeyRegistry);
     }
 
     /**
-     * @dev Partially update a Relying Party record. Must be signed by the manager.
-     * @param rpId the id of the relying party to update
-     * @param oprfKeyId the new oprf key id of the relying party. set to zero to maintain current oprfKeyId.
-     * @param manager the new manager of the relying party. set to zero address to maintain current manager.
-     * @param signer the new signer of the relying party. set to zero address to maintain current signer.
-     * @param toggleActive whether to toggle the active status of the relying party
-     * @param unverifiedWellKnownDomain the new unverified well-known domain of the relying party. set to sentinel value to skip update.
-     * @param nonce the nonce used for this operation
-     * @param signature the signature of the manager
+     * @inheritdoc IRpRegistry
      */
     function updateRp(
         uint64 rpId,
@@ -352,6 +335,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      */
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
+    /**
+     * @inheritdoc IRpRegistry
+     */
     function setFeeRecipient(address newFeeRecipient) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newFeeRecipient == address(0)) revert ZeroAddress();
         address oldRecipient = _feeRecipient;
@@ -359,12 +345,18 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
     }
 
+    /**
+     * @inheritdoc IRpRegistry
+     */
     function setRegistrationFee(uint256 newFee) external virtual onlyOwner onlyProxy onlyInitialized {
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
     }
 
+    /**
+     * @inheritdoc IRpRegistry
+     */
     function setFeeToken(address newFeeToken) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newFeeToken == address(0)) revert ZeroAddress();
         address oldToken = address(_feeToken);

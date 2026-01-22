@@ -125,11 +125,19 @@ interface IRpRegistry {
 
     /**
      * @dev Registers a new relying party.
+     * @param rpId The unique identifier for the relying party.
+     * @param manager The address authorized to manage the relying party.
+     * @param signer The address authorized to sign proof requests for the relying party.
+     * @param unverifiedWellKnownDomain The FQDN where the well-known metadata file is published (e.g., "world.org").
      */
     function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain) external;
 
     /**
      * @dev Registers multiple new relying parties at once.
+     * @param rpIds Array of unique identifiers for the relying parties.
+     * @param managers Array of addresses authorized to manage each relying party.
+     * @param signers Array of addresses authorized to sign proof requests for each relying party.
+     * @param unverifiedWellKnownDomains Array of FQDNs where well-known metadata files are published.
      */
     function registerMany(
         uint64[] calldata rpIds,
@@ -140,6 +148,14 @@ interface IRpRegistry {
 
     /**
      * @dev Partially update a Relying Party record. Must be signed by the manager.
+     * @param rpId The unique identifier of the relying party to update.
+     * @param oprfKeyId The OPRF key identifier from the OprfKeyRegistry contract.
+     * @param manager The new manager address (or current if unchanged).
+     * @param signer The new signer address (or current if unchanged).
+     * @param toggleActive Whether to toggle the active status of the relying party.
+     * @param unverifiedWellKnownDomain The new FQDN (or current if unchanged).
+     * @param nonce The signature nonce for replay protection.
+     * @param signature The signature from the current manager authorizing the update.
      */
     function updateRp(
         uint64 rpId,
@@ -157,17 +173,20 @@ interface IRpRegistry {
     // ========================================
 
     /**
-     * @dev Sets the fee recipient address.
+     * @dev Sets the fee recipient address where registration fees are sent.
+     * @param newFeeRecipient The new address to receive registration fees.
      */
     function setFeeRecipient(address newFeeRecipient) external;
 
     /**
-     * @dev Sets the registration fee.
+     * @dev Sets the registration fee amount required to register a new relying party.
+     * @param newFee The new registration fee amount.
      */
     function setRegistrationFee(uint256 newFee) external;
 
     /**
-     * @dev Sets the fee token address.
+     * @dev Sets the ERC20 token address used for paying registration fees. Use address(0) for native ETH.
+     * @param newFeeToken The new token address for fee payments.
      */
     function setFeeToken(address newFeeToken) external;
 

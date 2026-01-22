@@ -51,12 +51,35 @@ interface ICredentialSchemaIssuerRegistry {
     // PUBLIC FUNCTIONS
     // ========================================
 
+    /**
+     * @dev Registers a new credential schema issuer pair.
+     * @param pubkey The off-chain public key that will sign credentials for this issuer-schema pair.
+     * @param signer The on-chain address authorized to perform updates for this issuer-schema pair.
+     * @return issuerSchemaId The unique identifier assigned to this issuer-schema pair.
+     */
     function register(Pubkey memory pubkey, address signer) external returns (uint256);
 
+    /**
+     * @dev Removes a registered issuer-schema pair. Must be signed by the authorized signer.
+     * @param issuerSchemaId The issuer-schema ID to remove.
+     * @param signature The signature authorizing the removal.
+     */
     function remove(uint256 issuerSchemaId, bytes calldata signature) external;
 
+    /**
+     * @dev Updates the off-chain public key for an issuer-schema pair. Must be signed by the authorized signer.
+     * @param issuerSchemaId The issuer-schema ID whose pubkey will be updated.
+     * @param newPubkey The new off-chain public key.
+     * @param signature The signature authorizing the update.
+     */
     function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature) external;
 
+    /**
+     * @dev Updates the on-chain signer address for an issuer-schema pair. Must be signed by the current signer.
+     * @param issuerSchemaId The issuer-schema ID whose signer will be updated.
+     * @param newSigner The new on-chain signer address authorized to perform updates.
+     * @param signature The signature from the current signer authorizing the update.
+     */
     function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature) external;
 
     /**
@@ -87,10 +110,24 @@ interface ICredentialSchemaIssuerRegistry {
      * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
      * @return The on-chain signer address for the issuerSchemaId.
      */
+    /**
+     * @dev Returns the on-chain signer address authorized to perform updates on a specific issuerSchemaId.
+     * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
+     * @return The on-chain signer address for the issuerSchemaId.
+     */
     function getSignerForIssuerSchemaId(uint256 issuerSchemaId) external view returns (address);
 
+    /**
+     * @dev Returns the next available issuer-schema ID that will be assigned on registration.
+     * @return The next issuer-schema ID that will be assigned.
+     */
     function nextIssuerSchemaId() external view returns (uint256);
 
+    /**
+     * @dev Returns the current nonce for a specific issuer-schema ID, used for replay protection in signed operations.
+     * @param issuerSchemaId The issuer-schema ID to query.
+     * @return The current nonce for the issuer-schema ID.
+     */
     function nonceOf(uint256 issuerSchemaId) external view returns (uint256);
 }
 

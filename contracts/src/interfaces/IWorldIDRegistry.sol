@@ -214,7 +214,17 @@ interface IWorldIDRegistry {
     ) external;
 
     /**
-     * @dev Updates an existing Authenticator.
+     * @dev Updates an existing authenticator for a World ID account. Replaces the old authenticator address with a new one.
+     * @param leafIndex The leaf index of the World ID account.
+     * @param oldAuthenticatorAddress The current authenticator address to be replaced.
+     * @param newAuthenticatorAddress The new authenticator address to replace the old one.
+     * @param pubkeyId The pubkey ID associated with this authenticator.
+     * @param newAuthenticatorPubkey The new authenticator public key.
+     * @param oldOffchainSignerCommitment The current offchain signer commitment.
+     * @param newOffchainSignerCommitment The new offchain signer commitment.
+     * @param signature The signature from the old authenticator authorizing the update.
+     * @param siblingNodes The Merkle proof sibling nodes for the current leaf.
+     * @param nonce The signature nonce for replay protection.
      */
     function updateAuthenticator(
         uint256 leafIndex,
@@ -230,7 +240,16 @@ interface IWorldIDRegistry {
     ) external;
 
     /**
-     * @dev Inserts a new Authenticator.
+     * @dev Inserts a new authenticator for a World ID account. Adds an additional authenticator to an existing account.
+     * @param leafIndex The leaf index of the World ID account.
+     * @param newAuthenticatorAddress The new authenticator address to add.
+     * @param pubkeyId The pubkey ID to assign to this new authenticator (must be unused).
+     * @param newAuthenticatorPubkey The new authenticator public key.
+     * @param oldOffchainSignerCommitment The current offchain signer commitment.
+     * @param newOffchainSignerCommitment The new offchain signer commitment.
+     * @param signature The signature from an existing authenticator authorizing the insertion.
+     * @param siblingNodes The Merkle proof sibling nodes for the current leaf.
+     * @param nonce The signature nonce for replay protection.
      */
     function insertAuthenticator(
         uint256 leafIndex,
@@ -245,7 +264,16 @@ interface IWorldIDRegistry {
     ) external;
 
     /**
-     * @dev Removes an Authenticator.
+     * @dev Removes an authenticator from a World ID account.
+     * @param leafIndex The leaf index of the World ID account.
+     * @param authenticatorAddress The authenticator address to remove.
+     * @param pubkeyId The pubkey ID associated with the authenticator being removed.
+     * @param authenticatorPubkey The public key of the authenticator being removed.
+     * @param oldOffchainSignerCommitment The current offchain signer commitment.
+     * @param newOffchainSignerCommitment The new offchain signer commitment after removal.
+     * @param signature The signature from the authenticator being removed authorizing the removal.
+     * @param siblingNodes The Merkle proof sibling nodes for the current leaf.
+     * @param nonce The signature nonce for replay protection.
      */
     function removeAuthenticator(
         uint256 leafIndex,
@@ -260,7 +288,15 @@ interface IWorldIDRegistry {
     ) external;
 
     /**
-     * @dev Recovers a World ID.
+     * @dev Recovers a World ID account using the recovery address. Replaces all authenticators with a new one.
+     * @param leafIndex The leaf index of the World ID account to recover.
+     * @param newAuthenticatorAddress The new authenticator address to set after recovery.
+     * @param newAuthenticatorPubkey The new authenticator public key.
+     * @param oldOffchainSignerCommitment The current offchain signer commitment.
+     * @param newOffchainSignerCommitment The new offchain signer commitment after recovery.
+     * @param signature The signature from the recovery address authorizing the recovery.
+     * @param siblingNodes The Merkle proof sibling nodes for the current leaf.
+     * @param nonce The signature nonce for replay protection.
      */
     function recoverAccount(
         uint256 leafIndex,
@@ -274,7 +310,11 @@ interface IWorldIDRegistry {
     ) external;
 
     /**
-     * @dev Updates the recovery address for a World ID.
+     * @dev Updates the recovery address for a World ID account.
+     * @param leafIndex The leaf index of the World ID account.
+     * @param newRecoveryAddress The new recovery address to set.
+     * @param signature The signature from an existing authenticator authorizing the update.
+     * @param nonce The signature nonce for replay protection.
      */
     function updateRecoveryAddress(uint256 leafIndex, address newRecoveryAddress, bytes memory signature, uint256 nonce)
         external;
