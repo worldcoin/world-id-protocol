@@ -1,0 +1,5 @@
+/services/oprf-node @fabian1409 @0xThemis @dkales @philsippl
+/services/oprf-dev-client @fabian1409 @0xThemis @dkales @philsippl
+/circom @fabian1409 @0xThemis @dkales @philsippl @paolodamico
+CODEOWNERS @paolodamico @philsippl @murph
+* @worldcoin/protocol @andy-t-wang @Takaros999 @aurel-fr @carlomazzaferro @eaypek-tfh @rw0x0 @fabian1409 @0xThemis @dkales @lukejmann @m1guelpf
