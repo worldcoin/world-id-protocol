@@ -6,7 +6,6 @@ import {Verifier} from "../src/Verifier.sol";
 import {OprfKeyGen} from "oprf-key-registry/src/OprfKeyGen.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 import {Groth16Verifier} from "../src/Groth16VerifierNullifier.sol";
-import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 
