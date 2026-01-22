@@ -96,7 +96,10 @@ pub(crate) async fn handler(
     let offchain_signer_commitment: U256 = row
         .get::<String, _>("offchain_signer_commitment")
         .parse()
-        .unwrap(); // TODO: error handling
+        .map_err(|e| {
+            tracing::error!(leaf_index = %leaf_index, "Invalid offchain_signer_commitment stored for account: {e}");
+            IndexerErrorResponse::internal_server_error()
+        })?;
 
     let tree = GLOBAL_TREE.read().await;
 

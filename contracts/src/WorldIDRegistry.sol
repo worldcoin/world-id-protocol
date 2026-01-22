@@ -129,6 +129,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     string public constant EIP712_NAME = "WorldIDRegistry";
     string public constant EIP712_VERSION = "1.0";
 
+    /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
+    uint256 public constant MAX_AUTHENTICATORS_LIMIT = 160;
+
     ////////////////////////////////////////////////////////////
     //                        Errors                         //
     ////////////////////////////////////////////////////////////
@@ -917,8 +920,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
-        if (maxAuthenticators >= 160) {
-            // 160 because we use a pubkey bitmap that has 160 bits available
+        if (newMaxAuthenticators >= MAX_AUTHENTICATORS_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
         }
         uint256 old = maxAuthenticators;
