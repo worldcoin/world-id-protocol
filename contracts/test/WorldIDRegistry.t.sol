@@ -679,25 +679,31 @@ contract WorldIDRegistryTest is Test {
         );
     }
 
-    function test_SetMaxAuthenticators_RevertWhen_ValueAtLimit() public {
-        // Should revert when trying to set maxAuthenticators to exactly 160 (the limit)
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
-        worldIDRegistry.setMaxAuthenticators(160);
-    }
-
     function test_SetMaxAuthenticators_RevertWhen_ValueAboveLimit() public {
-        // Should revert when trying to set maxAuthenticators above 160
+        // Should revert when trying to set maxAuthenticators above 96 (the limit)
         vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
-        worldIDRegistry.setMaxAuthenticators(200);
+        worldIDRegistry.setMaxAuthenticators(97);
 
         vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
         worldIDRegistry.setMaxAuthenticators(type(uint256).max);
     }
 
     function test_SetMaxAuthenticators_SucceedsAtMaxValidValue() public {
-        // Should succeed when setting to 159 (one below the limit)
-        worldIDRegistry.setMaxAuthenticators(159);
-        assertEq(worldIDRegistry.getMaxAuthenticators(), 159);
+        // Should succeed when setting to 96 (the maximum allowed value, matching 96-bit bitmap)
+        worldIDRegistry.setMaxAuthenticators(96);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 96);
+    }
+
+    function test_SetMaxAuthenticators_SucceedsBelowMaxValue() public {
+        // Should succeed when setting to values below 96
+        worldIDRegistry.setMaxAuthenticators(95);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 95);
+
+        worldIDRegistry.setMaxAuthenticators(50);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 50);
+
+        worldIDRegistry.setMaxAuthenticators(1);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 1);
     }
 
     ////////////////////////////////////////////////////////////
