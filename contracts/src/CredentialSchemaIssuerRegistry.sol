@@ -89,6 +89,10 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
+    // DO NOT REORDER! To ensure compatibility between upgrades, it is exceedingly important
+    // that no reordering of these variables takes place. If reordering happens, a storage
+    // clash will occur (effectively a memory safety error).
+
     mapping(uint256 => Pubkey) private _idToPubkey;
 
     // Stores the on-chain signer address for each issuerSchemaId, i.e. who is authorized to perform updates on the issuerSchemaId.

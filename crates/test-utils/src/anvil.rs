@@ -77,16 +77,6 @@ sol!(
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    BabyJubJub,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
-    )
-);
-
-sol!(
-    #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
     OprfKeyRegistry,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -418,7 +408,7 @@ impl TestAnvil {
         let baby_jub_jub_address =
             Self::deploy_contract(provider.clone(), baby_jub_jub_bytecode, Bytes::new())
                 .await
-                .context("failed to deploy BabyJubJub library")?;
+                .context("failed to deploy BabyJubJub contract")?;
 
         // Step 3: Link BabyJubJub to OprfKeyRegistry
         let oprf_key_registry_json = include_str!(concat!(
