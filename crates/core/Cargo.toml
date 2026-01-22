@@ -116,3 +116,4 @@ axum = { workspace = true, features = ["macros", "json"] }
 taceo-oprf-core = { workspace = true }
 mockito = "1.6"
 taceo-oprf-service = { workspace = true }
+taceo-oprf-test-utils = { workspace = true }

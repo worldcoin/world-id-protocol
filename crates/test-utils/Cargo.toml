@@ -29,7 +29,7 @@ k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }
 ark-ec = { workspace = true }
 taceo-oprf-types = { workspace = true }
-taceo-oprf-test = { workspace = true }
+taceo-oprf-test-utils = { workspace = true }
 taceo-oprf-key-gen = { workspace = true }
 axum = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
