@@ -1,11 +1,8 @@
 use std::{fmt, path::PathBuf, time::Instant};
 
 use alloy::primitives::U256;
-use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use sqlx::PgPool;
 use tracing::{info, warn};
-
-use super::PoseidonHasher;
 
 use super::{builder::TreeBuilder, metadata};
 use crate::db::get_max_event_id;
@@ -75,42 +72,39 @@ impl TreeInitializer {
         }
     }
 
-    /// Initialize tree: try restore + replay, fallback to full rebuild
-    pub async fn initialize(
-        &self,
-        pool: &PgPool,
-    ) -> anyhow::Result<MerkleTree<PoseidonHasher, Canonical>> {
+    /// Initialize tree: try restore + replay, fallback to full rebuild.
+    /// Updates GLOBAL_TREE atomically and returns nothing.
+    pub async fn initialize(&self, pool: &PgPool) -> anyhow::Result<()> {
         let start = Instant::now();
 
         let cache_state = self.check_cache_files();
         info!(?cache_state, "Checking cache files");
 
         // If either file is missing, skip restore attempt and do full rebuild
-        let tree = if cache_state.is_valid() {
+        if cache_state.is_valid() {
             match self.try_restore_and_replay(pool).await {
-                Ok(tree) => {
+                Ok(()) => {
                     info!("Successfully restored and updated tree from cache");
-                    tree
                 }
                 Err(e) => {
                     warn!("Cache restore failed ({}), doing full rebuild", e);
-                    self.full_rebuild_with_cache(pool).await?
+                    self.full_rebuild_and_update_global_tree(pool).await?;
                 }
             }
         } else {
             info!("{}, building tree from scratch", cache_state);
-            self.full_rebuild_with_cache(pool).await?
+            self.full_rebuild_and_update_global_tree(pool).await?;
         };
 
         info!("Tree initialization took {:?}", start.elapsed());
-        Ok(tree)
+        Ok(())
     }
 
-    /// Try to restore from cache and replay missed events
-    async fn try_restore_and_replay(
-        &self,
-        pool: &PgPool,
-    ) -> anyhow::Result<MerkleTree<PoseidonHasher, Canonical>> {
+    /// Try to restore from cache and replay missed events.
+    /// Updates GLOBAL_TREE atomically.
+    async fn try_restore_and_replay(&self, pool: &PgPool) -> anyhow::Result<()> {
+        use crate::tree::GLOBAL_TREE;
+
         // 1. Read metadata
         let metadata = metadata::read_metadata(&self.cache_path)?;
 
@@ -154,44 +148,52 @@ impl TreeInitializer {
         }
 
         // 5. Replay events if needed (based on event ID, not block number)
-        if events_behind == 0 {
+        let final_tree = if events_behind == 0 {
             info!("Cache is up-to-date, no replay needed");
-            return Ok(tree);
-        }
+            tree
+        } else {
+            // Use event ID as the replay cursor (not block number)
+            let (updated_tree, new_block, new_event_id) = self
+                .builder
+                .replay_events(tree, pool, metadata.last_event_id)
+                .await?;
 
-        // Use event ID as the replay cursor (not block number)
-        let (updated_tree, new_block, new_event_id) = self
-            .builder
-            .replay_events(tree, pool, metadata.last_event_id)
+            info!(
+                replayed_to_block = new_block,
+                replayed_to_event_id = new_event_id,
+                new_root = %format!("0x{:x}", updated_tree.root()),
+                "Replay complete"
+            );
+
+            // Update metadata with new event ID
+            metadata::write_metadata(
+                &self.cache_path,
+                &updated_tree,
+                pool,
+                new_block,
+                new_event_id,
+                self.tree_depth,
+                self.dense_prefix_depth,
+            )
             .await?;
 
-        // 6. Update metadata with new event ID
-        metadata::write_metadata(
-            &self.cache_path,
-            &updated_tree,
-            pool,
-            new_block,
-            new_event_id,
-            self.tree_depth,
-            self.dense_prefix_depth,
-        )
-        .await?;
+            updated_tree
+        };
 
-        info!(
-            replayed_to_block = new_block,
-            replayed_to_event_id = new_event_id,
-            new_root = %format!("0x{:x}", updated_tree.root()),
-            "Replay complete"
-        );
+        // 6. Replace GLOBAL_TREE atomically
+        {
+            let mut tree_guard = GLOBAL_TREE.write().await;
+            *tree_guard = final_tree;
+        }
 
-        Ok(updated_tree)
+        Ok(())
     }
 
-    /// Full rebuild from database with cache
-    async fn full_rebuild_with_cache(
-        &self,
-        pool: &PgPool,
-    ) -> anyhow::Result<MerkleTree<PoseidonHasher, Canonical>> {
+    /// Full rebuild from database and atomically replace GLOBAL_TREE.
+    /// Used during initialization and for recovery when cache is corrupted.
+    async fn full_rebuild_and_update_global_tree(&self, pool: &PgPool) -> anyhow::Result<()> {
+        use crate::tree::GLOBAL_TREE;
+
         info!("Starting full tree rebuild with cache");
 
         let (tree, last_block, last_event_id) = self
@@ -199,50 +201,13 @@ impl TreeInitializer {
             .build_from_db_with_cache(pool, &self.cache_path)
             .await?;
 
-        // Write metadata with event ID
-        metadata::write_metadata(
-            &self.cache_path,
-            &tree,
-            pool,
-            last_block,
-            last_event_id,
-            self.tree_depth,
-            self.dense_prefix_depth,
-        )
-        .await?;
-
-        info!(
-            root = %format!("0x{:x}", tree.root()),
-            last_block,
-            last_event_id,
-            "Full rebuild complete"
-        );
-
-        Ok(tree)
-    }
-
-    /// Full rebuild from database and atomically replace GLOBAL_TREE
-    /// Used for recovery when cache is corrupted
-    async fn full_rebuild(&self, pool: &PgPool) -> anyhow::Result<u64> {
-        use crate::tree::GLOBAL_TREE;
-
-        info!("Cache corrupted, performing full rebuild and replacing GLOBAL_TREE");
-
-        let (tree, last_block, last_event_id) = self
-            .builder
-            .build_from_db_with_cache(pool, &self.cache_path)
-            .await?;
-
-        // Get total events for return value
-        let total_events = last_event_id as u64;
-
         // Replace GLOBAL_TREE atomically
         {
             let mut tree_guard = GLOBAL_TREE.write().await;
             *tree_guard = tree;
         }
 
-        // Write metadata with event ID
+        // Write metadata with event ID (read from GLOBAL_TREE for consistency)
         let tree_for_metadata = GLOBAL_TREE.read().await;
         metadata::write_metadata(
             &self.cache_path,
@@ -259,10 +224,10 @@ impl TreeInitializer {
             root = %format!("0x{:x}", tree_for_metadata.root()),
             last_block,
             last_event_id,
-            "Full rebuild and GLOBAL_TREE replacement complete"
+            "Full rebuild and GLOBAL_TREE update complete"
         );
 
-        Ok(total_events)
+        Ok(())
     }
 
     /// Sync the in-memory GLOBAL_TREE with database events without full reconstruction.
@@ -317,7 +282,10 @@ impl TreeInitializer {
             );
 
             // Trigger full rebuild instead of failing
-            return self.full_rebuild(pool).await;
+            return self
+                .full_rebuild_and_update_global_tree(pool)
+                .await
+                .map(|_| 0);
         }
 
         info!(

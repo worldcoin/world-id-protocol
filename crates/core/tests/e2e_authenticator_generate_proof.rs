@@ -7,6 +7,7 @@ use std::{
 
 use alloy::{primitives::U256, signers::local::LocalSigner};
 use eyre::{Context as _, Result, eyre};
+use taceo_oprf_test_utils::health_checks;
 use taceo_oprf_types::ShareEpoch;
 use test_utils::{
     fixtures::{
@@ -141,7 +142,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let secret_managers = test_utils::taceo_oprf_test::create_3_secret_managers();
+    let secret_managers = test_utils::stubs::create_secret_managers();
     // OPRF key-gen instances
     let oprf_key_gens = test_utils::stubs::spawn_key_gens(
         anvil.ws_endpoint(),
@@ -159,11 +160,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .await;
 
-    test_utils::taceo_oprf_test::health_checks::services_health_check(
-        &oprf_key_gens,
-        Duration::from_secs(60),
-    )
-    .await?;
+    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
 
     // Register the RP which also triggers a OPRF key-gen.
     let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -179,14 +176,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .await?;
 
     // Wait for OPRF key-gen and until the public key is available from the nodes.
-    let _oprf_public_key =
-        test_utils::taceo_oprf_test::health_checks::oprf_public_key_from_services(
-            rp_fixture.oprf_key_id,
-            ShareEpoch::default(),
-            &nodes,
-            Duration::from_secs(120),
-        )
-        .await?;
+    let _oprf_public_key = health_checks::oprf_public_key_from_services(
+        rp_fixture.oprf_key_id,
+        ShareEpoch::default(),
+        &nodes,
+        Duration::from_secs(120),
+    )
+    .await?;
 
     // Config for proof generation uses the indexer + OPRF stubs.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -230,6 +226,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         expires_at: rp_fixture.current_timestamp + 300, // 5 minutes from now
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
+        share_epoch: rp_fixture.share_epoch,
         action: rp_fixture.action.into(),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
