@@ -1,8 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
+    AppState,
     batcher::{Batcher, BatcherConfig, GasPolicy},
     request::GatewayContext,
+    request_tracker::RequestTracker,
     routes::{
         create_account::create_account,
         health::{__path_health, health},
@@ -14,9 +16,7 @@ use crate::{
         request_status::request_status,
         update_authenticator::update_authenticator,
     },
-    request_tracker::RequestTracker,
     types::RootExpiry,
-    AppState,
 };
 use alloy::providers::DynProvider;
 use axum::{

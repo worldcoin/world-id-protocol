@@ -8,20 +8,25 @@ pub mod gas_policy;
 use chain::{ChainMonitor, ChainMonitorConfig};
 pub use gas_policy::{GasPolicy, GasPolicyConfig, GasPolicyTrait};
 
-use alloy::primitives::{address, Address, U256};
-use alloy::providers::{DynProvider, Provider};
+use alloy::{
+    primitives::{Address, U256, address},
+    providers::{DynProvider, Provider},
+};
 use backon::{ExponentialBuilder, Retryable};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{broadcast, mpsc};
-use tokio::time::{timeout, Instant};
+use std::{sync::Arc, time::Duration};
+use tokio::{
+    sync::{broadcast, mpsc},
+    time::{Instant, timeout},
+};
 use tracing::{debug, error};
 use uuid::Uuid;
 use world_id_core::types::parse_contract_error;
 
 use crate::request_tracker::RequestTracker;
-use world_id_core::types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState};
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_core::{
+    types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState},
+    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MULTICALL3
@@ -76,8 +81,13 @@ impl Default for ChainState {
 use alloy::primitives::Bytes;
 
 /// Default gas estimates for operation types.
-pub const GAS_CREATE_ACCOUNT: u64 = 150_000;
-pub const GAS_DEFAULT_OP: u64 = 200_000;
+pub(super) mod defaults {
+    pub const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 600_000;
+    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 252_784;
+    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 385_775;
+    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 721_044;
+    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 516_400;
+}
 
 /// Batching Operations.
 #[derive(Debug, Clone)]

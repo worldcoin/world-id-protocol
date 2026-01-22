@@ -1,7 +1,10 @@
 //! Request status handler.
 
 use crate::types::AppState;
-use axum::{extract::Path, extract::State, Json};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 use world_id_core::types::{GatewayErrorResponse, GatewayStatusResponse};
 
 /// GET /v1/requests/:id

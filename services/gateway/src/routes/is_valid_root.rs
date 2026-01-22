@@ -1,6 +1,6 @@
 use crate::types::AppState;
 use alloy::{primitives::U256, providers::DynProvider};
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},

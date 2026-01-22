@@ -1,12 +1,15 @@
-//! Request-first abstraction for gateway operations.
-//!
-//! The `Request` type is the central abstraction through which all operations flow.
-//! Every handler converts its payload into a `Request` via the `IntoRequest` trait,
-//! then submits it for processing.
-
-use crate::batcher::{BatcherHandle, Command, GAS_CREATE_ACCOUNT, GAS_DEFAULT_OP};
-use crate::routes::validation::{Registry, RequestValidation};
-use crate::request_tracker::RequestTracker;
+use crate::{
+    batcher::{
+        BatcherHandle, Command,
+        defaults::{
+            DEFAULT_CREATE_ACCOUNT_GAS, DEFAULT_INSERT_AUTHENTICATOR_GAS,
+            DEFAULT_RECOVER_ACCOUNT_GAS, DEFAULT_REMOVE_AUTHENTICATOR_GAS,
+            DEFAULT_UPDATE_AUTHENTICATOR_GAS,
+        },
+    },
+    request_tracker::RequestTracker,
+    routes::validation::{Registry, RequestValidation},
+};
 use alloy::primitives::Bytes;
 use uuid::Uuid;
 use world_id_core::types::{
@@ -117,7 +120,7 @@ impl Request<CreateAccountRequest> {
             .await?;
 
         // Queue to batcher with typed request for createManyAccounts batching
-        let cmd = Command::create_account(self.id, self.payload, GAS_CREATE_ACCOUNT);
+        let cmd = Command::create_account(self.id, self.payload, DEFAULT_CREATE_ACCOUNT_GAS);
 
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker
@@ -156,7 +159,7 @@ impl Request<InsertAuthenticatorRequest> {
             .await?;
 
         // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id, self.calldata, GAS_DEFAULT_OP);
+        let cmd = Command::operation(self.id, self.calldata, DEFAULT_INSERT_AUTHENTICATOR_GAS);
 
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker
@@ -195,7 +198,7 @@ impl Request<UpdateAuthenticatorRequest> {
             .await?;
 
         // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id, self.calldata, GAS_DEFAULT_OP);
+        let cmd = Command::operation(self.id, self.calldata, DEFAULT_UPDATE_AUTHENTICATOR_GAS);
 
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker
@@ -234,7 +237,7 @@ impl Request<RemoveAuthenticatorRequest> {
             .await?;
 
         // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id, self.calldata, GAS_DEFAULT_OP);
+        let cmd = Command::operation(self.id, self.calldata, DEFAULT_REMOVE_AUTHENTICATOR_GAS);
 
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker
@@ -273,7 +276,7 @@ impl Request<RecoverAccountRequest> {
             .await?;
 
         // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id, self.calldata, GAS_DEFAULT_OP);
+        let cmd = Command::operation(self.id, self.calldata, DEFAULT_RECOVER_ACCOUNT_GAS);
 
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::request::GatewayContext;
 use alloy::{primitives::U256, providers::DynProvider};
-use moka::{future::Cache, Expiry};
+use moka::{Expiry, future::Cache};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 

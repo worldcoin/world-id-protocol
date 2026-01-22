@@ -1,9 +1,7 @@
 //! Recover account handler.
 
-use crate::request::IntoRequest;
-use crate::routes::middleware::RequestId;
-use crate::types::AppState;
-use axum::{extract::State, Extension, Json};
+use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use axum::{Extension, Json, extract::State};
 use world_id_core::types::{GatewayErrorResponse, GatewayStatusResponse, RecoverAccountRequest};
 
 /// POST /v1/accounts/recover

@@ -2,10 +2,9 @@
 use dotenvy as _;
 use tracing_subscriber as _;
 
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
-pub use crate::config::{GatewayConfig};
+pub use crate::config::GatewayConfig;
 use crate::{routes::build_app, types::AppState};
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
@@ -13,14 +12,13 @@ use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 mod batcher;
 mod config;
 mod request;
+mod request_tracker;
 mod routes;
 mod types;
-mod request_tracker;
-
 
 // Re-export common types
 pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};
-pub use request_tracker::{RequestTracker};
+pub use request_tracker::RequestTracker;
 
 #[derive(Debug)]
 pub struct GatewayHandle {

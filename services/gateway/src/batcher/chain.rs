@@ -1,12 +1,11 @@
 use super::ChainState;
-use alloy::consensus::Header;
-use alloy::providers::Provider;
-use alloy::rpc::types::BlockNumberOrTag;
-use std::collections::VecDeque;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-use tokio::sync::broadcast;
-use tokio::time::Instant;
+use alloy::{consensus::Header, providers::Provider, rpc::types::BlockNumberOrTag};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+use tokio::{sync::broadcast, time::Instant};
 
 /// Monitors chain state for adaptive batching decisions.
 ///

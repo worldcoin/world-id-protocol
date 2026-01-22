@@ -1,26 +1,35 @@
-use std::num::{NonZeroU32, NonZeroUsize};
-use std::path::Path;
-use std::sync::Arc;
+use std::{
+    num::{NonZeroU32, NonZeroUsize},
+    path::Path,
+    sync::Arc,
+};
 
-use alloy::network::{Ethereum, EthereumWallet};
-use alloy::providers::fillers::CachedNonceManager;
-use alloy::providers::{DynProvider, Provider, ProviderBuilder, RootProvider, WsConnect};
-use alloy::rpc::client::RpcClient;
-use alloy::rpc::json_rpc::RequestPacket;
-use alloy::signers::aws::aws_config::BehaviorVersion;
-use alloy::signers::aws::AwsSigner;
-use alloy::signers::local::PrivateKeySigner;
-use alloy::signers::Signer;
-use alloy::transports::http::Http;
-use alloy::transports::layers::FallbackLayer;
+use alloy::{
+    network::{Ethereum, EthereumWallet},
+    providers::{
+        DynProvider, Provider, ProviderBuilder, RootProvider, WsConnect,
+        fillers::CachedNonceManager,
+    },
+    rpc::{client::RpcClient, json_rpc::RequestPacket},
+    signers::{
+        Signer,
+        aws::{AwsSigner, aws_config::BehaviorVersion},
+        local::PrivateKeySigner,
+    },
+    transports::{http::Http, layers::FallbackLayer},
+};
 use clap::Args;
-use governor::clock::DefaultClock;
-use governor::state::{InMemoryState, NotKeyed};
-use governor::{Quota, RateLimiter};
+use governor::{
+    Quota, RateLimiter,
+    clock::DefaultClock,
+    state::{InMemoryState, NotKeyed},
+};
 use serde::Deserialize;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tower::{Layer, Service, ServiceBuilder};
 use url::Url;
 

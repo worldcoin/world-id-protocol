@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
-use alloy::primitives::{Bytes, U256};
-use alloy::providers::DynProvider;
-use world_id_core::types::{
-    CreateAccountRequest, GatewayErrorResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+use alloy::{
+    primitives::{Bytes, U256},
+    providers::DynProvider,
 };
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_core::{
+    types::{
+        CreateAccountRequest, GatewayErrorResponse, InsertAuthenticatorRequest,
+        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    },
+    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+};
 
 use crate::types::MAX_AUTHENTICATORS;
 
