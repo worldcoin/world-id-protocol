@@ -25,10 +25,11 @@ contract CredentialIssuerRegistryTest is Test {
     }
 
     function _generatePubkey(string memory str) public pure returns (ICredentialSchemaIssuerRegistry.Pubkey memory) {
-        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey;
-        pubkey.x = uint256(keccak256(bytes(str)));
-        pubkey.y = uint256(keccak256(bytes(str)));
-        return pubkey;
+        // ICredentialSchemaIssuerRegistry.Pubkey memory pubkey;
+        // pubkey.x = uint256(keccak256(bytes(str)));
+        // pubkey.y = uint256(keccak256(bytes(str)));
+        // return pubkey;
+        return ICredentialSchemaIssuerRegistry.Pubkey(uint256(keccak256(bytes(str))), uint256(keccak256(bytes(str))));
     }
 
     function _domainSeparator() internal view returns (bytes32) {
@@ -94,22 +95,13 @@ contract CredentialIssuerRegistryTest is Test {
 
     function testCannotRegisterWithEmptyPubkey() public {
         vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidPubkey.selector));
-        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey1;
-        pubkey1.x = 0;
-        pubkey1.y = 0;
-        registry.register(pubkey1, vm.addr(0xAAA1));
+        registry.register(ICredentialSchemaIssuerRegistry.Pubkey(0, 0), vm.addr(0xAAA1));
 
         vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidPubkey.selector));
-        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey2;
-        pubkey2.x = 0;
-        pubkey2.y = 1;
-        registry.register(pubkey2, vm.addr(0xAAA1));
+        registry.register(ICredentialSchemaIssuerRegistry.Pubkey(0, 1), vm.addr(0xAAA1));
 
         vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidPubkey.selector));
-        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey3;
-        pubkey3.x = 1;
-        pubkey3.y = 0;
-        registry.register(pubkey3, vm.addr(0xAAA1));
+        registry.register(ICredentialSchemaIssuerRegistry.Pubkey(1, 0), vm.addr(0xAAA1));
     }
 
     function testUpdatePubkeyFlow() public {
@@ -166,10 +158,7 @@ contract CredentialIssuerRegistryTest is Test {
         emit ICredentialSchemaIssuerRegistry.IssuerSchemaRemoved(1, pubkey, signer);
         registry.remove(1, sig);
 
-        ICredentialSchemaIssuerRegistry.Pubkey memory expectedPubkey;
-        expectedPubkey.x = 0;
-        expectedPubkey.y = 0;
-        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), expectedPubkey));
+        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), ICredentialSchemaIssuerRegistry.Pubkey(0, 0)));
         assertEq(registry.getSignerForIssuerSchemaId(1), address(0));
     }
 
@@ -307,10 +296,7 @@ contract CredentialIssuerRegistryTest is Test {
         vm.expectEmit();
         emit ICredentialSchemaIssuerRegistry.IssuerSchemaRemoved(1, pubkey, address(wallet));
         registry.remove(1, sig);
-        ICredentialSchemaIssuerRegistry.Pubkey memory expectedPubkey;
-        expectedPubkey.x = 0;
-        expectedPubkey.y = 0;
-        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), expectedPubkey));
+        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), ICredentialSchemaIssuerRegistry.Pubkey(0, 0)));
         assertEq(registry.getSignerForIssuerSchemaId(1), address(0));
     }
 

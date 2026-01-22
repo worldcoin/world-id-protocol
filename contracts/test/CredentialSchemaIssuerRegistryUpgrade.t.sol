@@ -45,9 +45,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
 
     function test_UpgradeSuccess() public {
         // Register an issuer schema in V1
-        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey;
-        pubkey.x = 1;
-        pubkey.y = 2;
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = ICredentialSchemaIssuerRegistry.Pubkey(1, 2);
         address signer = address(0x123);
 
         registry.register(pubkey, signer);
@@ -81,9 +79,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         assertEq(registryV2.newFeature(), 42);
 
         // Verify old functionality still works
-        ICredentialSchemaIssuerRegistry.Pubkey memory newPubkey;
-        newPubkey.x = 3;
-        newPubkey.y = 4;
+        ICredentialSchemaIssuerRegistry.Pubkey memory newPubkey = ICredentialSchemaIssuerRegistry.Pubkey(3, 4);
         address newSigner = address(0x456);
         registryV2.register(newPubkey, newSigner);
         assertEq(registryV2.nextIssuerSchemaId(), 3);
@@ -150,9 +146,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
     function test_OwnerCannotRegisterWithoutUpgrade() public {
         // Owner should not have any special privileges for register function
         // register() is open to everyone, no owner restriction
-        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey;
-        pubkey.x = 1;
-        pubkey.y = 2;
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = ICredentialSchemaIssuerRegistry.Pubkey(1, 2);
         address signer = address(0x123);
 
         // This should succeed (register is public)
