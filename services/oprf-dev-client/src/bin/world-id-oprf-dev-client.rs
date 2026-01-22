@@ -191,13 +191,13 @@ async fn run_nullifier(
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
-    let expires_at = current_timestamp + 300; // 5 minutes from now
+    let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
     let msg = world_id_primitives::rp::compute_rp_signature_msg(
         nonce,
         action,
         current_timestamp,
-        expires_at,
+        expiration_timestamp,
     );
     let signature = signer.sign_message_sync(&msg)?;
 
@@ -205,7 +205,7 @@ async fn run_nullifier(
         id: "test_request".to_string(),
         version: RequestVersion::V1,
         created_at: current_timestamp,
-        expires_at: expires_at,
+        expires_at: expiration_timestamp,
         rp_id,
         oprf_key_id,
         action: FieldElement::from(action),

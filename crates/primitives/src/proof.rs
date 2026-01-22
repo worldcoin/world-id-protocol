@@ -170,7 +170,7 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     /// The RP's signature over the request. This is used to ensure the RP is legitimately requesting the proof
     /// from the user and reduce phishing surface area.
     ///
-    /// The signature is computed over `nonce || action || timestamp`, ECDSA on the `secp256k1` curve.
+    /// The signature is computed over `nonce || action || created_at || expires_at`, ECDSA on the `secp256k1` curve.
     pub rp_signature: alloy_primitives::Signature,
     /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
     /// to ensure the integrity of the proof. For example, in a voting application, the signal could
