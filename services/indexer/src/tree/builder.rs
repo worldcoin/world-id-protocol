@@ -3,13 +3,10 @@ use std::path::Path;
 use alloy::primitives::U256;
 use anyhow::Context;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
-use sqlx::PgPool;
 use tracing::info;
 
 use super::PoseidonHasher;
-use crate::db::{
-    fetch_events_for_replay, fetch_leaves_batch, get_max_event_block, get_max_event_id,
-};
+use crate::db::{DB, EventId, fetch_leaves_batch};
 
 pub struct TreeBuilder {
     tree_depth: usize,
@@ -61,9 +58,9 @@ impl TreeBuilder {
     /// Returns (tree, last_block_number, last_event_id)
     pub async fn build_from_db_with_cache(
         &self,
-        pool: &PgPool,
+        db: &DB,
         cache_path: &Path,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, u64, i64)> {
+    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, EventId)> {
         info!("Building tree from database with mmap cache (chunk-based processing)");
 
         let cache_path_str = cache_path
@@ -80,9 +77,7 @@ impl TreeBuilder {
         let mut last_cursor = String::from("0");
 
         loop {
-            let batch = self
-                .fetch_and_parse_leaves_batch(pool, &last_cursor)
-                .await?;
+            let batch = self.fetch_and_parse_leaves_batch(db, &last_cursor).await?;
 
             if batch.is_empty() {
                 break;
@@ -144,9 +139,7 @@ impl TreeBuilder {
             let mut last_cursor = String::from("0");
 
             loop {
-                let batch = self
-                    .fetch_and_parse_leaves_batch(pool, &last_cursor)
-                    .await?;
+                let batch = self.fetch_and_parse_leaves_batch(db, &last_cursor).await?;
 
                 if batch.is_empty() {
                     break;
@@ -202,30 +195,32 @@ impl TreeBuilder {
         }
 
         // Get the last block number and event ID from DB
-        let last_block_number = get_max_event_block(pool).await?;
-        let last_event_id = get_max_event_id(pool).await?;
+        let last_event_id = db
+            .world_id_events()
+            .get_latest_id()
+            .await?
+            .unwrap_or_default();
 
         info!(
             root = %format!("0x{:x}", tree.root()),
-            last_block = last_block_number,
-            last_event_id,
+            ?last_event_id,
             total_accounts = total_leaves,
             "Tree built from database with mmap cache"
         );
 
-        Ok((tree, last_block_number, last_event_id))
+        Ok((tree, last_event_id))
     }
 
     /// Fetch and parse a batch of leaves from the database.
     /// Returns Vec<(leaf_index, leaf_value)> parsed and validated.
     async fn fetch_and_parse_leaves_batch(
         &self,
-        pool: &PgPool,
+        db: &DB,
         last_cursor: &str,
     ) -> anyhow::Result<Vec<(usize, U256)>> {
         const BATCH_SIZE: i64 = 100_000;
 
-        let raw_batch = fetch_leaves_batch(pool, last_cursor, BATCH_SIZE).await?;
+        let raw_batch = fetch_leaves_batch(db.pool(), last_cursor, BATCH_SIZE).await?;
 
         let mut parsed_batch = Vec::with_capacity(raw_batch.len());
 
@@ -273,30 +268,31 @@ impl TreeBuilder {
     pub async fn replay_events(
         &self,
         mut tree: MerkleTree<PoseidonHasher, Canonical>,
-        pool: &PgPool,
-        from_event_id: i64,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, u64, i64)> {
+        db: &DB,
+        from_event_id: EventId,
+    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, EventId)> {
         use std::collections::HashMap;
 
-        const BATCH_SIZE: i64 = 10_000;
+        const BATCH_SIZE: u64 = 10_000;
 
         let mut last_event_id = from_event_id;
         let mut total_events = 0;
 
         // HashMap to track final state of each leaf (deduplication)
-        let mut leaf_final_states: HashMap<usize, U256> = HashMap::new();
-        let mut final_block = 0u64;
-        let mut final_event_id = from_event_id;
+        let mut leaf_final_states: HashMap<U256, U256> = HashMap::new();
 
         info!(
-            from_event_id = from_event_id + 1,
-            "Starting replay from event ID {} (events after this ID will be replayed)",
+            from_event_id = ?from_event_id,
+            "Starting replay from event ID {:?} (events after this ID will be replayed)",
             from_event_id
         );
 
         loop {
-            // Event ID-based pagination: fetch events with id > last_event_id
-            let events = fetch_events_for_replay(pool, last_event_id, BATCH_SIZE).await?;
+            // Event ID-based pagination
+            let events = db
+                .world_id_events()
+                .get_after(last_event_id, BATCH_SIZE)
+                .await?;
 
             if events.is_empty() {
                 break;
@@ -307,35 +303,19 @@ impl TreeBuilder {
 
             // Process events into final states (in memory, deduplicated)
             for event in &events {
-                let leaf_index: U256 = event
-                    .leaf_index
-                    .parse()
-                    .with_context(|| format!("Failed to parse leaf_index: {}", event.leaf_index))?;
-                let leaf_index = leaf_index.as_limbs()[0] as usize;
-
-                let new_value = event.new_commitment.parse::<U256>().with_context(|| {
-                    format!("Failed to parse new_commitment: {}", event.new_commitment)
-                })?;
-
                 // Store final state (overwrites previous updates to same leaf)
-                leaf_final_states.insert(leaf_index, new_value);
-
-                // Track the highest block number seen (for metadata)
-                if event.block_number as u64 > final_block {
-                    final_block = event.block_number as u64;
-                }
+                leaf_final_states.insert(event.leaf_index, event.new_commitment);
             }
 
             // Update cursor to last event ID in this batch
-            let last = events.last().unwrap();
+            let last = events.last().expect("last item to exist");
             last_event_id = last.id;
-            final_event_id = last.id;
 
             info!(
                 batch_events = batch_count,
                 total_events,
                 unique_leaves = leaf_final_states.len(),
-                last_event_id,
+                ?last_event_id,
                 "Processed batch into memory"
             );
 
@@ -348,8 +328,7 @@ impl TreeBuilder {
         if total_events == 0 {
             info!("No events to replay, cache is up-to-date");
             // Get the current max block number for metadata
-            final_block = get_max_event_block(pool).await?;
-            return Ok((tree, final_block, from_event_id));
+            return Ok((tree, last_event_id));
         }
 
         // Now apply deduplicated updates to tree
@@ -362,21 +341,21 @@ impl TreeBuilder {
         );
 
         for (leaf_index, value) in &leaf_final_states {
-            tree = tree.update_with_mutation(*leaf_index, value);
+            let leaf_index = leaf_index.as_limbs()[0] as usize;
+            tree = tree.update_with_mutation(leaf_index, value);
         }
 
         info!(
             total_events,
             unique_updates = leaf_final_states.len(),
-            final_block,
-            final_event_id,
+            ?last_event_id,
             new_root = %format!("0x{:x}", tree.root()),
             "Replay complete: {} events deduplicated to {} unique leaf updates",
             total_events,
             leaf_final_states.len()
         );
 
-        Ok((tree, final_block, final_event_id))
+        Ok((tree, last_event_id))
     }
 }
 

@@ -62,7 +62,7 @@ pub(crate) async fn handler(
         "select offchain_signer_commitment, authenticator_pubkeys from accounts where leaf_index = $1",
     )
     .bind(leaf_index.to_string())
-    .fetch_optional(&state.pool)
+    .fetch_optional(state.db.pool())
     .await
     .ok()
     .flatten();

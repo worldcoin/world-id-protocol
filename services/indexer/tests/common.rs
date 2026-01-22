@@ -38,9 +38,6 @@ impl TestSetup {
             .connect(&db_url)
             .await
             .expect("failed to connect to test database");
-        world_id_indexer::init_db(&pool)
-            .await
-            .expect("failed to initialize test database");
 
         let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
         let deployer = anvil.signer(0).expect("failed to obtain deployer signer");

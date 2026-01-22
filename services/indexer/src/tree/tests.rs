@@ -70,11 +70,15 @@ fn create_initializer(cache_path: String) -> TreeInitializer {
     )
 }
 
-fn create_metadata(root_hash: &str, last_block: u64, last_event_id: i64) -> TreeCacheMetadata {
+fn create_metadata(
+    root_hash: &str,
+    last_block_number: u64,
+    last_log_index: u64,
+) -> TreeCacheMetadata {
     TreeCacheMetadata {
         root_hash: root_hash.to_string(),
-        last_block_number: last_block,
-        last_event_id,
+        last_block_number,
+        last_log_index,
         active_leaf_count: 0,
         tree_depth: TEST_TREE_DEPTH,
         dense_prefix_depth: TEST_DENSE_PREFIX_DEPTH,
@@ -161,7 +165,7 @@ fn test_read_metadata_succeeds_with_valid_file() {
     let metadata = result.unwrap();
     assert_eq!(metadata.root_hash, "0xabc123");
     assert_eq!(metadata.last_block_number, 500);
-    assert_eq!(metadata.last_event_id, 100);
+    assert_eq!(metadata.last_log_index, 100);
     assert_eq!(metadata.tree_depth, 10);
     assert_eq!(metadata.dense_prefix_depth, 8);
 }
