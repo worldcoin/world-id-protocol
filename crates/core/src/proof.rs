@@ -39,17 +39,17 @@ const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "ee106cc2d213cca77cf7372c69851ca330f4f3fc7bff481ec2285a9f9494c041";
+    "292483d5631c28f15613b26bee6cf62a8cc9bbd74a97f375aea89e4dfbf7a10f";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "b570ceef9c8c71f5559da8d3fd03a09ae27d93634d8dff1eec24235dc61e660f";
+    "14bd468c7fc6e91e48fa776995c267493845d93648a4c1ee24c2567b18b1795a";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
-    "a22f17b20d65c88ffe6cca14863c42933ce6bbf28a56c902197e187d0e1268ef";
+    "6b0cb90304c510f9142a555fe2b7cf31b9f68f6f37286f4471fd5d03e91da311";
 /// The SHA-256 fingerprint of the `OPRFNullifier` witness graph.
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
-    "5472d0b875f5145f66fd75d94fa24dd34bd54feb130ff96e4a323ca68cfc0c2e";
+    "c1d951716e3b74b72e4ea0429986849cadc43cccc630a7ee44a56a6199a66b9a";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
@@ -225,7 +225,6 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 /// 1. `Proof<Bn254>` – the generated nullifier proof,
 /// 2. `Vec<ark_babyjubjub::Fq>` – the public inputs for the proof,
 /// 3. `ark_babyjubjub::Fq` – the computed nullifier.
-/// 4. `ark_babyjubjub::Fq` – the computed identity commitment.
 ///
 /// # Errors
 ///
@@ -242,15 +241,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
     connector: Connector,
     rng: &mut R,
-) -> Result<
-    (
-        Proof<Bn254>,
-        Vec<ark_babyjubjub::Fq>,
-        ark_babyjubjub::Fq,
-        ark_babyjubjub::Fq,
-    ),
-    ProofError,
-> {
+) -> Result<(Proof<Bn254>, Vec<ark_babyjubjub::Fq>, ark_babyjubjub::Fq), ProofError> {
     let share_epoch = ShareEpoch::new(args.share_epoch);
     let cred_signature = args
         .credential
@@ -298,6 +289,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
         id_commitment_r: *args.session_id_r_seed,
+        id_commitment: *args.session_id,
         dlog_e: verifiable_oprf_output.dlog_proof.e,
         dlog_s: verifiable_oprf_output.dlog_proof.s,
         oprf_pk: verifiable_oprf_output.oprf_public_key.inner(),
@@ -310,9 +302,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
     nullifier_material.verify_proof(&proof, &public)?;
 
-    // 2 outputs, 0 is id_commitment, 1 is nullifier
-    let id_commitment = public[0];
-    let nullifier = public[1];
+    let nullifier = public[0];
 
     // Verify that the computed nullifier matches the OPRF output, this should never fail unless there is a bug
     if nullifier != verifiable_oprf_output.output {
@@ -321,7 +311,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         )));
     }
 
-    Ok((proof.into(), public, nullifier, id_commitment))
+    Ok((proof.into(), public, nullifier))
 }
 
 /// Helper function to generate the OPRF request authentication structure and query proof.

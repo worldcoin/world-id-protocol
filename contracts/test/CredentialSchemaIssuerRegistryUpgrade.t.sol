@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract MockOprfKeyRegistry {
     function initKeyGen(uint160 oprfKeyId) external {}
@@ -31,10 +32,16 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
     ERC1967Proxy public proxy;
     address public owner;
     address public nonOwner;
+    ERC20Mock public feeToken;
+    address public feeRecipient;
 
     function setUp() public {
         owner = address(this);
         nonOwner = address(0xBEEF);
+        feeRecipient = address(0x9999);
+
+        // Deploy mock ERC20 token
+        feeToken = new ERC20Mock();
 
         // Deploy implementation V1
         CredentialSchemaIssuerRegistry implementationV1 = new CredentialSchemaIssuerRegistry();
@@ -43,8 +50,9 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         address oprfKeyRegistry = address(new MockOprfKeyRegistry());
 
         // Deploy proxy with initialization
-        bytes memory initData =
-            abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector, oprfKeyRegistry);
+        bytes memory initData = abi.encodeWithSelector(
+            CredentialSchemaIssuerRegistry.initialize.selector, feeRecipient, address(feeToken), 0, oprfKeyRegistry
+        );
         proxy = new ERC1967Proxy(address(implementationV1), initData);
 
         registry = CredentialSchemaIssuerRegistry(address(proxy));
@@ -139,7 +147,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         // Try to initialize again (should fail)
         address oprfKeyRegistry = address(new MockOprfKeyRegistry());
         vm.expectRevert();
-        registry.initialize(oprfKeyRegistry);
+        registry.initialize(feeRecipient, address(feeToken), 0, oprfKeyRegistry);
     }
 
     function test_ImplementationCannotBeInitialized() public {
@@ -149,7 +157,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         // Try to initialize the implementation directly (should fail)
         address oprfKeyRegistry = address(new MockOprfKeyRegistry());
         vm.expectRevert();
-        implementation.initialize(oprfKeyRegistry);
+        implementation.initialize(feeRecipient, address(feeToken), 0, oprfKeyRegistry);
     }
 
     function test_OwnerCannotRegisterWithoutUpgrade() public {

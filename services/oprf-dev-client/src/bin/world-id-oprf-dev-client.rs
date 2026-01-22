@@ -29,7 +29,10 @@ use taceo_oprf_types::{
     api::v1::{OprfRequest, ShareIdentifier},
     crypto::OprfPublicKey,
 };
-use test_utils::{anvil::RpRegistry, fixtures::build_base_credential};
+use test_utils::{
+    anvil::RpRegistry,
+    fixtures::{MerkleFixture, build_base_credential},
+};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 use world_id_core::{
@@ -37,8 +40,10 @@ use world_id_core::{
     HashableCredential,
     proof::CircomGroth16Material,
     requests::{ProofRequest, RequestItem, RequestVersion},
+    types::AccountInclusionProof,
 };
 
+use world_id_gateway::{GatewayConfig, SignerArgs};
 use world_id_primitives::{
     Config, TREE_DEPTH,
     authenticator::AuthenticatorPublicKeySet,
@@ -121,20 +126,12 @@ pub struct OprfDevClientConfig {
     pub taceo_private_key: SecretString,
 
     /// Indexer address
-    #[clap(
-        long,
-        env = "OPRF_DEV_CLIENT_INDEXER_URL",
-        default_value = "http://localhost:8080"
-    )]
-    pub indexer_url: String,
+    #[clap(long, env = "OPRF_DEV_CLIENT_INDEXER_URL")]
+    pub indexer_url: Option<String>,
 
     /// Gateway address
-    #[clap(
-        long,
-        env = "OPRF_DEV_CLIENT_GATEWAY_URL",
-        default_value = "http://localhost:8081"
-    )]
-    pub gateway_url: String,
+    #[clap(long, env = "OPRF_DEV_CLIENT_GATEWAY_URL")]
+    pub gateway_url: Option<String>,
 
     /// rp id of already registered rp
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
@@ -278,6 +275,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         key_set,
         key_index,
         session_id_r_seed: FieldElement::random(&mut rng),
+        session_id: FieldElement::ZERO,
         rp_id,
         oprf_key_id,
         share_epoch: ShareEpoch::default().into_inner(),
@@ -482,6 +480,7 @@ async fn stress_test(
                         oprf_response: unblinded_response,
                         signal_hash: *args.signal_hash,
                         id_commitment_r: *args.session_id_r_seed,
+                        id_commitment: *args.session_id,
                         issuer_schema_id: args.credential.issuer_schema_id.into(),
                         cred_pk: args.credential.issuer.pk,
                         cred_hashes: [
@@ -588,12 +587,35 @@ async fn main() -> eyre::Result<()> {
         (rp_id, oprf_key_id, oprf_public_key)
     };
 
+    let (gateway_url, _gateway_handle) = if let Some(gateway_url) = &config.gateway_url {
+        (gateway_url.clone(), None)
+    } else {
+        // anvil wallet 0, only used for local tests
+        let signer_args = SignerArgs::from_wallet(
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string(),
+        );
+        let gateway_config = GatewayConfig {
+            registry_addr: config.world_id_registry_contract,
+            rpc_url: config.chain_rpc_url.expose_secret().to_string(),
+            signer_args,
+            batch_ms: 200,
+            listen_addr: (std::net::Ipv4Addr::LOCALHOST, 8081).into(),
+            max_create_batch_size: 10,
+            max_ops_batch_size: 10,
+            redis_url: None,
+        };
+        let gateway_handle = world_id_gateway::spawn_gateway_for_tests(gateway_config)
+            .await
+            .map_err(|e| eyre::eyre!("failed to spawn gateway for tests: {e}"))?;
+        ("http://localhost:8081".to_string(), Some(gateway_handle))
+    };
+
     let world_config = Config::new(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         31_337, // anvil hardhat chain id
         config.world_id_registry_contract,
-        config.indexer_url,
-        config.gateway_url,
+        "http://localhost:8080".to_string(), // stub indexer url - will be replaced later
+        gateway_url.clone(),
         config.services.clone(),
         config.threshold,
     )
@@ -603,6 +625,49 @@ async fn main() -> eyre::Result<()> {
     let seed = [7u8; 32];
     let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None).await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
+
+    let (indexer_url, _indexer_handle) = if let Some(indexer_url) = &config.indexer_url {
+        (indexer_url.clone(), None)
+    } else {
+        // Local indexer stub serving inclusion proof.
+        let leaf_index_u64: u64 = authenticator
+            .leaf_index()
+            .try_into()
+            .expect("account id fits in u64");
+        let MerkleFixture {
+            key_set,
+            inclusion_proof: merkle_inclusion_proof,
+            root: _,
+            ..
+        } = test_utils::fixtures::single_leaf_merkle_fixture(
+            vec![authenticator.offchain_pubkey()],
+            leaf_index_u64,
+        )
+        .wrap_err("failed to construct merkle fixture")?;
+
+        let inclusion_proof =
+            AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
+                .wrap_err("failed to build inclusion proof")?;
+
+        let (indexer_url, indexer_handle) =
+            test_utils::stubs::spawn_indexer_stub(leaf_index_u64, inclusion_proof.clone())
+                .await
+                .wrap_err("failed to start indexer stub")?;
+        (indexer_url, Some(indexer_handle))
+    };
+
+    let world_config = Config::new(
+        Some(config.chain_rpc_url.expose_secret().to_string()),
+        31_337, // anvil hardhat chain id
+        config.world_id_registry_contract,
+        indexer_url,
+        gateway_url,
+        config.services.clone(),
+        config.threshold,
+    )
+    .unwrap();
+
+    let authenticator = Authenticator::init(&seed, world_config.clone()).await?;
 
     // setup TLS config - even if we are http
     let mut root_store = RootCertStore::empty();

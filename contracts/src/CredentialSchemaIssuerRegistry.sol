@@ -7,6 +7,8 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
 
 /**
@@ -15,6 +17,8 @@ import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
 contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+    using SafeERC20 for IERC20;
+
     error ImplementationNotInitialized();
 
     /**
@@ -52,6 +56,15 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      */
     error InvalidIssuerSchemaId();
 
+    /**
+     * @dev Thrown when the fee payment is not enough to cover registration.
+     */
+    error InsufficientFunds();
+    /**
+     * @dev Thrown when trying to set an address to the zero address.
+     */
+    error ZeroAddress();
+
     modifier onlyInitialized() {
         _onlyInitialized();
         _;
@@ -76,6 +89,10 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
+    // DO NOT REORDER! To ensure compatibility between upgrades, it is exceedingly important
+    // that no reordering of these variables takes place. If reordering happens, a storage
+    // clash will occur (effectively a memory safety error).
+
     mapping(uint256 => Pubkey) private _idToPubkey;
 
     // Stores the on-chain signer address for each issuerSchemaId, i.e. who is authorized to perform updates on the issuerSchemaId.
@@ -86,6 +103,15 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
     mapping(uint256 => string) public idToSchemaUri;
+
+    // the fee to register an issuer schema
+    uint256 private _registrationFee;
+
+    // the recipient of registration fees
+    address private _feeRecipient;
+
+    // the token used to pay registration fees
+    IERC20 private _feeToken;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -131,6 +157,10 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
     event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
+    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
+    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -143,12 +173,21 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     /**
      * @dev Initializes the contract.
      */
-    function initialize(address oprfKeyRegistry) public virtual initializer {
+    function initialize(address feeRecipient, address feeToken, uint256 registrationFee, address oprfKeyRegistry)
+        public
+        virtual
+        initializer
+    {
+        require(feeRecipient != address(0), "initialize a fee recipient");
+        require(feeToken != address(0), "initialize a fee token");
         require(oprfKeyRegistry != address(0), "initialize a OprfKeyRegistry");
 
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
+        _feeRecipient = feeRecipient;
+        _feeToken = IERC20(feeToken);
+        _registrationFee = registrationFee;
         _oprfKeyRegistry = IOprfKeyRegistry(oprfKeyRegistry);
         _nextId = 1;
     }
@@ -158,6 +197,8 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     ////////////////////////////////////////////////////////////
 
     function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
+        if (_feeToken.balanceOf(msg.sender) < _registrationFee) revert InsufficientFunds();
+
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
         }
@@ -175,6 +216,11 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
         emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, oprfKeyId);
         _nextId = issuerSchemaId + 1;
+
+        if (_registrationFee > 0) {
+            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
+        }
+
         return issuerSchemaId;
     }
 
@@ -363,6 +409,51 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
     function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
         return pubkey.x == 0 || pubkey.y == 0;
+    }
+
+    /**
+     * @dev Returns the current registration fee for an issuer schema.
+     */
+    function getRegistrationFee() public view onlyProxy onlyInitialized returns (uint256) {
+        return _registrationFee;
+    }
+
+    /**
+     * @dev Returns the current recipient for issuer schema registration fees.
+     */
+    function getFeeRecipient() public view onlyProxy onlyInitialized returns (address) {
+        return _feeRecipient;
+    }
+
+    /**
+     * @dev Returns the current token with which fees are paid.
+     */
+    function getFeeToken() public view onlyProxy onlyInitialized returns (address) {
+        return address(_feeToken);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    Owner Functions                     //
+    ////////////////////////////////////////////////////////////
+
+    function setFeeRecipient(address newFeeRecipient) external onlyOwner onlyProxy onlyInitialized {
+        if (newFeeRecipient == address(0)) revert ZeroAddress();
+        address oldRecipient = _feeRecipient;
+        _feeRecipient = newFeeRecipient;
+        emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
+    }
+
+    function setRegistrationFee(uint256 newFee) external onlyOwner onlyProxy onlyInitialized {
+        uint256 oldFee = _registrationFee;
+        _registrationFee = newFee;
+        emit RegistrationFeeUpdated(oldFee, newFee);
+    }
+
+    function setFeeToken(address newFeeToken) external onlyOwner onlyProxy onlyInitialized {
+        if (newFeeToken == address(0)) revert ZeroAddress();
+        address oldToken = address(_feeToken);
+        _feeToken = IERC20(newFeeToken);
+        emit FeeTokenUpdated(oldToken, newFeeToken);
     }
 
     ////////////////////////////////////////////////////////////
