@@ -226,7 +226,7 @@ RPs can create sessions for their app to ensure that it's still the same World I
 - Credential expiration check: A user previously enrolled with one credential; on each consecutive log in the RP wants to make sure the user's credential is still valid (for example not expired).
 - (Future). RP-level Face Auth: Currently, Face Auth only ensures that the whoever produces the proof is the same person that received the credential. However, for some applications you also want to ensure that over the course of multiple interactions an RP can make sure that it was always the same person.
 
-Session proofs reuse the same zero-knowledge circuits as uniqueness proofs, but authenticators must clearly distinguish them to users since they involve a reusable identifier that can link interactions. Session proofs are scoped at the RP level and do not require an action from the RP. Instead of a nullifier, session proofs return a sessionNullifier which is required for verification but does not provide the same uniqueness guarantee.
+Session proofs use the same zero-knowledge circuits as uniqueness proofs, but authenticators must clearly distinguish them to users since they involve a reusable identifier that can link interactions. Session proofs are scoped at the RP level and do not require an action from the RP. Instead of a nullifier, session proofs return a `sessionNullifier` which is required for verification but does not provide the same uniqueness guarantee.
 
 Session Proofs work in the following manner:
 
