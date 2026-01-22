@@ -105,6 +105,7 @@ contract ProofVerifier is Test {
             Verifier.initialize.selector,
             credentialSchemaIssuerRegistryMock,
             worldIDRegistryMock,
+            oprfKeyRegistry,
             verifierNullifier,
             proofTimestampDelta
         );

@@ -63,6 +63,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     function initialize(
         address _credentialIssuerRegistry,
         address _worldIDRegistry,
+        address _oprfKeyRegistry,
         address _verifierNullifier,
         uint256 _proofTimestampDelta
     ) public virtual initializer {
@@ -71,6 +72,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
         worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
         verifierNullifier = VerifierNullifier(_verifierNullifier);
+        oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
         proofTimestampDelta = _proofTimestampDelta;
         treeDepth = worldIDRegistry.getTreeDepth();
     }
