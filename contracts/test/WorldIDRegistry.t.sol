@@ -951,14 +951,14 @@ contract WorldIDRegistryTest is Test {
     }
 
     function test_setRootValidityWindow_emitsEvent() public {
-        uint256 oldWindow = worldIDRegistry.rootValidityWindow();
+        uint256 oldWindow = worldIDRegistry.getRootValidityWindow();
         uint256 newWindow = 7200;
 
         vm.expectEmit(true, true, true, true);
         emit WorldIDRegistry.RootValidityWindowUpdated(oldWindow, newWindow);
 
         worldIDRegistry.setRootValidityWindow(newWindow);
-        assertEq(worldIDRegistry.rootValidityWindow(), newWindow);
+        assertEq(worldIDRegistry.getRootValidityWindow(), newWindow);
     }
 
     function test_setRootValidityWindow_onlyOwner() public {
