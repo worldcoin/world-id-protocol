@@ -171,6 +171,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
             request.auth.nonce,
             request.auth.action,
             request.auth.current_time_stamp,
+            request.auth.expiration_timestamp,
         );
 
         let recovered = request.auth.signature.recover_address_from_msg(&msg)?;

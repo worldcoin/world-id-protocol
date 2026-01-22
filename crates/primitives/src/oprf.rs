@@ -24,6 +24,8 @@ pub struct OprfRequestAuthV1 {
     pub merkle_root: ark_babyjubjub::Fq,
     /// The current time stamp (unix secs)
     pub current_time_stamp: u64,
+    /// Expiration timestamp of the request (unix secs)
+    pub expiration_timestamp: u64,
     /// The signature of the nonce || action || timestamp
     pub signature: alloy_primitives::Signature,
     /// The `rp_id`

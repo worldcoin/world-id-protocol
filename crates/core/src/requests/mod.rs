@@ -280,7 +280,8 @@ impl ProofRequest {
         use k256::sha2::{Digest, Sha256};
         use world_id_primitives::rp::compute_rp_signature_msg;
 
-        let msg = compute_rp_signature_msg(*self.nonce, *self.action, self.created_at);
+        let msg =
+            compute_rp_signature_msg(*self.nonce, *self.action, self.created_at, self.expires_at);
         let mut hasher = Sha256::new();
         hasher.update(&msg);
         Ok(hasher.finalize().into())
