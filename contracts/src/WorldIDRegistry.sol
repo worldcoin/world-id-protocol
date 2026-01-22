@@ -10,13 +10,20 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
+import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
 
 /**
  * @title WorldIDRegistry
  * @author World Contributors
  * @dev The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
  */
-contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract WorldIDRegistry is
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    IWorldIDRegistry
+{
     using BinaryIMT for BinaryIMTData;
 
     modifier onlyInitialized() {
@@ -39,73 +46,23 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     mapping(uint256 => uint256) internal _leafIndexToRecoveryAddressPacked;
 
     // authenticatorAddress -> `PackedAccountData`
-    mapping(address => uint256) private authenticatorAddressToPackedAccountData;
+    mapping(address => uint256) internal authenticatorAddressToPackedAccountData;
 
     // leafIndex -> nonce, used to prevent replays
-    mapping(uint256 => uint256) private leafIndexToSignatureNonce;
+    mapping(uint256 => uint256) internal leafIndexToSignatureNonce;
 
     // leafIndex -> recoveryCounter
-    mapping(uint256 => uint256) private leafIndexToRecoveryCounter;
+    mapping(uint256 => uint256) internal leafIndexToRecoveryCounter;
 
-    BinaryIMTData private tree;
-    uint256 private nextLeafIndex;
-    uint256 private treeDepth;
-    uint256 private maxAuthenticators;
+    BinaryIMTData internal tree;
+    uint256 internal nextLeafIndex;
+    uint256 internal treeDepth;
+    uint256 internal maxAuthenticators;
 
     // Root history tracking
-    mapping(uint256 => uint256) private rootToTimestamp;
-    uint256 private latestRoot;
-    uint256 private rootValidityWindow;
-
-    ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event AccountCreated(
-        uint256 indexed leafIndex,
-        address indexed recoveryAddress,
-        address[] authenticatorAddresses,
-        uint256[] authenticatorPubkeys,
-        uint256 offchainSignerCommitment
-    );
-    event AccountUpdated(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        uint256 newAuthenticatorPubkey,
-        address indexed oldAuthenticatorAddress,
-        address indexed newAuthenticatorAddress,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event AccountRecovered(
-        uint256 indexed leafIndex,
-        address indexed newAuthenticatorAddress,
-        uint256 indexed newAuthenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event RecoveryAddressUpdated(
-        uint256 indexed leafIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
-    );
-    event AuthenticatorInserted(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        address indexed authenticatorAddress,
-        uint256 indexed newAuthenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event AuthenticatorRemoved(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        address indexed authenticatorAddress,
-        uint256 indexed authenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event RootRecorded(uint256 indexed root, uint256 timestamp);
-    event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
-    event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
+    mapping(uint256 => uint256) internal rootToTimestamp;
+    uint256 internal latestRoot;
+    uint256 internal rootValidityWindow;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -131,152 +88,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
     uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 160;
-
-    ////////////////////////////////////////////////////////////
-    //                        Errors                         //
-    ////////////////////////////////////////////////////////////
-
-    error ImplementationNotInitialized();
-
-    /**
-     * @dev Thrown when a requested on-chain signer address is already in use by another account as an authenticator. An on-chain signer address
-     * can only be used by one account at a time.
-     * @param authenticatorAddress The target address that is already in use.
-     */
-    error AuthenticatorAddressAlreadyInUse(address authenticatorAddress);
-
-    /**
-     * @dev Thrown when the pubkey bitmap overflows, which should in practice never happen.
-     */
-    error BitmapOverflow();
-
-    /**
-     * @dev Thrown when the pubkey ID is already in use for the account on a different authenticator.
-     */
-    error PubkeyIdInUse();
-
-    /**
-     * @dev Thrown when attempting to use a pubKeyId that is greater than `maxAuthenticators`.
-     */
-    error PubkeyIdOutOfBounds();
-
-    /**
-     * @dev Thrown when a pubkey ID does not exist. We use a bitmap to track how many pubkey IDs are in use for an account.
-     */
-    error PubkeyIdDoesNotExist();
-
-    /**
-     * @dev Thrown when there is no Recovery Agent (i.e. recovery address) set for the account.
-     */
-    error RecoveryNotEnabled();
-
-    /**
-     * @dev Thrown when a requested leaf index does not exist.
-     * @param leafIndex The leaf index that does not exist.
-     */
-    error AccountDoesNotExist(uint256 leafIndex);
-
-    /**
-     * @dev Thrown when a recovered signature address is the zero address.
-     */
-    error ZeroRecoveredSignatureAddress();
-
-    /**
-     * @dev Thrown when setting a recovery or authenticator address to the zero address.
-     */
-    error ZeroAddress();
-
-    /**
-     * @dev Thrown when an invalid signature is provided.
-     */
-    error InvalidSignature();
-
-    /**
-     * @dev Thrown when the provided array lengths do not match.
-     */
-    error MismatchingArrayLengths();
-
-    /**
-     * @dev Thrown when the provided address array is empty.
-     */
-    error EmptyAddressArray();
-
-    /**
-     * @dev Thrown when the old and new authenticator addresses are the same.
-     */
-    error ReusedAuthenticatorAddress();
-
-    /**
-     * @dev Thrown when an authenticator already exists.
-     * @param authenticatorAddress The authenticator address that already exists.
-     */
-    error AuthenticatorAlreadyExists(address authenticatorAddress);
-
-    /**
-     * @dev Thrown when the leaf index does not match the expected value.
-     * @param expectedLeafIndex The expected leaf index.
-     * @param actualLeafIndex The actual leaf index.
-     */
-    error MismatchedLeafIndex(uint256 expectedLeafIndex, uint256 actualLeafIndex);
-
-    /**
-     * @dev Thrown when the recovered signature does not match the expected authenticator address.
-     * @param expectedAuthenticatorAddress The expected authenticator address.
-     * @param actualAuthenticatorAddress The actual authenticator address.
-     */
-    error MismatchedAuthenticatorSigner(address expectedAuthenticatorAddress, address actualAuthenticatorAddress);
-
-    /**
-     * @dev Thrown when a pubkey ID does not match the expected value.
-     * @param expectedPubkeyId The expected pubkey ID.
-     * @param actualPubkeyId The actual pubkey ID.
-     */
-    error MismatchedPubkeyId(uint256 expectedPubkeyId, uint256 actualPubkeyId);
-
-    /**
-     * @dev Thrown when a nonce does not match the expected value.
-     * @param expectedNonce The expected nonce value.
-     * @param actualNonce The actual nonce value.
-     */
-    error MismatchedSignatureNonce(uint256 leafIndex, uint256 expectedNonce, uint256 actualNonce);
-
-    /**
-     * @dev Thrown when a recovery counter does not match the expected value.
-     * @param leafIndex The leaf index.
-     * @param expectedRecoveryCounter The expected recovery counter.
-     * @param actualRecoveryCounter The actual recovery counter.
-     */
-    error MismatchedRecoveryCounter(uint256 leafIndex, uint256 expectedRecoveryCounter, uint256 actualRecoveryCounter);
-
-    /**
-     * @dev Thrown when a pubkey ID overflows its uint32 limit.
-     * @param pubkeyId The pubkey ID that caused the overflow.
-     */
-    error PubkeyIdOverflow(uint256 pubkeyId);
-
-    /**
-     * @dev Thrown when a recovery address is not set for an account.
-     * @param leafIndex The leaf index with no recovery address.
-     */
-    error RecoveryAddressNotSet(uint256 leafIndex);
-
-    /**
-     * @dev Thrown when an authenticator does not exist.
-     * @param authenticatorAddress The authenticator address that does not exist.
-     */
-    error AuthenticatorDoesNotExist(address authenticatorAddress);
-
-    /**
-     * @dev Thrown when an authenticator does not belong to the specified account.
-     * @param expectedLeafIndex The expected leaf index.
-     * @param actualLeafIndex The actual leaf index from the authenticator.
-     */
-    error AuthenticatorDoesNotBelongToAccount(uint256 expectedLeafIndex, uint256 actualLeafIndex);
-
-    /**
-     * @dev Thrown when trying to update max authenticators beyond the natural limit.
-     */
-    error OwnerMaxAuthenticatorsOutOfBounds();
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //

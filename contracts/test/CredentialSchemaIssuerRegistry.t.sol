@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
+import {ICredentialSchemaIssuerRegistry} from "../src/interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 
@@ -23,8 +24,11 @@ contract CredentialIssuerRegistryTest is Test {
         registry = CredentialSchemaIssuerRegistry(address(proxy));
     }
 
-    function _generatePubkey(string memory str) public pure returns (CredentialSchemaIssuerRegistry.Pubkey memory) {
-        return CredentialSchemaIssuerRegistry.Pubkey(uint256(keccak256(bytes(str))), uint256(keccak256(bytes(str))));
+    function _generatePubkey(string memory str) public pure returns (ICredentialSchemaIssuerRegistry.Pubkey memory) {
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey;
+        pubkey.x = uint256(keccak256(bytes(str)));
+        pubkey.y = uint256(keccak256(bytes(str)));
+        return pubkey;
     }
 
     function _domainSeparator() internal view returns (bytes32) {
@@ -43,8 +47,8 @@ contract CredentialIssuerRegistryTest is Test {
     function _signUpdatePubkey(
         uint256 pk,
         uint256 id,
-        CredentialSchemaIssuerRegistry.Pubkey memory newPubkey,
-        CredentialSchemaIssuerRegistry.Pubkey memory oldPubkey
+        ICredentialSchemaIssuerRegistry.Pubkey memory newPubkey,
+        ICredentialSchemaIssuerRegistry.Pubkey memory oldPubkey
     ) internal view returns (bytes memory) {
         bytes32 oldPubkeyHash = keccak256(abi.encode(registry.PUBKEY_TYPEHASH(), oldPubkey.x, oldPubkey.y));
         bytes32 newPubkeyHash = keccak256(abi.encode(registry.PUBKEY_TYPEHASH(), newPubkey.x, newPubkey.y));
@@ -65,7 +69,7 @@ contract CredentialIssuerRegistryTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _isEq(CredentialSchemaIssuerRegistry.Pubkey memory a, CredentialSchemaIssuerRegistry.Pubkey memory b)
+    function _isEq(ICredentialSchemaIssuerRegistry.Pubkey memory a, ICredentialSchemaIssuerRegistry.Pubkey memory b)
         public
         pure
         returns (bool)
@@ -76,10 +80,10 @@ contract CredentialIssuerRegistryTest is Test {
     function testRegisterAndGetters() public {
         uint256 signerPk = 0xAAA1;
         address signer = vm.addr(signerPk);
-        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("pubkey-issuer-1");
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("pubkey-issuer-1");
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaRegistered(1, pubkey, signer);
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaRegistered(1, pubkey, signer);
         uint256 issuerSchemaId = registry.register(pubkey, signer);
         assertEq(issuerSchemaId, 1);
 
@@ -89,27 +93,36 @@ contract CredentialIssuerRegistryTest is Test {
     }
 
     function testCannotRegisterWithEmptyPubkey() public {
-        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
-        registry.register(CredentialSchemaIssuerRegistry.Pubkey(0, 0), vm.addr(0xAAA1));
+        vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey1;
+        pubkey1.x = 0;
+        pubkey1.y = 0;
+        registry.register(pubkey1, vm.addr(0xAAA1));
 
-        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
-        registry.register(CredentialSchemaIssuerRegistry.Pubkey(0, 1), vm.addr(0xAAA1));
+        vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey2;
+        pubkey2.x = 0;
+        pubkey2.y = 1;
+        registry.register(pubkey2, vm.addr(0xAAA1));
 
-        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidPubkey.selector));
-        registry.register(CredentialSchemaIssuerRegistry.Pubkey(1, 0), vm.addr(0xAAA1));
+        vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidPubkey.selector));
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey3;
+        pubkey3.x = 1;
+        pubkey3.y = 0;
+        registry.register(pubkey3, vm.addr(0xAAA1));
     }
 
     function testUpdatePubkeyFlow() public {
         uint256 signerPk = 0xAAA2;
         address signer = vm.addr(signerPk);
-        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("old");
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("old");
         registry.register(pubkey, signer);
 
-        CredentialSchemaIssuerRegistry.Pubkey memory newPubkey = _generatePubkey("new");
+        ICredentialSchemaIssuerRegistry.Pubkey memory newPubkey = _generatePubkey("new");
         bytes memory sig = _signUpdatePubkey(signerPk, 1, newPubkey, pubkey);
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaPubkeyUpdated(1, pubkey, newPubkey);
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaPubkeyUpdated(1, pubkey, newPubkey);
         registry.updatePubkey(1, newPubkey, sig);
 
         assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), newPubkey));
@@ -124,7 +137,7 @@ contract CredentialIssuerRegistryTest is Test {
         bytes memory sig = _signUpdateSigner(oldPk, 1, newSigner);
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaSignerUpdated(1, oldSigner, newSigner);
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaSignerUpdated(1, oldSigner, newSigner);
         registry.updateSigner(1, newSigner, sig);
 
         assertEq(registry.getSignerForIssuerSchemaId(1), newSigner);
@@ -144,16 +157,19 @@ contract CredentialIssuerRegistryTest is Test {
     function testRemoveFlow() public {
         uint256 signerPk = 0xAAA5;
         address signer = vm.addr(signerPk);
-        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("k");
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("k");
         registry.register(pubkey, signer);
 
         bytes memory sig = _signRemove(signerPk, 1);
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaRemoved(1, pubkey, signer);
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaRemoved(1, pubkey, signer);
         registry.remove(1, sig);
 
-        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), CredentialSchemaIssuerRegistry.Pubkey(0, 0)));
+        ICredentialSchemaIssuerRegistry.Pubkey memory expectedPubkey;
+        expectedPubkey.x = 0;
+        expectedPubkey.y = 0;
+        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), expectedPubkey));
         assertEq(registry.getSignerForIssuerSchemaId(1), address(0));
     }
 
@@ -177,14 +193,14 @@ contract CredentialIssuerRegistryTest is Test {
 
         bytes memory updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb.json", 0);
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaUpdated(1, "", "https://world.org/schemas/orb.json");
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaUpdated(1, "", "https://world.org/schemas/orb.json");
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
         assertEq(registry.nonceOf(1), 1);
 
         updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb_new.json", 1);
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaUpdated(
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaUpdated(
             1, "https://world.org/schemas/orb.json", "https://world.org/schemas/orb_new.json"
         );
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb_new.json", updateSig);
@@ -199,7 +215,7 @@ contract CredentialIssuerRegistryTest is Test {
         registry.register(_generatePubkey("k"), signer);
 
         bytes memory updateSig = _signUpdateIssuerSchemaUri(badSk, 1, "https://world.org/schemas/malicious.json", 0);
-        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidSignature.selector));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/malicious.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "");
     }
@@ -221,7 +237,7 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.nonceOf(1), 2);
 
         // Replay the old update
-        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidSignature.selector));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb_old.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb_new.json");
         assertEq(registry.nonceOf(1), 2);
@@ -237,7 +253,7 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
 
         updateSig = _signUpdateIssuerSchemaUri(signerSk, 1, "https://world.org/schemas/orb.json", 1);
-        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.SchemaUriIsTheSameAsCurrentOne.selector));
+        vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.SchemaUriIsTheSameAsCurrentOne.selector));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
         assertEq(registry.getIssuerSchemaUri(1), "https://world.org/schemas/orb.json");
     }
@@ -266,14 +282,14 @@ contract CredentialIssuerRegistryTest is Test {
         registry.remove(1, removeSig);
 
         bytes memory updateSig = _signUpdateIssuerSchemaUri(signerPk, 1, "https://world.org/schemas/orb.json", 1);
-        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidSignature.selector));
         registry.updateIssuerSchemaUri(1, "https://world.org/schemas/orb.json", updateSig);
     }
 
     function testCannotUpdateSchemaUriForNonExistentIssuer() public {
         uint256 signerPk = 0xAAAA;
         bytes memory updateSig = _signUpdateIssuerSchemaUri(signerPk, 999, "https://world.org/schemas/orb.json", 0);
-        vm.expectRevert(abi.encodeWithSelector(CredentialSchemaIssuerRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(ICredentialSchemaIssuerRegistry.InvalidSignature.selector));
         registry.updateIssuerSchemaUri(999, "https://world.org/schemas/orb.json", updateSig);
     }
 
@@ -283,15 +299,18 @@ contract CredentialIssuerRegistryTest is Test {
         address signerAddress = vm.addr(signerPk);
         MockERC1271Wallet wallet = new MockERC1271Wallet(signerAddress);
 
-        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("erc1271-pubkey");
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("erc1271-pubkey");
         uint256 issuerSchemaId = registry.register(pubkey, address(wallet));
         assertEq(issuerSchemaId, 1);
         bytes memory sig = _signRemove(signerPk, 1);
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaRemoved(1, pubkey, address(wallet));
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaRemoved(1, pubkey, address(wallet));
         registry.remove(1, sig);
-        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), CredentialSchemaIssuerRegistry.Pubkey(0, 0)));
+        ICredentialSchemaIssuerRegistry.Pubkey memory expectedPubkey;
+        expectedPubkey.x = 0;
+        expectedPubkey.y = 0;
+        assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), expectedPubkey));
         assertEq(registry.getSignerForIssuerSchemaId(1), address(0));
     }
 
@@ -301,15 +320,15 @@ contract CredentialIssuerRegistryTest is Test {
         address signerAddress = vm.addr(signerPk);
         MockERC1271Wallet wallet = new MockERC1271Wallet(signerAddress);
 
-        CredentialSchemaIssuerRegistry.Pubkey memory oldPubkey = _generatePubkey("old-erc1271");
+        ICredentialSchemaIssuerRegistry.Pubkey memory oldPubkey = _generatePubkey("old-erc1271");
         uint256 issuerSchemaId = registry.register(oldPubkey, address(wallet));
         assertEq(issuerSchemaId, 1);
 
-        CredentialSchemaIssuerRegistry.Pubkey memory newPubkey = _generatePubkey("new-erc1271");
+        ICredentialSchemaIssuerRegistry.Pubkey memory newPubkey = _generatePubkey("new-erc1271");
         bytes memory sig = _signUpdatePubkey(signerPk, 1, newPubkey, oldPubkey);
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaPubkeyUpdated(1, oldPubkey, newPubkey);
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaPubkeyUpdated(1, oldPubkey, newPubkey);
         registry.updatePubkey(1, newPubkey, sig);
         assertTrue(_isEq(registry.issuerSchemaIdToPubkey(1), newPubkey));
     }
@@ -320,7 +339,7 @@ contract CredentialIssuerRegistryTest is Test {
         address signerAddress = vm.addr(signerPk);
         MockERC1271Wallet wallet = new MockERC1271Wallet(signerAddress);
 
-        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("signer-erc1271");
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("signer-erc1271");
         uint256 issuerSchemaId = registry.register(pubkey, address(wallet));
         assertEq(issuerSchemaId, 1);
 
@@ -328,7 +347,7 @@ contract CredentialIssuerRegistryTest is Test {
         bytes memory sig = _signUpdateSigner(signerPk, 1, newSigner);
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaSignerUpdated(1, address(wallet), newSigner);
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaSignerUpdated(1, address(wallet), newSigner);
         registry.updateSigner(1, newSigner, sig);
         assertEq(registry.getSignerForIssuerSchemaId(1), newSigner);
     }
@@ -339,7 +358,7 @@ contract CredentialIssuerRegistryTest is Test {
         address signerAddress = vm.addr(signerPk);
         MockERC1271Wallet wallet = new MockERC1271Wallet(signerAddress);
 
-        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("uri-erc1271");
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = _generatePubkey("uri-erc1271");
         uint256 issuerSchemaId = registry.register(pubkey, address(wallet));
         assertEq(issuerSchemaId, 1);
 
@@ -347,7 +366,7 @@ contract CredentialIssuerRegistryTest is Test {
         bytes memory sig = _signUpdateIssuerSchemaUri(signerPk, 1, schemaUri, 0);
 
         vm.expectEmit();
-        emit CredentialSchemaIssuerRegistry.IssuerSchemaUpdated(1, "", schemaUri);
+        emit ICredentialSchemaIssuerRegistry.IssuerSchemaUpdated(1, "", schemaUri);
         registry.updateIssuerSchemaUri(1, schemaUri, sig);
         assertEq(registry.getIssuerSchemaUri(1), schemaUri);
         assertEq(registry.nonceOf(1), 1);

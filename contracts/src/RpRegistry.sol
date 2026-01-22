@@ -10,6 +10,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
+import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
 
 /**
  * @title Relying Party Registry (World ID)
@@ -19,7 +20,7 @@ import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
  * repository before making any updates.
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
-contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable, IRpRegistry {
     using SafeERC20 for IERC20;
 
     modifier onlyInitialized() {
@@ -31,30 +32,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                         Types                          //
-    ////////////////////////////////////////////////////////////
-
-    struct RelyingParty {
-        // whether the rpId has ever been initialized.
-        bool initialized;
-        // whether the RP is active or not. an inactive RP is not able to make requests.
-        bool active;
-        // the manager authorized to perform registry updates for the RP
-        address manager;
-        // the signer which is allowed to sign proof requests.
-        // while not recommended, it can be the same as the manager.
-        address signer;
-        // the OPRF key identifier from the OprfKeyRegistry contract.
-        // points to the committed public key from OPRF Nodes for the RP.
-        uint160 oprfKeyId;
-        // the fully qualified domain name (FQDN) where the well-known metadata file for the RP is published.
-        // the metadata file must be published in https://<unverifiedWellKnownDomain>/.well-known/world-id.json
-        // examples: `world.org`, `example.world.org`
-        // note this is unverified and it's every party responsibility to verify the domain through the well-known file.
-        string unverifiedWellKnownDomain;
     }
 
     ////////////////////////////////////////////////////////////
@@ -84,29 +61,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     IOprfKeyRegistry internal _oprfKeyRegistry;
 
     ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event RpRegistered(
-        uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, string unverifiedWellKnownDomain
-    );
-
-    event RpUpdated(
-        uint64 indexed rpId,
-        uint160 indexed oprfKeyId,
-        bool active,
-        address manager,
-        address signer,
-        string unverifiedWellKnownDomain
-    );
-
-    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
-
-    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
-
-    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
-
-    ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
 
@@ -120,67 +74,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     bytes32 public constant UPDATE_RP_TYPEHASH = keccak256(
         "UpdateRp(uint64 rpId,uint160 oprfKeyId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
     );
-
-    ////////////////////////////////////////////////////////////
-    //                        Errors                         //
-    ////////////////////////////////////////////////////////////
-
-    error ImplementationNotInitialized();
-
-    /**
-     * @dev Thrown when the requested rpId to be registered is already in use. rpIds must be unique.
-     */
-    error RpIdAlreadyInUse(uint64 rpId);
-
-    /**
-     * @dev Thrown when the provided rpId is not registered.
-     */
-    error RpIdDoesNotExist();
-
-    /**
-     * @dev Thrown the the provided rpId is not active.
-     */
-    error RpIdInactive();
-
-    /**
-     * @dev Thrown when trying to set a manager to the zero address.
-     */
-    error ManagerCannotBeZeroAddress();
-
-    /**
-     * @dev Thrown when trying to set a signer to the zero address.
-     */
-    error SignerCannotBeZeroAddress();
-
-    /**
-     * @dev Thrown when the provided array lengths do not match.
-     */
-    error MismatchingArrayLengths();
-
-    /**
-     * @dev Thrown when the provided nonce does not match the expected nonce.
-     */
-    error InvalidNonce();
-
-    /**
-     * @dev Thrown when the provided signature is invalid for the operation.
-     */
-    error InvalidSignature();
-
-    /**
-     * @dev Thrown when the fee payment is not enough to cover registration.
-     */
-    error InsufficientFunds();
-
-    /**
-     * @dev Thrown when the registration fee is not paid.
-     */
-    error PaymentFailure();
-
-    /**
-     * @dev Thrown when trying to set an address to the zero address.
-     */
-    error ZeroAddress();
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //

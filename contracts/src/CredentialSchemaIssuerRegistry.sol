@@ -7,30 +7,20 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
-    error ImplementationNotInitialized();
-
-    /**
-     * @dev Thrown when trying to update the schema URI to the same as the current one.
-     */
-    error SchemaUriIsTheSameAsCurrentOne();
-
-    /**
-     * @dev Thrown when the provided signature is invalid for the operation.
-     */
-    error InvalidSignature();
-
-    /**
-     * @dev Thrown when the provided pubkey is invalid (for example if either coordinate is zero).
-     */
-    error InvalidPubkey();
-
+contract CredentialSchemaIssuerRegistry is
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    ICredentialSchemaIssuerRegistry
+{
     modifier onlyInitialized() {
         _onlyInitialized();
         _;
@@ -40,15 +30,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                         Types                          //
-    ////////////////////////////////////////////////////////////
-
-    struct Pubkey {
-        uint256 x;
-        uint256 y;
     }
 
     ////////////////////////////////////////////////////////////
@@ -88,16 +69,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     bytes32 public constant UPDATE_ISSUER_SCHEMA_URI_TYPEHASH =
         keccak256(abi.encodePacked(UPDATE_ISSUER_SCHEMA_URI_TYPEDEF));
     bytes32 public constant PUBKEY_TYPEHASH = keccak256(abi.encodePacked(PUBKEY_TYPEDEF));
-
-    ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
-    event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
-    event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
