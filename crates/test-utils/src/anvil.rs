@@ -498,7 +498,7 @@ impl TestAnvil {
 
         let proxy = ERC1967Proxy::deploy(provider, *verifier.address(), init_data)
             .await
-            .context("failed to deploy RpRegistry proxy")?;
+            .context("failed to deploy Verifier proxy")?;
 
         Ok(*proxy.address())
     }
