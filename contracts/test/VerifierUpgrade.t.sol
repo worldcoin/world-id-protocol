@@ -23,7 +23,11 @@ contract VerifierV2Mock is Verifier {
 }
 
 contract WorldIDRegistryMock {
-    uint256 public treeDepth = 30;
+    uint256 private treeDepth = 30;
+
+    function getTreeDepth() external view returns (uint256) {
+        return treeDepth;
+    }
 }
 
 contract VerifierUpgradeTest is Test {
@@ -54,6 +58,7 @@ contract VerifierUpgradeTest is Test {
             Verifier.initialize.selector,
             credentialIssuerRegistry,
             worldIDRegistry,
+            oprfKeyRegistry,
             groth16Verifier,
             proofTimestampDelta
         );
@@ -141,7 +146,9 @@ contract VerifierUpgradeTest is Test {
     function test_CannotInitializeTwice() public {
         // Try to initialize again (should fail)
         vm.expectRevert();
-        verifier.initialize(credentialIssuerRegistry, worldIDRegistry, groth16Verifier, proofTimestampDelta);
+        verifier.initialize(
+            credentialIssuerRegistry, worldIDRegistry, oprfKeyRegistry, groth16Verifier, proofTimestampDelta
+        );
     }
 
     function test_ImplementationCannotBeInitialized() public {
@@ -150,7 +157,9 @@ contract VerifierUpgradeTest is Test {
 
         // Try to initialize the implementation directly (should fail)
         vm.expectRevert();
-        implementation.initialize(credentialIssuerRegistry, worldIDRegistry, groth16Verifier, proofTimestampDelta);
+        implementation.initialize(
+            credentialIssuerRegistry, worldIDRegistry, oprfKeyRegistry, groth16Verifier, proofTimestampDelta
+        );
     }
 
     function test_UpdateCredentialSchemaIssuerRegistry() public {
@@ -164,7 +173,7 @@ contract VerifierUpgradeTest is Test {
     }
 
     function test_UpdateWorldIDRegistry() public {
-        address newRegistry = address(0x6666);
+        address newRegistry = address(new WorldIDRegistryMock());
 
         vm.expectEmit(true, true, true, true);
         emit Verifier.WorldIDRegistryUpdated(worldIDRegistry, newRegistry);
@@ -177,7 +186,7 @@ contract VerifierUpgradeTest is Test {
         address newOprfKeyRegistry = address(0x7777);
 
         vm.expectEmit(true, true, true, true);
-        emit Verifier.OprfKeyRegistryUpdated(address(0), newOprfKeyRegistry);
+        emit Verifier.OprfKeyRegistryUpdated(oprfKeyRegistry, newOprfKeyRegistry);
 
         verifier.updateOprfKeyRegistry(newOprfKeyRegistry);
         assertEq(address(verifier.oprfKeyRegistry()), newOprfKeyRegistry);

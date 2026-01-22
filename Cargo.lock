@@ -3063,7 +3063,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4477,7 +4477,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5061,7 +5061,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.1",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5514,7 +5514,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6642,7 +6642,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-client"
 version = "0.3.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=d1a6e62#d1a6e62991454e0b4b13767ab6c70f9e88454127"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=02c6442#02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -6660,24 +6660,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "taceo-oprf-client-example"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=d1a6e62#d1a6e62991454e0b4b13767ab6c70f9e88454127"
-dependencies = [
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "eyre",
- "rand 0.8.5",
- "taceo-ark-babyjubjub",
- "taceo-oprf-client",
- "taceo-oprf-types",
- "tracing",
-]
-
-[[package]]
 name = "taceo-oprf-core"
 version = "0.3.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=d1a6e62#d1a6e62991454e0b4b13767ab6c70f9e88454127"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=02c6442#02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -6696,9 +6681,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "taceo-oprf-dev-client"
+version = "0.1.0"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=02c6442#02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71"
+dependencies = [
+ "alloy",
+ "clap",
+ "eyre",
+ "rand 0.8.5",
+ "serde",
+ "taceo-oprf-client",
+ "taceo-oprf-core",
+ "taceo-oprf-test-utils",
+ "taceo-oprf-types",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "taceo-oprf-key-gen"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=d1a6e62#d1a6e62991454e0b4b13767ab6c70f9e88454127"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=02c6442#02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -6735,7 +6739,7 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-service"
 version = "0.3.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=d1a6e62#d1a6e62991454e0b4b13767ab6c70f9e88454127"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=02c6442#02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71"
 dependencies = [
  "alloy",
  "async-trait",
@@ -6769,35 +6773,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "taceo-oprf-service-example"
+name = "taceo-oprf-test-utils"
 version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=d1a6e62#d1a6e62991454e0b4b13767ab6c70f9e88454127"
-dependencies = [
- "async-trait",
- "aws-config",
- "axum",
- "clap",
- "eyre",
- "humantime",
- "rustls 0.23.36",
- "serde",
- "taceo-nodes-common",
- "taceo-nodes-observability",
- "taceo-oprf-service",
- "taceo-oprf-types",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "taceo-oprf-test"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=d1a6e62#d1a6e62991454e0b4b13767ab6c70f9e88454127"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=02c6442#02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71"
 dependencies = [
  "alloy",
- "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "async-trait",
@@ -6806,26 +6786,20 @@ dependencies = [
  "parking_lot",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
- "regex",
  "reqwest",
- "semver 1.0.27",
- "serde_json",
  "taceo-ark-babyjubjub",
- "taceo-oprf-client-example",
  "taceo-oprf-core",
  "taceo-oprf-key-gen",
  "taceo-oprf-service",
- "taceo-oprf-service-example",
  "taceo-oprf-types",
  "tokio",
- "tokio-util",
  "tracing",
 ]
 
 [[package]]
 name = "taceo-oprf-types"
 version = "0.4.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=d1a6e62#d1a6e62991454e0b4b13767ab6c70f9e88454127"
+source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=02c6442#02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -6924,7 +6898,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6958,7 +6932,7 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-oprf-key-gen",
  "taceo-oprf-service",
- "taceo-oprf-test",
+ "taceo-oprf-test-utils",
  "taceo-oprf-types",
  "taceo-poseidon2 0.1.0",
  "tokio",
@@ -7842,7 +7816,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8196,9 +8170,11 @@ dependencies = [
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
+ "taceo-groth16-sol",
  "taceo-oprf-client",
  "taceo-oprf-core",
  "taceo-oprf-service",
+ "taceo-oprf-test-utils",
  "taceo-oprf-types",
  "taceo-poseidon2 0.1.0",
  "test-utils",
@@ -8295,7 +8271,8 @@ dependencies = [
  "taceo-nodes-observability",
  "taceo-oprf-client",
  "taceo-oprf-core",
- "taceo-oprf-test",
+ "taceo-oprf-dev-client",
+ "taceo-oprf-test-utils",
  "taceo-oprf-types",
  "test-utils",
  "tokio",
