@@ -343,7 +343,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         // Check if the root is known and not expired
         uint256 ts = rootToTimestamp[root];
         if (ts == 0) return false;
-        if (rootValidityWindow == 0) return true;
         return block.timestamp <= ts + rootValidityWindow;
     }
 
