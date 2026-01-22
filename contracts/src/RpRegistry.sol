@@ -487,5 +487,5 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @dev Storage gap to allow for future upgrades without storage collisions
      * This reserves 50 storage slots for future state variables
      */
-    uint256[50] internal __gap;
+    uint256[50] private __gap;
 }
