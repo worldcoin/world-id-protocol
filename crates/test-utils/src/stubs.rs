@@ -1,18 +1,28 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, U256, address};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
-use taceo_oprf_test::{
-    OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1, OPRF_PEER_ADDRESS_2,
-    test_secret_manager::TestSecretManager,
-};
+use taceo_oprf_test_utils::test_secret_manager::TestSecretManager;
 use tokio::{net::TcpListener, task::JoinHandle};
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 use world_id_primitives::{TREE_DEPTH, merkle::AccountInclusionProof};
 
 use std::sync::RwLock;
+
+/// anvil wallet 5
+pub const OPRF_PEER_PRIVATE_KEY_0: &str =
+    "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba";
+pub const OPRF_PEER_ADDRESS_0: Address = address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc");
+/// anvil wallet 6
+pub const OPRF_PEER_PRIVATE_KEY_1: &str =
+    "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e";
+pub const OPRF_PEER_ADDRESS_1: Address = address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9");
+/// anvil wallet 7
+pub const OPRF_PEER_PRIVATE_KEY_2: &str =
+    "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356";
+pub const OPRF_PEER_ADDRESS_2: Address = address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955");
 
 #[derive(Clone)]
 struct IndexerState {
@@ -134,6 +144,14 @@ impl MutableIndexerStub {
     pub fn abort(self) {
         self.handle.abort();
     }
+}
+
+pub fn create_secret_managers() -> [TestSecretManager; 3] {
+    [
+        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_0),
+        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_1),
+        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_2),
+    ]
 }
 
 async fn spawn_orpf_node(
