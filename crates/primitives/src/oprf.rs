@@ -26,7 +26,7 @@ pub struct OprfRequestAuthV1 {
     pub current_time_stamp: u64,
     /// Expiration timestamp of the request (unix secs)
     pub expiration_timestamp: u64,
-    /// The signature of the nonce || action || created_at || expires_at
+    /// The signature of the `nonce` || `action` || `created_at` || `expires_at`
     pub signature: alloy_primitives::Signature,
     /// The `rp_id`
     pub rp_id: RpId,

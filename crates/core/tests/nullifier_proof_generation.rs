@@ -195,6 +195,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         action: rp_fixture.action.into(),
         nonce: rp_fixture.nonce.into(),
         current_timestamp: rp_fixture.current_timestamp,
+        expiration_timestamp: rp_fixture.expiration_timestamp,
         rp_signature: rp_fixture.signature,
         signal_hash,
         session_id_r_seed: rp_fixture.rp_session_id_r_seed,
