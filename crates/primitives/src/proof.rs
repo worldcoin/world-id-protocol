@@ -165,6 +165,8 @@ pub struct SingleProofInput<const TREE_DEPTH: usize> {
     /// The timestamp from the RP's request.
     /// TODO: Document why this is required.
     pub current_timestamp: u64,
+    /// The expiration timestamp for the RP's request (unix seconds).
+    pub expiration_timestamp: u64,
     /// The RP's signature over the request. This is used to ensure the RP is legitimately requesting the proof
     /// from the user and reduce phishing surface area.
     ///

@@ -259,6 +259,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
+    let expiration_timestamp = current_timestamp + 300_u64;
 
     let msg = world_id_primitives::rp::compute_rp_signature_msg(nonce, action, current_timestamp);
     let signature = signer.sign_message_sync(&msg)?;
@@ -282,6 +283,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         action: action.into(),
         nonce: nonce.into(),
         current_timestamp,
+        expiration_timestamp,
         rp_signature: signature,
         signal_hash: signal_hash.into(),
         credential_sub_blinding_factor,
