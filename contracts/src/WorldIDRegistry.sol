@@ -907,7 +907,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Sets the validity window for historic roots. 0 means roots never expire.
+     * @dev Sets the validity window for historic roots.
      */
     function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
