@@ -90,7 +90,7 @@ contract CredentialSchemaIssuerRegistry is
     }
 
     ////////////////////////////////////////////////////////////
-    //                        Functions                       //
+    //                   PUBLIC FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
     /**
@@ -201,20 +201,6 @@ contract CredentialSchemaIssuerRegistry is
     /**
      * @inheritdoc ICredentialSchemaIssuerRegistry
      */
-    function getIssuerSchemaUri(uint256 issuerSchemaId)
-        public
-        view
-        virtual
-        onlyProxy
-        onlyInitialized
-        returns (string memory)
-    {
-        return idToSchemaUri[issuerSchemaId];
-    }
-
-    /**
-     * @inheritdoc ICredentialSchemaIssuerRegistry
-     */
     function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature)
         public
         virtual
@@ -244,6 +230,32 @@ contract CredentialSchemaIssuerRegistry is
         emit IssuerSchemaUpdated(issuerSchemaId, oldSchemaUri, schemaUri);
 
         _nonces[issuerSchemaId]++;
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                   INTERNAL FUNCTIONS                  //
+    ////////////////////////////////////////////////////////////
+
+    function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
+        return pubkey.x == 0 || pubkey.y == 0;
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @inheritdoc ICredentialSchemaIssuerRegistry
+     */
+    function getIssuerSchemaUri(uint256 issuerSchemaId)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (string memory)
+    {
+        return idToSchemaUri[issuerSchemaId];
     }
 
     /**
@@ -288,12 +300,8 @@ contract CredentialSchemaIssuerRegistry is
         return _nonces[issuerSchemaId];
     }
 
-    function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
-        return pubkey.x == 0 || pubkey.y == 0;
-    }
-
     ////////////////////////////////////////////////////////////
-    //                    Upgrade Authorization               //
+    //                    OWNER FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
 
     /**

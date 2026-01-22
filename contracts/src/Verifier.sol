@@ -29,6 +29,10 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         }
     }
 
+    ////////////////////////////////////////////////////////////
+    //                        Members                         //
+    ////////////////////////////////////////////////////////////
+
     /// @notice Registry for credential schema and issuer management
     ICredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
 
@@ -46,6 +50,10 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
 
     /// @notice The depth of the Merkle tree
     uint256 public treeDepth;
+
+    ////////////////////////////////////////////////////////////
+    //                        Constructor                     //
+    ////////////////////////////////////////////////////////////
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -75,6 +83,10 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         proofTimestampDelta = _proofTimestampDelta;
         treeDepth = worldIDRegistry.getTreeDepth();
     }
+
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @inheritdoc IVerifier
@@ -140,6 +152,10 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         verifierNullifier.verifyCompressedProof(compressedProof, pubSignals);
     }
 
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
+
     /**
      * @inheritdoc IVerifier
      */
@@ -197,10 +213,6 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         proofTimestampDelta = _proofTimestampDelta;
         emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);
     }
-
-    ////////////////////////////////////////////////////////////
-    //                    Upgrade Authorization               //
-    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Authorize upgrade to a new implementation

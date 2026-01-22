@@ -12,9 +12,9 @@ import {IVerifierNullifier} from "./IVerifierNullifier.sol";
  * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
  */
 interface IVerifier {
-    // ========================================
-    // ERRORS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        ERRORS                          //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Thrown when the contract implementation has not been initialized.
@@ -41,9 +41,9 @@ interface IVerifier {
      */
     error UnregisteredIssuerSchemaId();
 
-    // ========================================
-    // EVENTS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        EVENTS                          //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @notice Emitted when the credential schema issuer registry is updated
@@ -72,9 +72,30 @@ interface IVerifier {
      */
     event ProofTimestampDeltaUpdated(uint256 oldProofTimestampDelta, uint256 newProofTimestampDelta);
 
-    // ========================================
-    // OWNER FUNCTIONS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @notice Verifies a Uniqueness Proof for a specific World ID.
+     */
+    function verify(
+        uint256 nullifier,
+        uint256 action,
+        uint64 rpId,
+        uint256 sessionId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint256 authenticatorRoot,
+        uint256 proofTimestamp,
+        uint256 credentialIssuerId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256[4] calldata compressedProof
+    ) external view;
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @notice Updates the credential schema issuer registry address
@@ -100,26 +121,5 @@ interface IVerifier {
      * @notice Updates the proof timestamp delta
      */
     function updateProofTimestampDelta(uint256 _proofTimestampDelta) external;
-
-    // ========================================
-    // VIEW FUNCTIONS
-    // ========================================
-
-    /**
-     * @notice Verifies a Uniqueness Proof for a specific World ID.
-     */
-    function verify(
-        uint256 nullifier,
-        uint256 action,
-        uint64 rpId,
-        uint256 sessionId,
-        uint256 nonce,
-        uint256 signalHash,
-        uint256 authenticatorRoot,
-        uint256 proofTimestamp,
-        uint256 credentialIssuerId,
-        uint256 credentialGenesisIssuedAtMin,
-        uint256[4] calldata compressedProof
-    ) external view;
 }
 

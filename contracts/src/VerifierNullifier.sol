@@ -11,6 +11,10 @@ import {IVerifierNullifier} from "./interfaces/IVerifierNullifier.sol";
 /// to compress proofs.
 /// @notice See <https://2π.com/23/bn254-compression> for further explanation.
 contract Verifier is IVerifierNullifier {
+    ////////////////////////////////////////////////////////////
+    //                        Constants                       //
+    ////////////////////////////////////////////////////////////
+
     // Addresses of precompiles
     uint256 constant PRECOMPILE_MODEXP = 0x05;
     uint256 constant PRECOMPILE_ADD = 0x06;
@@ -96,6 +100,10 @@ contract Verifier is IVerifierNullifier {
     uint256 constant PUB_13_Y = 18106104825749877565735781150048767179296210888578069185247526899472041909597;
     uint256 constant PUB_14_X = 21289605602137633491219445516531921670511799852057032463371999342041910842571;
     uint256 constant PUB_14_Y = 16915585486065113856454053939249724220855825011157327910203751715392868862168;
+
+    ////////////////////////////////////////////////////////////
+    //                   INTERNAL FUNCTIONS                   //
+    ////////////////////////////////////////////////////////////
 
     /// Negation in Fp.
     /// @notice Returns a number x such that a + x = 0 in Fp.
@@ -508,6 +516,10 @@ contract Verifier is IVerifierNullifier {
             revert PublicInputNotInField();
         }
     }
+
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
 
     /// Compress a proof.
     /// @notice Will revert with InvalidProof if the curve points are invalid,

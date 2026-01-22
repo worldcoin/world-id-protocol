@@ -7,9 +7,9 @@ pragma solidity ^0.8.13;
  * @dev Interface for the Relying Party Registry contract
  */
 interface IRpRegistry {
-    // ========================================
-    // STRUCTS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        STRUCTS                         //
+    ////////////////////////////////////////////////////////////
 
     struct RelyingParty {
         // whether the rpId has ever been initialized.
@@ -31,9 +31,9 @@ interface IRpRegistry {
         string unverifiedWellKnownDomain;
     }
 
-    // ========================================
-    // ERRORS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        ERRORS                          //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Thrown when the contract implementation has not been initialized.
@@ -96,9 +96,9 @@ interface IRpRegistry {
      */
     error ZeroAddress();
 
-    // ========================================
-    // EVENTS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        EVENTS                          //
+    ////////////////////////////////////////////////////////////
 
     event RpRegistered(
         uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, string unverifiedWellKnownDomain
@@ -119,9 +119,9 @@ interface IRpRegistry {
 
     event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
 
-    // ========================================
-    // PUBLIC FUNCTIONS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                   PUBLIC FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Registers a new relying party.
@@ -168,31 +168,9 @@ interface IRpRegistry {
         bytes calldata signature
     ) external;
 
-    // ========================================
-    // OWNER FUNCTIONS
-    // ========================================
-
-    /**
-     * @dev Sets the fee recipient address where registration fees are sent.
-     * @param newFeeRecipient The new address to receive registration fees.
-     */
-    function setFeeRecipient(address newFeeRecipient) external;
-
-    /**
-     * @dev Sets the registration fee amount required to register a new relying party.
-     * @param newFee The new registration fee amount.
-     */
-    function setRegistrationFee(uint256 newFee) external;
-
-    /**
-     * @dev Sets the ERC20 token address used for paying registration fees. Use address(0) for native ETH.
-     * @param newFeeToken The new token address for fee payments.
-     */
-    function setFeeToken(address newFeeToken) external;
-
-    // ========================================
-    // VIEW FUNCTIONS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Returns the domain separator for the EIP712 structs.
@@ -238,5 +216,27 @@ interface IRpRegistry {
      * @dev Returns the OPRF key registry address.
      */
     function getOprfKeyRegistry() external view returns (address);
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Sets the fee recipient address where registration fees are sent.
+     * @param newFeeRecipient The new address to receive registration fees.
+     */
+    function setFeeRecipient(address newFeeRecipient) external;
+
+    /**
+     * @dev Sets the registration fee amount required to register a new relying party.
+     * @param newFee The new registration fee amount.
+     */
+    function setRegistrationFee(uint256 newFee) external;
+
+    /**
+     * @dev Sets the ERC20 token address used for paying registration fees. Use address(0) for native ETH.
+     * @param newFeeToken The new token address for fee payments.
+     */
+    function setFeeToken(address newFeeToken) external;
 }
 

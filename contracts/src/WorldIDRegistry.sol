@@ -120,277 +120,7 @@ contract WorldIDRegistry is
     }
 
     ////////////////////////////////////////////////////////////
-    //                  Public View Functions                 //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
-        return _domainSeparatorV4();
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function currentRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return tree.root;
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getRecoveryAddress(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
-        return _getRecoveryAddress(leafIndex);
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
-        // The latest root is always valid.
-        if (root == latestRoot) return true;
-        // Check if the root is known and not expired
-        uint256 ts = rootToTimestamp[root];
-        if (ts == 0) return false;
-        if (rootValidityWindow == 0) return true;
-        return block.timestamp <= ts + rootValidityWindow;
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getPackedAccountData(address authenticatorAddress)
-        external
-        view
-        virtual
-        onlyProxy
-        onlyInitialized
-        returns (uint256)
-    {
-        return authenticatorAddressToPackedAccountData[authenticatorAddress];
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getSignatureNonce(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return leafIndexToSignatureNonce[leafIndex];
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getRecoveryCounter(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return leafIndexToRecoveryCounter[leafIndex];
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return nextLeafIndex;
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getTreeDepth() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return treeDepth;
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getMaxAuthenticators() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return maxAuthenticators;
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getRootTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return rootToTimestamp[root];
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getLatestRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return latestRoot;
-    }
-
-    /**
-     * @inheritdoc IWorldIDRegistry
-     */
-    function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return rootValidityWindow;
-    }
-
-    ////////////////////////////////////////////////////////////
-    //              Internal View Helper Functions            //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Helper function to get recovery address from the packed storage.
-     */
-    function _getRecoveryAddress(uint256 leafIndex) internal view returns (address) {
-        return address(uint160(_leafIndexToRecoveryAddressPacked[leafIndex]));
-    }
-
-    /**
-     * @dev Helper function to get pubkey bitmap from the packed storage.
-     */
-    function _getPubkeyBitmap(uint256 leafIndex) internal view returns (uint256) {
-        return _leafIndexToRecoveryAddressPacked[leafIndex] >> 160;
-    }
-
-    /**
-     * @dev Recovers the packed authenticator metadata for the signer of `messageHash`.
-     * @param messageHash The message hash.
-     * @param signature The signature.
-     * @return signer Address recovered from the signature.
-     * @return packedAccountData Packed authenticator data for the signer.
-     */
-    function _recoverAccountDataFromSignature(bytes32 messageHash, bytes memory signature)
-        internal
-        view
-        virtual
-        returns (address signer, uint256 packedAccountData)
-    {
-        signer = ECDSA.recover(messageHash, signature);
-        if (signer == address(0)) {
-            revert ZeroRecoveredSignatureAddress();
-        }
-        packedAccountData = authenticatorAddressToPackedAccountData[signer];
-        if (packedAccountData == 0) {
-            revert AuthenticatorDoesNotExist(signer);
-        }
-        uint256 leafIndex = PackedAccountData.leafIndex(packedAccountData);
-        uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
-        uint256 expectedRecoveryCounter = leafIndexToRecoveryCounter[leafIndex];
-        if (actualRecoveryCounter != expectedRecoveryCounter) {
-            revert MismatchedRecoveryCounter(leafIndex, expectedRecoveryCounter, actualRecoveryCounter);
-        }
-    }
-
-    /**
-     * @dev Validates that a new authenticator address is valid (not zero) and not in use, or if it was previously used,
-     * the account has been recovered (recovery counter increased), making the address available again.
-     * @param newAuthenticatorAddress The new authenticator address to validate.
-     */
-    function _validateNewAuthenticatorAddress(address newAuthenticatorAddress) internal view {
-        if (newAuthenticatorAddress == address(0)) {
-            revert ZeroAddress();
-        }
-        uint256 packedAccountData = authenticatorAddressToPackedAccountData[newAuthenticatorAddress];
-        // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
-        // leafIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
-        if (packedAccountData != 0) {
-            uint256 existingLeafIndex = PackedAccountData.leafIndex(packedAccountData);
-            uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
-            if (existingRecoveryCounter >= leafIndexToRecoveryCounter[existingLeafIndex]) {
-                revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
-            }
-        }
-    }
-
-    ////////////////////////////////////////////////////////////
-    //       Internal State-Changing Helper Functions         //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Helper function to set pubkey bitmap packed, preserving the recovery address. The
-     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
-     */
-    function _setPubkeyBitmap(uint256 leafIndex, uint256 bitmap) internal {
-        if (bitmap >> 96 != 0) {
-            revert BitmapOverflow();
-        }
-
-        uint256 packed = _leafIndexToRecoveryAddressPacked[leafIndex];
-        // Clear bitmap bits and set new bitmap
-        packed = (packed & uint256(type(uint160).max)) | (bitmap << 160);
-        _leafIndexToRecoveryAddressPacked[leafIndex] = packed;
-    }
-
-    /**
-     * @dev Helper function to set recovery address and pubkey bitmap packed. The
-     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
-     */
-    function _setRecoveryAddressAndBitmap(uint256 leafIndex, address recoveryAddress, uint256 bitmap) internal {
-        if (bitmap >> 96 != 0) {
-            revert BitmapOverflow();
-        }
-        _leafIndexToRecoveryAddressPacked[leafIndex] = uint256(uint160(recoveryAddress)) | (bitmap << 160);
-    }
-
-    /**
-     * @dev Records the current tree root.
-     */
-    function _recordCurrentRoot() internal virtual {
-        uint256 root = tree.root;
-        rootToTimestamp[root] = block.timestamp;
-        latestRoot = root;
-        emit RootRecorded(root, block.timestamp);
-    }
-
-    /**
-     * @dev Updates a leaf in the tree and records the new root.
-     */
-    function _updateLeafAndRecord(
-        uint256 leafIndex,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment,
-        uint256[] calldata siblingNodes
-    ) internal virtual {
-        tree.update(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
-        _recordCurrentRoot();
-    }
-
-    /**
-     * @dev Internal function to register an account.
-     */
-    function _registerAccount(
-        address recoveryAddress,
-        address[] calldata authenticatorAddresses,
-        uint256[] calldata authenticatorPubkeys,
-        uint256 offchainSignerCommitment
-    ) internal virtual {
-        if (authenticatorAddresses.length > maxAuthenticators) {
-            revert PubkeyIdOutOfBounds();
-        }
-        if (authenticatorAddresses.length == 0) {
-            revert EmptyAddressArray();
-        }
-        if (authenticatorAddresses.length != authenticatorPubkeys.length) {
-            revert MismatchingArrayLengths();
-        }
-
-        uint256 leafIndex = nextLeafIndex;
-
-        uint256 bitmap = 0;
-        for (uint32 i = 0; i < authenticatorAddresses.length; i++) {
-            address authenticatorAddress = authenticatorAddresses[i];
-            if (authenticatorAddress == address(0)) {
-                revert ZeroAddress();
-            }
-
-            _validateNewAuthenticatorAddress(authenticatorAddress);
-            authenticatorAddressToPackedAccountData[authenticatorAddress] = PackedAccountData.pack(leafIndex, 0, i);
-            bitmap = bitmap | (1 << i);
-        }
-        _setRecoveryAddressAndBitmap(leafIndex, recoveryAddress, bitmap);
-
-        emit AccountCreated(
-            leafIndex, recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment
-        );
-
-        nextLeafIndex = leafIndex + 1;
-    }
-
-    ////////////////////////////////////////////////////////////
-    //         Public State-Changing Functions                //
+    //                   PUBLIC FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
 
     /**
@@ -769,7 +499,273 @@ contract WorldIDRegistry is
     }
 
     ////////////////////////////////////////////////////////////
-    //                      Owner Functions                   //
+    //                   INTERNAL FUNCTIONS                   //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Helper function to get recovery address from the packed storage.
+     */
+    function _getRecoveryAddress(uint256 leafIndex) internal view returns (address) {
+        return address(uint160(_leafIndexToRecoveryAddressPacked[leafIndex]));
+    }
+
+    /**
+     * @dev Helper function to get pubkey bitmap from the packed storage.
+     */
+    function _getPubkeyBitmap(uint256 leafIndex) internal view returns (uint256) {
+        return _leafIndexToRecoveryAddressPacked[leafIndex] >> 160;
+    }
+
+    /**
+     * @dev Recovers the packed authenticator metadata for the signer of `messageHash`.
+     * @param messageHash The message hash.
+     * @param signature The signature.
+     * @return signer Address recovered from the signature.
+     * @return packedAccountData Packed authenticator data for the signer.
+     */
+    function _recoverAccountDataFromSignature(bytes32 messageHash, bytes memory signature)
+        internal
+        view
+        virtual
+        returns (address signer, uint256 packedAccountData)
+    {
+        signer = ECDSA.recover(messageHash, signature);
+        if (signer == address(0)) {
+            revert ZeroRecoveredSignatureAddress();
+        }
+        packedAccountData = authenticatorAddressToPackedAccountData[signer];
+        if (packedAccountData == 0) {
+            revert AuthenticatorDoesNotExist(signer);
+        }
+        uint256 leafIndex = PackedAccountData.leafIndex(packedAccountData);
+        uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
+        uint256 expectedRecoveryCounter = leafIndexToRecoveryCounter[leafIndex];
+        if (actualRecoveryCounter != expectedRecoveryCounter) {
+            revert MismatchedRecoveryCounter(leafIndex, expectedRecoveryCounter, actualRecoveryCounter);
+        }
+    }
+
+    /**
+     * @dev Validates that a new authenticator address is valid (not zero) and not in use, or if it was previously used,
+     * the account has been recovered (recovery counter increased), making the address available again.
+     * @param newAuthenticatorAddress The new authenticator address to validate.
+     */
+    function _validateNewAuthenticatorAddress(address newAuthenticatorAddress) internal view {
+        if (newAuthenticatorAddress == address(0)) {
+            revert ZeroAddress();
+        }
+        uint256 packedAccountData = authenticatorAddressToPackedAccountData[newAuthenticatorAddress];
+        // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
+        // leafIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
+        if (packedAccountData != 0) {
+            uint256 existingLeafIndex = PackedAccountData.leafIndex(packedAccountData);
+            uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
+            if (existingRecoveryCounter >= leafIndexToRecoveryCounter[existingLeafIndex]) {
+                revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
+            }
+        }
+    }
+
+    /**
+     * @dev Helper function to set pubkey bitmap packed, preserving the recovery address. The
+     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
+     */
+    function _setPubkeyBitmap(uint256 leafIndex, uint256 bitmap) internal {
+        if (bitmap >> 96 != 0) {
+            revert BitmapOverflow();
+        }
+
+        uint256 packed = _leafIndexToRecoveryAddressPacked[leafIndex];
+        // Clear bitmap bits and set new bitmap
+        packed = (packed & uint256(type(uint160).max)) | (bitmap << 160);
+        _leafIndexToRecoveryAddressPacked[leafIndex] = packed;
+    }
+
+    /**
+     * @dev Helper function to set recovery address and pubkey bitmap packed. The
+     * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
+     */
+    function _setRecoveryAddressAndBitmap(uint256 leafIndex, address recoveryAddress, uint256 bitmap) internal {
+        if (bitmap >> 96 != 0) {
+            revert BitmapOverflow();
+        }
+        _leafIndexToRecoveryAddressPacked[leafIndex] = uint256(uint160(recoveryAddress)) | (bitmap << 160);
+    }
+
+    /**
+     * @dev Records the current tree root.
+     */
+    function _recordCurrentRoot() internal virtual {
+        uint256 root = tree.root;
+        rootToTimestamp[root] = block.timestamp;
+        latestRoot = root;
+        emit RootRecorded(root, block.timestamp);
+    }
+
+    /**
+     * @dev Updates a leaf in the tree and records the new root.
+     */
+    function _updateLeafAndRecord(
+        uint256 leafIndex,
+        uint256 oldOffchainSignerCommitment,
+        uint256 newOffchainSignerCommitment,
+        uint256[] calldata siblingNodes
+    ) internal virtual {
+        tree.update(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _recordCurrentRoot();
+    }
+
+    /**
+     * @dev Internal function to register an account.
+     */
+    function _registerAccount(
+        address recoveryAddress,
+        address[] calldata authenticatorAddresses,
+        uint256[] calldata authenticatorPubkeys,
+        uint256 offchainSignerCommitment
+    ) internal virtual {
+        if (authenticatorAddresses.length > maxAuthenticators) {
+            revert PubkeyIdOutOfBounds();
+        }
+        if (authenticatorAddresses.length == 0) {
+            revert EmptyAddressArray();
+        }
+        if (authenticatorAddresses.length != authenticatorPubkeys.length) {
+            revert MismatchingArrayLengths();
+        }
+
+        uint256 leafIndex = nextLeafIndex;
+
+        uint256 bitmap = 0;
+        for (uint32 i = 0; i < authenticatorAddresses.length; i++) {
+            address authenticatorAddress = authenticatorAddresses[i];
+            if (authenticatorAddress == address(0)) {
+                revert ZeroAddress();
+            }
+
+            _validateNewAuthenticatorAddress(authenticatorAddress);
+            authenticatorAddressToPackedAccountData[authenticatorAddress] = PackedAccountData.pack(leafIndex, 0, i);
+            bitmap = bitmap | (1 << i);
+        }
+        _setRecoveryAddressAndBitmap(leafIndex, recoveryAddress, bitmap);
+
+        emit AccountCreated(
+            leafIndex, recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment
+        );
+
+        nextLeafIndex = leafIndex + 1;
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
+        return _domainSeparatorV4();
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function currentRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return tree.root;
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getRecoveryAddress(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
+        return _getRecoveryAddress(leafIndex);
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
+        // The latest root is always valid.
+        if (root == latestRoot) return true;
+        // Check if the root is known and not expired
+        uint256 ts = rootToTimestamp[root];
+        if (ts == 0) return false;
+        if (rootValidityWindow == 0) return true;
+        return block.timestamp <= ts + rootValidityWindow;
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getPackedAccountData(address authenticatorAddress)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256)
+    {
+        return authenticatorAddressToPackedAccountData[authenticatorAddress];
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getSignatureNonce(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return leafIndexToSignatureNonce[leafIndex];
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getRecoveryCounter(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return leafIndexToRecoveryCounter[leafIndex];
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return nextLeafIndex;
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getTreeDepth() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return treeDepth;
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getMaxAuthenticators() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return maxAuthenticators;
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getRootTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return rootToTimestamp[root];
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getLatestRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return latestRoot;
+    }
+
+    /**
+     * @inheritdoc IWorldIDRegistry
+     */
+    function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return rootValidityWindow;
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
 
     /**
@@ -792,10 +788,6 @@ contract WorldIDRegistry is
         maxAuthenticators = newMaxAuthenticators;
         emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
     }
-
-    ////////////////////////////////////////////////////////////
-    //                    Upgrade Authorization               //
-    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Authorize upgrade to a new implementation

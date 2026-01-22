@@ -7,18 +7,18 @@ pragma solidity ^0.8.13;
  * @dev Interface for the Credential Schema Issuer Registry contract
  */
 interface ICredentialSchemaIssuerRegistry {
-    // ========================================
-    // STRUCTS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        STRUCTS                         //
+    ////////////////////////////////////////////////////////////
 
     struct Pubkey {
         uint256 x;
         uint256 y;
     }
 
-    // ========================================
-    // ERRORS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        ERRORS                          //
+    ////////////////////////////////////////////////////////////
 
     error ImplementationNotInitialized();
 
@@ -37,9 +37,9 @@ interface ICredentialSchemaIssuerRegistry {
      */
     error InvalidPubkey();
 
-    // ========================================
-    // EVENTS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        EVENTS                          //
+    ////////////////////////////////////////////////////////////
 
     event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
     event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
@@ -47,9 +47,9 @@ interface ICredentialSchemaIssuerRegistry {
     event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
     event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
-    // ========================================
-    // PUBLIC FUNCTIONS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                   PUBLIC FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Registers a new credential schema issuer pair.
@@ -87,9 +87,9 @@ interface ICredentialSchemaIssuerRegistry {
      */
     function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature) external;
 
-    // ========================================
-    // VIEW FUNCTIONS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Returns the schema URI for a specific issuerSchemaId.

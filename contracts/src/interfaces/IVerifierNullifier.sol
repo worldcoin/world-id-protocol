@@ -6,9 +6,9 @@ pragma solidity ^0.8.13;
  * @notice Interface for Groth16 verifier supporting compressed and uncompressed proofs
  */
 interface IVerifierNullifier {
-    // ========================================
-    // ERRORS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        ERRORS                          //
+    ////////////////////////////////////////////////////////////
 
     /// Some of the provided public input values are larger than the field modulus.
     error PublicInputNotInField();
@@ -16,9 +16,9 @@ interface IVerifierNullifier {
     /// The proof is invalid.
     error ProofInvalid();
 
-    // ========================================
-    // VIEW FUNCTIONS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
 
     /// Compress a proof.
     /// @notice Will revert with InvalidProof if the curve points are invalid,

@@ -7,9 +7,9 @@ pragma solidity ^0.8.13;
  * @dev Interface for the World ID Registry contract
  */
 interface IWorldIDRegistry {
-    // ========================================
-    // ERRORS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        ERRORS                          //
+    ////////////////////////////////////////////////////////////
 
     error ImplementationNotInitialized();
 
@@ -133,9 +133,9 @@ interface IWorldIDRegistry {
      */
     error OwnerMaxAuthenticatorsOutOfBounds();
 
-    // ========================================
-    // EVENTS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                        EVENTS                          //
+    ////////////////////////////////////////////////////////////
 
     event AccountCreated(
         uint256 indexed leafIndex,
@@ -183,9 +183,9 @@ interface IWorldIDRegistry {
     event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
     event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
 
-    // ========================================
-    // FUNCTIONS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                   PUBLIC FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Creates a new World ID account.
@@ -319,23 +319,9 @@ interface IWorldIDRegistry {
     function updateRecoveryAddress(uint256 leafIndex, address newRecoveryAddress, bytes memory signature, uint256 nonce)
         external;
 
-    // ========================================
-    // OWNER FUNCTIONS
-    // ========================================
-
-    /**
-     * @dev Sets the validity window for historic roots. 0 means roots never expire.
-     */
-    function setRootValidityWindow(uint256 newWindow) external;
-
-    /**
-     * @dev Set an updated maximum number of authenticators allowed.
-     */
-    function setMaxAuthenticators(uint256 newMaxAuthenticators) external;
-
-    // ========================================
-    // VIEW FUNCTIONS
-    // ========================================
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Returns the domain separator for the EIP712 structs.
@@ -406,5 +392,19 @@ interface IWorldIDRegistry {
      * @dev Returns the root validity window in seconds.
      */
     function getRootValidityWindow() external view returns (uint256);
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Sets the validity window for historic roots. 0 means roots never expire.
+     */
+    function setRootValidityWindow(uint256 newWindow) external;
+
+    /**
+     * @dev Set an updated maximum number of authenticators allowed.
+     */
+    function setMaxAuthenticators(uint256 newMaxAuthenticators) external;
 }
 

@@ -106,15 +106,8 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     ////////////////////////////////////////////////////////////
-    //                   Public Functions                     //
+    //                   PUBLIC FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
-
-    /**
-     * @inheritdoc IRpRegistry
-     */
-    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
-        return _domainSeparatorV4();
-    }
 
     /**
      * @inheritdoc IRpRegistry
@@ -150,6 +143,116 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         for (uint256 i = 0; i < rpIds.length; i++) {
             _register(rpIds[i], managers[i], signers[i], unverifiedWellKnownDomains[i]);
         }
+    }
+
+    /**
+     * @inheritdoc IRpRegistry
+     */
+    function updateRp(
+        uint64 rpId,
+        uint160 oprfKeyId,
+        address manager,
+        address signer,
+        bool toggleActive,
+        string calldata unverifiedWellKnownDomain,
+        uint256 nonce,
+        bytes calldata signature
+    ) external virtual onlyProxy onlyInitialized {
+        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
+
+        if (nonce != _rpIdToSignatureNonce[rpId]) revert InvalidNonce();
+
+        bytes32 messageHash = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    UPDATE_RP_TYPEHASH,
+                    rpId,
+                    oprfKeyId,
+                    manager,
+                    signer,
+                    toggleActive,
+                    keccak256(bytes(unverifiedWellKnownDomain)),
+                    nonce
+                )
+            )
+        );
+
+        if (!SignatureChecker.isValidSignatureNow(_relyingParties[rpId].manager, messageHash, signature)) {
+            revert InvalidSignature();
+        }
+
+        if (oprfKeyId != 0) {
+            _relyingParties[rpId].oprfKeyId = oprfKeyId;
+        }
+
+        if (manager != address(0)) {
+            _relyingParties[rpId].manager = manager;
+        }
+
+        if (signer != address(0)) {
+            _relyingParties[rpId].signer = signer;
+        }
+
+        if (keccak256(bytes(unverifiedWellKnownDomain)) != NO_UPDATE_HASH) {
+            _relyingParties[rpId].unverifiedWellKnownDomain = unverifiedWellKnownDomain;
+        }
+
+        if (toggleActive) {
+            _relyingParties[rpId].active = !_relyingParties[rpId].active;
+        }
+
+        _rpIdToSignatureNonce[rpId]++;
+        emit RpUpdated(
+            rpId,
+            _relyingParties[rpId].oprfKeyId,
+            _relyingParties[rpId].active,
+            _relyingParties[rpId].manager,
+            _relyingParties[rpId].signer,
+            _relyingParties[rpId].unverifiedWellKnownDomain
+        );
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                   INTERNAL FUNCTIONS                   //
+    ////////////////////////////////////////////////////////////
+
+    function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
+        if (_relyingParties[rpId].initialized) revert RpIdAlreadyInUse(rpId);
+
+        if (manager == address(0)) revert ManagerCannotBeZeroAddress();
+
+        if (signer == address(0)) revert SignerCannotBeZeroAddress();
+
+        uint160 oprfKeyId = uint160(rpId);
+        _oprfKeyRegistry.initKeyGen(oprfKeyId);
+
+        RelyingParty memory rp = RelyingParty({
+            initialized: true,
+            active: true,
+            manager: manager,
+            signer: signer,
+            oprfKeyId: oprfKeyId,
+            unverifiedWellKnownDomain: unverifiedWellKnownDomain
+        });
+
+        _relyingParties[rpId] = rp;
+
+        emit RpRegistered(rpId, oprfKeyId, manager, unverifiedWellKnownDomain);
+
+        if (_registrationFee > 0) {
+            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
+        }
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @inheritdoc IRpRegistry
+     */
+    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     /**
@@ -225,115 +328,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         return address(_oprfKeyRegistry);
     }
 
-    /**
-     * @inheritdoc IRpRegistry
-     */
-    function updateRp(
-        uint64 rpId,
-        uint160 oprfKeyId,
-        address manager,
-        address signer,
-        bool toggleActive,
-        string calldata unverifiedWellKnownDomain,
-        uint256 nonce,
-        bytes calldata signature
-    ) external virtual onlyProxy onlyInitialized {
-        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
-
-        if (nonce != _rpIdToSignatureNonce[rpId]) revert InvalidNonce();
-
-        bytes32 messageHash = _hashTypedDataV4(
-            keccak256(
-                abi.encode(
-                    UPDATE_RP_TYPEHASH,
-                    rpId,
-                    oprfKeyId,
-                    manager,
-                    signer,
-                    toggleActive,
-                    keccak256(bytes(unverifiedWellKnownDomain)),
-                    nonce
-                )
-            )
-        );
-
-        if (!SignatureChecker.isValidSignatureNow(_relyingParties[rpId].manager, messageHash, signature)) {
-            revert InvalidSignature();
-        }
-
-        if (oprfKeyId != 0) {
-            _relyingParties[rpId].oprfKeyId = oprfKeyId;
-        }
-
-        if (manager != address(0)) {
-            _relyingParties[rpId].manager = manager;
-        }
-
-        if (signer != address(0)) {
-            _relyingParties[rpId].signer = signer;
-        }
-
-        if (keccak256(bytes(unverifiedWellKnownDomain)) != NO_UPDATE_HASH) {
-            _relyingParties[rpId].unverifiedWellKnownDomain = unverifiedWellKnownDomain;
-        }
-
-        if (toggleActive) {
-            _relyingParties[rpId].active = !_relyingParties[rpId].active;
-        }
-
-        _rpIdToSignatureNonce[rpId]++;
-        emit RpUpdated(
-            rpId,
-            _relyingParties[rpId].oprfKeyId,
-            _relyingParties[rpId].active,
-            _relyingParties[rpId].manager,
-            _relyingParties[rpId].signer,
-            _relyingParties[rpId].unverifiedWellKnownDomain
-        );
-    }
-
     ////////////////////////////////////////////////////////////
-    //                  Internal Functions                    //
+    //                    OWNER FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
-
-    function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
-        if (_relyingParties[rpId].initialized) revert RpIdAlreadyInUse(rpId);
-
-        if (manager == address(0)) revert ManagerCannotBeZeroAddress();
-
-        if (signer == address(0)) revert SignerCannotBeZeroAddress();
-
-        uint160 oprfKeyId = uint160(rpId);
-        _oprfKeyRegistry.initKeyGen(oprfKeyId);
-
-        RelyingParty memory rp = RelyingParty({
-            initialized: true,
-            active: true,
-            manager: manager,
-            signer: signer,
-            oprfKeyId: oprfKeyId,
-            unverifiedWellKnownDomain: unverifiedWellKnownDomain
-        });
-
-        _relyingParties[rpId] = rp;
-
-        emit RpRegistered(rpId, oprfKeyId, manager, unverifiedWellKnownDomain);
-
-        if (_registrationFee > 0) {
-            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
-        }
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                    Owner Functions               //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Authorize upgrade to a new implementation
-     * @param newImplementation Address of the new implementation contract
-     * @notice Only the contract owner can authorize upgrades
-     */
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
     /**
      * @inheritdoc IRpRegistry
@@ -363,6 +360,13 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         _feeToken = IERC20(newFeeToken);
         emit FeeTokenUpdated(oldToken, newFeeToken);
     }
+
+    /**
+     * @dev Authorize upgrade to a new implementation
+     * @param newImplementation Address of the new implementation contract
+     * @notice Only the contract owner can authorize upgrades
+     */
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
     ////////////////////////////////////////////////////////////
     //                    Storage Gap                         //
