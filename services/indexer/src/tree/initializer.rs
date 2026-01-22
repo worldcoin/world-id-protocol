@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use tracing::{info, warn};
 
 use super::{builder::TreeBuilder, metadata};
-use crate::db::get_max_event_id;
+use crate::db::{fetch_sparse_leaves, get_max_event_id};
 
 /// State of cache files on disk
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +102,10 @@ impl TreeInitializer {
 
     /// Try to restore from cache and replay missed events.
     /// Updates GLOBAL_TREE atomically.
+    ///
+    /// The mmap file only stores the dense prefix of the tree. Sparse leaves
+    /// (beyond the dense prefix) are stored in memory only and need to be
+    /// restored from the database after loading the mmap.
     async fn try_restore_and_replay(&self, pool: &PgPool) -> anyhow::Result<()> {
         use crate::tree::GLOBAL_TREE;
 
@@ -134,20 +138,44 @@ impl TreeInitializer {
             events_behind
         );
 
-        // 3. Restore tree from mmap
-        let tree = self.builder.restore_from_cache(&self.cache_path)?;
+        // 3. Restore tree from mmap (only gets dense prefix)
+        let mut tree = self.builder.restore_from_cache(&self.cache_path)?;
 
-        // 4. Verify restored root matches metadata
+        // 4. Restore sparse leaves from database
+        //    The mmap only stores leaves in the dense prefix (indices 0 to 2^dense_prefix_depth - 1).
+        //    Sparse leaves (beyond the dense prefix) must be restored from DB.
+        let dense_prefix_size = 1usize << self.dense_prefix_depth;
+        let sparse_leaves = fetch_sparse_leaves(pool, dense_prefix_size).await?;
+
+        if !sparse_leaves.is_empty() {
+            info!(
+                sparse_count = sparse_leaves.len(),
+                dense_prefix_size,
+                "Restoring {} sparse leaves from database",
+                sparse_leaves.len()
+            );
+
+            for (leaf_index, commitment_str) in &sparse_leaves {
+                let commitment = commitment_str
+                    .parse::<U256>()
+                    .map_err(|e| anyhow::anyhow!("Failed to parse commitment: {}", e))?;
+                tree = tree.update_with_mutation(*leaf_index, &commitment);
+            }
+
+            info!("Sparse leaves restored");
+        }
+
+        // 5. Verify restored root matches metadata (now including sparse leaves)
         let restored_root = format!("0x{:x}", tree.root());
         if restored_root != metadata.root_hash {
             anyhow::bail!(
-                "Root mismatch: expected {}, got {}",
+                "Root mismatch after sparse restore: expected {}, got {}",
                 metadata.root_hash,
                 restored_root
             );
         }
 
-        // 5. Replay events if needed (based on event ID, not block number)
+        // 6. Replay new events if needed (based on event ID, not block number)
         let final_tree = if events_behind == 0 {
             info!("Cache is up-to-date, no replay needed");
             tree
@@ -180,7 +208,7 @@ impl TreeInitializer {
             updated_tree
         };
 
-        // 6. Replace GLOBAL_TREE atomically
+        // 7. Replace GLOBAL_TREE atomically
         {
             let mut tree_guard = GLOBAL_TREE.write().await;
             *tree_guard = final_tree;
@@ -234,9 +262,10 @@ impl TreeInitializer {
     ///
     /// This method efficiently syncs the tree by:
     /// 1. Restoring tree from mmap (separate instance - GLOBAL_TREE continues serving requests)
-    /// 2. Validating restored root matches metadata (fails if cache is corrupted)
-    /// 3. Replaying only new events since last sync
-    /// 4. Atomically replacing GLOBAL_TREE with the updated tree
+    /// 2. Restoring sparse leaves from database (mmap only stores dense prefix)
+    /// 3. Validating restored root matches metadata
+    /// 4. Replaying only new events since last sync
+    /// 5. Atomically replacing GLOBAL_TREE with the updated tree
     ///
     /// Note: Mmap restore is fast due to OS-level page cache optimization.
     /// Most pages are already in memory if the tree was recently used.
@@ -270,15 +299,35 @@ impl TreeInitializer {
 
         // 3. Restore tree from mmap (creates separate instance, doesn't touch GLOBAL_TREE)
         //    IMPORTANT: GLOBAL_TREE continues serving requests during this operation
-        let tree = self.builder.restore_from_cache(&self.cache_path)?;
+        let mut tree = self.builder.restore_from_cache(&self.cache_path)?;
 
-        // 4. Verify restored root matches metadata
+        // 4. Restore sparse leaves from database
+        //    The mmap only stores leaves in the dense prefix. Sparse leaves must be restored from DB.
+        let dense_prefix_size = 1usize << self.dense_prefix_depth;
+        let sparse_leaves = fetch_sparse_leaves(pool, dense_prefix_size).await?;
+
+        if !sparse_leaves.is_empty() {
+            info!(
+                sparse_count = sparse_leaves.len(),
+                "Restoring {} sparse leaves from database",
+                sparse_leaves.len()
+            );
+
+            for (leaf_index, commitment_str) in &sparse_leaves {
+                let commitment = commitment_str
+                    .parse::<U256>()
+                    .map_err(|e| anyhow::anyhow!("Failed to parse commitment: {}", e))?;
+                tree = tree.update_with_mutation(*leaf_index, &commitment);
+            }
+        }
+
+        // 5. Verify restored root matches metadata (now including sparse leaves)
         let restored_root = format!("0x{:x}", tree.root());
         if restored_root != metadata.root_hash {
             warn!(
                 expected = %metadata.root_hash,
                 actual = %restored_root,
-                "Root mismatch detected! Cache corrupted, triggering full rebuild"
+                "Root mismatch detected after sparse restore! Cache corrupted, triggering full rebuild"
             );
 
             // Trigger full rebuild instead of failing
@@ -293,19 +342,19 @@ impl TreeInitializer {
             "Restored tree root matches metadata"
         );
 
-        // 5. Replay events on the restored tree (GLOBAL_TREE still serves requests)
+        // 6. Replay events on the restored tree (GLOBAL_TREE still serves requests)
         let (updated_tree, new_block, new_event_id) = self
             .builder
             .replay_events(tree, pool, metadata.last_event_id)
             .await?;
 
-        // 6. Replace GLOBAL_TREE atomically (one brief write lock)
+        // 7. Replace GLOBAL_TREE atomically (one brief write lock)
         {
             let mut tree_guard = GLOBAL_TREE.write().await;
             *tree_guard = updated_tree;
         }
 
-        // 7. Update metadata on disk
+        // 8. Update metadata on disk
         let tree_for_metadata = GLOBAL_TREE.read().await;
         metadata::write_metadata(
             &self.cache_path,

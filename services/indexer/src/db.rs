@@ -358,3 +358,33 @@ pub async fn fetch_events_for_replay(
 
     Ok(events)
 }
+
+/// Fetch all sparse leaf commitments (leaves beyond the dense prefix).
+/// Returns (leaf_index, commitment) pairs for leaves where leaf_index >= dense_prefix_size.
+/// Used to restore sparse leaves after loading the dense prefix from mmap.
+pub async fn fetch_sparse_leaves(
+    pool: &PgPool,
+    dense_prefix_size: usize,
+) -> anyhow::Result<Vec<(usize, String)>> {
+    let rows = sqlx::query(
+        "SELECT leaf_index, offchain_signer_commitment
+         FROM accounts
+         WHERE CAST(leaf_index AS BIGINT) >= $1
+         ORDER BY CAST(leaf_index AS BIGINT) ASC",
+    )
+    .bind(dense_prefix_size as i64)
+    .fetch_all(pool)
+    .await?;
+
+    rows.iter()
+        .map(|row| {
+            let leaf_index: String = row.try_get("leaf_index")?;
+            let leaf_index: usize = leaf_index
+                .parse::<u64>()
+                .map_err(|e| anyhow::anyhow!("Failed to parse leaf_index: {}", e))?
+                as usize;
+            let commitment: String = row.try_get("offchain_signer_commitment")?;
+            Ok((leaf_index, commitment))
+        })
+        .collect()
+}
