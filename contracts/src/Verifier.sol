@@ -66,6 +66,11 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         address _verifierNullifier,
         uint256 _proofTimestampDelta
     ) public virtual initializer {
+        if (_credentialIssuerRegistry == address(0)) revert ZeroAddress();
+        if (_worldIDRegistry == address(0)) revert ZeroAddress();
+        if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
+        if (_verifierNullifier == address(0)) revert ZeroAddress();
+
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
@@ -98,6 +103,11 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @notice Thrown when a `issuerSchemaId` is not registered in the `CredentialSchemaIssuerRegistry`.
      */
     error UnregisteredIssuerSchemaId();
+
+    /**
+     * @notice Thrown when trying to set an address to the zero address.
+     */
+    error ZeroAddress();
 
     /**
      * @notice Emitted when the credential schema issuer registry is updated
@@ -165,8 +175,8 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 credentialGenesisIssuedAtMin,
         uint256[4] calldata compressedProof
     ) external view virtual onlyProxy onlyInitialized {
-        require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
-        require(address(verifierNullifier) != address(0), "verifierNullifier not set");
+        if (address(oprfKeyRegistry) == address(0)) revert ZeroAddress();
+        if (address(verifierNullifier) == address(0)) revert ZeroAddress();
 
         if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
             revert InvalidMerkleRoot();
@@ -225,6 +235,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         onlyProxy
         onlyInitialized
     {
+        if (_credentialSchemaIssuerRegistry == address(0)) revert ZeroAddress();
         address oldCredentialSchemaIssuerRegistry = address(credentialSchemaIssuerRegistry);
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialSchemaIssuerRegistry);
         emit CredentialSchemaIssuerRegistryUpdated(oldCredentialSchemaIssuerRegistry, _credentialSchemaIssuerRegistry);
@@ -236,6 +247,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @param _worldIDRegistry The new World ID Registry address
      */
     function updateWorldIDRegistry(address _worldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (_worldIDRegistry == address(0)) revert ZeroAddress();
         address oldWorldIDRegistry = address(worldIDRegistry);
         worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
         treeDepth = worldIDRegistry.getTreeDepth();
@@ -248,6 +260,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @param _oprfKeyRegistry The new OPRF key registry address
      */
     function updateOprfKeyRegistry(address _oprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
         address oldOprfKeyRegistry = address(oprfKeyRegistry);
         oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
         emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, _oprfKeyRegistry);
@@ -259,6 +272,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
      * @param _verifierNullifier The new Groth16 Verifier address
      */
     function updateVerifierNullifier(address _verifierNullifier) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (_verifierNullifier == address(0)) revert ZeroAddress();
         address oldVerifier = address(verifierNullifier);
         verifierNullifier = VerifierNullifier(_verifierNullifier);
         emit Groth16VerifierNullifierUpdated(oldVerifier, _verifierNullifier);
