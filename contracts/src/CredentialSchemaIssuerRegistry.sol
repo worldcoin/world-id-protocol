@@ -82,7 +82,7 @@ contract CredentialSchemaIssuerRegistry is
     /**
      * @dev Initializes the contract.
      */
-    function initialize() public virtual initializer {
+    function initialize() public initializer {
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
@@ -233,7 +233,7 @@ contract CredentialSchemaIssuerRegistry is
     //                   INTERNAL FUNCTIONS                  //
     ////////////////////////////////////////////////////////////
 
-    function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
+    function _isEmptyPubkey(Pubkey memory pubkey) internal pure returns (bool) {
         return pubkey.x == 0 || pubkey.y == 0;
     }
 

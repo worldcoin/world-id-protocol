@@ -113,8 +113,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @inheritdoc IRpRegistry
      */
     function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain)
-        external
-        virtual
+        public
         onlyProxy
         onlyInitialized
     {
@@ -130,7 +129,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         address[] calldata managers,
         address[] calldata signers,
         string[] calldata unverifiedWellKnownDomains
-    ) external virtual onlyProxy onlyInitialized {
+    ) public onlyProxy onlyInitialized {
         if (
             rpIds.length != managers.length || rpIds.length != signers.length
                 || rpIds.length != unverifiedWellKnownDomains.length
@@ -157,7 +156,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         string calldata unverifiedWellKnownDomain,
         uint256 nonce,
         bytes calldata signature
-    ) external virtual onlyProxy onlyInitialized {
+    ) public onlyProxy onlyInitialized {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         if (nonce != _rpIdToSignatureNonce[rpId]) revert InvalidNonce();

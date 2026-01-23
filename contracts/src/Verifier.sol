@@ -73,7 +73,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         address _oprfKeyRegistry,
         address _verifierNullifier,
         uint256 _proofTimestampDelta
-    ) public virtual initializer {
+    ) public initializer {
         if (_credentialIssuerRegistry == address(0)) revert ZeroAddress();
         if (_worldIDRegistry == address(0)) revert ZeroAddress();
         if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
@@ -108,7 +108,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         uint256 credentialIssuerId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[4] calldata compressedProof
-    ) external view virtual onlyProxy onlyInitialized {
+    ) public view onlyProxy onlyInitialized {
         if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
             revert InvalidMerkleRoot();
         }

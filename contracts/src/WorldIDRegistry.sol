@@ -102,7 +102,7 @@ contract WorldIDRegistry is
      * @dev Initializes the contract.
      * @param initialTreeDepth The depth of the Merkle tree.
      */
-    function initialize(uint256 initialTreeDepth) public virtual initializer {
+    function initialize(uint256 initialTreeDepth) public initializer {
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
@@ -131,7 +131,7 @@ contract WorldIDRegistry is
         address[] calldata authenticatorAddresses,
         uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
-    ) external virtual onlyProxy onlyInitialized {
+    ) public onlyProxy onlyInitialized {
         _registerAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment);
         tree.insert(offchainSignerCommitment);
         _recordCurrentRoot();
@@ -145,7 +145,7 @@ contract WorldIDRegistry is
         address[][] calldata authenticatorAddresses,
         uint256[][] calldata authenticatorPubkeys,
         uint256[] calldata offchainSignerCommitments
-    ) external virtual onlyProxy onlyInitialized {
+    ) public onlyProxy onlyInitialized {
         if (recoveryAddresses.length == 0) {
             revert EmptyAddressArray();
         }
@@ -185,7 +185,7 @@ contract WorldIDRegistry is
         bytes memory signature,
         uint256[] calldata siblingNodes,
         uint256 nonce
-    ) external virtual onlyProxy onlyInitialized {
+    ) public onlyProxy onlyInitialized {
         if (leafIndex == 0 || nextLeafIndex <= leafIndex) {
             revert AccountDoesNotExist(leafIndex);
         }
@@ -273,7 +273,7 @@ contract WorldIDRegistry is
         bytes memory signature,
         uint256[] calldata siblingNodes,
         uint256 nonce
-    ) external virtual onlyProxy onlyInitialized {
+    ) public onlyProxy onlyInitialized {
         _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
         if (pubkeyId >= maxAuthenticators) {
@@ -344,7 +344,7 @@ contract WorldIDRegistry is
         bytes memory signature,
         uint256[] calldata siblingNodes,
         uint256 nonce
-    ) external virtual onlyProxy onlyInitialized {
+    ) public onlyProxy onlyInitialized {
         if (pubkeyId >= maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
@@ -416,7 +416,7 @@ contract WorldIDRegistry is
         bytes memory signature,
         uint256[] calldata siblingNodes,
         uint256 nonce
-    ) external virtual onlyProxy onlyInitialized {
+    ) public onlyProxy onlyInitialized {
         if (leafIndex == 0 || nextLeafIndex <= leafIndex) {
             revert AccountDoesNotExist(leafIndex);
         }
@@ -473,8 +473,7 @@ contract WorldIDRegistry is
      * @inheritdoc IWorldIDRegistry
      */
     function updateRecoveryAddress(uint256 leafIndex, address newRecoveryAddress, bytes memory signature, uint256 nonce)
-        external
-        virtual
+        public
         onlyProxy
         onlyInitialized
     {
@@ -535,7 +534,6 @@ contract WorldIDRegistry is
     function _recoverAccountDataFromSignature(bytes32 messageHash, bytes memory signature)
         internal
         view
-        virtual
         returns (address signer, uint256 packedAccountData)
     {
         signer = ECDSA.recover(messageHash, signature);
@@ -604,7 +602,7 @@ contract WorldIDRegistry is
     /**
      * @dev Records the current tree root.
      */
-    function _recordCurrentRoot() internal virtual {
+    function _recordCurrentRoot() internal {
         uint256 root = tree.root;
         rootToTimestamp[root] = block.timestamp;
         latestRoot = root;
@@ -619,7 +617,7 @@ contract WorldIDRegistry is
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         uint256[] calldata siblingNodes
-    ) internal virtual {
+    ) internal {
         tree.update(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         _recordCurrentRoot();
     }
@@ -632,7 +630,7 @@ contract WorldIDRegistry is
         address[] calldata authenticatorAddresses,
         uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
-    ) internal virtual {
+    ) internal {
         if (authenticatorAddresses.length > maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
