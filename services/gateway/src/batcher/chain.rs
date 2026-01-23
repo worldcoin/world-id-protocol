@@ -61,7 +61,7 @@ pub struct ChainMonitorConfig {
 impl Default for ChainMonitorConfig {
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(1),
+            poll_interval: Duration::from_secs(2), // World Chain Block Time
             history_window: 20,
             ema_alpha: 0.3,
         }
