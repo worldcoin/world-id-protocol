@@ -278,6 +278,11 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     error OwnerMaxAuthenticatorsOutOfBounds();
 
+    /**
+     * @dev Thrown when the recovery counter would overflow its uint32 limit.
+     */
+    error RecoveryCounterOverflow();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -716,6 +721,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         delete authenticatorAddressToPackedAccountData[oldAuthenticatorAddress];
 
         // Add the new authenticator
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
 
@@ -788,6 +796,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         leafIndexToSignatureNonce[leafIndex]++;
 
         // Add new authenticator
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
         _setPubkeyBitmap(leafIndex, bitmap | (1 << uint256(pubkeyId)));
@@ -938,6 +949,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         leafIndexToRecoveryCounter[leafIndex]++;
 
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
