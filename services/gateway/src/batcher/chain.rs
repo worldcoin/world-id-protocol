@@ -1,4 +1,3 @@
-use super::ChainState;
 use alloy::{consensus::Header, providers::Provider, rpc::types::BlockNumberOrTag};
 use std::{
     collections::VecDeque,
@@ -6,6 +5,32 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::broadcast, time::Instant};
+
+#[derive(Debug, Clone)]
+pub struct ChainState {
+    pub block_number: u64,
+    pub base_fee: u64,
+    pub base_fee_ema: f64,
+    /// Base fee trend in [-1, 1] where -1 = falling, +1 = rising.
+    pub base_fee_trend: f64,
+    pub block_gas_limit: u64,
+    pub recent_utilization: f64,
+    pub last_updated: Instant,
+}
+
+impl Default for ChainState {
+    fn default() -> Self {
+        Self {
+            block_number: 0,
+            base_fee: 0,
+            base_fee_ema: 0.0,
+            base_fee_trend: 0.0,
+            block_gas_limit: 100_000_000,
+            recent_utilization: 0.5,
+            last_updated: Instant::now(),
+        }
+    }
+}
 
 /// Monitors chain state for adaptive batching decisions.
 ///

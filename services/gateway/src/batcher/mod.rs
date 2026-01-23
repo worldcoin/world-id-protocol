@@ -9,7 +9,7 @@ use chain::{ChainMonitor, ChainMonitorConfig};
 pub use gas_policy::{GasPolicy, GasPolicyConfig, GasPolicyTrait};
 
 use alloy::{
-    primitives::{Address, U256, address},
+    primitives::{Address, Bytes, U256, address},
     providers::{DynProvider, Provider},
 };
 use backon::{ExponentialBuilder, Retryable};
@@ -18,6 +18,7 @@ use tokio::{
     sync::{broadcast, mpsc},
     time::{Instant, timeout},
 };
+
 use tracing::{debug, error};
 use uuid::Uuid;
 use world_id_core::types::parse_contract_error;
@@ -44,41 +45,8 @@ alloy::sol! {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CHAIN STATE
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Chain state for gas policy decisions.
-#[derive(Debug, Clone)]
-pub struct ChainState {
-    pub block_number: u64,
-    pub base_fee: u64,
-    pub base_fee_ema: f64,
-    /// Base fee trend in [-1, 1] where -1 = falling, +1 = rising.
-    pub base_fee_trend: f64,
-    pub block_gas_limit: u64,
-    pub recent_utilization: f64,
-    pub last_updated: Instant,
-}
-
-impl Default for ChainState {
-    fn default() -> Self {
-        Self {
-            block_number: 0,
-            base_fee: 0,
-            base_fee_ema: 0.0,
-            base_fee_trend: 0.0,
-            block_gas_limit: 30_000_000,
-            recent_utilization: 0.5,
-            last_updated: Instant::now(),
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
-
-use alloy::primitives::Bytes;
 
 /// Default gas estimates for operation types.
 pub(super) mod defaults {

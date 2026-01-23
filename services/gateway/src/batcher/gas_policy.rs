@@ -1,4 +1,4 @@
-use super::ChainState;
+use crate::batcher::chain::ChainState;
 
 /// Trait for gas policy implementations.
 ///
