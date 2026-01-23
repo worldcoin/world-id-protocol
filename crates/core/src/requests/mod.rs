@@ -276,7 +276,7 @@ impl ProofRequest {
     /// # Errors
     /// Returns a `PrimitiveError` if `FieldElement` serialization fails (which should never occur in practice).
     ///
-    /// Note: the timestamp is encoded as little-endian to mirror the RP-side signing
+    /// Note: the timestamp is encoded as big-endian to mirror the RP-side signing
     /// performed in test fixtures and the OPRF stub.
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
         use k256::sha2::{Digest, Sha256};
@@ -285,7 +285,7 @@ impl ProofRequest {
         let mut hasher = Sha256::new();
         self.nonce.serialize_as_bytes(&mut writer)?;
         hasher.update(&writer);
-        // Keep byte order aligned with RP signature generation (little-endian).
+        // Keep byte order aligned with RP signature generation (big endian).
         hasher.update(self.created_at.to_be_bytes());
         Ok(hasher.finalize().into())
     }
