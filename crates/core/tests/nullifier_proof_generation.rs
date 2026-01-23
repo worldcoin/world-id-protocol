@@ -14,7 +14,7 @@ use taceo_oprf_client::BlindingFactor;
 use taceo_oprf_core::{dlog_equality::DLogEqualityProof, oprf::BlindedOprfResponse};
 use taceo_oprf_types::crypto::OprfPublicKey;
 use test_utils::{
-    anvil::{CredentialSchemaIssuerRegistry, WorldIDRegistry},
+    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, WorldIDRegistry},
     fixtures::{RegistryTestContext, build_base_credential, generate_rp_fixture},
     merkle::first_leaf_merkle_path,
 };
@@ -68,7 +68,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .await
         .wrap_err("failed to fetch issuer pubkey from chain")?;
 
-    let expected_pubkey = CredentialSchemaIssuerRegistry::Pubkey {
+    let expected_pubkey = ICredentialSchemaIssuerRegistry::Pubkey {
         x: U256::from_limbs(issuer_pk.pk.x.into_bigint().0),
         y: U256::from_limbs(issuer_pk.pk.y.into_bigint().0),
     };
