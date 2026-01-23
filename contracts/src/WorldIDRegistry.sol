@@ -130,7 +130,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     string public constant EIP712_VERSION = "1.0";
 
     /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
-    uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 160;
+    uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 96;
 
     ////////////////////////////////////////////////////////////
     //                        Errors                         //
@@ -278,6 +278,11 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     error OwnerMaxAuthenticatorsOutOfBounds();
 
+    /**
+     * @dev Thrown when the recovery counter would overflow its uint32 limit.
+     */
+    error RecoveryCounterOverflow();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -343,7 +348,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         // Check if the root is known and not expired
         uint256 ts = rootToTimestamp[root];
         if (ts == 0) return false;
-        if (rootValidityWindow == 0) return true;
         return block.timestamp <= ts + rootValidityWindow;
     }
 
@@ -563,7 +567,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         uint256 leafIndex = nextLeafIndex;
 
-        uint256 bitmap = 0;
         for (uint32 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
             if (authenticatorAddress == address(0)) {
@@ -572,8 +575,8 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
             _validateNewAuthenticatorAddress(authenticatorAddress);
             authenticatorAddressToPackedAccountData[authenticatorAddress] = PackedAccountData.pack(leafIndex, 0, i);
-            bitmap = bitmap | (1 << i);
         }
+        uint256 bitmap = (1 << authenticatorAddresses.length) - 1;
         _setRecoveryAddressAndBitmap(leafIndex, recoveryAddress, bitmap);
 
         emit AccountCreated(
@@ -717,6 +720,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         delete authenticatorAddressToPackedAccountData[oldAuthenticatorAddress];
 
         // Add the new authenticator
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
 
@@ -789,6 +795,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         leafIndexToSignatureNonce[leafIndex]++;
 
         // Add new authenticator
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
         _setPubkeyBitmap(leafIndex, bitmap | (1 << uint256(pubkeyId)));
@@ -939,6 +948,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         leafIndexToRecoveryCounter[leafIndex]++;
 
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
@@ -1000,7 +1012,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Sets the validity window for historic roots. 0 means roots never expire.
+     * @dev Sets the validity window for historic roots.
      */
     function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
@@ -1012,7 +1024,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
-        if (newMaxAuthenticators >= MAX_AUTHENTICATORS_HARD_LIMIT) {
+        if (newMaxAuthenticators > MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
         }
         uint256 old = maxAuthenticators;
