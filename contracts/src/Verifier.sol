@@ -175,9 +175,6 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 credentialGenesisIssuedAtMin,
         uint256[4] calldata compressedProof
     ) external view virtual onlyProxy onlyInitialized {
-        if (address(oprfKeyRegistry) == address(0)) revert ZeroAddress();
-        if (address(verifierNullifier) == address(0)) revert ZeroAddress();
-
         if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
             revert InvalidMerkleRoot();
         }
