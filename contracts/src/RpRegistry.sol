@@ -91,9 +91,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         public
         initializer
     {
-        require(feeRecipient != address(0), "initialize a fee recipient");
-        require(feeToken != address(0), "initialize a fee token");
-        require(oprfKeyRegistry != address(0), "initialize a OprfKeyRegistry");
+        if (feeRecipient == address(0)) revert ZeroAddress();
+        if (feeToken == address(0)) revert ZeroAddress();
+        if (oprfKeyRegistry == address(0)) revert ZeroAddress();
 
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);

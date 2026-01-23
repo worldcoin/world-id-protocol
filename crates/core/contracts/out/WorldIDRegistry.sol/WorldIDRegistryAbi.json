@@ -1459,6 +1459,11 @@
   },
   {
     "type": "error",
+    "name": "RecoveryCounterOverflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "RecoveryNotEnabled",
     "inputs": []
   },

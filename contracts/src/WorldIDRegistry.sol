@@ -87,7 +87,7 @@ contract WorldIDRegistry is
     string public constant EIP712_VERSION = "1.0";
 
     /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
-    uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 160;
+    uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 96;
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -241,6 +241,9 @@ contract WorldIDRegistry is
         delete authenticatorAddressToPackedAccountData[oldAuthenticatorAddress];
 
         // Add the new authenticator
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
 
@@ -309,6 +312,9 @@ contract WorldIDRegistry is
         leafIndexToSignatureNonce[leafIndex]++;
 
         // Add new authenticator
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
         _setPubkeyBitmap(leafIndex, bitmap | (1 << uint256(pubkeyId)));
@@ -446,6 +452,9 @@ contract WorldIDRegistry is
 
         leafIndexToRecoveryCounter[leafIndex]++;
 
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+            revert RecoveryCounterOverflow();
+        }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
             PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
@@ -781,7 +790,7 @@ contract WorldIDRegistry is
      * @inheritdoc IWorldIDRegistry
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
-        if (newMaxAuthenticators >= MAX_AUTHENTICATORS_HARD_LIMIT) {
+        if (newMaxAuthenticators > MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
         }
         uint256 old = maxAuthenticators;

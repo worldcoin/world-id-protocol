@@ -74,6 +74,11 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         address _verifierNullifier,
         uint256 _proofTimestampDelta
     ) public virtual initializer {
+        if (_credentialIssuerRegistry == address(0)) revert ZeroAddress();
+        if (_worldIDRegistry == address(0)) revert ZeroAddress();
+        if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
+        if (_verifierNullifier == address(0)) revert ZeroAddress();
+
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
         credentialSchemaIssuerRegistry = ICredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
@@ -87,6 +92,70 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
+    /**
+     * @notice The nullifier is outdated
+     */
+    error OutdatedNullifier();
+
+    /**
+     * @notice The nullifier is from the future
+     */
+    error NullifierFromFuture();
+
+    /**
+     *
+     * @notice The provided Merkle Root is invalid which likely signals an
+     * old inclusion proof was used when generating the World ID Proof.
+     */
+    error InvalidMerkleRoot();
+
+    /**
+     *
+     * @notice Thrown when a `issuerSchemaId` is not registered in the `CredentialSchemaIssuerRegistry`.
+     */
+    error UnregisteredIssuerSchemaId();
+
+    /**
+     * @notice Thrown when trying to set an address to the zero address.
+     */
+    error ZeroAddress();
+
+    /**
+     * @notice Emitted when the credential schema issuer registry is updated
+     * @param oldCredentialSchemaIssuerRegistry Previous registry address
+     * @param newCredentialSchemaIssuerRegistry New registry address
+     */
+    event CredentialSchemaIssuerRegistryUpdated(
+        address oldCredentialSchemaIssuerRegistry, address newCredentialSchemaIssuerRegistry
+    );
+
+    /**
+     * @notice Emitted when the World ID Registry is updated
+     * @param oldWorldIDRegistry Previous registry address
+     * @param newWorldIDRegistry New registry address
+     */
+    event WorldIDRegistryUpdated(address oldWorldIDRegistry, address newWorldIDRegistry);
+
+    /**
+     * @notice Emitted when the OPRF key registry is updated
+     * @param oldOprfKeyRegistry Previous registry address
+     * @param newOprfKeyRegistry New registry address
+     */
+    event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
+
+    /**
+     * @notice Emitted when the Groth16Verifier is updated
+     * @param oldGroth16Verifier Previous Groth16Verifier address
+     * @param newGroth16Verifier New Groth16Verifier address
+     */
+    event Groth16VerifierNullifierUpdated(address oldGroth16Verifier, address newGroth16Verifier);
+
+    /**
+     * @notice Emitted when the proof timestamp delta is updated
+     * @param oldProofTimestampDelta Previous proof timestamp delta
+     * @param newProofTimestampDelta New proof timestamp delta
+     */
+    event ProofTimestampDeltaUpdated(uint256 oldProofTimestampDelta, uint256 newProofTimestampDelta);
 
     /**
      * @inheritdoc IVerifier
@@ -104,9 +173,6 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         uint256 credentialGenesisIssuedAtMin,
         uint256[4] calldata compressedProof
     ) external view virtual onlyProxy onlyInitialized {
-        require(address(oprfKeyRegistry) != address(0), "OPRF key Registry not set");
-        require(address(verifierNullifier) != address(0), "verifierNullifier not set");
-
         if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
             revert InvalidMerkleRoot();
         }
@@ -166,6 +232,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         onlyProxy
         onlyInitialized
     {
+        if (_credentialSchemaIssuerRegistry == address(0)) revert ZeroAddress();
         address oldCredentialSchemaIssuerRegistry = address(credentialSchemaIssuerRegistry);
         credentialSchemaIssuerRegistry = ICredentialSchemaIssuerRegistry(_credentialSchemaIssuerRegistry);
         emit CredentialSchemaIssuerRegistryUpdated(oldCredentialSchemaIssuerRegistry, _credentialSchemaIssuerRegistry);
@@ -175,6 +242,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
      * @inheritdoc IVerifier
      */
     function updateWorldIDRegistry(address _worldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (_worldIDRegistry == address(0)) revert ZeroAddress();
         address oldWorldIDRegistry = address(worldIDRegistry);
         worldIDRegistry = IWorldIDRegistry(_worldIDRegistry);
         treeDepth = worldIDRegistry.getTreeDepth();
@@ -185,6 +253,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
      * @inheritdoc IVerifier
      */
     function updateOprfKeyRegistry(address _oprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
         address oldOprfKeyRegistry = address(oprfKeyRegistry);
         oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
         emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, _oprfKeyRegistry);
@@ -194,6 +263,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
      * @inheritdoc IVerifier
      */
     function updateVerifierNullifier(address _verifierNullifier) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (_verifierNullifier == address(0)) revert ZeroAddress();
         address oldVerifier = address(verifierNullifier);
         verifierNullifier = IVerifierNullifier(_verifierNullifier);
         emit Groth16VerifierNullifierUpdated(oldVerifier, _verifierNullifier);
