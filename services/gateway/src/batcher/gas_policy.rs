@@ -178,7 +178,6 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
-    #[allow(dead_code)]
     fn make_chain_state(base_fee_gwei: u64, trend: f64) -> ChainState {
         ChainState {
             block_number: 1,
@@ -189,5 +188,80 @@ mod tests {
             recent_utilization: 0.5,
             last_updated: Instant::now().into(),
         }
+    }
+
+    #[test]
+    fn test_gas_policy_pressure_model() {
+        let config = GasPolicyConfig {
+            block_gas_limit: 100_000_000,
+            max_base_fee: 400_000_000_000, // 400 gwei
+            target_base_fee: 0,
+            backlog_threshold: 2_000,
+        };
+        let policy = GasPolicy::new(config);
+
+        // --- Fee Pressure ---
+        // At or below target: 0
+        assert_eq!(policy.fee_pressure(0), 0.0);
+        // Mid-range: linear interpolation
+        assert!((policy.fee_pressure(200_000_000_000) - 0.5).abs() < 0.001);
+        // At max: 1
+        assert_eq!(policy.fee_pressure(400_000_000_000), 1.0);
+        // Above max: clamped to 1
+        assert_eq!(policy.fee_pressure(500_000_000_000), 1.0);
+
+        // --- Queue Pressure ---
+        // Empty queue: 0
+        assert_eq!(policy.queue_pressure(0), 0.0);
+        // Half full: 0.5
+        assert!((policy.queue_pressure(1_000) - 0.5).abs() < 0.001);
+        // At threshold: 1
+        assert_eq!(policy.queue_pressure(2_000), 1.0);
+        // Above threshold: clamped to 1
+        assert_eq!(policy.queue_pressure(5_000), 1.0);
+
+        // --- Net Pressure & Target Utilization ---
+        // Max queue pressure, no fee pressure → net = -1 → utilization = 0.9
+        let chain_cheap = make_chain_state(0, 0.0);
+        assert!((policy.net_pressure(&chain_cheap, 2_000) - (-1.0)).abs() < 0.001);
+        assert!((policy.target_utilization(&chain_cheap, 2_000) - 0.9).abs() < 0.001);
+
+        // No queue, max fee pressure → net = 1 → utilization = 0.1
+        let chain_expensive = make_chain_state(400, 0.0);
+        assert!((policy.net_pressure(&chain_expensive, 0) - 1.0).abs() < 0.001);
+        assert!((policy.target_utilization(&chain_expensive, 0) - 0.1).abs() < 0.001);
+
+        // Balanced: mid fee, mid queue → net ≈ 0 → utilization ≈ 0.5
+        let chain_mid = make_chain_state(200, 0.0);
+        assert!(policy.net_pressure(&chain_mid, 1_000).abs() < 0.001);
+        assert!((policy.target_utilization(&chain_mid, 1_000) - 0.5).abs() < 0.001);
+
+        // Rising trend amplifies fee pressure
+        let chain_rising = make_chain_state(200, 1.0);
+        let net_rising = policy.net_pressure(&chain_rising, 1_000);
+        assert!(
+            net_rising > 0.0,
+            "rising trend should tip toward fee pressure"
+        );
+
+        // --- Gas Budget Computation ---
+        // Cheap gas, full queue → 90% utilization → 90M gas
+        let params = policy.compute_batch_params(&chain_cheap, 2_000);
+        assert_eq!(params.gas_budget, 90_000_000);
+        assert_eq!(params.reason, BatchSizeReason::Optimal);
+
+        // Expensive gas, empty queue → 10% utilization → 10M gas
+        let chain_high_fee = make_chain_state(399, 0.0);
+        let params = policy.compute_batch_params(&chain_high_fee, 0);
+        assert!(
+            params.gas_budget <= 15_000_000,
+            "high fee should yield low budget"
+        );
+        assert_eq!(params.reason, BatchSizeReason::FeeConstrained);
+
+        // Fee ceiling → budget = 0
+        let params = policy.compute_batch_params(&chain_expensive, 2_000);
+        assert_eq!(params.gas_budget, 0);
+        assert_eq!(params.reason, BatchSizeReason::FeeCeiling);
     }
 }
