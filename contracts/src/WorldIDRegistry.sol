@@ -671,28 +671,28 @@ contract WorldIDRegistry is
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
+    function domainSeparatorV4() public view onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function currentRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function currentRoot() public view onlyProxy onlyInitialized returns (uint256) {
         return tree.root;
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getRecoveryAddress(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
+    function getRecoveryAddress(uint256 leafIndex) public view onlyProxy onlyInitialized returns (address) {
         return _getRecoveryAddress(leafIndex);
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
+    function isValidRoot(uint256 root) public view onlyProxy onlyInitialized returns (bool) {
         // The latest root is always valid.
         if (root == latestRoot) return true;
         // Check if the root is known and not expired
@@ -705,9 +705,8 @@ contract WorldIDRegistry is
      * @inheritdoc IWorldIDRegistry
      */
     function getPackedAccountData(address authenticatorAddress)
-        external
+        public
         view
-        virtual
         onlyProxy
         onlyInitialized
         returns (uint256)
@@ -718,56 +717,56 @@ contract WorldIDRegistry is
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getSignatureNonce(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getSignatureNonce(uint256 leafIndex) public view onlyProxy onlyInitialized returns (uint256) {
         return leafIndexToSignatureNonce[leafIndex];
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getRecoveryCounter(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getRecoveryCounter(uint256 leafIndex) public view onlyProxy onlyInitialized returns (uint256) {
         return leafIndexToRecoveryCounter[leafIndex];
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getNextLeafIndex() public view onlyProxy onlyInitialized returns (uint256) {
         return nextLeafIndex;
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getTreeDepth() external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getTreeDepth() public view onlyProxy onlyInitialized returns (uint256) {
         return treeDepth;
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getMaxAuthenticators() external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getMaxAuthenticators() public view onlyProxy onlyInitialized returns (uint256) {
         return maxAuthenticators;
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getRootTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getRootTimestamp(uint256 root) public view onlyProxy onlyInitialized returns (uint256) {
         return rootToTimestamp[root];
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getLatestRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getLatestRoot() public view onlyProxy onlyInitialized returns (uint256) {
         return latestRoot;
     }
 
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getRootValidityWindow() public view onlyProxy onlyInitialized returns (uint256) {
         return rootValidityWindow;
     }
 
@@ -778,7 +777,7 @@ contract WorldIDRegistry is
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
+    function setRootValidityWindow(uint256 newWindow) public onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
         rootValidityWindow = newWindow;
         emit RootValidityWindowUpdated(old, newWindow);
@@ -787,7 +786,7 @@ contract WorldIDRegistry is
     /**
      * @inheritdoc IWorldIDRegistry
      */
-    function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
+    function setMaxAuthenticators(uint256 newMaxAuthenticators) public onlyOwner onlyProxy onlyInitialized {
         if (newMaxAuthenticators > MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
         }

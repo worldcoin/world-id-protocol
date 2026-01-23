@@ -162,8 +162,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
      * @inheritdoc IVerifier
      */
     function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry)
-        external
-        virtual
+        public
         onlyOwner
         onlyProxy
         onlyInitialized
@@ -177,7 +176,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     /**
      * @inheritdoc IVerifier
      */
-    function updateWorldIDRegistry(address _worldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+    function updateWorldIDRegistry(address _worldIDRegistry) public onlyOwner onlyProxy onlyInitialized {
         if (_worldIDRegistry == address(0)) revert ZeroAddress();
         address oldWorldIDRegistry = address(worldIDRegistry);
         worldIDRegistry = IWorldIDRegistry(_worldIDRegistry);
@@ -188,7 +187,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     /**
      * @inheritdoc IVerifier
      */
-    function updateOprfKeyRegistry(address _oprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+    function updateOprfKeyRegistry(address _oprfKeyRegistry) public onlyOwner onlyProxy onlyInitialized {
         if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
         address oldOprfKeyRegistry = address(oprfKeyRegistry);
         oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
@@ -198,7 +197,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     /**
      * @inheritdoc IVerifier
      */
-    function updateVerifierNullifier(address _verifierNullifier) external virtual onlyOwner onlyProxy onlyInitialized {
+    function updateVerifierNullifier(address _verifierNullifier) public onlyOwner onlyProxy onlyInitialized {
         if (_verifierNullifier == address(0)) revert ZeroAddress();
         address oldVerifier = address(verifierNullifier);
         verifierNullifier = IVerifierNullifier(_verifierNullifier);
@@ -208,13 +207,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     /**
      * @inheritdoc IVerifier
      */
-    function updateProofTimestampDelta(uint256 _proofTimestampDelta)
-        external
-        virtual
-        onlyOwner
-        onlyProxy
-        onlyInitialized
-    {
+    function updateProofTimestampDelta(uint256 _proofTimestampDelta) public onlyOwner onlyProxy onlyInitialized {
         uint256 oldProofTimestampDelta = proofTimestampDelta;
         proofTimestampDelta = _proofTimestampDelta;
         emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);

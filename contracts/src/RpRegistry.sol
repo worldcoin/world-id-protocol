@@ -251,14 +251,14 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @inheritdoc IRpRegistry
      */
-    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
+    function domainSeparatorV4() public view onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
 
     /**
      * @inheritdoc IRpRegistry
      */
-    function getRp(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
+    function getRp(uint64 rpId) public view onlyProxy onlyInitialized returns (RelyingParty memory) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         if (!_relyingParties[rpId].active) revert RpIdInactive();
@@ -269,7 +269,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @inheritdoc IRpRegistry
      */
-    function getRpUnchecked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
+    function getRpUnchecked(uint64 rpId) public view onlyProxy onlyInitialized returns (RelyingParty memory) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         return _relyingParties[rpId];
@@ -278,14 +278,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @inheritdoc IRpRegistry
      */
-    function getOprfKeyIdAndSigner(uint64 rpId)
-        external
-        view
-        virtual
-        onlyProxy
-        onlyInitialized
-        returns (uint160, address)
-    {
+    function getOprfKeyIdAndSigner(uint64 rpId) public view onlyProxy onlyInitialized returns (uint160, address) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         if (!_relyingParties[rpId].active) revert RpIdInactive();
@@ -296,35 +289,35 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @inheritdoc IRpRegistry
      */
-    function nonceOf(uint64 rpId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+    function nonceOf(uint64 rpId) public view onlyProxy onlyInitialized returns (uint256) {
         return _rpIdToSignatureNonce[rpId];
     }
 
     /**
      * @inheritdoc IRpRegistry
      */
-    function getRegistrationFee() public view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getRegistrationFee() public view onlyProxy onlyInitialized returns (uint256) {
         return _registrationFee;
     }
 
     /**
      * @inheritdoc IRpRegistry
      */
-    function getFeeRecipient() public view virtual onlyProxy onlyInitialized returns (address) {
+    function getFeeRecipient() public view onlyProxy onlyInitialized returns (address) {
         return _feeRecipient;
     }
 
     /**
      * @inheritdoc IRpRegistry
      */
-    function getFeeToken() public view virtual onlyProxy onlyInitialized returns (address) {
+    function getFeeToken() public view onlyProxy onlyInitialized returns (address) {
         return address(_feeToken);
     }
 
     /**
      * @inheritdoc IRpRegistry
      */
-    function getOprfKeyRegistry() public view virtual onlyProxy onlyInitialized returns (address) {
+    function getOprfKeyRegistry() public view onlyProxy onlyInitialized returns (address) {
         return address(_oprfKeyRegistry);
     }
 
@@ -335,7 +328,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @inheritdoc IRpRegistry
      */
-    function setFeeRecipient(address newFeeRecipient) external virtual onlyOwner onlyProxy onlyInitialized {
+    function setFeeRecipient(address newFeeRecipient) public onlyOwner onlyProxy onlyInitialized {
         if (newFeeRecipient == address(0)) revert ZeroAddress();
         address oldRecipient = _feeRecipient;
         _feeRecipient = newFeeRecipient;
@@ -345,7 +338,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @inheritdoc IRpRegistry
      */
-    function setRegistrationFee(uint256 newFee) external virtual onlyOwner onlyProxy onlyInitialized {
+    function setRegistrationFee(uint256 newFee) public onlyOwner onlyProxy onlyInitialized {
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
@@ -354,7 +347,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /**
      * @inheritdoc IRpRegistry
      */
-    function setFeeToken(address newFeeToken) external virtual onlyOwner onlyProxy onlyInitialized {
+    function setFeeToken(address newFeeToken) public onlyOwner onlyProxy onlyInitialized {
         if (newFeeToken == address(0)) revert ZeroAddress();
         address oldToken = address(_feeToken);
         _feeToken = IERC20(newFeeToken);
