@@ -40,6 +40,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,
+        ..
     } = RegistryTestContext::new().await?;
 
     let mut rng = thread_rng();
