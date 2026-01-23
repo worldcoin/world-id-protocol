@@ -129,7 +129,7 @@ sol!(
     VerifierNullifier,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/VerifierNullifier.sol/VerifierNullifier.json"
+        "/../../contracts/out/VerifierNullifier.sol/Verifier.json"
     )
 );
 
