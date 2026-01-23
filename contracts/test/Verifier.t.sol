@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {Verifier} from "../src/Verifier.sol";
-import {IVerifier} from "../src/interfaces/IVerifier.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
-import {VerifierNullifier} from "../src/VerifierNullifier.sol";
-import {IVerifierNullifier} from "../src/interfaces/IVerifierNullifier.sol";
+import {Verifier as VerifierNullifier} from "../src/VerifierNullifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
-import {ICredentialSchemaIssuerRegistry} from "../src/interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 uint256 constant credentialIssuerIdCorrect = 1;
 uint256 constant credentialIssuerIdWrong = 2;
@@ -54,18 +51,18 @@ contract CredentialSchemaIssuerRegistryMock {
         public
         view
         virtual
-        returns (ICredentialSchemaIssuerRegistry.Pubkey memory)
+        returns (CredentialSchemaIssuerRegistry.Pubkey memory)
     {
         if (issuerSchemaId == credentialIssuerIdCorrect) {
-            return ICredentialSchemaIssuerRegistry.Pubkey(
-                0x13792652ea0af01565bbb64d51607bf96447930b33e52d1bae28ad027dfddc15,
-                0x1a03e277ea354e453878e02f6e151a7a497c53e6cd9772ad33829235f89d6496
-            );
+            return CredentialSchemaIssuerRegistry.Pubkey({
+                x: 0x13792652ea0af01565bbb64d51607bf96447930b33e52d1bae28ad027dfddc15,
+                y: 0x1a03e277ea354e453878e02f6e151a7a497c53e6cd9772ad33829235f89d6496
+            });
         } else {
-            return ICredentialSchemaIssuerRegistry.Pubkey(
-                0x1583c671e97dd91df79d8c5b311d452a3eec14932c89d9cff0364d5b98ef215e,
-                0x3f5c610720cfa296066965732468ea34a8f7e3725899e1b4470c6b5a76321a3
-            );
+            return CredentialSchemaIssuerRegistry.Pubkey({
+                x: 0x1583c671e97dd91df79d8c5b311d452a3eec14932c89d9cff0364d5b98ef215e,
+                y: 0x3f5c610720cfa296066965732468ea34a8f7e3725899e1b4470c6b5a76321a3
+            });
         }
     }
 }
@@ -135,7 +132,7 @@ contract ProofVerifier is Test {
 
     function test_WrongRpId() public {
         vm.warp(proofTimestamp + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IVerifierNullifier.ProofInvalid.selector));
+        vm.expectRevert(abi.encodeWithSelector(VerifierNullifier.ProofInvalid.selector));
         verifier.verify(
             nullifier,
             action,
@@ -153,7 +150,7 @@ contract ProofVerifier is Test {
 
     function test_WrongCredentialIssuer() public {
         vm.warp(proofTimestamp + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IVerifierNullifier.ProofInvalid.selector));
+        vm.expectRevert(abi.encodeWithSelector(VerifierNullifier.ProofInvalid.selector));
         verifier.verify(
             nullifier,
             action,
@@ -177,7 +174,7 @@ contract ProofVerifier is Test {
             0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8
         ];
         vm.warp(proofTimestamp + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IVerifierNullifier.ProofInvalid.selector));
+        vm.expectRevert(abi.encodeWithSelector(VerifierNullifier.ProofInvalid.selector));
         verifier.verify(
             nullifier,
             action,
@@ -195,7 +192,7 @@ contract ProofVerifier is Test {
 
     function test_InvalidRoot() public {
         vm.warp(proofTimestamp + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IVerifier.InvalidMerkleRoot.selector));
+        vm.expectRevert(abi.encodeWithSelector(Verifier.InvalidMerkleRoot.selector));
         verifier.verify(
             nullifier,
             action,
@@ -213,7 +210,7 @@ contract ProofVerifier is Test {
 
     function test_TimestampFuture() public {
         vm.warp(proofTimestamp - 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IVerifier.NullifierFromFuture.selector));
+        vm.expectRevert(abi.encodeWithSelector(Verifier.NullifierFromFuture.selector));
         verifier.verify(
             nullifier,
             action,
@@ -231,7 +228,7 @@ contract ProofVerifier is Test {
 
     function test_TimestampTooOld() public {
         vm.warp(proofTimestamp + 24 hours);
-        vm.expectRevert(abi.encodeWithSelector(IVerifier.OutdatedNullifier.selector));
+        vm.expectRevert(abi.encodeWithSelector(Verifier.OutdatedNullifier.selector));
         verifier.verify(
             nullifier,
             action,

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.13;
-
-import {IVerifierNullifier} from "./interfaces/IVerifierNullifier.sol";
+pragma solidity ^0.8.0;
 
 /// @title Groth16 verifier template.
 /// @author Remco Bloemen
@@ -10,10 +8,17 @@ import {IVerifierNullifier} from "./interfaces/IVerifierNullifier.sol";
 /// (256 bytes) and compressed (128 bytes) format. A view function is provided
 /// to compress proofs.
 /// @notice See <https://2π.com/23/bn254-compression> for further explanation.
-contract VerifierNullifier is IVerifierNullifier {
-    ////////////////////////////////////////////////////////////
-    //                        Constants                       //
-    ////////////////////////////////////////////////////////////
+contract Verifier {
+    /// Some of the provided public input values are larger than the field modulus.
+    /// @dev Public input elements are not automatically reduced, as this is can be
+    /// a dangerous source of bugs.
+    error PublicInputNotInField();
+
+    /// The proof is invalid.
+    /// @dev This can mean that provided Groth16 proof points are not on their
+    /// curves, that pairing equation fails, or that the proof is not for the
+    /// provided public input.
+    error ProofInvalid();
 
     // Addresses of precompiles
     uint256 constant PRECOMPILE_MODEXP = 0x05;
@@ -100,10 +105,6 @@ contract VerifierNullifier is IVerifierNullifier {
     uint256 constant PUB_13_Y = 18106104825749877565735781150048767179296210888578069185247526899472041909597;
     uint256 constant PUB_14_X = 21289605602137633491219445516531921670511799852057032463371999342041910842571;
     uint256 constant PUB_14_Y = 16915585486065113856454053939249724220855825011157327910203751715392868862168;
-
-    ////////////////////////////////////////////////////////////
-    //                   INTERNAL FUNCTIONS                   //
-    ////////////////////////////////////////////////////////////
 
     /// Negation in Fp.
     /// @notice Returns a number x such that a + x = 0 in Fp.
@@ -516,10 +517,6 @@ contract VerifierNullifier is IVerifierNullifier {
             revert PublicInputNotInField();
         }
     }
-
-    ////////////////////////////////////////////////////////////
-    //                    VIEW FUNCTIONS                      //
-    ////////////////////////////////////////////////////////////
 
     /// Compress a proof.
     /// @notice Will revert with InvalidProof if the curve points are invalid,

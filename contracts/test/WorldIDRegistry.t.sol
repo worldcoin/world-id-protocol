@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
-import {IWorldIDRegistry} from "../src/interfaces/IWorldIDRegistry.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
 import {PackedAccountData} from "../src/libraries/PackedAccountData.sol";
 
@@ -200,7 +199,7 @@ contract WorldIDRegistryTest is Test {
         (bytes memory signature, uint256[] memory proof) =
             updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.AccountDoesNotExist.selector, leafIndex));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.AccountDoesNotExist.selector, leafIndex));
 
         worldIDRegistry.updateAuthenticator(
             leafIndex,
@@ -236,7 +235,7 @@ contract WorldIDRegistryTest is Test {
         (bytes memory signature, uint256[] memory proof) =
             updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
 
         worldIDRegistry.updateAuthenticator(
             leafIndex,
@@ -305,7 +304,7 @@ contract WorldIDRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.PubkeyIdInUse.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdInUse.selector));
         worldIDRegistry.insertAuthenticator(
             leafIndex,
             authenticatorAddress3,
@@ -336,7 +335,7 @@ contract WorldIDRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.PubkeyIdInUse.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdInUse.selector));
         worldIDRegistry.insertAuthenticator(
             leafIndex,
             newAuthenticatorAddress,
@@ -426,7 +425,7 @@ contract WorldIDRegistryTest is Test {
         bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
 
         vm.prank(authenticatorAddress1);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
         worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
     }
 
@@ -502,7 +501,7 @@ contract WorldIDRegistryTest is Test {
         );
 
         vm.expectRevert(
-            abi.encodeWithSelector(IWorldIDRegistry.AuthenticatorAddressAlreadyInUse.selector, authenticatorAddress1)
+            abi.encodeWithSelector(WorldIDRegistry.AuthenticatorAddressAlreadyInUse.selector, authenticatorAddress1)
         );
         authenticatorPubkeys[0] = 2;
         worldIDRegistry.createAccount(
@@ -638,7 +637,7 @@ contract WorldIDRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.RecoveryNotEnabled.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.RecoveryNotEnabled.selector));
         worldIDRegistry.recoverAccount(
             1,
             authenticatorAddress1,
@@ -674,7 +673,7 @@ contract WorldIDRegistryTest is Test {
         twoAuthenticatorPubkeys[0] = 0;
         twoAuthenticatorPubkeys[1] = 0;
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.PubkeyIdOutOfBounds.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdOutOfBounds.selector));
         worldIDRegistry.createAccount(
             alternateRecoveryAddress, twoAuthenticators, twoAuthenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
@@ -682,10 +681,10 @@ contract WorldIDRegistryTest is Test {
 
     function test_SetMaxAuthenticators_RevertWhen_ValueAboveLimit() public {
         // Should revert when trying to set maxAuthenticators above 96 (the limit)
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
         worldIDRegistry.setMaxAuthenticators(97);
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
         worldIDRegistry.setMaxAuthenticators(type(uint256).max);
     }
 
@@ -962,7 +961,7 @@ contract WorldIDRegistryTest is Test {
         uint256 newWindow = 7200;
 
         vm.expectEmit(true, true, true, true);
-        emit IWorldIDRegistry.RootValidityWindowUpdated(oldWindow, newWindow);
+        emit WorldIDRegistry.RootValidityWindowUpdated(oldWindow, newWindow);
 
         worldIDRegistry.setRootValidityWindow(newWindow);
         assertEq(worldIDRegistry.getRootValidityWindow(), newWindow);

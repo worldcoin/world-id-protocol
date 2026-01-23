@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {RpRegistry} from "../src/RpRegistry.sol";
-import {IRpRegistry} from "../src/interfaces/IRpRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
@@ -66,7 +65,7 @@ contract RpRegistryTest is Test {
         string memory wellKnownDomain = "example.world.org";
 
         vm.expectEmit(true, true, false, true);
-        emit IRpRegistry.RpRegistered(rpId, oprfKeyId, manager1, wellKnownDomain);
+        emit RpRegistry.RpRegistered(rpId, oprfKeyId, manager1, wellKnownDomain);
 
         registry.register(rpId, manager1, signer1, wellKnownDomain);
     }
@@ -89,7 +88,7 @@ contract RpRegistryTest is Test {
 
         registry.register(rpId, manager1, signer1, wellKnownDomain);
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.RpIdAlreadyInUse.selector, rpId));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdAlreadyInUse.selector, rpId));
         registry.register(rpId, manager2, signer2, wellKnownDomain);
     }
 
@@ -97,7 +96,7 @@ contract RpRegistryTest is Test {
         uint64 rpId = 12345;
         string memory wellKnownDomain = "example.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.ManagerCannotBeZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ManagerCannotBeZeroAddress.selector));
         registry.register(rpId, address(0), signer1, wellKnownDomain);
     }
 
@@ -105,7 +104,7 @@ contract RpRegistryTest is Test {
         uint64 rpId = 12345;
         string memory wellKnownDomain = "example.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.SignerCannotBeZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.SignerCannotBeZeroAddress.selector));
         registry.register(rpId, manager1, address(0), wellKnownDomain);
     }
 
@@ -161,7 +160,7 @@ contract RpRegistryTest is Test {
         string[] memory domains = new string[](1); // Wrong length
         domains[0] = "app1.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.MismatchingArrayLengths.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.MismatchingArrayLengths.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -181,7 +180,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.MismatchingArrayLengths.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.MismatchingArrayLengths.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -201,7 +200,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.MismatchingArrayLengths.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.MismatchingArrayLengths.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -222,7 +221,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.RpIdAlreadyInUse.selector, 1));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdAlreadyInUse.selector, 1));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -243,7 +242,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.ManagerCannotBeZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ManagerCannotBeZeroAddress.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -264,7 +263,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.SignerCannotBeZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.SignerCannotBeZeroAddress.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -323,7 +322,7 @@ contract RpRegistryTest is Test {
         bytes memory sig = _signUpdateRp(manager1Pk, rpId, newOprfKeyId, newManager, newSigner, false, newDomain, 0);
 
         vm.expectEmit(true, true, false, true);
-        emit IRpRegistry.RpUpdated(rpId, newOprfKeyId, true, newManager, newSigner, newDomain);
+        emit RpRegistry.RpUpdated(rpId, newOprfKeyId, true, newManager, newSigner, newDomain);
         registry.updateRp(rpId, newOprfKeyId, newManager, newSigner, false, newDomain, 0, sig);
 
         // Verify updates
@@ -443,7 +442,7 @@ contract RpRegistryTest is Test {
         uint256 wrongPk = 0x9999;
         bytes memory badSig = _signUpdateRp(wrongPk, rpId, 0, address(0), signer2, false, noUpdate, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 0, badSig);
     }
 
@@ -465,7 +464,7 @@ contract RpRegistryTest is Test {
         uint256 wrongPk = 0x9999;
         bytes memory badSig = _signUpdateRp(wrongPk, rpId, 0, address(0), signer2, false, noUpdate, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 0, badSig);
     }
 
@@ -483,7 +482,7 @@ contract RpRegistryTest is Test {
         // Try to update with wrong nonce
         bytes memory sig = _signUpdateRp(manager1Pk, rpId, 0, address(0), signer2, false, noUpdate, 5);
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidNonce.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidNonce.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 5, sig);
     }
 
@@ -493,7 +492,7 @@ contract RpRegistryTest is Test {
 
         bytes memory sig = _signUpdateRp(manager1Pk, nonExistentRpId, 0, address(0), signer2, false, noUpdate, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.RpIdDoesNotExist.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdDoesNotExist.selector));
         registry.updateRp(nonExistentRpId, 0, address(0), signer2, false, noUpdate, 0, sig);
     }
 
@@ -539,7 +538,7 @@ contract RpRegistryTest is Test {
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 0, sig1);
 
         // Try to replay the same signature
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidNonce.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidNonce.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 0, sig1);
     }
 
@@ -569,7 +568,7 @@ contract RpRegistryTest is Test {
         // Old manager tries to sign an update
         bytes memory badSig = _signUpdateRp(manager1Pk, rpId, 0, address(0), signer2, false, noUpdate, 2);
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 2, badSig);
     }
 
@@ -604,7 +603,7 @@ contract RpRegistryTest is Test {
         address newRecipient = vm.addr(0xAAAA);
 
         vm.expectEmit(true, true, false, true);
-        emit IRpRegistry.FeeRecipientUpdated(feeRecipient, newRecipient);
+        emit RpRegistry.FeeRecipientUpdated(feeRecipient, newRecipient);
 
         registry.setFeeRecipient(newRecipient);
 
@@ -612,7 +611,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotSetFeeRecipientToZeroAddress() public {
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ZeroAddress.selector));
         registry.setFeeRecipient(address(0));
     }
 
@@ -629,7 +628,7 @@ contract RpRegistryTest is Test {
         uint256 newFee = 0.01 ether;
 
         vm.expectEmit(false, false, false, true);
-        emit IRpRegistry.RegistrationFeeUpdated(0, newFee);
+        emit RpRegistry.RegistrationFeeUpdated(0, newFee);
 
         registry.setRegistrationFee(newFee);
 
@@ -648,7 +647,7 @@ contract RpRegistryTest is Test {
         ERC20Mock newToken = new ERC20Mock();
 
         vm.expectEmit(true, true, false, true);
-        emit IRpRegistry.FeeTokenUpdated(address(feeToken), address(newToken));
+        emit RpRegistry.FeeTokenUpdated(address(feeToken), address(newToken));
 
         registry.setFeeToken(address(newToken));
 
@@ -656,7 +655,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotSetFeeTokenToZeroAddress() public {
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ZeroAddress.selector));
         registry.setFeeToken(address(0));
     }
 
@@ -725,7 +724,7 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         feeToken.approve(address(registry), fee - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InsufficientFunds.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
         vm.prank(manager1);
         registry.register(rpId, manager1, signer1, domain);
     }
@@ -797,7 +796,7 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         feeToken.approve(address(registry), fee * 3 - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InsufficientFunds.selector));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
         vm.prank(manager1);
         registry.registerMany(rpIds, managers, signers, domains);
     }

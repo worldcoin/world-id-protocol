@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {VerifierNullifier} from "../src/VerifierNullifier.sol";
+import {Verifier} from "../src/VerifierNullifier.sol";
 
 contract NullififerVerifier is Test {
-    VerifierNullifier public verifier;
+    Verifier public verifier;
 
     function setUp() public {
-        verifier = new VerifierNullifier();
+        verifier = new Verifier();
     }
 
     function testVerifyNullifier() public view {
