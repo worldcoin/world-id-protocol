@@ -149,7 +149,7 @@ pub enum SignerConfig {
 
 mod defaults {
     pub const BURST_SIZE: u32 = 10;
-    pub const REQUESTS_PER_SECOND: u32 = 50;
+    pub const REQUESTS_PER_SECOND: u32 = 100;
 
     pub const fn default_burst_size() -> u32 {
         BURST_SIZE
