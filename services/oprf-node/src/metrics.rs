@@ -9,8 +9,7 @@ pub const METRICS_ID_NODE_REQUEST_AUTH_START: &str = "taceo.oprf.node.request_au
 /// Observed event for successful verification of OprfRequest authentication.
 pub const METRICS_ID_NODE_REQUEST_AUTH_VERIFIED: &str = "taceo.oprf.node.request_auth.verified";
 /// Number of stored signatures in the signature history.
-pub const METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE: &str =
-    "taceo.oprf.node.signature_history_size.size";
+pub const METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE: &str = "taceo.oprf.node.signature_history.size";
 /// Number of stored roots in the merkle_watcher cache.
 pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE: &str =
     "taceo.oprf.node.merkle_watcher_cache.size";

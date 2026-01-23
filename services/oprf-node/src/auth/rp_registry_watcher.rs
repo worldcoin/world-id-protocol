@@ -184,9 +184,17 @@ impl RpRegistryWatcher {
                 signer: rp.signer,
                 oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
             };
-            self.rp_store.insert(*rp_id, relying_party.clone()).await;
-            tracing::debug!("rp {rp_id} loaded from chain and stored");
-            ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).increment(1);
+            let entry = self
+                .rp_store
+                .entry(*rp_id)
+                .or_insert(relying_party.clone())
+                .await;
+            if entry.is_fresh() {
+                tracing::debug!("rp {rp_id} loaded from chain and stored");
+                ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).increment(1);
+            } else {
+                tracing::debug!("rp {rp_id} already stored by another task");
+            }
 
             Ok(relying_party)
         } else {
