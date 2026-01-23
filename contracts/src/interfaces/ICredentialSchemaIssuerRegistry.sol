@@ -39,10 +39,44 @@ interface ICredentialSchemaIssuerRegistry {
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
 
+    /**
+     * @dev Emitted when a new issuer-schema pair is registered.
+     * @param issuerSchemaId The unique identifier assigned to the issuer-schema pair.
+     * @param pubkey The off-chain public key that will sign credentials.
+     * @param signer The on-chain address authorized to perform updates.
+     */
     event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
+
+    /**
+     * @dev Emitted when an issuer-schema pair is removed from the registry.
+     * @param issuerSchemaId The unique identifier of the removed issuer-schema pair.
+     * @param pubkey The off-chain public key that was associated with the pair.
+     * @param signer The on-chain address that was authorized to perform updates.
+     */
     event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
+
+    /**
+     * @dev Emitted when the off-chain public key for an issuer-schema pair is updated.
+     * @param issuerSchemaId The unique identifier of the issuer-schema pair.
+     * @param oldPubkey The previous off-chain public key.
+     * @param newPubkey The new off-chain public key.
+     */
     event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
+
+    /**
+     * @dev Emitted when the on-chain signer address for an issuer-schema pair is updated.
+     * @param issuerSchemaId The unique identifier of the issuer-schema pair.
+     * @param oldSigner The previous on-chain signer address.
+     * @param newSigner The new on-chain signer address.
+     */
     event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
+
+    /**
+     * @dev Emitted when the schema URI for an issuer-schema pair is updated.
+     * @param issuerSchemaId The unique identifier of the issuer-schema pair.
+     * @param oldSchemaUri The previous schema URI.
+     * @param newSchemaUri The new schema URI.
+     */
     event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
     ////////////////////////////////////////////////////////////

@@ -95,10 +95,26 @@ interface IRpRegistry {
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
 
+    /**
+     * @dev Emitted when a new relying party is registered.
+     * @param rpId The unique identifier assigned to the relying party.
+     * @param oprfKeyId The OPRF key identifier from the OprfKeyRegistry contract.
+     * @param manager The address authorized to manage the relying party.
+     * @param unverifiedWellKnownDomain The FQDN where the well-known metadata file is published.
+     */
     event RpRegistered(
         uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, string unverifiedWellKnownDomain
     );
 
+    /**
+     * @dev Emitted when a relying party is updated.
+     * @param rpId The unique identifier of the relying party.
+     * @param oprfKeyId The OPRF key identifier from the OprfKeyRegistry contract.
+     * @param active Whether the relying party is active.
+     * @param manager The address authorized to manage the relying party.
+     * @param signer The address authorized to sign proof requests.
+     * @param unverifiedWellKnownDomain The FQDN where the well-known metadata file is published.
+     */
     event RpUpdated(
         uint64 indexed rpId,
         uint160 indexed oprfKeyId,
@@ -108,10 +124,25 @@ interface IRpRegistry {
         string unverifiedWellKnownDomain
     );
 
+    /**
+     * @dev Emitted when the fee recipient address is updated.
+     * @param oldRecipient The previous fee recipient address.
+     * @param newRecipient The new fee recipient address.
+     */
     event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
 
+    /**
+     * @dev Emitted when the registration fee amount is updated.
+     * @param oldFee The previous registration fee.
+     * @param newFee The new registration fee.
+     */
     event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
 
+    /**
+     * @dev Emitted when the fee token address is updated.
+     * @param oldToken The previous fee token address.
+     * @param newToken The new fee token address.
+     */
     event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
 
     ////////////////////////////////////////////////////////////

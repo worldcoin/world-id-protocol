@@ -140,6 +140,14 @@ interface IWorldIDRegistry {
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
 
+    /**
+     * @dev Emitted when a new World ID account is created.
+     * @param leafIndex The leaf index assigned to the new account in the Merkle tree.
+     * @param recoveryAddress The address authorized to recover the account.
+     * @param authenticatorAddresses The addresses of the initial authenticators.
+     * @param authenticatorPubkeys The public keys of the initial authenticators.
+     * @param offchainSignerCommitment The offchain signer commitment for the account.
+     */
     event AccountCreated(
         uint256 indexed leafIndex,
         address indexed recoveryAddress,
@@ -147,6 +155,17 @@ interface IWorldIDRegistry {
         uint256[] authenticatorPubkeys,
         uint256 offchainSignerCommitment
     );
+
+    /**
+     * @dev Emitted when an existing authenticator is updated (replaced) on a World ID account.
+     * @param leafIndex The leaf index of the account in the Merkle tree.
+     * @param pubkeyId The pubkey ID associated with this authenticator.
+     * @param newAuthenticatorPubkey The new authenticator public key.
+     * @param oldAuthenticatorAddress The previous authenticator address.
+     * @param newAuthenticatorAddress The new authenticator address.
+     * @param oldOffchainSignerCommitment The previous offchain signer commitment.
+     * @param newOffchainSignerCommitment The new offchain signer commitment.
+     */
     event AccountUpdated(
         uint256 indexed leafIndex,
         uint32 pubkeyId,
@@ -156,6 +175,15 @@ interface IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
+
+    /**
+     * @dev Emitted when a World ID account is recovered using the recovery address.
+     * @param leafIndex The leaf index of the account in the Merkle tree.
+     * @param newAuthenticatorAddress The new authenticator address set after recovery.
+     * @param newAuthenticatorPubkey The new authenticator public key.
+     * @param oldOffchainSignerCommitment The previous offchain signer commitment.
+     * @param newOffchainSignerCommitment The new offchain signer commitment.
+     */
     event AccountRecovered(
         uint256 indexed leafIndex,
         address indexed newAuthenticatorAddress,
@@ -163,9 +191,26 @@ interface IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
+
+    /**
+     * @dev Emitted when the recovery address for a World ID account is updated.
+     * @param leafIndex The leaf index of the account in the Merkle tree.
+     * @param oldRecoveryAddress The previous recovery address.
+     * @param newRecoveryAddress The new recovery address.
+     */
     event RecoveryAddressUpdated(
         uint256 indexed leafIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
     );
+
+    /**
+     * @dev Emitted when a new authenticator is inserted (added) to a World ID account.
+     * @param leafIndex The leaf index of the account in the Merkle tree.
+     * @param pubkeyId The pubkey ID assigned to the new authenticator.
+     * @param authenticatorAddress The address of the new authenticator.
+     * @param newAuthenticatorPubkey The public key of the new authenticator.
+     * @param oldOffchainSignerCommitment The previous offchain signer commitment.
+     * @param newOffchainSignerCommitment The new offchain signer commitment.
+     */
     event AuthenticatorInserted(
         uint256 indexed leafIndex,
         uint32 pubkeyId,
@@ -174,6 +219,16 @@ interface IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
+
+    /**
+     * @dev Emitted when an authenticator is removed from a World ID account.
+     * @param leafIndex The leaf index of the account in the Merkle tree.
+     * @param pubkeyId The pubkey ID of the removed authenticator.
+     * @param authenticatorAddress The address of the removed authenticator.
+     * @param authenticatorPubkey The public key of the removed authenticator.
+     * @param oldOffchainSignerCommitment The previous offchain signer commitment.
+     * @param newOffchainSignerCommitment The new offchain signer commitment.
+     */
     event AuthenticatorRemoved(
         uint256 indexed leafIndex,
         uint32 pubkeyId,
@@ -182,8 +237,26 @@ interface IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     );
+
+    /**
+     * @dev Emitted when a new Merkle tree root is recorded.
+     * @param root The new Merkle tree root.
+     * @param timestamp The timestamp when the root was recorded.
+     */
     event RootRecorded(uint256 indexed root, uint256 timestamp);
+
+    /**
+     * @dev Emitted when the root validity window is updated.
+     * @param oldWindow The previous validity window in seconds.
+     * @param newWindow The new validity window in seconds.
+     */
     event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
+
+    /**
+     * @dev Emitted when the maximum number of authenticators per account is updated.
+     * @param oldMax The previous maximum number of authenticators.
+     * @param newMax The new maximum number of authenticators.
+     */
     event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
 
     ////////////////////////////////////////////////////////////
