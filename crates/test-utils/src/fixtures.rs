@@ -4,20 +4,20 @@ use alloy::{
     network::EthereumWallet,
     primitives::{Address, U160, U256},
     providers::ProviderBuilder,
-    signers::{local::PrivateKeySigner, Signature, SignerSync},
+    signers::{Signature, SignerSync, local::PrivateKeySigner},
     sol_types::SolEvent,
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, UniformRand};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
-use eyre::{eyre, Context as _, Result};
+use eyre::{Context as _, Result, eyre};
 use k256::ecdsa::SigningKey;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use taceo_oprf_types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{
-    authenticator::AuthenticatorPublicKeySet, credential::Credential, merkle::MerkleInclusionProof,
-    rp::RpId as WorldRpId, FieldElement, TREE_DEPTH,
+    FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, credential::Credential,
+    merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
 
 use crate::{
@@ -30,6 +30,9 @@ pub struct RegistryTestContext {
     pub anvil: TestAnvil,
     pub world_id_registry: Address,
     pub credential_registry: Address,
+    pub rp_registry: Address,
+    pub oprf_key_registry: Address,
+    pub verifier: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
     pub issuer_schema_id: U256,
@@ -51,6 +54,38 @@ impl RegistryTestContext {
             .deploy_credential_schema_issuer_registry(deployer.clone())
             .await
             .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
+        let oprf_key_registry = anvil
+            .deploy_oprf_key_registry(deployer.clone())
+            .await
+            .wrap_err("failed to deploy OprfKeyRegistry")?;
+        let rp_registry = anvil
+            .deploy_rp_registry(deployer.clone(), oprf_key_registry)
+            .await
+            .wrap_err("failed to deploy RpRegistry")?;
+        let verifier = anvil
+            .deploy_verifier(
+                deployer.clone(),
+                credential_registry,
+                world_id_registry,
+                oprf_key_registry,
+            )
+            .await
+            .wrap_err("failed to deploy Verifier")?;
+
+        // signers must match the ones used in the TestSecretManager
+        let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
+        anvil
+            .register_oprf_nodes(
+                oprf_key_registry,
+                deployer.clone(),
+                oprf_node_signers.iter().map(|s| s.address()).collect(),
+            )
+            .await?;
+
+        // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens
+        anvil
+            .add_oprf_key_registry_admin(oprf_key_registry, deployer.clone(), rp_registry)
+            .await?;
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer.clone()))
@@ -94,6 +129,9 @@ impl RegistryTestContext {
             anvil,
             world_id_registry,
             credential_registry,
+            oprf_key_registry,
+            rp_registry,
+            verifier,
             issuer_private_key,
             issuer_public_key,
             issuer_schema_id,
@@ -167,7 +205,7 @@ pub struct RpFixture {
 /// Generates RP identifiers, signatures, and ancillary inputs shared across tests.
 pub fn generate_rp_fixture() -> RpFixture {
     let mut rng = thread_rng();
-    let rp_id_value: u64 = rng.gen();
+    let rp_id_value: u64 = rng.r#gen();
     // Atm we use the same value for both WorldRpId and OprfKeyId, this is also done line this in the RpRegistry contract
     let world_rp_id = WorldRpId::new(rp_id_value);
     let oprf_key_id = OprfKeyId::new(U160::from(rp_id_value));

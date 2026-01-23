@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
+    AppState,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request_tracker::RequestTracker,
@@ -15,14 +16,13 @@ use crate::{
         update_authenticator::update_authenticator,
     },
     types::RootExpiry,
-    AppState,
 };
 use alloy::providers::DynProvider;
 use axum::{
+    Json, Router,
     extract::{Path, State},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use moka::future::Cache;
 use tokio::sync::mpsc;

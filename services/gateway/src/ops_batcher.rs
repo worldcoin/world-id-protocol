@@ -2,11 +2,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::RequestTracker;
-use alloy::primitives::{address, Address, Bytes, U256};
-use alloy::providers::DynProvider;
+use alloy::{
+    primitives::{Address, Bytes, U256, address},
+    providers::DynProvider,
+};
 use tokio::sync::mpsc;
-use world_id_core::types::{parse_contract_error, GatewayErrorCode, GatewayRequestState};
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_core::{
+    types::{GatewayErrorCode, GatewayRequestState, parse_contract_error}, world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 

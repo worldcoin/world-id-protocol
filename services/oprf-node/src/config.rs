@@ -21,7 +21,6 @@ pub struct WorldOprfNodeConfig {
         env = "OPRF_NODE_MAX_WAIT_TIME_SHUTDOWN",
         default_value = "10s",
         value_parser = humantime::parse_duration
-
     )]
     pub max_wait_time_shutdown: Duration,
 
@@ -33,11 +32,22 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_RP_REGISTRY_CONTRACT")]
     pub rp_registry_contract: Address,
 
-    /// The maximum size of the merkle store.
+    /// The maximum size of the merkle root cache.
     ///
-    /// Will drop old merkle roots if this capacity is reached.
-    #[clap(long, env = "OPRF_NODE_MERKLE_STORE_SIZE", default_value = "100")]
-    pub max_merkle_store_size: usize,
+    /// Will drop least recently used merkle roots if this capacity is reached.
+    #[clap(long, env = "OPRF_NODE_MERKLE_CACHE_SIZE", default_value = "100")]
+    pub max_merkle_cache_size: u64,
+
+    /// The time to live of a merkle root in the cache.
+    ///
+    /// Will drop merkle roots if this duration elapsed after they were added.
+    #[clap(
+        long,
+        env = "OPRF_NODE_ROOT_VALIDITY_WINDOW",
+        default_value = "1hour",
+        value_parser = humantime::parse_duration
+    )]
+    pub root_validity_window: Duration,
 
     /// The maximum size of the RpRegistry store.
     ///
@@ -51,19 +61,8 @@ pub struct WorldOprfNodeConfig {
         env = "OPRF_NODE_CURRENT_TIME_STAMP_MAX_DIFFERENCE",
         default_value = "5min",
         value_parser = humantime::parse_duration
-
     )]
     pub current_time_stamp_max_difference: Duration,
-
-    /// Interval to cleanup the signature history
-    #[clap(
-        long,
-        env = "OPRF_NODE_SIGNATURE_HISTORY_CLEANUP_INTERVAL",
-        default_value = "10min",
-        value_parser = humantime::parse_duration
-
-    )]
-    pub signature_history_cleanup_interval: Duration,
 
     /// The OPRF node config
     #[clap(flatten)]

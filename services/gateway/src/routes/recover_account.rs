@@ -6,7 +6,7 @@ use crate::{
     types::AppState,
 };
 use alloy::primitives::{Bytes, U256};
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use world_id_core::types::{
     GatewayErrorResponse, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
     RecoverAccountRequest,

@@ -1,5 +1,5 @@
 use alloy::primitives::U256;
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use world_id_core::types::{
     IndexerErrorBody, IndexerErrorCode, IndexerErrorResponse, IndexerPackedAccountRequest,
     IndexerPackedAccountResponse,
@@ -27,7 +27,7 @@ pub(crate) async fn handler(
 ) -> Result<Json<IndexerPackedAccountResponse>, IndexerErrorResponse> {
     let packed_account_data = state
         .registry
-        .authenticatorAddressToPackedAccountData(req.authenticator_address)
+        .getPackedAccountData(req.authenticator_address)
         .call()
         .await
         .map_err(|e| {

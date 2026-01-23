@@ -1,19 +1,17 @@
 //! This module provides functionality for watching and validating Merkle roots. It includes:
 //!
 //! - A `MerkleWatcher` trait for services that validate Merkle roots.
-//! - A `MerkleRootStore` for storing and Merkle roots with timestamps.
 //!
 //! Current `MerkleWatcher` implementations:
 //! - alloy (uses the alloy crate to interact with smart contracts)
 //! - test (contains initially provided merkle roots)
 
 use std::{
-    collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
-    time::SystemTime,
+    time::Duration,
 };
 
 use alloy::{
@@ -23,9 +21,8 @@ use alloy::{
     rpc::types::Filter,
     sol_types::SolEvent as _,
 };
-use eyre::Context as _;
 use futures::StreamExt as _;
-use parking_lot::Mutex;
+use moka::future::Cache;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry::{self, RootRecorded};
@@ -38,10 +35,11 @@ pub(crate) struct MerkleWatcherError(alloy::contract::Error);
 
 /// Monitors merkle roots from an on-chain `WorldIDRegistry` contract.
 ///
-/// Subscribes to blockchain events and maintains a store of valid merkle roots.
+/// Subscribes to blockchain events and maintains a cache of valid merkle roots.
+/// Uses LRU eviction when the cache exceeds the configured maximum capacity.
 #[derive(Clone)]
 pub(crate) struct MerkleWatcher {
-    merkle_root_store: Arc<Mutex<MerkleRootStore>>,
+    merkle_root_cache: Cache<FieldElement, ()>,
     provider: DynProvider, // do not drop provider while we want to stay subscribed
     contract_address: Address,
 }
@@ -55,16 +53,24 @@ impl MerkleWatcher {
     /// # Arguments
     /// * `contract_address` - Address of the `WorldIDRegistry` contract
     /// * `ws_rpc_url` - WebSocket RPC URL for blockchain connection
-    /// * `max_merkle_store_size` - Maximum number of merkle roots to store
+    /// * `max_merkle_cache_size` - Maximum number of merkle roots to cache
+    /// * `root_validity_window` - Duration for which a merkle root is considered valid
+    /// * `started` - AtomicBool to indicate when the service has started
     /// * `cancellation_token` - CancellationToken to cancel the service in case of an error
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
         ws_rpc_url: &str,
-        max_merkle_store_size: usize,
+        max_merkle_cache_size: u64,
+        root_validity_window: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
+        eyre::ensure!(
+            max_merkle_cache_size > 0,
+            "max merkle cache size must be > 0"
+        );
+
         tracing::info!("creating provider...");
         let ws = WsConnect::new(ws_rpc_url);
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
@@ -74,14 +80,14 @@ impl MerkleWatcher {
         let current_root = contract.currentRoot().call().await?;
         tracing::info!("root = {current_root}");
 
-        let merkle_root_store = Arc::new(Mutex::new(
-            MerkleRootStore::new(
-                HashMap::from([(current_root.try_into()?, 0)]), // insert current root with 0 timestamp so it is oldest
-                max_merkle_store_size,
-            )
-            .context("while building merkle root store")?,
-        ));
-        let merkle_root_store_clone = Arc::clone(&merkle_root_store);
+        let merkle_root_cache: Cache<FieldElement, ()> = Cache::builder()
+            .max_capacity(max_merkle_cache_size)
+            .time_to_live(root_validity_window)
+            .build();
+
+        // Insert current root
+        merkle_root_cache.insert(current_root.try_into()?, ()).await;
+        tracing::info!("starting with cache size: 1");
 
         tracing::info!("listening for events...");
         let filter = Filter::new()
@@ -94,31 +100,30 @@ impl MerkleWatcher {
         // indicate that the merkle watcher has started
         started.store(true, Ordering::Relaxed);
 
-        tokio::spawn(async move {
-            // shutdown service if merkle watcher encounters an error and drops this guard
-            let _drop_guard = cancellation_token.drop_guard();
-            while let Some(log) = stream.next().await {
-                match RootRecorded::decode_log(log.as_ref()) {
-                    Ok(event) => {
-                        tracing::info!("got root {} timestamp {}", event.root, event.timestamp);
-                        if let Ok(timestamp) = u64::try_from(event.timestamp) {
-                            merkle_root_store_clone.lock().insert(
-                                event.root.try_into().expect("root is in field"),
-                                timestamp,
-                            );
-                        } else {
-                            tracing::warn!("WorldIDRegistry send root with timestamp > u64");
+        tokio::spawn({
+            let merkle_root_cache = merkle_root_cache.clone();
+            async move {
+                // shutdown service if merkle watcher encounters an error and drops this guard
+                let _drop_guard = cancellation_token.drop_guard();
+                while let Some(log) = stream.next().await {
+                    match RootRecorded::decode_log(log.as_ref()) {
+                        Ok(event) => {
+                            tracing::info!("got root {} timestamp {}", event.root, event.timestamp);
+                            merkle_root_cache
+                                .insert(event.root.try_into().expect("root is in field"), ())
+                                .await;
+                            tracing::trace!("registered new root: {}", event.root);
                         }
-                    }
-                    Err(err) => {
-                        tracing::warn!("failed to decode contract event: {err:?}");
+                        Err(err) => {
+                            tracing::warn!("failed to decode contract event: {err:?}");
+                        }
                     }
                 }
             }
         });
 
         Ok(Self {
-            merkle_root_store,
+            merkle_root_cache,
             provider: provider.erased(),
             contract_address,
         })
@@ -129,15 +134,13 @@ impl MerkleWatcher {
         &self,
         root: FieldElement,
     ) -> Result<bool, MerkleWatcherError> {
-        {
-            let store = self.merkle_root_store.lock();
-            // first check if the merkle root is already registered
-            if store.contains_root(root) {
-                tracing::trace!("root was in store");
-                tracing::trace!("root valid: true");
-                return Ok(true);
-            }
+        // first check if the merkle root is already in cache
+        if self.merkle_root_cache.contains_key(&root) {
+            tracing::trace!("root was in cache");
+            tracing::trace!("root valid: true");
+            return Ok(true);
         }
+
         tracing::debug!("check in contract");
         let contract = WorldIdRegistry::new(self.contract_address, self.provider.clone());
         let valid = contract
@@ -147,82 +150,12 @@ impl MerkleWatcher {
             .map_err(MerkleWatcherError)?;
 
         if valid {
-            tracing::debug!("add root to store");
-            let timestamp = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("system time is after unix epoch")
-                .as_secs();
-            self.merkle_root_store.lock().insert(root, timestamp);
+            tracing::debug!("add root to cache");
+            self.merkle_root_cache.insert(root, ()).await;
         }
         tracing::debug!("root valid: {valid}");
 
         Ok(valid)
-    }
-}
-
-/// Stores Merkle roots with associated timestamps.
-///
-/// Maintains a HashMap of root -> timestamp, automatically keeping the most recent roots
-/// up to a configured maximum. Old roots are dropped when the store exceeds capacity.
-#[derive(Debug, Clone)]
-pub(crate) struct MerkleRootStore {
-    store: HashMap<FieldElement, u64>,
-    max_merkle_store_size: usize,
-}
-
-impl MerkleRootStore {
-    /// Creates a new Merkle root store.
-    ///
-    /// Clips the store if it exceeds `max_merkle_store_size`.
-    /// Fails if `max_merkle_store_size` is 0.
-    pub(crate) fn new(
-        store: HashMap<FieldElement, u64>,
-        max_merkle_store_size: usize,
-    ) -> eyre::Result<Self> {
-        if max_merkle_store_size == 0 {
-            eyre::bail!("Max merkle store size must be > 0");
-        }
-        if store.len() > max_merkle_store_size {
-            eyre::bail!("initial store must be smaller than max");
-        }
-        tracing::info!("starting with store size: {}", store.len());
-        Ok(Self {
-            store,
-            max_merkle_store_size,
-        })
-    }
-
-    /// Inserts a new Merkle root.
-    ///
-    /// If the root already exists, it replaces the previous timestamp.
-    /// Automatically drops the oldest root if the store exceeds the configured maximum size.
-    #[instrument(level = "trace", skip(self))]
-    pub(crate) fn insert(&mut self, root: FieldElement, timestamp: u64) {
-        if self.store.insert(root, timestamp).is_some() {
-            tracing::debug!("root {root} already registered - replaced");
-        } else {
-            tracing::trace!("registered new root: {root}");
-            if self.store.len() > self.max_merkle_store_size {
-                // find root with oldest timestamp
-                let oldest_root = self
-                    .store
-                    .iter()
-                    .min_by_key(|(_, timestamp)| *timestamp)
-                    .map(|(root, _)| *root)
-                    .expect("store is not empty");
-                tracing::debug!("store size exceeded, dropping oldest root: {oldest_root}");
-                // drop the oldest root
-                let dropped = self.store.remove(&oldest_root).expect("store not empty");
-                tracing::trace!("dropped {dropped}");
-            }
-        }
-    }
-
-    /// Checks if the store contains a Merkle root
-    ///
-    /// Returns `true` if the root exists, `false` otherwise.
-    pub(crate) fn contains_root(&self, root: FieldElement) -> bool {
-        self.store.contains_key(&root)
     }
 }
 
@@ -251,6 +184,7 @@ mod tests {
             registry_address,
             anvil.ws_endpoint(),
             100,
+            Duration::from_secs(3600),
             started_services.new_service(),
             cancellation_token,
         )
@@ -266,16 +200,13 @@ mod tests {
 
         assert!(!valid, "First call should return false for invalid root");
 
-        {
-            let store = merkle_watcher.merkle_root_store.lock();
-            assert!(
-                !store.contains_root(invalid_root),
-                "Invalid root should NOT be cached after first rejection"
-            );
-        }
+        assert!(
+            !merkle_watcher.merkle_root_cache.contains_key(&invalid_root),
+            "Invalid root should NOT be cached after first rejection"
+        );
 
         let valid_root = WorldIdRegistry::new(registry_address, anvil.provider().unwrap())
-            .latestRoot()
+            .getLatestRoot()
             .call()
             .await
             .expect("failed to fetch root");
@@ -286,5 +217,55 @@ mod tests {
             .expect("second is_root_valid call should not error");
 
         assert!(valid, "Second call should return true for valid root");
+    }
+
+    #[tokio::test]
+    async fn test_root_not_valid_after_window() {
+        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+        let signer = anvil.signer(0).expect("failed to get signer");
+        let registry_address = anvil
+            .deploy_world_id_registry(signer)
+            .await
+            .expect("failed to deploy WorldIDRegistry");
+
+        let mut started_services = StartedServices::default();
+
+        let cancellation_token = CancellationToken::new();
+
+        let merkle_watcher = MerkleWatcher::init(
+            registry_address,
+            anvil.ws_endpoint(),
+            100,
+            Duration::from_secs(1),
+            started_services.new_service(),
+            cancellation_token,
+        )
+        .await
+        .expect("failed to init MerkleWatcher");
+
+        let valid_root = WorldIdRegistry::new(registry_address, anvil.provider().unwrap())
+            .getLatestRoot()
+            .call()
+            .await
+            .expect("failed to fetch root");
+
+        let valid = merkle_watcher
+            .merkle_root_cache
+            .contains_key(&FieldElement::try_from(valid_root).expect("root in field"));
+        assert!(
+            valid,
+            "Root should be valid immediately after being recorded"
+        );
+
+        // wait for validity window to pass
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let valid = merkle_watcher
+            .merkle_root_cache
+            .contains_key(&FieldElement::try_from(valid_root).expect("root in field"));
+        assert!(
+            !valid,
+            "Root should not be valid after the validity window has passed"
+        );
     }
 }

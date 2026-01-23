@@ -4,6 +4,10 @@ The World ID Indexer primarily indexes the Acccount Registry of the World ID Pro
 
 The indexer will backfill `AccountCreated` events into Postgres tables defined under `services/indexer/migrations`, then optionally follow live via WS if `WS_URL` is set.
 
+## Documentation
+
+- **[Tree Cache Architecture](./TREE_CACHE.md)** - Detailed documentation on the memory-mapped merkle tree cache, including operational modes, file operations, and synchronization behavior
+
 ## Developing Locally
 
 1. Set up your enviroment variables

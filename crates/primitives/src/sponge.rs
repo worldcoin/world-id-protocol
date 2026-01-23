@@ -1,6 +1,6 @@
 use ark_babyjubjub::Fq;
 use ark_ff::Zero;
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
+use poseidon2::{POSEIDON2_BN254_T16_PARAMS, Poseidon2};
 use sha3::{Digest, Sha3_256};
 
 use crate::{FieldElement, PrimitiveError};
@@ -211,7 +211,7 @@ fn hash_bytes_with_poseidon2_t16_r15(
 
 #[cfg(test)]
 mod tests {
-    use crate::{sponge::hash_bytes_with_poseidon2_t16_r15, FieldElement, PrimitiveError};
+    use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_with_poseidon2_t16_r15};
 
     use super::hash_bytes_to_field_element;
 

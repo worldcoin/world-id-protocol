@@ -2,9 +2,9 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::Path;
 use std::sync::Arc;
 
-use alloy::network::{Ethereum, EthereumWallet};
+use alloy::network::EthereumWallet;
 use alloy::providers::fillers::CachedNonceManager;
-use alloy::providers::{DynProvider, Provider, ProviderBuilder, RootProvider, WsConnect};
+use alloy::providers::{DynProvider, Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::client::RpcClient;
 use alloy::rpc::json_rpc::RequestPacket;
 use alloy::signers::aws::aws_config::BehaviorVersion;
@@ -26,6 +26,7 @@ use url::Url;
 
 #[derive(Debug, Clone, Args, Deserialize)]
 #[command(next_help_heading = "Rpc Configuration")]
+#[derive(Default)]
 pub struct ProviderArgs {
     /// HTTP RPC endpoints (in priority order).
     #[arg(long = "rpc-url", value_delimiter = ',', env = "RPC_URL")]
@@ -152,16 +153,6 @@ mod defaults {
     }
 }
 
-impl Default for ProviderArgs {
-    fn default() -> Self {
-        Self {
-            http: None,
-            ws: None,
-            signer: None,
-            throttle: None,
-        }
-    }
-}
 
 impl ProviderArgs {
     /// Create a new provider configuration with sensible defaults.

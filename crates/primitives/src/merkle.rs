@@ -1,7 +1,7 @@
 use crate::{
-    authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u64, FieldElement, PrimitiveError,
+    FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u64,
 };
-use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 /// Helper module for serializing/deserializing fixed-size arrays.
 mod array_serde {

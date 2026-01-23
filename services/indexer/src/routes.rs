@@ -1,4 +1,4 @@
-use axum::{response::IntoResponse, Json, Router};
+use axum::{Json, Router, response::IntoResponse};
 use utoipa::OpenApi;
 use world_id_core::types::{
     AccountInclusionProofSchema, IndexerErrorBody, IndexerPackedAccountRequest,

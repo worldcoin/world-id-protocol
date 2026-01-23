@@ -1,9 +1,6 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
-use alloy::primitives::Address;
-use alloy::providers::DynProvider;
+use alloy::{primitives::Address, providers::DynProvider};
 use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
@@ -81,8 +78,10 @@ pub struct GlobalConfig {
     pub environment: Environment,
     pub run_mode: RunMode,
     pub db_url: String,
-    pub rpc_url: String,
+    pub http_rpc_url: String,
+    pub ws_rpc_url: String,
     pub registry_address: Address,
+    pub tree_cache: TreeCacheConfig,
 }
 
 #[derive(Debug)]
@@ -109,11 +108,7 @@ impl HttpConfig {
             sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS").ok().and_then(
                 |s| {
                     let val = s.parse::<u64>().ok().unwrap_or(0);
-                    if val == 0 {
-                        None
-                    } else {
-                        Some(val)
-                    }
+                    if val == 0 { None } else { Some(val) }
                 },
             ),
         };
@@ -134,7 +129,6 @@ impl HttpConfig {
 
 #[derive(Debug)]
 pub struct IndexerConfig {
-    pub ws_url: String,
     pub start_block: u64,
     pub batch_size: u64,
 }
@@ -142,7 +136,6 @@ pub struct IndexerConfig {
 impl IndexerConfig {
     pub fn from_env() -> Self {
         let config = Self {
-            ws_url: std::env::var("WS_URL").expect("WS_URL must be set."),
             start_block: std::env::var("START_BLOCK")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -157,6 +150,52 @@ impl IndexerConfig {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TreeCacheConfig {
+    /// Path to mmap cache file (mandatory)
+    pub cache_file_path: String,
+
+    /// Depth of the Merkle tree (default: 30)
+    pub tree_depth: usize,
+
+    /// Depth of dense tree prefix (mandatory, default: 20)
+    pub dense_tree_prefix_depth: usize,
+
+    /// HttpOnly mode: interval in seconds to check for cache updates (default: 30)
+    pub http_cache_refresh_interval_secs: u64,
+}
+
+impl TreeCacheConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let cache_file_path = std::env::var("TREE_CACHE_FILE")
+            .map_err(|_| anyhow::anyhow!("TREE_CACHE_FILE environment variable is required"))?;
+
+        let config = Self {
+            cache_file_path,
+            tree_depth: std::env::var("TREE_DEPTH")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30),
+            dense_tree_prefix_depth: std::env::var("TREE_DENSE_PREFIX_DEPTH")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(26),
+            http_cache_refresh_interval_secs: std::env::var(
+                "TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS",
+            )
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(30),
+        };
+
+        tracing::info!(
+            "✔️ Tree cache config loaded from env. Cache file: {}",
+            config.cache_file_path
+        );
+        Ok(config)
+    }
+}
+
 impl GlobalConfig {
     pub fn from_env() -> Self {
         let environment = std::env::var("ENVIRONMENT")
@@ -168,19 +207,25 @@ impl GlobalConfig {
 
         let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set.");
 
-        let rpc_url = std::env::var("RPC_URL").expect("RPC_URL must be set.");
+        let http_rpc_url = std::env::var("RPC_URL").expect("RPC_URL must be set.");
+        let ws_rpc_url = std::env::var("WS_URL").expect("WS_URL must be set.");
 
         let registry_address = std::env::var("REGISTRY_ADDRESS")
             .expect("REGISTRY_ADDRESS must be set.")
             .parse::<Address>()
             .expect("REGISTRY_ADDRESS must be a valid address");
 
+        let tree_cache =
+            TreeCacheConfig::from_env().expect("Failed to load tree cache configuration");
+
         Self {
             environment,
             run_mode,
             db_url,
-            rpc_url,
+            http_rpc_url,
+            ws_rpc_url,
             registry_address,
+            tree_cache,
         }
     }
 }

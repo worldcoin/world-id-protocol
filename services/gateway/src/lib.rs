@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::routes::build_app;
-use crate::types::AppState;
+pub use crate::config::{GatewayConfig};
+use crate::{routes::build_app, types::AppState};
 use request_tracker::RequestTracker;
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
@@ -13,8 +13,6 @@ mod ops_batcher;
 mod request_tracker;
 mod routes;
 mod types;
-
-pub use crate::config::GatewayConfig;
 
 // Re-export common types
 pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};

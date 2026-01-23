@@ -1,3 +1,7 @@
+//! Circuit input types for the World ID Protocol circuits.
+//!
+//! This module requires the `circuits` feature and is not available in WASM builds.
+
 use std::collections::HashMap;
 
 use groth16_material::circom::ProofInput;
@@ -132,6 +136,12 @@ pub struct NullifierProofCircuitInput<const MAX_DEPTH: usize> {
     /// TODO: Rename to match new terms and avoid confusion with World ID <3.0's `identity_commitment`.
     pub id_commitment_r: BaseField,
 
+    /// The identity commitment for future session proofs.
+    ///
+    /// Is used internally to check for equality against the computed identity commitment.
+    /// If set to 0, all computed identity commitments will be accepted.
+    pub id_commitment: BaseField,
+
     // SECTION: OPRF Inputs
     /// The `e` part of the `DLog` equality proof (Fiat-Shamir challenge)
     pub dlog_e: BaseField,
@@ -184,6 +194,10 @@ impl<const MAX_DEPTH: usize> ProofInput for NullifierProofCircuitInput<MAX_DEPTH
         map.insert(
             "id_commitment_r".to_owned(),
             fq_to_u256_vec(self.id_commitment_r),
+        );
+        map.insert(
+            "id_commitment".to_owned(),
+            fq_to_u256_vec(self.id_commitment),
         );
 
         map.insert("dlog_e".to_owned(), fq_to_u256_vec(self.dlog_e));
