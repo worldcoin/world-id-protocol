@@ -722,7 +722,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         delete authenticatorAddressToPackedAccountData[oldAuthenticatorAddress];
 
         // Add the new authenticator
-        if (leafIndexToRecoveryCounter[leafIndex] >= type(uint32).max) {
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
             revert RecoveryCounterOverflow();
         }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
@@ -797,7 +797,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         leafIndexToSignatureNonce[leafIndex]++;
 
         // Add new authenticator
-        if (leafIndexToRecoveryCounter[leafIndex] >= type(uint32).max) {
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
             revert RecoveryCounterOverflow();
         }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
@@ -950,7 +950,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         leafIndexToRecoveryCounter[leafIndex]++;
 
-        if (leafIndexToRecoveryCounter[leafIndex] >= type(uint32).max) {
+        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
             revert RecoveryCounterOverflow();
         }
         authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
