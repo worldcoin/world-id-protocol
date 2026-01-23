@@ -218,7 +218,7 @@ interface IRpRegistry {
     function getOprfKeyRegistry() external view returns (address);
 
     ////////////////////////////////////////////////////////////
-    //                    OWNER FUNCTIONS                      //
+    //                   OWNER FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
 
     /**

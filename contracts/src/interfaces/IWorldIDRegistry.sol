@@ -399,7 +399,7 @@ interface IWorldIDRegistry {
     function getRootValidityWindow() external view returns (uint256);
 
     ////////////////////////////////////////////////////////////
-    //                    OWNER FUNCTIONS                      //
+    //                    OWNER FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
     /**

@@ -321,7 +321,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     }
 
     ////////////////////////////////////////////////////////////
-    //                    OWNER FUNCTIONS                      //
+    //                    OWNER FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
     /**
