@@ -563,7 +563,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         uint256 leafIndex = nextLeafIndex;
 
-        uint256 bitmap = 0;
         for (uint32 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
             if (authenticatorAddress == address(0)) {
@@ -572,8 +571,8 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
             _validateNewAuthenticatorAddress(authenticatorAddress);
             authenticatorAddressToPackedAccountData[authenticatorAddress] = PackedAccountData.pack(leafIndex, 0, i);
-            bitmap = bitmap | (1 << i);
         }
+        uint256 bitmap = (1 << authenticatorAddresses.length) - 1;
         _setRecoveryAddressAndBitmap(leafIndex, recoveryAddress, bitmap);
 
         emit AccountCreated(
