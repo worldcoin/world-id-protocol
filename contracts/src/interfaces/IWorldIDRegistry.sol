@@ -11,8 +11,6 @@ interface IWorldIDRegistry {
     //                        ERRORS                          //
     ////////////////////////////////////////////////////////////
 
-    error ImplementationNotInitialized();
-
     /**
      * @dev Thrown when a requested on-chain signer address is already in use by another account as an authenticator.
      */

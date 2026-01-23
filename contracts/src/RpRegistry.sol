@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
 import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
+import {BaseUpgradeable712} from "./abstract/BaseUpgradeable.sol";
 
 /**
  * @title Relying Party Registry (World ID)
@@ -20,19 +16,8 @@ import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
  * repository before making any updates.
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
-contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable, IRpRegistry {
+contract RpRegistry is BaseUpgradeable712, IRpRegistry {
     using SafeERC20 for IERC20;
-
-    modifier onlyInitialized() {
-        _onlyInitialized();
-        _;
-    }
-
-    function _onlyInitialized() internal view {
-        if (_getInitializedVersion() == 0) {
-            revert ImplementationNotInitialized();
-        }
-    }
 
     ////////////////////////////////////////////////////////////
     //                        Members                         //
@@ -79,11 +64,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
     /**
      * @dev Initializes the contract.
      */
@@ -95,9 +75,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         if (feeToken == address(0)) revert ZeroAddress();
         if (oprfKeyRegistry == address(0)) revert ZeroAddress();
 
-        __EIP712_init(EIP712_NAME, EIP712_VERSION);
-        __Ownable_init(msg.sender);
-        __UUPSUpgradeable_init();
+        __BaseUpgradeable712_init(EIP712_NAME, EIP712_VERSION);
 
         _feeRecipient = feeRecipient;
         _feeToken = IERC20(feeToken);
@@ -352,21 +330,4 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         _feeToken = IERC20(newFeeToken);
         emit FeeTokenUpdated(oldToken, newFeeToken);
     }
-
-    /**
-     * @dev Authorize upgrade to a new implementation
-     * @param newImplementation Address of the new implementation contract
-     * @notice Only the contract owner can authorize upgrades
-     */
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
-
-    ////////////////////////////////////////////////////////////
-    //                    Storage Gap                         //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Storage gap to allow for future upgrades without storage collisions
-     * This reserves 50 storage slots for future state variables
-     */
-    uint256[50] private __gap;
 }

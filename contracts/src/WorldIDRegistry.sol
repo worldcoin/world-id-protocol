@@ -4,38 +4,18 @@ pragma solidity ^0.8.13;
 import {BinaryIMT, BinaryIMTData} from "./libraries/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
+import {BaseUpgradeable712} from "./abstract/BaseUpgradeable.sol";
 
 /**
  * @title WorldIDRegistry
  * @author World Contributors
  * @dev The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
  */
-contract WorldIDRegistry is
-    Initializable,
-    EIP712Upgradeable,
-    Ownable2StepUpgradeable,
-    UUPSUpgradeable,
-    IWorldIDRegistry
-{
+contract WorldIDRegistry is BaseUpgradeable712, IWorldIDRegistry {
     using BinaryIMT for BinaryIMTData;
-
-    modifier onlyInitialized() {
-        _onlyInitialized();
-        _;
-    }
-
-    function _onlyInitialized() internal view {
-        if (_getInitializedVersion() == 0) {
-            revert ImplementationNotInitialized();
-        }
-    }
 
     ////////////////////////////////////////////////////////////
     //                        Members                         //
@@ -93,19 +73,12 @@ contract WorldIDRegistry is
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
     /**
      * @dev Initializes the contract.
      * @param initialTreeDepth The depth of the Merkle tree.
      */
     function initialize(uint256 initialTreeDepth) public initializer {
-        __EIP712_init(EIP712_NAME, EIP712_VERSION);
-        __Ownable_init(msg.sender);
-        __Ownable2Step_init();
+        __BaseUpgradeable712_init(EIP712_NAME, EIP712_VERSION);
         treeDepth = initialTreeDepth;
         tree.initWithDefaultZeroes(treeDepth);
 
@@ -792,21 +765,4 @@ contract WorldIDRegistry is
         maxAuthenticators = newMaxAuthenticators;
         emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
     }
-
-    /**
-     * @dev Authorize upgrade to a new implementation
-     * @param newImplementation Address of the new implementation contract
-     * @notice Only the contract owner can authorize upgrades
-     */
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
-
-    ////////////////////////////////////////////////////////////
-    //                    Storage Gap                         //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Storage gap to allow for future upgrades without storage collisions
-     * This reserves 50 storage slots for future state variables
-     */
-    uint256[50] private __gap;
 }

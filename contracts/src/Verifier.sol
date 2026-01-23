@@ -3,13 +3,11 @@ pragma solidity ^0.8.13;
 
 import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
 import {IVerifierNullifier} from "./interfaces/IVerifierNullifier.sol";
 import {IVerifier} from "./interfaces/IVerifier.sol";
+import {BaseUpgradeable} from "./abstract/BaseUpgradeable.sol";
 
 /**
  * @title Verifier
@@ -17,17 +15,7 @@ import {IVerifier} from "./interfaces/IVerifier.sol";
  * @notice Verifies nullifier proofs for World ID credentials
  * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
  */
-contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IVerifier {
-    modifier onlyInitialized() {
-        _onlyInitialized();
-        _;
-    }
-
-    function _onlyInitialized() internal view {
-        if (_getInitializedVersion() == 0) {
-            revert ImplementationNotInitialized();
-        }
-    }
+contract Verifier is BaseUpgradeable, IVerifier {
 
     ////////////////////////////////////////////////////////////
     //                        Members                         //
@@ -55,11 +43,6 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
     /**
      * @notice Initializes the Verifier contract with required registries
      * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
@@ -79,8 +62,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
         if (_verifierNullifier == address(0)) revert ZeroAddress();
 
-        __Ownable_init(msg.sender);
-        __Ownable2Step_init();
+        __BaseUpgradeable_init();
         credentialSchemaIssuerRegistry = ICredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
         worldIDRegistry = IWorldIDRegistry(_worldIDRegistry);
         verifierNullifier = IVerifierNullifier(_verifierNullifier);
@@ -212,21 +194,4 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         proofTimestampDelta = _proofTimestampDelta;
         emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);
     }
-
-    /**
-     * @dev Authorize upgrade to a new implementation
-     * @param newImplementation Address of the new implementation contract
-     * @notice Only the contract owner can authorize upgrades
-     */
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
-
-    ////////////////////////////////////////////////////////////
-    //                    Storage Gap                         //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Storage gap to allow for future upgrades without storage collisions
-     * This reserves 50 storage slots for future state variables
-     */
-    uint256[50] private __gap;
 }

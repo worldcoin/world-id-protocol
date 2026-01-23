@@ -36,11 +36,6 @@ interface IRpRegistry {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Thrown when the contract implementation has not been initialized.
-     */
-    error ImplementationNotInitialized();
-
-    /**
      * @dev Thrown when attempting to register a relying party with an rpId that is already in use.
      * @param rpId The relying party ID that is already in use.
      */

@@ -17,11 +17,6 @@ interface IVerifier {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Thrown when the contract implementation has not been initialized.
-     */
-    error ImplementationNotInitialized();
-
-    /**
      * @dev Thrown when the proof timestamp is too old, exceeding the allowed proof timestamp delta.
      */
     error OutdatedNullifier();
