@@ -13,9 +13,21 @@ pub const METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE: &str = "taceo.oprf.node.signat
 /// Number of stored roots in the merkle_watcher cache.
 pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE: &str =
     "taceo.oprf.node.merkle_watcher_cache.size";
+/// Number hits in the merkle_watcher cache.
+pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS: &str =
+    "taceo.oprf.node.merkle_watcher_cache.hits";
+/// Number misses in the merkle_watcher cache.
+pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES: &str =
+    "taceo.oprf.node.merkle_watcher_cache.misses";
 /// Number of stored RPs in the rp_registry_watcher cache.
 pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE: &str =
     "taceo.oprf.node.rp_registry_watcher_cache.size";
+/// Number of hits in the rp_registry_watcher cache.
+pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS: &str =
+    "taceo.oprf.node.rp_registry_watcher_cache.hits";
+/// Number of misses in the rp_registry_watcher cache.
+pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES: &str =
+    "taceo.oprf.node.rp_registry_watcher_cache.misses";
 
 /// Describe all metrics used by the service.
 ///
@@ -45,9 +57,33 @@ pub fn describe_metrics() {
         "Number of stored roots in the merkle_watcher cache."
     );
 
+    metrics::describe_counter!(
+        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS,
+        metrics::Unit::Count,
+        "Number of hits in the merkle_watcher cache."
+    );
+
+    metrics::describe_counter!(
+        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
+        metrics::Unit::Count,
+        "Number of misses in the merkle_watcher cache."
+    );
+
     metrics::describe_gauge!(
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
         metrics::Unit::Count,
         "Number of stored RPs in the rp_registry_watcher cache."
+    );
+
+    metrics::describe_counter!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
+        metrics::Unit::Count,
+        "Number of hits in the rp_registry_watcher cache."
+    );
+
+    metrics::describe_counter!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
+        metrics::Unit::Count,
+        "Number of misses in the rp_registry_watcher cache."
     );
 }

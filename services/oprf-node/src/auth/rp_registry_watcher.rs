@@ -8,7 +8,11 @@ use std::{
 
 use crate::{
     auth::rp_registry_watcher::RpRegistry::RpUpdated,
-    metrics::METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+    metrics::{
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+    },
 };
 use alloy::{
     eips::BlockNumberOrTag,
@@ -167,11 +171,13 @@ impl RpRegistryWatcher {
         {
             if let Some(rp) = self.rp_store.get(rp_id).await {
                 tracing::debug!("rp {rp_id} found in store");
+                ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
                 return Ok(rp);
             }
         }
 
         tracing::debug!("rp {rp_id} not found in store, querying RpRegistry...");
+        ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
         let contract = RpRegistry::new(self.contract_address, &self.provider);
         let rp = contract
             .getRp(rp_id.into_inner())

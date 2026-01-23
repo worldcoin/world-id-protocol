@@ -28,7 +28,10 @@ use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry::{self, RootRecorded};
 use world_id_primitives::FieldElement;
 
-use crate::metrics::METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE;
+use crate::metrics::{
+    METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
+    METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,
+};
 
 /// Error returned by the [`MerkleWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
@@ -164,10 +167,12 @@ impl MerkleWatcher {
         if self.merkle_root_cache.contains_key(&root) {
             tracing::trace!("root was in cache");
             tracing::trace!("root valid: true");
+            ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS).increment(1);
             return Ok(true);
         }
 
         tracing::debug!("check in contract");
+        ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES).increment(1);
         let contract = WorldIdRegistry::new(self.contract_address, self.provider.clone());
         let valid = contract
             .isValidRoot(root.into())
