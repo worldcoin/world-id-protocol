@@ -16,7 +16,6 @@ import {BaseUpgradeable} from "./abstract/BaseUpgradeable.sol";
  * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
  */
 contract Verifier is BaseUpgradeable, IVerifier {
-
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
