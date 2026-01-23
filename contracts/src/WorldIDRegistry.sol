@@ -311,7 +311,7 @@ contract WorldIDRegistry is
         }
         leafIndexToSignatureNonce[leafIndex]++;
 
-        // Add new authenticator
+        // Add the new authenticator
         if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
             revert RecoveryCounterOverflow();
         }
@@ -645,7 +645,6 @@ contract WorldIDRegistry is
 
         uint256 leafIndex = nextLeafIndex;
 
-        uint256 bitmap = 0;
         for (uint32 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
             if (authenticatorAddress == address(0)) {
@@ -654,8 +653,8 @@ contract WorldIDRegistry is
 
             _validateNewAuthenticatorAddress(authenticatorAddress);
             authenticatorAddressToPackedAccountData[authenticatorAddress] = PackedAccountData.pack(leafIndex, 0, i);
-            bitmap = bitmap | (1 << i);
         }
+        uint256 bitmap = (1 << authenticatorAddresses.length) - 1;
         _setRecoveryAddressAndBitmap(leafIndex, recoveryAddress, bitmap);
 
         emit AccountCreated(
@@ -699,7 +698,6 @@ contract WorldIDRegistry is
         // Check if the root is known and not expired
         uint256 ts = rootToTimestamp[root];
         if (ts == 0) return false;
-        if (rootValidityWindow == 0) return true;
         return block.timestamp <= ts + rootValidityWindow;
     }
 

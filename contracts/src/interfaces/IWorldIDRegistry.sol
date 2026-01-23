@@ -133,6 +133,11 @@ interface IWorldIDRegistry {
      */
     error OwnerMaxAuthenticatorsOutOfBounds();
 
+    /**
+     * @dev Thrown when the recovery counter would overflow its uint32 limit.
+     */
+    error RecoveryCounterOverflow();
+
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
@@ -398,7 +403,7 @@ interface IWorldIDRegistry {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Sets the validity window for historic roots. 0 means roots never expire.
+     * @dev Sets the validity window for historic roots.
      */
     function setRootValidityWindow(uint256 newWindow) external;
 

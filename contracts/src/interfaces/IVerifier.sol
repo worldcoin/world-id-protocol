@@ -41,6 +41,11 @@ interface IVerifier {
      */
     error UnregisteredIssuerSchemaId();
 
+    /**
+     * @dev Thrown when setting an external contract address to the zero address.
+     */
+    error ZeroAddress();
+
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////

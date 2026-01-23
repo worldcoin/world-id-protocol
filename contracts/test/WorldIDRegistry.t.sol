@@ -962,7 +962,7 @@ contract WorldIDRegistryTest is Test {
         uint256 newWindow = 7200;
 
         vm.expectEmit(true, true, true, true);
-        emit WorldIDRegistry.RootValidityWindowUpdated(oldWindow, newWindow);
+        emit IWorldIDRegistry.RootValidityWindowUpdated(oldWindow, newWindow);
 
         worldIDRegistry.setRootValidityWindow(newWindow);
         assertEq(worldIDRegistry.getRootValidityWindow(), newWindow);
