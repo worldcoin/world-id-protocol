@@ -25,7 +25,7 @@ impl Default for GasPolicyConfig {
     fn default() -> Self {
         Self {
             block_gas_limit: 100_000_000,
-            max_base_fee: 400_000_000_000, // 4 gwei
+            max_base_fee: 4_000_000_000, // 4 gwei
             target_base_fee: 1,
             backlog_threshold: 2_000,
         }
