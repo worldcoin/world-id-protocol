@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Verifier} from "../src/Verifier.sol";
 import {IVerifier} from "../src/interfaces/IVerifier.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
-import {Verifier as VerifierNullifier} from "../src/VerifierNullifier.sol";
+import {VerifierNullifier} from "../src/VerifierNullifier.sol";
 import {IVerifierNullifier} from "../src/interfaces/IVerifierNullifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";

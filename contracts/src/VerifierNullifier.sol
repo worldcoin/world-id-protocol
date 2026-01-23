@@ -10,7 +10,7 @@ import {IVerifierNullifier} from "./interfaces/IVerifierNullifier.sol";
 /// (256 bytes) and compressed (128 bytes) format. A view function is provided
 /// to compress proofs.
 /// @notice See <https://2π.com/23/bn254-compression> for further explanation.
-contract Verifier is IVerifierNullifier {
+contract VerifierNullifier is IVerifierNullifier {
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
