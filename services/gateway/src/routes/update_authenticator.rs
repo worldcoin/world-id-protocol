@@ -21,7 +21,7 @@ pub(crate) async fn update_authenticator(
 
     // Simulate the operation before queueing to catch errors early
     state
-        .regsitry
+        .registry
         .updateAuthenticator(
             req.leaf_index,
             req.old_authenticator_address,

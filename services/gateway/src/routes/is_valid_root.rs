@@ -92,14 +92,14 @@ pub(crate) async fn is_valid_root(
     let now = now_timestamp()?;
 
     let valid = state
-        .regsitry
+        .registry
         .isValidRoot(root)
         .call()
         .await
         .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
     if valid {
         // Cache only valid roots to avoid serving stale negatives indefinitely.
-        match cache_policy_for_root(state.regsitry.clone(), root, now).await {
+        match cache_policy_for_root(state.registry.clone(), root, now).await {
             Ok(CachePolicy::Cache(expires_at)) => {
                 state.root_cache.insert(root, expires_at).await;
             }

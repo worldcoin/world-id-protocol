@@ -21,7 +21,7 @@ pub(crate) async fn insert_authenticator(
 
     // Simulate the operation before queueing to catch errors early
     state
-        .regsitry
+        .registry
         .insertAuthenticator(
             req.leaf_index,
             req.new_authenticator_address,

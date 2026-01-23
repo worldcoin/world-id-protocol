@@ -88,7 +88,7 @@ pub(crate) async fn build_app(
         .expire_after(RootExpiry)
         .build();
     let state = AppState {
-        regsitry: registry.clone(),
+        registry: registry.clone(),
         batcher,
         ops_batcher,
         root_cache,

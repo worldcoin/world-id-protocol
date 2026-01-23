@@ -68,7 +68,7 @@ impl Expiry<U256, U256> for RootExpiry {
 #[derive(Clone)]
 pub(crate) struct AppState {
     /// World ID Registry contract.
-    pub(crate) regsitry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+    pub(crate) registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     /// Background batcher for create-account.
     pub(crate) batcher: CreateBatcherHandle,
     /// Background batcher for ops (insert/remove/recover/update).

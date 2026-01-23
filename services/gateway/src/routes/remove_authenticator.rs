@@ -24,7 +24,7 @@ pub(crate) async fn remove_authenticator(
 
     // Simulate the operation before queueing to catch errors early
     state
-        .regsitry
+        .registry
         .removeAuthenticator(
             req.leaf_index,
             req.authenticator_address,

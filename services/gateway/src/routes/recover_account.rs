@@ -21,7 +21,7 @@ pub(crate) async fn recover_account(
     let new_pubkey = req.new_authenticator_pubkey.unwrap_or(U256::ZERO);
     // Simulate the operation before queueing to catch errors early
     state
-        .regsitry
+        .registry
         .recoverAccount(
             req.leaf_index,
             req.new_authenticator_address,
