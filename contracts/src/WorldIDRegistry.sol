@@ -348,7 +348,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         // Check if the root is known and not expired
         uint256 ts = rootToTimestamp[root];
         if (ts == 0) return false;
-        if (rootValidityWindow == 0) return true;
         return block.timestamp <= ts + rootValidityWindow;
     }
 
@@ -1013,7 +1012,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Sets the validity window for historic roots. 0 means roots never expire.
+     * @dev Sets the validity window for historic roots.
      */
     function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
