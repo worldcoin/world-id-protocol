@@ -679,25 +679,31 @@ contract WorldIDRegistryTest is Test {
         );
     }
 
-    function test_SetMaxAuthenticators_RevertWhen_ValueAtLimit() public {
-        // Should revert when trying to set maxAuthenticators to exactly 160 (the limit)
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
-        worldIDRegistry.setMaxAuthenticators(160);
-    }
-
     function test_SetMaxAuthenticators_RevertWhen_ValueAboveLimit() public {
-        // Should revert when trying to set maxAuthenticators above 160
+        // Should revert when trying to set maxAuthenticators above 96 (the limit)
         vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
-        worldIDRegistry.setMaxAuthenticators(200);
+        worldIDRegistry.setMaxAuthenticators(97);
 
         vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
         worldIDRegistry.setMaxAuthenticators(type(uint256).max);
     }
 
     function test_SetMaxAuthenticators_SucceedsAtMaxValidValue() public {
-        // Should succeed when setting to 159 (one below the limit)
-        worldIDRegistry.setMaxAuthenticators(159);
-        assertEq(worldIDRegistry.getMaxAuthenticators(), 159);
+        // Should succeed when setting to 96 (the maximum allowed value, matching 96-bit bitmap)
+        worldIDRegistry.setMaxAuthenticators(96);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 96);
+    }
+
+    function test_SetMaxAuthenticators_SucceedsBelowMaxValue() public {
+        // Should succeed when setting to values below 96
+        worldIDRegistry.setMaxAuthenticators(95);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 95);
+
+        worldIDRegistry.setMaxAuthenticators(50);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 50);
+
+        worldIDRegistry.setMaxAuthenticators(1);
+        assertEq(worldIDRegistry.getMaxAuthenticators(), 1);
     }
 
     ////////////////////////////////////////////////////////////
@@ -840,5 +846,130 @@ contract WorldIDRegistryTest is Test {
         worldIDRegistry.setRootValidityWindow(7200);
         window = worldIDRegistry.getRootValidityWindow();
         assertEq(window, 7200, "Root validity window should update after setter is called");
+    }
+
+    function test_isValidRoot_latestRootAlwaysValid() public {
+        // The latest root should always be valid, regardless of validity window
+        uint256 root = worldIDRegistry.currentRoot();
+        assertTrue(worldIDRegistry.isValidRoot(root));
+
+        // Even with zero validity window, latest root is still valid
+        worldIDRegistry.setRootValidityWindow(0);
+        assertTrue(worldIDRegistry.isValidRoot(root));
+
+        // Warp far into the future - latest root still valid
+        vm.warp(block.timestamp + 365 days);
+        assertTrue(worldIDRegistry.isValidRoot(root));
+    }
+
+    function test_isValidRoot_expiresAfterWindow() public {
+        // Record initial root
+        uint256 initialRoot = worldIDRegistry.currentRoot();
+
+        // Create an account to change the root
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // Now we have a new root, and the initial root is historical
+        uint256 newRoot = worldIDRegistry.currentRoot();
+        assertTrue(initialRoot != newRoot, "Root should have changed");
+
+        // Initial root should still be valid (within default 1 hour window)
+        assertTrue(worldIDRegistry.isValidRoot(initialRoot));
+
+        // Warp time to just before expiration (default is 3600 seconds)
+        vm.warp(block.timestamp + 3599);
+        assertTrue(worldIDRegistry.isValidRoot(initialRoot), "Root should still be valid before window expires");
+
+        // Warp time past the validity window
+        vm.warp(block.timestamp + 2);
+        assertFalse(worldIDRegistry.isValidRoot(initialRoot), "Root should be invalid after window expires");
+
+        // Latest root should still be valid
+        assertTrue(worldIDRegistry.isValidRoot(newRoot));
+    }
+
+    function test_isValidRoot_zeroWindowMakesHistoricalRootsInvalid() public {
+        // Record initial root and its timestamp
+        uint256 initialRoot = worldIDRegistry.currentRoot();
+
+        // Create an account to change the root
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint256 newRoot = worldIDRegistry.currentRoot();
+
+        // Initially, the old root should be valid (default 3600s window)
+        assertTrue(worldIDRegistry.isValidRoot(initialRoot));
+
+        // Set validity window to 0
+        worldIDRegistry.setRootValidityWindow(0);
+
+        // Historical root should now be invalid immediately (since block.timestamp > ts + 0)
+        // Note: At the exact same timestamp it would still be valid, but any time advancement makes it invalid
+        vm.warp(block.timestamp + 1);
+        assertFalse(worldIDRegistry.isValidRoot(initialRoot), "Historical root should be invalid with zero window");
+
+        // Latest root should still be valid
+        assertTrue(worldIDRegistry.isValidRoot(newRoot), "Latest root should always be valid");
+    }
+
+    function test_isValidRoot_unknownRootReturnsFalse() public {
+        // A root that was never recorded should return false
+        uint256 unknownRoot = 0x1234567890abcdef;
+        assertFalse(worldIDRegistry.isValidRoot(unknownRoot));
+    }
+
+    function test_isValidRoot_customValidityWindow() public {
+        // Set a custom validity window of 1 day
+        uint256 oneDay = 86400;
+        worldIDRegistry.setRootValidityWindow(oneDay);
+
+        // Record initial root
+        uint256 initialRoot = worldIDRegistry.currentRoot();
+
+        // Create an account to change the root
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // Warp 23 hours - should still be valid
+        vm.warp(block.timestamp + 23 hours);
+        assertTrue(worldIDRegistry.isValidRoot(initialRoot), "Root should be valid within 1 day window");
+
+        // Warp past 1 day total
+        vm.warp(block.timestamp + 2 hours);
+        assertFalse(worldIDRegistry.isValidRoot(initialRoot), "Root should be invalid after 1 day");
+    }
+
+    function test_setRootValidityWindow_emitsEvent() public {
+        uint256 oldWindow = worldIDRegistry.getRootValidityWindow();
+        uint256 newWindow = 7200;
+
+        vm.expectEmit(true, true, true, true);
+        emit WorldIDRegistry.RootValidityWindowUpdated(oldWindow, newWindow);
+
+        worldIDRegistry.setRootValidityWindow(newWindow);
+        assertEq(worldIDRegistry.getRootValidityWindow(), newWindow);
+    }
+
+    function test_setRootValidityWindow_onlyOwner() public {
+        vm.prank(address(0xdead));
+        vm.expectRevert();
+        worldIDRegistry.setRootValidityWindow(100);
     }
 }

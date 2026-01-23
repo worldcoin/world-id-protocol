@@ -5,11 +5,8 @@ use std::{
 };
 
 use alloy::{
-    network::{Ethereum, EthereumWallet},
-    providers::{
-        DynProvider, Provider, ProviderBuilder, RootProvider, WsConnect,
-        fillers::CachedNonceManager,
-    },
+    network::EthereumWallet,
+    providers::{DynProvider, Provider, ProviderBuilder, WsConnect, fillers::CachedNonceManager},
     rpc::{client::RpcClient, json_rpc::RequestPacket},
     signers::{
         Signer,
@@ -35,6 +32,7 @@ use url::Url;
 
 #[derive(Debug, Clone, Args, Deserialize)]
 #[command(next_help_heading = "Rpc Configuration")]
+#[derive(Default)]
 pub struct ProviderArgs {
     /// HTTP RPC endpoints (in priority order).
     #[arg(long = "rpc-url", value_delimiter = ',', env = "RPC_URL")]
@@ -83,9 +81,10 @@ pub struct SignerArgs {
 }
 
 impl SignerArgs {
-    pub async fn signer(&self, chain: u64) -> anyhow::Result<EthereumWallet> {
+    pub async fn signer(&self, rpc_url: &Url) -> anyhow::Result<EthereumWallet> {
         match (&self.wallet_private_key, &self.aws_kms_key_id) {
             (Some(s), None) => {
+                // PrivateKey: No RPC call needed
                 let signer = s
                     .parse::<PrivateKeySigner>()
                     .map_err(|e| anyhow::anyhow!("invalid private key: {e}"))?;
@@ -94,10 +93,13 @@ impl SignerArgs {
             (None, Some(key_id)) => {
                 tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
 
-                // Initialize AWS KMS signer with the chain ID
+                let temp_provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+                let chain_id = temp_provider.get_chain_id().await?;
+                tracing::info!("Fetched chain_id: {}", chain_id);
+
                 let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
-                let client = aws_sdk_kms::Client::new(&config);
-                let aws_signer = AwsSigner::new(client, key_id.to_string(), Some(chain))
+                let kms_client = aws_sdk_kms::Client::new(&config);
+                let aws_signer = AwsSigner::new(kms_client, key_id.to_string(), Some(chain_id))
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {e}"))?;
                 tracing::info!(
@@ -147,24 +149,13 @@ pub enum SignerConfig {
 
 mod defaults {
     pub const BURST_SIZE: u32 = 10;
-    pub const REQUESTS_PER_SECOND: u32 = 50;
+    pub const REQUESTS_PER_SECOND: u32 = 100;
 
     pub const fn default_burst_size() -> u32 {
         BURST_SIZE
     }
     pub const fn default_requests_per_second() -> u32 {
         REQUESTS_PER_SECOND
-    }
-}
-
-impl Default for ProviderArgs {
-    fn default() -> Self {
-        Self {
-            http: Some(vec![]),
-            ws: None,
-            signer: None,
-            throttle: None,
-        }
     }
 }
 
@@ -205,6 +196,12 @@ impl ProviderArgs {
             return Err(anyhow::anyhow!("No HTTP URLs provided"));
         };
 
+        // Save first URL for signer (needed for AWS KMS chain_id lookup)
+        let first_url = http
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("No HTTP URLs provided"))?;
+
         // Configure the fallback layer
         let fallback_layer = FallbackLayer::default()
             .with_active_transport_count(NonZeroUsize::new(http.len()).unwrap());
@@ -233,14 +230,9 @@ impl ProviderArgs {
             RpcClient::builder().transport(transport, false)
         };
 
-        let chain_id = {
-            let provider: RootProvider<Ethereum> =
-                ProviderBuilder::default().connect_client(client.clone());
-            provider.get_chain_id().await?
-        };
-
         let maybe_signer = if let Some(signer) = &self.signer {
-            Some(signer.signer(chain_id).await?)
+            // Pass the first URL to the signer - it will only make RPC calls if needed (AWS KMS)
+            Some(signer.signer(&first_url).await?)
         } else {
             None
         };

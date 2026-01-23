@@ -11,10 +11,6 @@ use world_id_core::{
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
-/// Default root validity window for cache.
-///
-/// Set to 1 hour.
-const DEFAULT_CACHE_TTL_SECS: u64 = 60 * 60;
 /// Safety buffer for expirations, so we expire a bit early relative to chain time.
 const CACHE_SKEW_SECS: u64 = 120;
 
@@ -70,11 +66,6 @@ async fn cache_policy_for_root(
         .call()
         .await
         .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
-    if validity_window == U256::ZERO {
-        // The WorldIdRegistry contract considers the root valid forever if
-        // validity_window == 0, we set a default expiration to 1 hour in the future.
-        return Ok(CachePolicy::Cache(now + U256::from(DEFAULT_CACHE_TTL_SECS)));
-    }
 
     // Subtract a small skew allowance to avoid serving expired roots if local time lags chain time.
     let expiration = ts
