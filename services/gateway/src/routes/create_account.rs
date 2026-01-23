@@ -5,9 +5,9 @@ use crate::{
 use alloy::primitives::Address;
 use axum::{Json, extract::State};
 use world_id_core::types::{
-        CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse,
-        GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
-    };
+    CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
+    GatewayRequestState, GatewayStatusResponse,
+};
 
 pub(crate) async fn create_account(
     State(state): State<AppState>,

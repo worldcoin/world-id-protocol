@@ -7,9 +7,9 @@ use crate::{
 use alloy::primitives::Bytes;
 use axum::{Json, extract::State};
 use world_id_core::types::{
-        GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, UpdateAuthenticatorRequest,
-    };
+    GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse, UpdateAuthenticatorRequest,
+};
 
 pub(crate) async fn update_authenticator(
     State(state): State<AppState>,

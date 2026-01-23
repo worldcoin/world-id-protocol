@@ -1,7 +1,6 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
-pub use crate::config::{GatewayConfig};
+pub use crate::config::GatewayConfig;
 use crate::{routes::build_app, types::AppState};
 use request_tracker::RequestTracker;
 use tokio::sync::oneshot;

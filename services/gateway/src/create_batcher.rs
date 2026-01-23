@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::RequestTracker;
 use alloy::{
@@ -7,8 +6,10 @@ use alloy::{
     providers::DynProvider,
 };
 use tokio::sync::mpsc;
-use world_id_core::types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error};
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_core::{
+    types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error},
+    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {

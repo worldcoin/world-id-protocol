@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use crate::{create_batcher::CreateBatcherHandle, ops_batcher::OpsBatcherHandle};
-use alloy::{
-    primitives::U256,
-    providers::DynProvider,
-};
+use alloy::{primitives::U256, providers::DynProvider};
 use moka::{Expiry, future::Cache};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;

@@ -1,7 +1,10 @@
 use crate::types::AppState;
 use alloy::{primitives::U256, providers::DynProvider};
 use axum::{Json, extract::State};
-use std::{sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tracing::warn;
 use world_id_core::{
     types::{GatewayErrorResponse, IsValidRootQuery, IsValidRootResponse},

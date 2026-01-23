@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::RequestTracker;
 use alloy::{
@@ -8,7 +7,8 @@ use alloy::{
 };
 use tokio::sync::mpsc;
 use world_id_core::{
-    types::{GatewayErrorCode, GatewayRequestState, parse_contract_error}, world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+    types::{GatewayErrorCode, GatewayRequestState, parse_contract_error},
+    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");

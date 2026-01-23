@@ -1,11 +1,11 @@
 use std::time::Duration;
 
+use ::common::ProviderArgs;
 use alloy::{
     primitives::{Address, U256, address},
     providers::Provider,
     signers::local::PrivateKeySigner,
 };
-use ::common::ProviderArgs;
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
 use world_id_core::{

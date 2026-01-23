@@ -1,8 +1,7 @@
-use crate::routes::ErrorCode;
 use crate::{
     ops_batcher::{OpEnvelope, OpKind},
     request_tracker::RequestTracker,
-    routes::validation::ValidateRequest,
+    routes::{ErrorCode, validation::ValidateRequest},
     types::AppState,
 };
 use alloy::primitives::{Bytes, U256};

@@ -576,7 +576,9 @@ async fn main() -> eyre::Result<()> {
         let gateway_config = GatewayConfig {
             registry_addr: config.world_id_registry_contract,
             provider: ProviderArgs {
-                http: Some(vec![config.chain_rpc_url.expose_secret().to_string().parse()?]),
+                http: Some(vec![
+                    config.chain_rpc_url.expose_secret().to_string().parse()?,
+                ]),
                 signer: Some(signer_args.clone()),
                 ..Default::default()
             },
