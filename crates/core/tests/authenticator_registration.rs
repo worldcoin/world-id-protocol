@@ -27,8 +27,11 @@ async fn test_authenticator_registration() {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
-        rpc_url: anvil.endpoint().to_string(),
-        signer_args,
+        provider: world_id_gateway::ProviderArgs {
+            http: Some(vec![anvil.endpoint().parse().unwrap()]),
+            signer: Some(signer_args),
+            ..Default::default()
+        },
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
@@ -75,7 +78,10 @@ async fn test_authenticator_registration() {
         }
     };
 
-    poller.retry(ExponentialBuilder::default()).await.unwrap();
+    poller
+        .retry(ExponentialBuilder::default().with_max_times(10))
+        .await
+        .unwrap();
 
     let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
     let elapsed = start.elapsed();

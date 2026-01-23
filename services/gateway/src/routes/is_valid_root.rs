@@ -1,11 +1,14 @@
 use crate::types::AppState;
 use alloy::{primitives::U256, providers::DynProvider};
 use axum::{Json, extract::State};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tracing::warn;
 use world_id_core::{
     types::{GatewayErrorResponse, IsValidRootQuery, IsValidRootResponse},
-    world_id_registry::WorldIdRegistry,
+    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
 /// Safety buffer for expirations, so we expire a bit early relative to chain time.
@@ -44,7 +47,7 @@ enum CachePolicy {
 
 /// Decide whether and for how long to cache a valid root.
 async fn cache_policy_for_root(
-    contract: &WorldIdRegistry::WorldIdRegistryInstance<DynProvider>,
+    contract: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     root: U256,
     now: U256,
 ) -> Result<CachePolicy, GatewayErrorResponse> {
@@ -87,15 +90,16 @@ pub(crate) async fn is_valid_root(
         return Ok(Json(IsValidRootResponse { valid: true }));
     }
     let now = now_timestamp()?;
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    let valid = contract
+
+    let valid = state
+        .registry
         .isValidRoot(root)
         .call()
         .await
         .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
     if valid {
         // Cache only valid roots to avoid serving stale negatives indefinitely.
-        match cache_policy_for_root(&contract, root, now).await {
+        match cache_policy_for_root(state.registry.clone(), root, now).await {
             Ok(CachePolicy::Cache(expires_at)) => {
                 state.root_cache.insert(root, expires_at).await;
             }

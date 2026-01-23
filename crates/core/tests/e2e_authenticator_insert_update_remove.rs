@@ -109,8 +109,11 @@ async fn e2e_authenticator_insert_update_remove() {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
-        rpc_url: anvil.endpoint().to_string(),
-        signer_args,
+        provider: world_id_gateway::ProviderArgs {
+            http: Some(vec![anvil.endpoint().parse().unwrap()]),
+            signer: Some(signer_args),
+            ..Default::default()
+        },
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
