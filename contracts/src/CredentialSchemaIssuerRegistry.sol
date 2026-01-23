@@ -73,7 +73,7 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
     /**
      * @inheritdoc ICredentialSchemaIssuerRegistry
      */
-    function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
+    function register(Pubkey memory pubkey, address signer) public onlyProxy onlyInitialized returns (uint256) {
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
         }
@@ -90,7 +90,7 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
     /**
      * @inheritdoc ICredentialSchemaIssuerRegistry
      */
-    function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
+    function remove(uint256 issuerSchemaId, bytes calldata signature) public onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
         bytes32 messageHash = _hashTypedDataV4(
@@ -114,7 +114,6 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
      */
     function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
         public
-        virtual
         onlyProxy
         onlyInitialized
     {
@@ -151,7 +150,6 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
      */
     function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature)
         public
-        virtual
         onlyProxy
         onlyInitialized
     {
@@ -180,7 +178,6 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
      */
     function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature)
         public
-        virtual
         onlyProxy
         onlyInitialized
     {
@@ -224,7 +221,7 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
     /**
      * @inheritdoc ICredentialSchemaIssuerRegistry
      */
-    function getIssuerSchemaUri(uint256 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (string memory) {
+    function getIssuerSchemaUri(uint256 issuerSchemaId) public view onlyProxy onlyInitialized returns (string memory) {
         return idToSchemaUri[issuerSchemaId];
     }
 
@@ -234,7 +231,6 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
     function issuerSchemaIdToPubkey(uint256 issuerSchemaId)
         public
         view
-        virtual
         onlyProxy
         onlyInitialized
         returns (Pubkey memory)
@@ -248,7 +244,6 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
     function getSignerForIssuerSchemaId(uint256 issuerSchemaId)
         public
         view
-        virtual
         onlyProxy
         onlyInitialized
         returns (address)
@@ -259,14 +254,14 @@ contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchema
     /**
      * @inheritdoc ICredentialSchemaIssuerRegistry
      */
-    function nextIssuerSchemaId() public view virtual onlyProxy onlyInitialized returns (uint256) {
+    function nextIssuerSchemaId() public view onlyProxy onlyInitialized returns (uint256) {
         return _nextId;
     }
 
     /**
      * @inheritdoc ICredentialSchemaIssuerRegistry
      */
-    function nonceOf(uint256 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+    function nonceOf(uint256 issuerSchemaId) public view onlyProxy onlyInitialized returns (uint256) {
         return _nonces[issuerSchemaId];
     }
 }
