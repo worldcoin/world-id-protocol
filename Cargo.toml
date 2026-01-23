@@ -7,6 +7,7 @@ members = [
     "services/gateway",
     "services/oprf-node",
     "services/oprf-dev-client",
+    "services/common"
 ]
 resolver = "2"
 
@@ -21,7 +22,6 @@ rust-version = "1.87"
 
 [workspace.dependencies]
 alloy = { version = "1.4", default-features = false }
-
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
@@ -63,7 +63,7 @@ thiserror = "1"
 tokio = { version = "1", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = { version = "2" }
+url = { version = "2", features = ["serde"] }
 utoipa = "5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1" }

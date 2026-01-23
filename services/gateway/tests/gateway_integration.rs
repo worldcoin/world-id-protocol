@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use ::common::ProviderArgs;
 use alloy::{
     primitives::{Address, U256, address},
     providers::Provider,
@@ -90,8 +91,11 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        rpc_url: rpc_url.clone(),
-        signer_args,
+        provider: ProviderArgs {
+            http: Some(vec![rpc_url.parse().unwrap()]),
+            signer: Some(signer_args),
+            ..Default::default()
+        },
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
         max_create_batch_size: 10,
