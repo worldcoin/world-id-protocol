@@ -7,6 +7,7 @@ import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 import {Verifier as VerifierNullifier} from "../src/VerifierNullifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
+import {ICredentialSchemaIssuerRegistry} from "../src/interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 uint256 constant credentialIssuerIdCorrect = 1;
 uint256 constant credentialIssuerIdWrong = 2;
@@ -51,15 +52,15 @@ contract CredentialSchemaIssuerRegistryMock {
         public
         view
         virtual
-        returns (CredentialSchemaIssuerRegistry.Pubkey memory)
+        returns (ICredentialSchemaIssuerRegistry.Pubkey memory)
     {
         if (issuerSchemaId == credentialIssuerIdCorrect) {
-            return CredentialSchemaIssuerRegistry.Pubkey({
+            return ICredentialSchemaIssuerRegistry.Pubkey({
                 x: 0x13792652ea0af01565bbb64d51607bf96447930b33e52d1bae28ad027dfddc15,
                 y: 0x1a03e277ea354e453878e02f6e151a7a497c53e6cd9772ad33829235f89d6496
             });
         } else {
-            return CredentialSchemaIssuerRegistry.Pubkey({
+            return ICredentialSchemaIssuerRegistry.Pubkey({
                 x: 0x1583c671e97dd91df79d8c5b311d452a3eec14932c89d9cff0364d5b98ef215e,
                 y: 0x3f5c610720cfa296066965732468ea34a8f7e3725899e1b4470c6b5a76321a3
             });
