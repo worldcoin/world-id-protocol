@@ -20,8 +20,6 @@ interface ICredentialSchemaIssuerRegistry {
     //                        ERRORS                          //
     ////////////////////////////////////////////////////////////
 
-    error ImplementationNotInitialized();
-
     /**
      * @dev Thrown when trying to update the schema URI to the same as the current one.
      */

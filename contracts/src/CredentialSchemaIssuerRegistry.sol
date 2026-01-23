@@ -8,30 +8,14 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
+import {BaseUpgradeable712} from "./abstract/BaseUpgradeable.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
  * @author World Contributors
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is
-    Initializable,
-    EIP712Upgradeable,
-    Ownable2StepUpgradeable,
-    UUPSUpgradeable,
-    ICredentialSchemaIssuerRegistry
-{
-    modifier onlyInitialized() {
-        _onlyInitialized();
-        _;
-    }
-
-    function _onlyInitialized() internal view {
-        if (_getInitializedVersion() == 0) {
-            revert ImplementationNotInitialized();
-        }
-    }
-
+contract CredentialSchemaIssuerRegistry is BaseUpgradeable712, ICredentialSchemaIssuerRegistry {
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
@@ -74,18 +58,11 @@ contract CredentialSchemaIssuerRegistry is
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
     /**
      * @dev Initializes the contract.
      */
     function initialize() public initializer {
-        __EIP712_init(EIP712_NAME, EIP712_VERSION);
-        __Ownable_init(msg.sender);
-        __Ownable2Step_init();
+        __BaseUpgradeable712_init(EIP712_NAME, EIP712_VERSION);
         _nextId = 1;
     }
 
@@ -287,25 +264,4 @@ contract CredentialSchemaIssuerRegistry is
     function nonceOf(uint256 issuerSchemaId) public view onlyProxy onlyInitialized returns (uint256) {
         return _nonces[issuerSchemaId];
     }
-
-    ////////////////////////////////////////////////////////////
-    //                    OWNER FUNCTIONS                      //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Authorize upgrade to a new implementation
-     * @param newImplementation Address of the new implementation contract
-     * @notice Only the contract owner can authorize upgrades
-     */
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
-
-    ////////////////////////////////////////////////////////////
-    //                    Storage Gap                         //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Storage gap to allow for future upgrades without storage collisions
-     * This reserves 50 storage slots for future state variables
-     */
-    uint256[50] private __gap;
 }
