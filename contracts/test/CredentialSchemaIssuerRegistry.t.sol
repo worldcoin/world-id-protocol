@@ -25,10 +25,6 @@ contract CredentialIssuerRegistryTest is Test {
     }
 
     function _generatePubkey(string memory str) public pure returns (ICredentialSchemaIssuerRegistry.Pubkey memory) {
-        // ICredentialSchemaIssuerRegistry.Pubkey memory pubkey;
-        // pubkey.x = uint256(keccak256(bytes(str)));
-        // pubkey.y = uint256(keccak256(bytes(str)));
-        // return pubkey;
         return ICredentialSchemaIssuerRegistry.Pubkey(uint256(keccak256(bytes(str))), uint256(keccak256(bytes(str))));
     }
 
