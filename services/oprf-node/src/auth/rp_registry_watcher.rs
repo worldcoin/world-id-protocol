@@ -22,7 +22,7 @@ use alloy::{
     sol_types::SolEvent,
 };
 use futures::StreamExt as _;
-use moka::{future::Cache, ops::compute::Op};
+use moka::{future::Cache, notification::RemovalCause, ops::compute::Op};
 use taceo_oprf_types::OprfKeyId;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -97,8 +97,11 @@ impl RpRegistryWatcher {
         let rp_store: Cache<RpId, RelyingParty> = Cache::builder()
             .max_capacity(max_rp_registry_store_size)
             .eviction_listener(|key, _value, cause| {
-                tracing::debug!("evicting rp {key} from cache because of {cause:?}");
-                ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).decrement(1);
+                // on update we get a Replaced cause, which we don't want to count as eviction
+                if cause != RemovalCause::Replaced {
+                    tracing::debug!("evicting rp {key} from cache because of {cause:?}");
+                    ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).decrement(1);
+                }
             })
             .build();
         tokio::task::spawn({
