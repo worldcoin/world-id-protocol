@@ -23,7 +23,7 @@ include = [
 [[bin]]
 name = "authenticator"
 path = "bin/authenticator.rs"
-required-features = ["authenticator", "cli"]
+required-features = ["authenticator", "cli", "embed-zkeys"]
 
 [[bin]]
 name = "issuer"

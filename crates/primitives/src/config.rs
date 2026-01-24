@@ -36,12 +36,6 @@ pub struct Config {
     /// Optional directory to cache uncompressed circuit zkeys.
     #[serde(default)]
     zkey_cache_dir: Option<PathBuf>,
-    /// Optional path for uncompressed query zkey.
-    #[serde(default)]
-    query_zkey_path: Option<PathBuf>,
-    /// Optional path for uncompressed nullifier zkey.
-    #[serde(default)]
-    nullifier_zkey_path: Option<PathBuf>,
 }
 
 impl Config {
@@ -77,8 +71,6 @@ impl Config {
             nullifier_oracle_urls,
             nullifier_oracle_threshold,
             zkey_cache_dir: None,
-            query_zkey_path: None,
-            nullifier_zkey_path: None,
         })
     }
 
@@ -144,32 +136,6 @@ impl Config {
     #[must_use]
     pub fn with_zkey_cache_dir(mut self, zkey_cache_dir: impl Into<PathBuf>) -> Self {
         self.zkey_cache_dir = Some(zkey_cache_dir.into());
-        self
-    }
-
-    /// Optional path for uncompressed query zkey.
-    #[must_use]
-    pub fn query_zkey_path(&self) -> Option<&Path> {
-        self.query_zkey_path.as_ref().map(|p| p.as_path())
-    }
-
-    /// Sets the path used for uncompressed query zkey.
-    #[must_use]
-    pub fn with_query_zkey_path(mut self, query_zkey_path: impl Into<PathBuf>) -> Self {
-        self.query_zkey_path = Some(query_zkey_path.into());
-        self
-    }
-
-    /// Optional path for uncompressed nullifier zkey.
-    #[must_use]
-    pub fn nullifier_zkey_path(&self) -> Option<&Path> {
-        self.nullifier_zkey_path.as_ref().map(|p| p.as_path())
-    }
-
-    /// Sets the path used for uncompressed nullifier zkey.
-    #[must_use]
-    pub fn with_nullifier_zkey_path(mut self, nullifier_zkey_path: impl Into<PathBuf>) -> Self {
-        self.nullifier_zkey_path = Some(nullifier_zkey_path.into());
         self
     }
 }
