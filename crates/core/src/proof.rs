@@ -16,7 +16,11 @@ use circom_types::{ark_bn254::Bn254, groth16::Proof};
 use groth16_material::Groth16Error;
 use poseidon2::Poseidon2;
 use rand::{CryptoRng, Rng};
-use std::{io::Read, path::Path};
+use std::{
+    fs::{self},
+    io::Read,
+    path::Path,
+};
 use taceo_oprf_client::Connector;
 use taceo_oprf_core::oprf::BlindingFactor;
 use taceo_oprf_types::ShareEpoch;
@@ -52,16 +56,24 @@ pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
     "c1d951716e3b74b72e4ea0429986849cadc43cccc630a7ee44a56a6199a66b9a";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
-#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const NULLIFIER_GRAPH_BYTES: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifierGraph.bin"));
+const QUERY_GRAPH_BYTES: &[u8] = include_bytes!("../../../circom/OPRFQueryGraph.bin");
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const QUERY_ZKEY_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQuery.arks.zkey"));
+const NULLIFIER_GRAPH_BYTES: &[u8] = include_bytes!("../../../circom/OPRFNullifierGraph.bin");
+
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const NULLIFIER_ZKEY_BYTES: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifier.arks.zkey"));
+const QUERY_ZKEY_BYTES: &[u8] = if cfg!(feature = "compress-zkeys") {
+    include_bytes!("../../../circom/OPRFQuery.arks.zkey.compressed")
+} else {
+    include_bytes!("../../../circom/OPRFQuery.arks.zkey")
+};
+
+#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
+const NULLIFIER_ZKEY_BYTES: &[u8] = if cfg!(feature = "compress-zkeys") {
+    include_bytes!("../../../circom/OPRFNullifier.arks.zkey.compressed")
+} else {
+    include_bytes!("../../../circom/OPRFNullifier.arks.zkey")
+};
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
@@ -82,49 +94,76 @@ pub enum ProofError {
 // ============================================================================
 
 /// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also nullifier proof)
-/// from the embedded keys in the binary.
+/// from the optional zkey file or from embedded keys in the binary.
 ///
-/// # Panics
-/// Will panic if the embedded material cannot be loaded or verified.
-#[must_use]
-#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
-    build_nullifier_builder()
-        .build_from_bytes(NULLIFIER_ZKEY_BYTES, NULLIFIER_GRAPH_BYTES)
-        .expect("works when loading embedded groth16-material")
+/// # Arguments
+/// * `nullifier_zkey` - Optional path to the nullifier zkey file. If `None`, will attempt to load from embedded bytes.
+/// * `cache_dir` - Optional directory to cache the uncompressed zkey.
+///
+/// # Returns
+/// The uncompressed nullifier zkey bytes.
+///
+/// # Errors
+/// Will return an error if the zkey file cannot be loaded.
+pub fn load_nullifier_material(
+    nullifier_zkey: Option<impl AsRef<Path>>,
+    cache_dir: Option<impl AsRef<Path>>,
+) -> eyre::Result<CircomGroth16Material> {
+    let nullifier_zkey_bytes = load_nullifier_zkey(nullifier_zkey, cache_dir)?;
+    Ok(build_nullifier_builder().build_from_bytes(&nullifier_zkey_bytes, NULLIFIER_GRAPH_BYTES)?)
 }
 
-/// Loads the [`CircomGroth16Material`] for the query proof from the embedded keys in the binary.
+/// Loads the [`CircomGroth16Material`] for the query proof from the optional zkey file or from the embedded keys in the binary.
 ///
-/// # Panics
-/// Will panic if the embedded material cannot be loaded or verified.
-#[must_use]
-#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-pub fn load_embedded_query_material() -> CircomGroth16Material {
-    build_query_builder()
-        .build_from_bytes(QUERY_ZKEY_BYTES, QUERY_GRAPH_BYTES)
-        .expect("works when loading embedded groth16-material")
+/// # Arguments
+/// * `query_zkey` - Optional path to the query zkey file. If `None`, will attempt to load from embedded bytes.
+/// * `cache_dir` - Optional directory to cache the uncompressed zkey.
+///
+/// # Returns
+/// The uncompressed query zkey bytes.
+///
+/// # Errors
+/// Will return an error if the zkey file cannot be loaded.
+pub fn load_query_material(
+    query_zkey: Option<impl AsRef<Path>>,
+    cache_dir: Option<impl AsRef<Path>>,
+) -> eyre::Result<CircomGroth16Material> {
+    let query_zkey_bytes = load_query_zkey(query_zkey, cache_dir)?;
+    Ok(build_query_builder().build_from_bytes(&query_zkey_bytes, QUERY_GRAPH_BYTES)?)
 }
 
 /// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also nullifier proof)
-/// from the embedded keys in the binary.
-#[cfg(docsrs)]
-#[must_use]
-pub fn load_embedded_nullifier_material() -> CircomGroth16Material {
-    // TODO: This is a stub for docs.rs compilation only
-    todo!(
-        "load_embedded_nullifier_material is not available on docs.rs - use load_nullifier_material_from_paths or load_nullifier_material_from_reader instead"
-    )
+/// from the embedded keys in the binary without caching.
+///
+/// # Returns
+/// The nullifier material.
+///
+/// # Errors
+/// Will return an error if the zkey file cannot be loaded.
+// #[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys")))]
+pub fn load_embedded_nullifier_material() -> eyre::Result<CircomGroth16Material> {
+    let nullifier_zkey_bytes = load_nullifier_zkey(
+        Option::<std::path::PathBuf>::None,
+        Option::<std::path::PathBuf>::None,
+    )?;
+    Ok(build_nullifier_builder().build_from_bytes(&nullifier_zkey_bytes, NULLIFIER_GRAPH_BYTES)?)
 }
 
-/// Loads the [`CircomGroth16Material`] for the query proof from the embedded keys in the binary.
-#[cfg(docsrs)]
-#[must_use]
-pub fn load_embedded_query_material() -> CircomGroth16Material {
-    // TODO: This is a stub for docs.rs compilation only
-    todo!(
-        "load_embedded_query_material is not available on docs.rs - use load_query_material_from_paths or load_query_material_from_reader instead"
-    )
+/// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also query proof)
+/// from the optional zkey file or from embedded keys in the binary.
+///
+/// # Returns
+/// The query material
+///
+/// # Errors
+/// Will return an error if the zkey file cannot be loaded.
+// #[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys")))]
+pub fn load_embedded_query_material() -> eyre::Result<CircomGroth16Material> {
+    let query_zkey_bytes = load_query_zkey(
+        Option::<std::path::PathBuf>::None,
+        Option::<std::path::PathBuf>::None,
+    )?;
+    Ok(build_query_builder().build_from_bytes(&query_zkey_bytes, QUERY_GRAPH_BYTES)?)
 }
 
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided reader.
@@ -171,6 +210,137 @@ pub fn load_query_material_from_paths(
     graph: impl AsRef<Path>,
 ) -> eyre::Result<CircomGroth16Material> {
     Ok(build_query_builder().build_from_paths(zkey, graph)?)
+}
+
+/// Loads the query zkey from the provided path, or from embedded bytes,
+/// decompressing and caching it on disk if necessary.
+///
+/// # Arguments
+/// * `query_zkey` - Optional path to the query zkey file. If `None`, will attempt to load from embedded bytes.
+/// * `cache_dir` - Optional directory to cache the uncompressed zkey.
+///
+/// # Returns
+/// The uncompressed query zkey bytes.
+///
+/// # Errors
+/// Will return an error if the zkey file cannot be loaded.
+#[allow(unused_variables)]
+fn load_query_zkey(
+    query_zkey: Option<impl AsRef<Path>>,
+    cache_dir: Option<impl AsRef<Path>>,
+) -> eyre::Result<Vec<u8>> {
+    if let Some(path) = query_zkey {
+        Ok(fs::read(path)?)
+    } else if cfg!(feature = "embed-zkeys") {
+        #[cfg(feature = "compress-zkeys")]
+        {
+            load_embedded_compressed_zkey(cache_dir, "OPRFQuery.arks.zkey", QUERY_ZKEY_BYTES)
+        }
+
+        #[cfg(not(feature = "compress-zkeys"))]
+        {
+            Ok(QUERY_ZKEY_BYTES.to_vec())
+        }
+    } else {
+        Err(eyre::eyre!(
+            "No query zkey provided and embedded zkeys are not available"
+        ))
+    }
+}
+
+/// Loads the nullifier zkey from the provided path, or from embedded bytes,
+/// decompressing and caching it on disk if necessary.
+///
+/// # Arguments
+/// * `nullifier_zkey` - Optional path to the nullifier zkey file. If `None`, will attempt to load from embedded bytes.
+/// * `cache_dir` - Optional directory to cache the uncompressed zkey.
+///
+/// # Returns
+/// The uncompressed nullifier zkey bytes.
+///
+/// # Errors
+/// Will return an error if the zkey file cannot be loaded.
+#[allow(unused_variables)]
+fn load_nullifier_zkey(
+    nullifier_zkey: Option<impl AsRef<Path>>,
+    cache_dir: Option<impl AsRef<Path>>,
+) -> eyre::Result<Vec<u8>> {
+    if let Some(path) = nullifier_zkey {
+        Ok(fs::read(path)?)
+    } else if cfg!(feature = "embed-zkeys") {
+        #[cfg(feature = "compress-zkeys")]
+        {
+            load_embedded_compressed_zkey(
+                cache_dir,
+                "OPRFNullifier.arks.zkey",
+                NULLIFIER_ZKEY_BYTES,
+            )
+        }
+
+        #[cfg(not(feature = "compress-zkeys"))]
+        {
+            Ok(NULLIFIER_ZKEY_BYTES.to_vec())
+        }
+    } else {
+        Err(eyre::eyre!(
+            "No nullifier zkey provided and embedded zkeys are not available"
+        ))
+    }
+}
+
+/// Loads an embedded compressed zkey, decompressing and caching it on disk if necessary.
+///
+/// # Arguments
+/// * `cache_dir` - Optional directory to cache the uncompressed zkey.
+/// * `file_name` - The file name to use for caching.
+/// * `bytes` - The compressed zkey bytes.
+///
+/// # Returns
+/// The uncompressed zkey bytes.
+///
+/// # Errors
+/// Will return an error if decompression or file operations fail.
+#[cfg(feature = "compress-zkeys")]
+fn load_embedded_compressed_zkey(
+    cache_dir: Option<impl AsRef<Path>>,
+    file_name: &str,
+    bytes: &[u8],
+) -> eyre::Result<Vec<u8>> {
+    let compressed = bytes.to_vec();
+    let cache_dir = match cache_dir {
+        Some(dir) => dir.as_ref().to_path_buf(),
+        None => {
+            tracing::warn!(
+                "No cache directory provided for uncompressed zkey, using system temp directory"
+            );
+            let mut dir = std::env::temp_dir();
+            dir.push("world-id-zkey-cache");
+            dir
+        }
+    };
+    let path = cache_dir.join(file_name);
+    match fs::read(&path) {
+        Ok(bytes) => Ok(bytes),
+        Err(_) => {
+            // Decompress and cache
+            let zkey =
+                <circom_types::groth16::ArkZkey<Bn254> as ark_serialize::CanonicalDeserialize>::deserialize_with_mode(
+                    compressed.as_slice(),
+                    ark_serialize::Compress::Yes,
+                    ark_serialize::Validate::Yes,
+                )?;
+
+            let mut uncompressed = Vec::new();
+            ark_serialize::CanonicalSerialize::serialize_with_mode(
+                &zkey,
+                &mut uncompressed,
+                ark_serialize::Compress::No,
+            )?;
+            fs::create_dir_all(&cache_dir)?;
+            fs::write(&path, &uncompressed)?;
+            Ok(uncompressed)
+        }
+    }
 }
 
 fn build_nullifier_builder() -> CircomGroth16MaterialBuilder {

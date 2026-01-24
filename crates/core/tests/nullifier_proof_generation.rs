@@ -30,8 +30,8 @@ use world_id_primitives::{
 /// a simulated local vOPRF service.
 #[tokio::test]
 async fn test_nullifier_proof_generation() -> eyre::Result<()> {
-    let query_material = proof::load_embedded_query_material();
-    let nullifier_material = proof::load_embedded_nullifier_material();
+    let query_material = proof::load_embedded_query_material()?;
+    let nullifier_material = proof::load_embedded_nullifier_material()?;
 
     let RegistryTestContext {
         anvil,

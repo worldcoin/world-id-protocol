@@ -325,8 +325,8 @@ async fn stress_test(
         .position(|pk| pk.pk == authenticator.offchain_pubkey().pk)
         .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
-    let query_material = world_id_core::proof::load_embedded_query_material();
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material();
+    let query_material = world_id_core::proof::load_embedded_query_material()?;
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material()?;
 
     let mut oprf_args = HashMap::with_capacity(cmd.runs);
     let mut query_inputs = HashMap::with_capacity(cmd.runs);

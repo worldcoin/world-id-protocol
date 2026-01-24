@@ -6,6 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     Credential, FieldElement, Signer,
+    proof::CircomGroth16Material,
     requests::ProofRequest,
     types::{
         AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
@@ -59,6 +60,8 @@ pub struct Authenticator {
     registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
     ws_connector: Connector,
+    query_material: Arc<CircomGroth16Material>,
+    nullifier_material: Arc<CircomGroth16Material>,
 }
 
 #[expect(clippy::missing_fields_in_debug)]
@@ -115,6 +118,25 @@ impl Authenticator {
             .with_no_client_auth();
         let ws_connector = Connector::Rustls(Arc::new(rustls_config));
 
+        let cache_dir = config.zkey_cache_dir();
+        let query_material = Arc::new(
+            crate::proof::load_query_material(config.query_zkey_path(), cache_dir).map_err(
+                |e| {
+                    AuthenticatorError::Generic(format!(
+                        "Failed to load cached query material: {e}"
+                    ))
+                },
+            )?,
+        );
+        let nullifier_material = Arc::new(
+            crate::proof::load_nullifier_material(config.nullifier_zkey_path(), cache_dir)
+                .map_err(|e| {
+                    AuthenticatorError::Generic(format!(
+                        "Failed to load cached nullifier material: {e}"
+                    ))
+                })?,
+        );
+
         Ok(Self {
             packed_account_data,
             signer,
@@ -122,6 +144,8 @@ impl Authenticator {
             registry: registry.map(Arc::new),
             http_client,
             ws_connector,
+            query_material,
+            nullifier_material,
         })
     }
 
@@ -415,9 +439,8 @@ impl Authenticator {
             .position(|pk| pk.pk == self.offchain_pubkey().pk)
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
-        // TODO: load once and from bytes
-        let query_material = crate::proof::load_embedded_query_material();
-        let nullifier_material = crate::proof::load_embedded_nullifier_material();
+        let query_material = self.query_material.as_ref();
+        let nullifier_material = self.nullifier_material.as_ref();
 
         let request_item = proof_request
             .find_request_by_issuer_schema_id(credential.issuer_schema_id.into())
@@ -470,8 +493,8 @@ impl Authenticator {
         let (proof, _public, nullifier) = crate::proof::nullifier(
             services,
             threshold,
-            &query_material,
-            &nullifier_material,
+            query_material,
+            nullifier_material,
             args,
             private_key,
             self.ws_connector.clone(),
@@ -948,10 +971,23 @@ enum PollResult {
     TerminalError(AuthenticatorError),
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "embed-zkeys"))]
 mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
+    use std::sync::OnceLock;
+
+    fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
+        static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
+        static NULLIFIER: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
+
+        let query =
+            QUERY.get_or_init(|| Arc::new(crate::proof::load_embedded_query_material().unwrap()));
+        let nullifier = NULLIFIER
+            .get_or_init(|| Arc::new(crate::proof::load_embedded_nullifier_material().unwrap()));
+
+        (Arc::clone(query), Arc::clone(nullifier))
+    }
 
     /// Tests that `get_packed_account_data` correctly fetches the packed account data from the indexer
     /// when no RPC is configured.
@@ -1094,6 +1130,7 @@ mod tests {
         )
         .unwrap();
 
+        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config,
             packed_account_data: leaf_index, // This sets leaf_index() to 1
@@ -1101,6 +1138,8 @@ mod tests {
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
         };
 
         let nonce = authenticator.signing_nonce().await.unwrap();
@@ -1140,6 +1179,7 @@ mod tests {
         )
         .unwrap();
 
+        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config,
             packed_account_data: U256::ZERO,
@@ -1147,6 +1187,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
         };
 
         let result = authenticator.signing_nonce().await;
