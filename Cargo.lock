@@ -8159,6 +8159,7 @@ dependencies = [
  "k256",
  "mockito",
  "rand 0.8.5",
+ "rayon",
  "reqwest",
  "ruint",
  "rustls 0.23.36",
