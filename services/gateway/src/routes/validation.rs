@@ -1,3 +1,5 @@
+use tokio::sync::OnceCell;
+
 use alloy::{
     primitives::{Address, Bytes, Signature, U256},
     providers::Provider,
@@ -14,6 +16,9 @@ use world_id_core::{
 };
 
 use crate::{request::Registry, types::MAX_AUTHENTICATORS};
+
+/// Global OnceCell to store the chain ID.
+pub static CHAIN_ID: OnceCell<u64> = OnceCell::const_new();
 
 /// Standard ECDSA signature length.
 const ECDSA_SIGNATURE_LEN: usize = 65;
@@ -57,20 +62,23 @@ pub(crate) trait RequestValidation: Sized + Sync {
     fn simulate(
         &self,
         registry: &Registry,
-    ) -> impl std::future::Future<Output = Result<(), GatewayErrorResponse>> + Send;
+    ) -> impl Future<Output = Result<(), GatewayErrorResponse>> + Send;
 
     /// Full validation: pre-flight checks (including signature verification), then contract simulation.
     fn validate(
         &self,
         registry: &Registry,
-    ) -> impl std::future::Future<Output = Result<(), GatewayErrorResponse>> + Send {
+    ) -> impl Future<Output = Result<(), GatewayErrorResponse>> + Send {
         async move {
-            // Get chain ID and contract address for signature verification
-            let chain_id = registry
-                .provider()
-                .get_chain_id()
-                .await
-                .map_err(|_| GatewayErrorResponse::internal_server_error())?;
+            let chain_id = *CHAIN_ID
+                .get_or_try_init(|| async {
+                    registry
+                        .provider()
+                        .get_chain_id()
+                        .await
+                        .map_err(|_| GatewayErrorResponse::internal_server_error())
+                })
+                .await?;
             let verifying_contract = *registry.address();
 
             self.pre_flight(chain_id, verifying_contract)?;
