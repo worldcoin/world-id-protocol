@@ -316,7 +316,7 @@ impl RequestValidation for UpdateAuthenticatorRequest {
             ));
         }
 
-        // Verify ECDSA signature
+        // Verify ECDSA signature is from the authenticator being replaced
         let typed_data = UpdateAuthenticator {
             leafIndex: self.leaf_index,
             oldAuthenticatorAddress: self.old_authenticator_address,
@@ -326,7 +326,12 @@ impl RequestValidation for UpdateAuthenticatorRequest {
             newOffchainSignerCommitment: self.new_offchain_signer_commitment,
             nonce: self.nonce,
         };
-        let _signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+        let signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+        if signer != self.old_authenticator_address {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "signature must be from the authenticator being replaced".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -407,7 +412,9 @@ impl RequestValidation for RemoveAuthenticatorRequest {
             ));
         }
 
-        // Verify ECDSA signature
+        // Verify ECDSA signature format and recoverability
+        // Note: Any authenticator on the account can authorize removal, not just the one being removed.
+        // Full authorization is verified by the contract during simulation.
         let typed_data = RemoveAuthenticator {
             leafIndex: self.leaf_index,
             authenticatorAddress: self.authenticator_address,
