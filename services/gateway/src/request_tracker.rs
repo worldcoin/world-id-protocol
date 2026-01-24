@@ -101,11 +101,12 @@ impl RequestTracker {
         format!("gateway:request:{}", id)
     }
 
-    pub async fn new_request(
+    /// Creates a new request with a specific ID.
+    pub async fn new_request_with_id(
         &self,
+        id: String,
         kind: GatewayRequestKind,
-    ) -> Result<(String, RequestRecord), GatewayErrorResponse> {
-        let id = uuid::Uuid::new_v4().to_string();
+    ) -> Result<(), GatewayErrorResponse> {
         let record = RequestRecord {
             kind,
             status: GatewayRequestState::Queued,
@@ -132,7 +133,7 @@ impl RequestTracker {
             self.cache.insert(id.clone(), record.clone()).await;
         }
 
-        Ok((id, record))
+        Ok(())
     }
 
     pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
