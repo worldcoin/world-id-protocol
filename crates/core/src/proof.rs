@@ -61,19 +61,19 @@ const QUERY_GRAPH_BYTES: &[u8] = include_bytes!("../../../circom/OPRFQueryGraph.
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const NULLIFIER_GRAPH_BYTES: &[u8] = include_bytes!("../../../circom/OPRFNullifierGraph.bin");
 
-#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const QUERY_ZKEY_BYTES: &[u8] = if cfg!(feature = "compress-zkeys") {
-    include_bytes!("../../../circom/OPRFQuery.arks.zkey.compressed")
-} else {
-    include_bytes!("../../../circom/OPRFQuery.arks.zkey")
-};
+#[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys"), not(docsrs)))]
+const QUERY_ZKEY_BYTES: &[u8] = include_bytes!("../../../circom/OPRFQuery.arks.zkey");
 
-#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const NULLIFIER_ZKEY_BYTES: &[u8] = if cfg!(feature = "compress-zkeys") {
-    include_bytes!("../../../circom/OPRFNullifier.arks.zkey.compressed")
-} else {
-    include_bytes!("../../../circom/OPRFNullifier.arks.zkey")
-};
+#[cfg(all(feature = "compress-zkeys", not(docsrs)))]
+const QUERY_ZKEY_COMPRESSED_BYTES: &[u8] =
+    include_bytes!("../../../circom/OPRFQuery.arks.zkey.compressed");
+
+#[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys"), not(docsrs)))]
+const NULLIFIER_ZKEY_BYTES: &[u8] = include_bytes!("../../../circom/OPRFNullifier.arks.zkey");
+
+#[cfg(all(feature = "compress-zkeys", not(docsrs)))]
+const NULLIFIER_ZKEY_COMPRESSED_BYTES: &[u8] =
+    include_bytes!("../../../circom/OPRFNullifier.arks.zkey.compressed");
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
@@ -234,10 +234,14 @@ fn load_query_zkey(
     } else if cfg!(feature = "embed-zkeys") {
         #[cfg(feature = "compress-zkeys")]
         {
-            load_embedded_compressed_zkey(cache_dir, "OPRFQuery.arks.zkey", QUERY_ZKEY_BYTES)
+            load_embedded_compressed_zkey(
+                cache_dir,
+                "OPRFQuery.arks.zkey",
+                QUERY_ZKEY_COMPRESSED_BYTES,
+            )
         }
 
-        #[cfg(not(feature = "compress-zkeys"))]
+        #[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys")))]
         {
             Ok(QUERY_ZKEY_BYTES.to_vec())
         }
@@ -273,11 +277,11 @@ fn load_nullifier_zkey(
             load_embedded_compressed_zkey(
                 cache_dir,
                 "OPRFNullifier.arks.zkey",
-                NULLIFIER_ZKEY_BYTES,
+                NULLIFIER_ZKEY_COMPRESSED_BYTES,
             )
         }
 
-        #[cfg(not(feature = "compress-zkeys"))]
+        #[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys")))]
         {
             Ok(NULLIFIER_ZKEY_BYTES.to_vec())
         }
