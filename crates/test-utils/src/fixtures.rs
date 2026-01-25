@@ -35,7 +35,7 @@ pub struct RegistryTestContext {
     pub verifier: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
-    pub issuer_schema_id: U256,
+    pub issuer_schema_id: u64,
 }
 
 impl RegistryTestContext {
@@ -123,8 +123,10 @@ impl RegistryTestContext {
             y: U256::from_limbs(issuer_public_key.pk.y.into_bigint().0),
         };
 
+        let issuer_schema_id: u64 = 1;
+
         let receipt = registry_contract
-            .register(issuer_pubkey_repr, deployer.address())
+            .register(issuer_schema_id, issuer_pubkey_repr, deployer.address())
             .send()
             .await
             .wrap_err("failed to submit issuer registration")?
@@ -132,7 +134,7 @@ impl RegistryTestContext {
             .await
             .wrap_err("failed to fetch issuer registration receipt")?;
 
-        let issuer_schema_id = receipt
+        let registered_id = receipt
             .logs()
             .iter()
             .find_map(|log| {
@@ -143,6 +145,8 @@ impl RegistryTestContext {
             })
             .map(|event| event.issuerSchemaId)
             .ok_or_else(|| eyre!("IssuerSchemaRegistered event not emitted"))?;
+
+        assert_eq!(registered_id, issuer_schema_id, "registered ID should match requested ID");
 
         Ok(Self {
             anvil,
@@ -155,12 +159,6 @@ impl RegistryTestContext {
             issuer_public_key,
             issuer_schema_id,
         })
-    }
-
-    pub fn issuer_schema_id_u64(&self) -> Result<u64> {
-        self.issuer_schema_id
-            .try_into()
-            .map_err(|_| eyre!("issuer schema id exceeded u64 range"))
     }
 }
 

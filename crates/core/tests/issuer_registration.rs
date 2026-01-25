@@ -1,6 +1,5 @@
 #![cfg(feature = "issuer")]
 
-use alloy::primitives::U256;
 use eyre::Result;
 use test_utils::anvil::{CredentialSchemaIssuerRegistry, TestAnvil};
 use world_id_core::Issuer;
@@ -50,8 +49,8 @@ async fn test_register_issuer_schema() -> Result<()> {
         )?,
     )?;
 
-    let issuer_schema_id = issuer.register_schema().await?;
-    assert_eq!(issuer_schema_id, U256::from(1u64));
+    let issuer_schema_id = 1u64;
+    issuer.register_schema(issuer_schema_id).await?;
 
     let provider = anvil.provider()?;
     let registry = CredentialSchemaIssuerRegistry::new(registry_address, provider);
@@ -63,9 +62,6 @@ async fn test_register_issuer_schema() -> Result<()> {
         .call()
         .await?;
     assert_eq!(registered_signer, signer_address);
-
-    let next_id = registry.nextIssuerSchemaId().call().await?;
-    assert_eq!(next_id, U256::from(2u64));
 
     Ok(())
 }
