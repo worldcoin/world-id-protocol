@@ -42,7 +42,7 @@ use world_id_core::{
     requests::{ProofRequest, RequestItem, RequestVersion},
     types::AccountInclusionProof,
 };
-use world_id_gateway::{GatewayConfig, SignerArgs};
+use world_id_gateway::{GatewayConfig, ProviderArgs, SignerArgs};
 use world_id_primitives::{
     Config, TREE_DEPTH,
     authenticator::AuthenticatorPublicKeySet,
@@ -174,15 +174,21 @@ async fn run_nullifier(
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
+    let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
-    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        nonce,
+        action,
+        current_timestamp,
+        expiration_timestamp,
+    );
     let signature = signer.sign_message_sync(&msg)?;
 
     let proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
         created_at: current_timestamp,
-        expires_at: current_timestamp + 300, // 5 minutes from now
+        expires_at: expiration_timestamp,
         rp_id,
         oprf_key_id,
         share_epoch,
@@ -245,8 +251,14 @@ fn prepare_nullifier_stress_test_oprf_request(
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
+    let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
-    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        nonce,
+        action,
+        current_timestamp,
+        expiration_timestamp,
+    );
     let signature = signer.sign_message_sync(&msg)?;
 
     let signal_hash = ark_babyjubjub::Fq::rand(&mut rng);
@@ -268,6 +280,7 @@ fn prepare_nullifier_stress_test_oprf_request(
         action: action.into(),
         nonce: nonce.into(),
         current_timestamp,
+        expiration_timestamp,
         rp_signature: signature,
         signal_hash: signal_hash.into(),
         credential_sub_blinding_factor,
@@ -575,8 +588,13 @@ async fn main() -> eyre::Result<()> {
         );
         let gateway_config = GatewayConfig {
             registry_addr: config.world_id_registry_contract,
-            rpc_url: config.chain_rpc_url.expose_secret().to_string(),
-            signer_args,
+            provider: ProviderArgs {
+                http: Some(vec![
+                    config.chain_rpc_url.expose_secret().to_string().parse()?,
+                ]),
+                signer: Some(signer_args.clone()),
+                ..Default::default()
+            },
             batch_ms: 200,
             listen_addr: (std::net::Ipv4Addr::LOCALHOST, 8081).into(),
             max_create_batch_size: 10,

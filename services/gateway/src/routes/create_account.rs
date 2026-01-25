@@ -4,12 +4,9 @@ use crate::{
 };
 use alloy::primitives::Address;
 use axum::{Json, extract::State};
-use world_id_core::{
-    types::{
-        CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse,
-        GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
-    },
-    world_id_registry::WorldIdRegistry,
+use world_id_core::types::{
+    CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
+    GatewayRequestState, GatewayStatusResponse,
 };
 
 pub(crate) async fn create_account(
@@ -21,8 +18,8 @@ pub(crate) async fn create_account(
     req.validate()?;
 
     // Simulate the account creation before queueing to catch errors early
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    contract
+    state
+        .registry
         .createAccount(
             req.recovery_address.unwrap_or(Address::ZERO),
             req.authenticator_addresses.clone(),

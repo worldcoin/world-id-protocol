@@ -109,8 +109,11 @@ async fn e2e_authenticator_insert_update_remove() {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
-        rpc_url: anvil.endpoint().to_string(),
-        signer_args,
+        provider: world_id_gateway::ProviderArgs {
+            http: Some(vec![anvil.endpoint().parse().unwrap()]),
+            signer: Some(signer_args),
+            ..Default::default()
+        },
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
@@ -187,7 +190,7 @@ async fn e2e_authenticator_insert_update_remove() {
     let provider = ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let contract = WorldIDRegistry::new(registry_address, provider);
     let packed = contract
-        .authenticatorAddressToPackedAccountData(secondary_address)
+        .getPackedAccountData(secondary_address)
         .call()
         .await
         .unwrap();
@@ -226,7 +229,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Primary authenticator is now invalid, query contract directly
     let nonce = contract
-        .leafIndexToSignatureNonce(U256::from(1))
+        .getSignatureNonce(U256::from(1))
         .call()
         .await
         .unwrap();
@@ -234,7 +237,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify updated authenticator is registered and old primary is cleared
     let packed = contract
-        .authenticatorAddressToPackedAccountData(updated_address)
+        .getPackedAccountData(updated_address)
         .call()
         .await
         .unwrap();
@@ -244,7 +247,7 @@ async fn e2e_authenticator_insert_update_remove() {
         "updated authenticator should be registered after update"
     );
     let packed = contract
-        .authenticatorAddressToPackedAccountData(primary_address)
+        .getPackedAccountData(primary_address)
         .call()
         .await
         .unwrap();
@@ -277,7 +280,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify updated authenticator is cleared after removal
     let packed = contract
-        .authenticatorAddressToPackedAccountData(updated_address)
+        .getPackedAccountData(updated_address)
         .call()
         .await
         .unwrap();
@@ -289,7 +292,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     // Verify secondary authenticator is still registered (it was the signer for removal)
     let packed = contract
-        .authenticatorAddressToPackedAccountData(secondary_address)
+        .getPackedAccountData(secondary_address)
         .call()
         .await
         .unwrap();

@@ -6,12 +6,9 @@ use crate::{
 };
 use alloy::primitives::Bytes;
 use axum::{Json, extract::State};
-use world_id_core::{
-    types::{
-        GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest,
-    },
-    world_id_registry::WorldIdRegistry,
+use world_id_core::types::{
+    GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse, InsertAuthenticatorRequest,
 };
 
 pub(crate) async fn insert_authenticator(
@@ -23,8 +20,8 @@ pub(crate) async fn insert_authenticator(
     req.validate()?;
 
     // Simulate the operation before queueing to catch errors early
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    contract
+    state
+        .registry
         .insertAuthenticator(
             req.leaf_index,
             req.new_authenticator_address,

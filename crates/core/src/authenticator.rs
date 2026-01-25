@@ -241,8 +241,9 @@ impl Authenticator {
     ) -> Result<U256, AuthenticatorError> {
         // If the registry is available through direct RPC calls, use it. Otherwise fallback to the indexer.
         let raw_index = if let Some(registry) = registry {
+            // TODO: Better error handling to expose the specific failure
             registry
-                .authenticatorAddressToPackedAccountData(onchain_signer_address)
+                .getPackedAccountData(onchain_signer_address)
                 .call()
                 .await?
         } else {
@@ -367,10 +368,7 @@ impl Authenticator {
     pub async fn signing_nonce(&self) -> Result<U256, AuthenticatorError> {
         let registry = self.registry();
         if let Some(registry) = registry {
-            let nonce = registry
-                .leafIndexToSignatureNonce(self.leaf_index())
-                .call()
-                .await?;
+            let nonce = registry.getSignatureNonce(self.leaf_index()).call().await?;
             Ok(nonce)
         } else {
             let url = format!("{}/signature-nonce", self.config.indexer_url());
@@ -446,6 +444,7 @@ impl Authenticator {
             action: proof_request.action,
             nonce: proof_request.nonce,
             current_timestamp: proof_request.created_at,
+            expiration_timestamp: proof_request.expires_at,
             rp_signature: proof_request.signature,
             signal_hash: request_item.signal_hash(),
             genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0), // When not provided, the minimum is set to 0 to "ignore" the constraint

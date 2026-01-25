@@ -8,7 +8,8 @@ unknown-registry = "deny"
 [bans]
 deny = [
     { name = "openssl-sys", reason = "increases complexity for foreign binding compilation and bundle size" },
-    { name = "openssl", reason = "increases complexity for foreign binding compilation and bundle size" }
+    { name = "openssl", reason = "increases complexity for foreign binding compilation and bundle size" },
+    { crate = "metrics", deny-multiple-versions = true, reason = "metrics crate uses a global recorder - multiple versions may break metrics silently" },
 ]
 
 [licenses]

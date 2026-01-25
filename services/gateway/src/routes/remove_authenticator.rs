@@ -6,12 +6,9 @@ use crate::{
 };
 use alloy::primitives::{Bytes, U256};
 use axum::{Json, extract::State};
-use world_id_core::{
-    types::{
-        GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, RemoveAuthenticatorRequest,
-    },
-    world_id_registry::WorldIdRegistry,
+use world_id_core::types::{
+    GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse, RemoveAuthenticatorRequest,
 };
 
 pub(crate) async fn remove_authenticator(
@@ -26,8 +23,8 @@ pub(crate) async fn remove_authenticator(
     req.validate()?;
 
     // Simulate the operation before queueing to catch errors early
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    contract
+    state
+        .registry
         .removeAuthenticator(
             req.leaf_index,
             req.authenticator_address,
