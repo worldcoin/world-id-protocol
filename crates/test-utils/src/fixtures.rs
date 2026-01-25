@@ -32,7 +32,6 @@ pub struct RegistryTestContext {
     pub oprf_key_registry: Address,
     pub credential_registry: Address,
     pub rp_registry: Address,
-    pub oprf_key_registry: Address,
     pub verifier: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
@@ -72,10 +71,6 @@ impl RegistryTestContext {
             .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
             .await
             .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
-        let oprf_key_registry = anvil
-            .deploy_oprf_key_registry(deployer.clone())
-            .await
-            .wrap_err("failed to deploy OprfKeyRegistry")?;
         let rp_registry = anvil
             .deploy_rp_registry(deployer.clone(), oprf_key_registry)
             .await
@@ -154,7 +149,6 @@ impl RegistryTestContext {
             world_id_registry,
             oprf_key_registry,
             credential_registry,
-            oprf_key_registry,
             rp_registry,
             verifier,
             issuer_private_key,
