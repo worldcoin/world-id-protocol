@@ -65,6 +65,11 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      */
     error ZeroAddress();
 
+    /**
+     * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
+     */
+    error IdAlreadyInUse(uint64 id);
+
     modifier onlyInitialized() {
         _onlyInitialized();
         _;
@@ -93,16 +98,15 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     // that no reordering of these variables takes place. If reordering happens, a storage
     // clash will occur (effectively a memory safety error).
 
-    mapping(uint256 => Pubkey) private _idToPubkey;
+    mapping(uint64 => Pubkey) private _idToPubkey;
 
     // Stores the on-chain signer address for each issuerSchemaId, i.e. who is authorized to perform updates on the issuerSchemaId.
-    mapping(uint256 => address) private _idToAddress;
+    mapping(uint64 => address) private _idToAddress;
 
-    uint256 private _nextId = 1;
-    mapping(uint256 => uint256) private _nonces;
+    mapping(uint64 => uint256) private _nonces;
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
-    mapping(uint256 => string) public idToSchemaUri;
+    mapping(uint64 => string) public idToSchemaUri;
 
     // the fee to register an issuer schema
     uint256 private _registrationFee;
@@ -120,13 +124,13 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     string public constant EIP712_NAME = "CredentialSchemaIssuerRegistry";
     string public constant EIP712_VERSION = "1.0";
 
-    string public constant REMOVE_ISSUER_SCHEMA_TYPEDEF = "RemoveIssuerSchema(uint256 issuerSchemaId,uint256 nonce)";
+    string public constant REMOVE_ISSUER_SCHEMA_TYPEDEF = "RemoveIssuerSchema(uint64 issuerSchemaId,uint256 nonce)";
     string public constant UPDATE_PUBKEY_TYPEDEF =
-        "UpdateIssuerSchemaPubkey(uint256 issuerSchemaId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)Pubkey(uint256 x,uint256 y)";
+        "UpdateIssuerSchemaPubkey(uint64 issuerSchemaId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)Pubkey(uint256 x,uint256 y)";
     string public constant UPDATE_SIGNER_TYPEDEF =
-        "UpdateIssuerSchemaSigner(uint256 issuerSchemaId,address newSigner,uint256 nonce)";
+        "UpdateIssuerSchemaSigner(uint64 issuerSchemaId,address newSigner,uint256 nonce)";
     string public constant UPDATE_ISSUER_SCHEMA_URI_TYPEDEF =
-        "UpdateIssuerSchemaUri(uint256 issuerSchemaId,string schemaUri,uint256 nonce)";
+        "UpdateIssuerSchemaUri(uint64 issuerSchemaId,string schemaUri,uint256 nonce)";
     string public constant PUBKEY_TYPEDEF = "Pubkey(uint256 x,uint256 y)";
 
     bytes32 public constant REMOVE_ISSUER_SCHEMA_TYPEHASH = keccak256(abi.encodePacked(REMOVE_ISSUER_SCHEMA_TYPEDEF));
@@ -151,11 +155,11 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                        Events                          //
     ////////////////////////////////////////////////////////////
 
-    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer, uint256 oprfKeyId);
-    event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
-    event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
-    event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
+    event IssuerSchemaRegistered(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer, uint160 oprfKeyId);
+    event IssuerSchemaRemoved(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
+    event IssuerSchemaPubkeyUpdated(uint64 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
+    event IssuerSchemaSignerUpdated(uint64 indexed issuerSchemaId, address oldSigner, address newSigner);
+    event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
     event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
     event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
@@ -189,33 +193,42 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _feeToken = IERC20(feeToken);
         _registrationFee = registrationFee;
         _oprfKeyRegistry = IOprfKeyRegistry(oprfKeyRegistry);
-        _nextId = 1;
     }
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
+    function register(uint64 issuerSchemaId, Pubkey memory pubkey, address signer)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256)
+    {
         if (_feeToken.balanceOf(msg.sender) < _registrationFee) revert InsufficientFunds();
 
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
         }
+
         if (signer == address(0)) {
             revert InvalidSigner();
         }
 
-        uint256 issuerSchemaId = _nextId;
+        if (_idToPubkey[issuerSchemaId].x != 0 || _idToPubkey[issuerSchemaId].y != 0) {
+            revert IdAlreadyInUse(issuerSchemaId);
+        }
+
+        // An OPRF Key is initialized to allow authenticators to compute the blinding factor for this credential
+        // NOTE that the `issuerSchemaId` must be unique across issuers and RPs (from `RpRegistry`) as the `oprfKeyId` must be unique
+        // This call may revert with `AlreadySubmitted()` if the ID is taken
+        _oprfKeyRegistry.initKeyGen(uint160(issuerSchemaId));
+
         _idToPubkey[issuerSchemaId] = pubkey;
         _idToAddress[issuerSchemaId] = signer;
 
-        // An OPRF Key is initialized to allow authenticators to compute the blinding factor for this credential
-        uint160 oprfKeyId = OPRF_KEY_SHIFTER + uint160(_nextId);
-        _oprfKeyRegistry.initKeyGen(oprfKeyId);
-
-        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, oprfKeyId);
-        _nextId = issuerSchemaId + 1;
+        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, uint160(issuerSchemaId));
 
         if (_registrationFee > 0) {
             _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
@@ -224,7 +237,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return issuerSchemaId;
     }
 
-    function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
+    function remove(uint64 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         if (_isEmptyPubkey(pubkey)) {
             revert IdNotRegistered();
@@ -237,15 +250,18 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
             revert InvalidSignature();
         }
 
-        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, _idToAddress[issuerSchemaId]);
-
         _nonces[issuerSchemaId]++;
         delete _idToPubkey[issuerSchemaId];
         delete _idToAddress[issuerSchemaId];
         delete idToSchemaUri[issuerSchemaId];
+
+        // FIXME: needs interface exposure
+        // _oprfKeyRegistry.deleteOprfPublicKey(uint160(issuerSchemaId));
+
+        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, _idToAddress[issuerSchemaId]);
     }
 
-    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
+    function updatePubkey(uint64 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
         public
         virtual
         onlyProxy
@@ -281,7 +297,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _nonces[issuerSchemaId]++;
     }
 
-    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature)
+    function updateSigner(uint64 issuerSchemaId, address newSigner, bytes calldata signature)
         public
         virtual
         onlyProxy
@@ -318,7 +334,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer+schema ID.
      * @return The schema URI for the issuerSchemaId.
      */
-    function getIssuerSchemaUri(uint256 issuerSchemaId)
+    function getIssuerSchemaUri(uint64 issuerSchemaId)
         public
         view
         virtual
@@ -335,7 +351,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param schemaUri The new schema URI to set.
      * @param signature The signature of the issuer authorizing the update.
      */
-    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature)
+    function updateIssuerSchemaUri(uint64 issuerSchemaId, string memory schemaUri, bytes calldata signature)
         public
         virtual
         onlyProxy
@@ -372,7 +388,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer-schema ID whose pubkey will be returned.
      * @return The pubkey for the issuerSchemaId.
      */
-    function issuerSchemaIdToPubkey(uint256 issuerSchemaId)
+    function issuerSchemaIdToPubkey(uint64 issuerSchemaId)
         public
         view
         virtual
@@ -388,7 +404,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
      * @return The on-chain signer address for the issuerSchemaId.
      */
-    function getSignerForIssuerSchemaId(uint256 issuerSchemaId)
+    function getSignerForIssuerSchemaId(uint64 issuerSchemaId)
         public
         view
         virtual
@@ -399,11 +415,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return _idToAddress[issuerSchemaId];
     }
 
-    function nextIssuerSchemaId() public view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _nextId;
-    }
-
-    function nonceOf(uint256 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+    function nonceOf(uint64 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _nonces[issuerSchemaId];
     }
 

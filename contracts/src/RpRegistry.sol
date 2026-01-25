@@ -128,9 +128,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     error ImplementationNotInitialized();
 
     /**
-     * @dev Thrown when the requested rpId to be registered is already in use. rpIds must be unique.
+     * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
      */
-    error RpIdAlreadyInUse(uint64 rpId);
+    error IdAlreadyInUse(uint64 id);
 
     /**
      * @dev Thrown when the provided rpId is not registered.
@@ -416,7 +416,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     ////////////////////////////////////////////////////////////
 
     function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
-        if (_relyingParties[rpId].initialized) revert RpIdAlreadyInUse(rpId);
+        if (_relyingParties[rpId].initialized) revert IdAlreadyInUse(rpId);
 
         if (manager == address(0)) revert ManagerCannotBeZeroAddress();
 
