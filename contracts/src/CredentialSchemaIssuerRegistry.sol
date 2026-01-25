@@ -250,6 +250,8 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
             revert InvalidSignature();
         }
 
+        address signer = _idToAddress[issuerSchemaId];
+
         _nonces[issuerSchemaId]++;
         delete _idToPubkey[issuerSchemaId];
         delete _idToAddress[issuerSchemaId];
@@ -258,7 +260,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         // FIXME: needs interface exposure
         // _oprfKeyRegistry.deleteOprfPublicKey(uint160(issuerSchemaId));
 
-        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, _idToAddress[issuerSchemaId]);
+        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
     }
 
     function updatePubkey(uint64 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
