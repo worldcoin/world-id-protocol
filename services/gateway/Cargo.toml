@@ -21,8 +21,7 @@ alloy = { workspace = true, features = [
 ] }
 
 anyhow = { workspace = true }
-aws-config = "1"
-aws-sdk-kms = "1"
+backon = { workspace = true, features = ["tokio-sleep"] }
 axum = { workspace = true, features = ["macros", "json"] }
 clap = { version = "4", features = ["derive", "env"] }
 world-id-core = { workspace = true, features = [
@@ -33,12 +32,9 @@ world-id-core = { workspace = true, features = [
 dotenvy = "0.15"
 hex = "0.4"
 moka.workspace = true
-once_cell = "1"
 redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-strum = { version = "0.26", features = ["derive"] }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tower-http = { version = "0.5", features = ["trace", "timeout"] }
 tracing = { workspace = true }

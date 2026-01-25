@@ -106,6 +106,14 @@ impl RequestTracker {
         kind: GatewayRequestKind,
     ) -> Result<(String, RequestRecord), GatewayErrorResponse> {
         let id = uuid::Uuid::new_v4().to_string();
+        self.new_request_with_id(id, kind).await
+    }
+
+    pub async fn new_request_with_id(
+        &self,
+        id: String,
+        kind: GatewayRequestKind,
+    ) -> Result<(String, RequestRecord), GatewayErrorResponse> {
         let record = RequestRecord {
             kind,
             status: GatewayRequestState::Queued,

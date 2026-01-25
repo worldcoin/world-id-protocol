@@ -11,6 +11,7 @@ const GW_PORT: u16 = 4102;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_authenticator_registration() {
+    tracing_subscriber::fmt::init();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");

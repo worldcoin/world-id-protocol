@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{create_batcher::CreateBatcherHandle, ops_batcher::OpsBatcherHandle};
+use crate::request::GatewayContext;
 use alloy::{primitives::U256, providers::DynProvider};
 use moka::{Expiry, future::Cache};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -68,11 +68,9 @@ impl Expiry<U256, U256> for RootExpiry {
 #[derive(Clone)]
 pub(crate) struct AppState {
     /// World ID Registry contract.
-    pub(crate) registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    /// Background batcher for create-account.
-    pub(crate) batcher: CreateBatcherHandle,
-    /// Background batcher for ops (insert/remove/recover/update).
-    pub(crate) ops_batcher: OpsBatcherHandle,
+    pub(crate) regsitry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+    /// Gateway context for request-first handlers.
+    pub(crate) ctx: GatewayContext,
     /// Cache of valid roots to their expiration timestamps.
     pub(crate) root_cache: Cache<U256, U256>,
 }

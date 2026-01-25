@@ -590,7 +590,12 @@ async fn main() -> eyre::Result<()> {
             registry_addr: config.world_id_registry_contract,
             provider: ProviderArgs {
                 http: Some(vec![
-                    config.chain_rpc_url.expose_secret().to_string().parse()?,
+                    config
+                        .chain_rpc_url
+                        .expose_secret()
+                        .to_string()
+                        .parse()
+                        .expect("Invalid RPC secret"),
                 ]),
                 signer: Some(signer_args.clone()),
                 ..Default::default()

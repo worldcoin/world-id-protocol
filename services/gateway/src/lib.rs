@@ -1,20 +1,24 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+use dotenvy as _;
+use tracing_subscriber as _;
+
 use std::{net::SocketAddr, sync::Arc};
 
 pub use crate::config::GatewayConfig;
 use crate::{routes::build_app, types::AppState};
-use request_tracker::RequestTracker;
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
+mod batcher;
 mod config;
-mod create_batcher;
-mod ops_batcher;
+mod request;
 mod request_tracker;
 mod routes;
 mod types;
 
 // Re-export common types
 pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};
+pub use request_tracker::RequestTracker;
 
 #[derive(Debug)]
 pub struct GatewayHandle {

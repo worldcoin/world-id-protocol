@@ -2,14 +2,15 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     AppState,
-    create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
-    ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
+    batcher::{Batcher, BatcherConfig, GasPolicy},
+    request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
         create_account::create_account,
         health::{__path_health, health},
         insert_authenticator::insert_authenticator,
         is_valid_root::is_valid_root,
+        middleware::request_id_middleware,
         recover_account::recover_account,
         remove_authenticator::remove_authenticator,
         request_status::request_status,
@@ -21,19 +22,19 @@ use alloy::providers::DynProvider;
 use axum::{
     Json, Router,
     extract::{Path, State},
+    middleware as axum_middleware,
     response::IntoResponse,
     routing::{get, post},
 };
 use moka::future::Cache;
-use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::{
     types::{
-        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayErrorCode as ErrorCode,
-        GatewayRequestKind, GatewayRequestState, GatewayStatusResponse, HealthResponse,
-        InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
+        GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
+        IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+        UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -42,55 +43,55 @@ mod create_account;
 mod health;
 mod insert_authenticator;
 mod is_valid_root;
+pub(crate) mod middleware;
 mod recover_account;
 mod remove_authenticator;
 mod request_status;
 mod update_authenticator;
-mod validation;
+pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batch_ms: u64,
-    max_create_batch_size: usize,
-    max_ops_batch_size: usize,
+    _max_create_batch_size: usize,
+    _max_ops_batch_size: usize,
     redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
     let tracker = RequestTracker::new(redis_url).await;
-    let (tx, rx) = mpsc::channel(1024);
-    let batcher = CreateBatcherHandle { tx };
-    let runner = CreateBatcherRunner::new(
-        registry.clone(),
-        Duration::from_millis(batch_ms),
-        max_create_batch_size,
-        rx,
-        tracker.clone(),
-    );
-    tokio::spawn(runner.run());
 
-    // ops batcher (insert/remove/recover/update)
-    let (otx, orx) = mpsc::channel(2048);
-    let ops_batcher = OpsBatcherHandle { tx: otx };
-    let ops_runner = OpsBatcherRunner::new(
+    // Unified batcher for all operations
+    let config = BatcherConfig {
+        batch_window: Duration::from_millis(batch_ms),
+        ..Default::default()
+    };
+    let provider = registry.provider().clone();
+    let gas_policy = GasPolicy::new(config.gas_policy.clone());
+    let (batcher_handle, batcher) = Batcher::new(
+        provider,
         registry.clone(),
-        Duration::from_millis(batch_ms),
-        max_ops_batch_size,
-        orx,
         tracker.clone(),
+        config,
+        gas_policy,
     );
-    tokio::spawn(ops_runner.run());
+    tokio::spawn(batcher.run());
 
-    tracing::info!("Ops batcher initialized");
+    tracing::info!("Batcher initialized");
+
+    // Build GatewayContext for request-first handlers
+    let ctx = GatewayContext {
+        tracker: tracker.clone(),
+        batcher: batcher_handle,
+    };
 
     let root_cache = Cache::builder()
         .max_capacity(ROOT_CACHE_SIZE)
         .expire_after(RootExpiry)
         .build();
     let state = AppState {
-        registry: registry.clone(),
-        batcher,
-        ops_batcher,
+        regsitry: registry.clone(),
+        ctx,
         root_cache,
     };
 
@@ -108,7 +109,7 @@ pub(crate) async fn build_app(
         .route("/is-valid-root", get(is_valid_root))
         .route("/openapi.json", get(openapi))
         .with_state(state)
-        .layer(axum::Extension(tracker))
+        .layer(axum_middleware::from_fn(request_id_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,

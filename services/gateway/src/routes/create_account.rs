@@ -1,59 +1,21 @@
-use crate::{
-    create_batcher::CreateReqEnvelope, request_tracker::RequestTracker,
-    routes::validation::ValidateRequest, types::AppState,
-};
-use alloy::primitives::Address;
-use axum::{Json, extract::State};
-use world_id_core::types::{
-    CreateAccountRequest, GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
-    GatewayRequestState, GatewayStatusResponse,
-};
+//! Create account handler.
 
+use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use axum::{Extension, Json, extract::State};
+use world_id_core::types::{CreateAccountRequest, GatewayErrorResponse, GatewayStatusResponse};
+
+/// POST /v1/accounts
+///
+/// Create a new World ID account.
 pub(crate) async fn create_account(
     State(state): State<AppState>,
-    axum::Extension(tracker): axum::Extension<RequestTracker>,
-    Json(req): Json<CreateAccountRequest>,
+    Extension(RequestId(id)): Extension<RequestId>,
+    Json(payload): Json<CreateAccountRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
-    // Input validation
-    req.validate()?;
-
-    // Simulate the account creation before queueing to catch errors early
-    state
-        .registry
-        .createAccount(
-            req.recovery_address.unwrap_or(Address::ZERO),
-            req.authenticator_addresses.clone(),
-            req.authenticator_pubkeys.clone(),
-            req.offchain_signer_commitment,
-        )
-        .call()
+    payload
+        .into_request(id, &state.regsitry)
+        .await?
+        .submit(&state.ctx)
         .await
-        .map_err(GatewayErrorResponse::from_simulation_error)?;
-
-    let (id, record) = tracker
-        .new_request(GatewayRequestKind::CreateAccount)
-        .await?;
-
-    let env = CreateReqEnvelope {
-        id: id.clone(),
-        req,
-    };
-
-    if state.batcher.tx.send(env).await.is_err() {
-        tracker
-            .set_status(
-                &id,
-                GatewayRequestState::failed_from_code(ErrorCode::BatcherUnavailable),
-            )
-            .await;
-        return Err(GatewayErrorResponse::batcher_unavailable());
-    }
-
-    let body = GatewayStatusResponse {
-        request_id: id,
-        kind: record.kind,
-        status: record.status,
-    };
-
-    Ok(Json(body))
+        .map(|r| Json(r.into_response()))
 }
