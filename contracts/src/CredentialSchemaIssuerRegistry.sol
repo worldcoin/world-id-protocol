@@ -60,6 +60,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @dev Thrown when the fee payment is not enough to cover registration.
      */
     error InsufficientFunds();
+
     /**
      * @dev Thrown when trying to set an address to the zero address.
      */
@@ -69,6 +70,11 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
      */
     error IdAlreadyInUse(uint64 id);
+
+    /**
+     * @dev Thrown when the passed id is invalid for the operation. Usually this means the `id` used is equal to `0` which is not allowed.
+     */
+    error InvalidId();
 
     modifier onlyInitialized() {
         _onlyInitialized();
@@ -140,14 +146,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         keccak256(abi.encodePacked(UPDATE_ISSUER_SCHEMA_URI_TYPEDEF));
     bytes32 public constant PUBKEY_TYPEHASH = keccak256(abi.encodePacked(PUBKEY_TYPEDEF));
 
-    /**
-     * @notice The oprfKeyId (from the OprfKeyRegistry contract) is used to compute a blinding factor
-     * for the user's credential.
-     * @dev This constant is used to shift the OPRF key to the right to avoid collisions with RP OPRF Keys,
-     * i.e. the first 64 bits are reserved for RPs (rpId is 64 bits).
-     */
-    uint160 public constant OPRF_KEY_SHIFTER = uint160(type(uint64).max);
-
     // the OPRF key registry contract, used to init OPRF key gen for blinding factors of credentials
     IOprfKeyRegistry public _oprfKeyRegistry;
 
@@ -208,6 +206,10 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     {
         if (_feeToken.balanceOf(msg.sender) < _registrationFee) revert InsufficientFunds();
 
+        if (issuerSchemaId == 0) {
+            revert InvalidId();
+        }
+
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
         }
@@ -216,7 +218,8 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
             revert InvalidSigner();
         }
 
-        if (_idToPubkey[issuerSchemaId].x != 0 || _idToPubkey[issuerSchemaId].y != 0) {
+        Pubkey memory existingPubkey = _idToPubkey[issuerSchemaId];
+        if (!_isEmptyPubkey(existingPubkey)) {
             revert IdAlreadyInUse(issuerSchemaId);
         }
 
