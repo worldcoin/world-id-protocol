@@ -3,7 +3,7 @@ mod common;
 
 use std::{fs, path::PathBuf, time::Duration};
 
-use alloy::primitives::{U256, address};
+use alloy::primitives::{Address, U256, address};
 use common::{TestSetup, query_count};
 use serial_test::serial;
 use world_id_indexer::config::{
@@ -62,6 +62,7 @@ async fn test_cache_creation_and_restoration() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8090".parse().unwrap(),
@@ -146,6 +147,7 @@ async fn test_incremental_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8091".parse().unwrap(),
@@ -203,6 +205,7 @@ async fn test_incremental_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8092".parse().unwrap(),
@@ -276,6 +279,7 @@ async fn test_missing_cache_creates_new() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8093".parse().unwrap(),
@@ -340,6 +344,7 @@ async fn test_http_only_cache_refresh() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8094".parse().unwrap(),
@@ -464,6 +469,7 @@ async fn test_authenticator_removed_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8095".parse().unwrap(),
@@ -542,6 +548,7 @@ async fn test_authenticator_removed_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8096".parse().unwrap(),
@@ -578,6 +585,7 @@ async fn test_authenticator_removed_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8097".parse().unwrap(),
@@ -656,6 +664,7 @@ async fn test_init_root_matches_contract() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8100".parse().unwrap(),
@@ -734,6 +743,7 @@ async fn test_replay_root_matches_contract() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8101".parse().unwrap(),
@@ -795,6 +805,7 @@ async fn test_replay_root_matches_contract() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8102".parse().unwrap(),
@@ -846,6 +857,152 @@ async fn test_replay_root_matches_contract() {
     cleanup_cache_files(&cache_path);
 }
 
+/// Test that sparse leaves (beyond dense prefix) are correctly restored from DB on restart.
+///
+/// The mmap file only stores the dense prefix of the tree. Sparse leaves are stored
+/// in memory and need to be restored from the database on restart. This test verifies:
+/// 1. Accounts beyond the dense prefix are correctly indexed
+/// 2. On restart, sparse leaves are restored from DB (not triggering full rebuild)
+/// 3. The final tree root matches the on-chain root
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_sparse_leaves_restored_from_db_on_restart() {
+    // Use tree_depth=6 and dense_prefix_depth=2 (from create_temp_cache_config)
+    // Dense prefix size = 2^2 = 4 leaves (indices 0-3)
+    // Accounts at indices 4+ are "sparse" and not stored in mmap
+    let setup = TestSetup::new_with_tree_depth(6).await;
+    let (tree_cache_config, cache_path) = create_temp_cache_config();
+
+    // Ensure no cache files exist
+    cleanup_cache_files(&cache_path);
+
+    // Create 6 accounts: indices 1-6
+    // Indices 1-3 are in dense prefix, indices 4-6 are sparse
+    for i in 1..=6 {
+        setup
+            .create_account(
+                Address::from_slice(&[0u8; 19].into_iter().chain([i as u8]).collect::<Vec<_>>()),
+                U256::from(i * 100),
+                i * 1000,
+            )
+            .await;
+    }
+
+    // Get the on-chain root after creating all accounts
+    let onchain_root = setup.get_root().await;
+
+    // Build initial cache with all 6 accounts
+    let cfg1 = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::Both {
+            indexer_config: IndexerConfig {
+                start_block: 0,
+                batch_size: 1000,
+                poll_interval_secs: 1,
+            },
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8110".parse().unwrap(),
+                db_poll_interval_secs: 1,
+                sanity_check_interval_secs: None,
+            },
+        },
+        db_url: setup.db_url.clone(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
+        registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
+    };
+
+    let indexer_task1 = tokio::spawn(async move {
+        world_id_indexer::run_indexer(cfg1).await.unwrap();
+    });
+
+    // Wait for all 6 accounts to be indexed
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let c = query_count(&setup.pool).await;
+        if c >= 6 {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("timeout waiting for accounts to be indexed, got {}", c);
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    indexer_task1.abort();
+
+    // Read the initial metadata and verify root matches on-chain
+    let meta_path = cache_path.with_extension("mmap.meta");
+    let initial_meta_json = fs::read_to_string(&meta_path).expect("Should read initial metadata");
+    let initial_metadata: serde_json::Value =
+        serde_json::from_str(&initial_meta_json).expect("Should parse initial metadata");
+
+    let initial_root = initial_metadata["root_hash"].as_str().unwrap();
+    let expected_root = format!("0x{:x}", onchain_root);
+    assert_eq!(
+        initial_root, expected_root,
+        "Initial tree root should match on-chain root"
+    );
+
+    let initial_event_id = initial_metadata["last_event_id"].as_i64().unwrap();
+    assert_eq!(initial_event_id, 6, "Should have processed 6 events");
+
+    // Now restart the indexer - it should restore sparse leaves from DB
+    // without triggering a full rebuild
+    let cfg2 = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::Both {
+            indexer_config: IndexerConfig {
+                start_block: 0,
+                batch_size: 1000,
+                poll_interval_secs: 1,
+            },
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8111".parse().unwrap(),
+                db_poll_interval_secs: 1,
+                sanity_check_interval_secs: None,
+            },
+        },
+        db_url: setup.db_url.clone(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
+        registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
+    };
+
+    let indexer_task2 = tokio::spawn(async move {
+        world_id_indexer::run_indexer(cfg2).await.unwrap();
+    });
+
+    // Wait for indexer to start and restore
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    indexer_task2.abort();
+
+    // Verify metadata after restart
+    let final_meta_json = fs::read_to_string(&meta_path).expect("Should read final metadata");
+    let final_metadata: serde_json::Value =
+        serde_json::from_str(&final_meta_json).expect("Should parse final metadata");
+
+    let final_root = final_metadata["root_hash"].as_str().unwrap();
+
+    // CRITICAL: The root after restart must match the initial root
+    // If sparse leaves weren't restored, the root would be wrong
+    assert_eq!(
+        final_root, initial_root,
+        "Tree root after restart must match initial root (sparse leaves should be restored from DB)"
+    );
+
+    // Also verify it matches on-chain root
+    assert_eq!(
+        final_root, expected_root,
+        "Tree root after restart must match on-chain root"
+    );
+
+    cleanup_cache_files(&cache_path);
+}
+
 /// Test that corrupted cache triggers full rebuild instead of failing
 /// This test simulates cache corruption by manually modifying the metadata
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -882,6 +1039,7 @@ async fn test_corrupted_cache_triggers_rebuild() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8103".parse().unwrap(),

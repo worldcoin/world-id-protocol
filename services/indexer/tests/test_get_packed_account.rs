@@ -35,6 +35,7 @@ async fn test_packed_account_endpoint() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8083".parse().unwrap(),
