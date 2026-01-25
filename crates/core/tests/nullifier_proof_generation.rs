@@ -157,12 +157,8 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .as_secs();
     let expires_at = genesis_issued_at + 86_400;
 
-    let (credential, credential_sub_blinding_factor) = build_base_credential(
-        issuer_schema_id,
-        leaf_index,
-        genesis_issued_at,
-        expires_at,
-    );
+    let (credential, credential_sub_blinding_factor) =
+        build_base_credential(issuer_schema_id, leaf_index, genesis_issued_at, expires_at);
 
     let credential = credential
         .sign(&issuer_sk)

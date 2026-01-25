@@ -44,7 +44,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         ..
     } = RegistryTestContext::new().await?;
 
-
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;

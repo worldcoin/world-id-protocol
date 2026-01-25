@@ -146,7 +146,10 @@ impl RegistryTestContext {
             .map(|event| event.issuerSchemaId)
             .ok_or_else(|| eyre!("IssuerSchemaRegistered event not emitted"))?;
 
-        assert_eq!(registered_id, issuer_schema_id, "registered ID should match requested ID");
+        assert_eq!(
+            registered_id, issuer_schema_id,
+            "registered ID should match requested ID"
+        );
 
         Ok(Self {
             anvil,
