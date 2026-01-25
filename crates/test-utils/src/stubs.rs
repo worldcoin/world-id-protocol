@@ -173,6 +173,7 @@ async fn spawn_orpf_node(
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         world_id_registry_contract,
         rp_registry_contract,
+        cache_maintenance_interval: Duration::from_secs(60),
         node_config: taceo_oprf_service::config::OprfNodeConfig {
             environment: taceo_oprf_service::config::Environment::Dev,
             rp_secret_id_prefix: format!("oprf/rp/n{id}"),

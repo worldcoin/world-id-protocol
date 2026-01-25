@@ -13,13 +13,14 @@ use taceo_oprf_service::{StartedServices, secret_manager::SecretManagerService};
 use crate::{
     auth::{
         WorldOprfRequestAuthenticator, merkle_watcher::MerkleWatcher,
-        rp_registry_watcher::RpRegistryWatcher,
+        rp_registry_watcher::RpRegistryWatcher, signature_history::SignatureHistory,
     },
     config::WorldOprfNodeConfig,
 };
 
 pub(crate) mod auth;
 pub mod config;
+pub mod metrics;
 
 /// Main entry point for an OPRF node.
 ///
@@ -46,6 +47,7 @@ pub async fn start(
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_merkle_cache_size,
         config.root_validity_window,
+        config.cache_maintenance_interval,
         started_services.new_service(),
         cancellation_token.clone(),
     )
@@ -57,16 +59,25 @@ pub async fn start(
         config.rp_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_rp_registry_store_size,
+        config.cache_maintenance_interval,
         started_services.new_service(),
         cancellation_token.clone(),
     )
     .await
     .context("while starting merkle watcher")?;
 
+    tracing::info!("init SignatureHistory..");
+    // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
+    let signature_history = SignatureHistory::init(
+        config.current_time_stamp_max_difference * 2,
+        config.cache_maintenance_interval,
+    );
+
     tracing::info!("init oprf request auth service..");
     let oprf_req_auth_service = Arc::new(WorldOprfRequestAuthenticator::init(
         merkle_watcher,
         rp_registry_watcher,
+        signature_history,
         config.current_time_stamp_max_difference,
     ));
 

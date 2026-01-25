@@ -7,10 +7,13 @@
 //! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
 //! - [`signature_history`] – keeps track of nonce + time_stamp signatures to detect replays
 
-use crate::auth::{
-    merkle_watcher::{MerkleWatcher, MerkleWatcherError},
-    rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
-    signature_history::{DuplicateSignatureError, SignatureHistory},
+use crate::{
+    auth::{
+        merkle_watcher::{MerkleWatcher, MerkleWatcherError},
+        rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+        signature_history::{DuplicateSignatureError, SignatureHistory},
+    },
+    metrics::{METRICS_ID_NODE_REQUEST_AUTH_START, METRICS_ID_NODE_REQUEST_AUTH_VERIFIED},
 };
 use ark_bn254::Bn254;
 use async_trait::async_trait;
@@ -126,14 +129,15 @@ impl WorldOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
         rp_registry_watcher: RpRegistryWatcher,
+        signature_history: SignatureHistory,
         current_time_stamp_max_difference: Duration,
     ) -> Self {
         let vk: VerificationKey<Bn254> =
             serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
         Self {
-            signature_history: SignatureHistory::init(current_time_stamp_max_difference * 2),
             merkle_watcher,
             rp_registry_watcher,
+            signature_history,
             vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
             current_time_stamp_max_difference,
         }
@@ -149,6 +153,8 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<(), Self::RequestAuthError> {
+        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
+
         // check the time stamp against system time +/- difference
         let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
         let current_time = SystemTime::now()
@@ -212,6 +218,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         )
         .expect("We expect that we loaded the correct key");
         if valid {
+            ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_VERIFIED).increment(1);
             tracing::debug!("proof valid");
             Ok(())
         } else {

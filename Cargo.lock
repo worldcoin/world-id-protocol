@@ -8575,6 +8575,7 @@ dependencies = [
  "eyre",
  "futures",
  "humantime",
+ "metrics",
  "moka",
  "rustls 0.23.36",
  "secrecy",
