@@ -409,6 +409,32 @@ impl Authenticator {
         credential: Credential,
         credential_sub_blinding_factor: FieldElement,
     ) -> Result<UniquenessProof, AuthenticatorError> {
+        let prepared = self
+            .prepare_proof(
+                proof_request,
+                credential,
+                credential_sub_blinding_factor,
+            )
+            .await?;
+        self.generate_proof_with_prepared(prepared)
+    }
+
+    /// Prepares a proof by computing the nullifier via OPRF and building circuit inputs.
+    ///
+    /// Use [`Self::generate_proof_with_prepared`] to finalize the Groth16 proof after
+    /// replay-guard checks are complete.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the inputs are invalid, network requests fail, or
+    /// OPRF preparation fails.
+    #[allow(clippy::future_not_send)]
+    pub async fn prepare_proof(
+        &self,
+        proof_request: ProofRequest,
+        credential: Credential,
+        credential_sub_blinding_factor: FieldElement,
+    ) -> Result<crate::proof::PreparedNullifier, AuthenticatorError> {
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
             .iter()
@@ -417,7 +443,6 @@ impl Authenticator {
 
         // TODO: load once and from bytes
         let query_material = crate::proof::load_embedded_query_material();
-        let nullifier_material = crate::proof::load_embedded_nullifier_material();
 
         let request_item = proof_request
             .find_request_by_issuer_schema_id(credential.issuer_schema_id.into())
@@ -467,19 +492,39 @@ impl Authenticator {
         }
         let threshold = requested_threshold.min(services.len());
 
-        let mut rng = rand::thread_rng();
-        let (proof, _public, nullifier) = crate::proof::nullifier(
+        crate::proof::prepare_nullifier(
             services,
             threshold,
             &query_material,
-            &nullifier_material,
             args,
             private_key,
             self.ws_connector.clone(),
             &mut rng,
         )
         .await
-        .map_err(|e| AuthenticatorError::Generic(format!("Failed to generate nullifier: {e}")))?;
+        .map_err(|e| AuthenticatorError::Generic(format!("Failed to prepare nullifier: {e}")))
+    }
+
+    /// Finalizes a previously prepared proof by generating the Groth16 nullifier proof.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if proof generation or verification fails.
+    pub fn generate_proof_with_prepared(
+        &self,
+        prepared: crate::proof::PreparedNullifier,
+    ) -> Result<UniquenessProof, AuthenticatorError> {
+        // TODO: load once and from bytes
+        let nullifier_material = crate::proof::load_embedded_nullifier_material();
+
+        let mut rng = rand::thread_rng();
+        let (proof, _public, nullifier) =
+            crate::proof::finalize_nullifier_proof(&nullifier_material, prepared, &mut rng)
+                .map_err(|e| {
+                    AuthenticatorError::Generic(format!(
+                        "Failed to generate nullifier proof: {e}"
+                    ))
+                })?;
 
         Ok((proof, nullifier.into()))
     }

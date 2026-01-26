@@ -199,49 +199,39 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 // Uniqueness Proof (internally also called nullifier proof) Generation
 // ============================================================================
 
-/// Generates a nullifier proof for a given query.
+/// Prepared inputs for generating a nullifier proof.
+#[derive(Debug, Clone)]
+pub struct PreparedNullifier {
+    nullifier_input: NullifierProofCircuitInput<TREE_DEPTH>,
+    expected_nullifier: ark_babyjubjub::Fq,
+}
+
+impl PreparedNullifier {
+    /// Returns the expected nullifier computed via OPRF.
+    #[must_use]
+    pub fn nullifier(&self) -> FieldElement {
+        FieldElement::from(self.expected_nullifier)
+    }
+}
+
+/// Prepares the inputs required for nullifier proof generation.
 ///
-/// Full workflow:
-/// 1. Signs and blinds the OPRF query using the user's credentials and key material.
-/// 2. Initiates sessions with the provided OPRF services and waits for enough responses.
-/// 3. Computes the `DLog` equality challenges using Shamir interpolation.
-/// 4. Collects the responses and verifies the challenges.
-/// 5. Generates the final Groth16 nullifier proof along with public inputs.
-///
-/// # Arguments
-///
-/// * `services` - List of OPRF service URLs to contact.
-/// * `threshold` - Minimum number of valid peer responses required.
-/// * `query_material` - Groth16 material (proving key and matrices) used for the query proof.
-/// * `nullifier_material` - Groth16 material (proving key and matrices) used for the nullifier proof.
-/// * `args` - [`SingleProofInput`] containing all input data (credentials, Merkle membership, query, keys, signal, etc.).
-/// * `private_key` - The user's private key for signing the blinded query.
-/// * `connector` - Connector for WebSocket communication with OPRF nodes.
-/// * `rng` - A cryptographically secure random number generator.
-///
-/// # Returns
-///
-/// On success, returns a tuple:
-/// 1. `Proof<Bn254>` – the generated nullifier proof,
-/// 2. `Vec<ark_babyjubjub::Fq>` – the public inputs for the proof,
-/// 3. `ark_babyjubjub::Fq` – the computed nullifier.
+/// This performs the OPRF flow and constructs the circuit input, but does **not**
+/// generate the final Groth16 proof. Use [`finalize_nullifier_proof`] to generate
+/// the proof once replay-guard checks are complete.
 ///
 /// # Errors
 ///
-/// Returns [`ProofError`] in the following cases:
-/// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
-/// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
-#[expect(clippy::too_many_arguments)]
-pub async fn nullifier<R: Rng + CryptoRng>(
+/// Returns [`ProofError`] for OPRF or proof preparation failures.
+pub async fn prepare_nullifier<R: Rng + CryptoRng>(
     services: &[String],
     threshold: usize,
     query_material: &CircomGroth16Material,
-    nullifier_material: &CircomGroth16Material,
     args: SingleProofInput<TREE_DEPTH>,
     private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
     connector: Connector,
     rng: &mut R,
-) -> Result<(Proof<Bn254>, Vec<ark_babyjubjub::Fq>, ark_babyjubjub::Fq), ProofError> {
+) -> Result<PreparedNullifier, ProofError> {
     let share_epoch = ShareEpoch::new(args.share_epoch);
     let cred_signature = args
         .credential
@@ -300,19 +290,96 @@ pub async fn nullifier<R: Rng + CryptoRng>(
         current_timestamp: args.current_timestamp.into(),
     };
 
+    Ok(PreparedNullifier {
+        nullifier_input,
+        expected_nullifier: verifiable_oprf_output.output,
+    })
+}
+
+/// Generates the Groth16 nullifier proof from prepared inputs.
+///
+/// # Errors
+///
+/// Returns [`ProofError`] if proof generation or verification fails.
+pub fn finalize_nullifier_proof<R: Rng + CryptoRng>(
+    nullifier_material: &CircomGroth16Material,
+    prepared: PreparedNullifier,
+    rng: &mut R,
+) -> Result<(Proof<Bn254>, Vec<ark_babyjubjub::Fq>, ark_babyjubjub::Fq), ProofError> {
+    let PreparedNullifier {
+        nullifier_input,
+        expected_nullifier,
+    } = prepared;
+
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
     nullifier_material.verify_proof(&proof, &public)?;
 
     let nullifier = public[0];
 
-    // Verify that the computed nullifier matches the OPRF output, this should never fail unless there is a bug
-    if nullifier != verifiable_oprf_output.output {
+    // Verify that the computed nullifier matches the OPRF output.
+    if nullifier != expected_nullifier {
         return Err(ProofError::InternalError(eyre::eyre!(
             "Computed nullifier does not match OPRF output"
         )));
     }
 
     Ok((proof.into(), public, nullifier))
+}
+
+/// Generates a nullifier proof for a given query.
+///
+/// Full workflow:
+/// 1. Signs and blinds the OPRF query using the user's credentials and key material.
+/// 2. Initiates sessions with the provided OPRF services and waits for enough responses.
+/// 3. Computes the `DLog` equality challenges using Shamir interpolation.
+/// 4. Collects the responses and verifies the challenges.
+/// 5. Generates the final Groth16 nullifier proof along with public inputs.
+///
+/// # Arguments
+///
+/// * `services` - List of OPRF service URLs to contact.
+/// * `threshold` - Minimum number of valid peer responses required.
+/// * `query_material` - Groth16 material (proving key and matrices) used for the query proof.
+/// * `nullifier_material` - Groth16 material (proving key and matrices) used for the nullifier proof.
+/// * `args` - [`SingleProofInput`] containing all input data (credentials, Merkle membership, query, keys, signal, etc.).
+/// * `private_key` - The user's private key for signing the blinded query.
+/// * `connector` - Connector for WebSocket communication with OPRF nodes.
+/// * `rng` - A cryptographically secure random number generator.
+///
+/// # Returns
+///
+/// On success, returns a tuple:
+/// 1. `Proof<Bn254>` – the generated nullifier proof,
+/// 2. `Vec<ark_babyjubjub::Fq>` – the public inputs for the proof,
+/// 3. `ark_babyjubjub::Fq` – the computed nullifier.
+///
+/// # Errors
+///
+/// Returns [`ProofError`] in the following cases:
+/// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
+/// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
+#[expect(clippy::too_many_arguments)]
+pub async fn nullifier<R: Rng + CryptoRng>(
+    services: &[String],
+    threshold: usize,
+    query_material: &CircomGroth16Material,
+    nullifier_material: &CircomGroth16Material,
+    args: SingleProofInput<TREE_DEPTH>,
+    private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
+    connector: Connector,
+    rng: &mut R,
+) -> Result<(Proof<Bn254>, Vec<ark_babyjubjub::Fq>, ark_babyjubjub::Fq), ProofError> {
+    let prepared = prepare_nullifier(
+        services,
+        threshold,
+        query_material,
+        args,
+        private_key,
+        connector,
+        rng,
+    )
+    .await?;
+    finalize_nullifier_proof(nullifier_material, prepared, rng)
 }
 
 /// Helper function to generate the OPRF request authentication structure and query proof.
