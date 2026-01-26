@@ -444,7 +444,7 @@ impl Authenticator {
             .find_request_by_issuer_schema_id(credential.issuer_schema_id.into())
             .ok_or(AuthenticatorError::InvalidCredentialForProofRequest)?;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rngs::OsRng;
 
         // use the provided session id or default to zero
         let session_id = request_item.session_id.unwrap_or(FieldElement::ZERO);
