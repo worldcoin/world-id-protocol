@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use eyre::Context;
 use secrecy::ExposeSecret;
-use taceo_oprf_service::{StartedServices, secret_manager::SecretManagerService};
+use taceo_oprf_service::{
+    OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
+};
 
 use crate::{
     auth::{
@@ -82,14 +84,16 @@ pub async fn start(
     ));
 
     tracing::info!("init oprf service..");
-    let (oprf_service_router, key_event_watcher) = taceo_oprf_service::init(
+    let (oprf_service_router, key_event_watcher) = OprfServiceBuilder::init(
         node_config,
         secret_manager,
-        oprf_req_auth_service,
         started_services,
         cancellation_token.clone(),
     )
-    .await?;
+    .await?
+    .module("/rp", oprf_req_auth_service)
+    // .module("/issuer", oprf_req_auth_service)
+    .build();
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;
     let axum_cancel_token = cancellation_token.clone();

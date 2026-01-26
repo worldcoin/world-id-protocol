@@ -271,6 +271,8 @@ async fn spawn_key_gen(
         start_block: Some(0),
         max_transaction_attempts: 3,
         max_wait_time_transaction_confirmation: Duration::from_secs(60),
+        max_gas_per_transaction: 8000000,
+        confirmations_for_transaction: 1, // must be 1 for anvil
     };
     let never = async { futures::future::pending::<()>().await };
     tokio::spawn(async move {

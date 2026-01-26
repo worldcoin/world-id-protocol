@@ -262,6 +262,7 @@ pub async fn nullifier<R: Rng + CryptoRng>(
 
     let verifiable_oprf_output = taceo_oprf_client::distributed_oprf(
         services,
+        "rp", // module for World ID RP use-case
         threshold,
         args.oprf_key_id,
         share_epoch,
