@@ -8,6 +8,8 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 
@@ -18,6 +20,7 @@ import {PackedAccountData} from "./libraries/PackedAccountData.sol";
  */
 contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using BinaryIMT for BinaryIMTData;
+    using SafeERC20 for IERC20;
 
     modifier onlyInitialized() {
         _onlyInitialized();
@@ -56,6 +59,11 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     mapping(uint256 => uint256) private rootToTimestamp;
     uint256 private latestRoot;
     uint256 private rootValidityWindow;
+
+    // Registration fee variables
+    uint256 internal _registrationFee;
+    address internal _feeRecipient;
+    IERC20 internal _feeToken;
 
     ////////////////////////////////////////////////////////////
     //                        Events                          //
@@ -106,6 +114,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     event RootRecorded(uint256 indexed root, uint256 timestamp);
     event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
     event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
+    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
+    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -283,6 +294,11 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     error RecoveryCounterOverflow();
 
+    /**
+     * @dev Thrown when the fee payment is not enough to cover registration.
+     */
+    error InsufficientFunds();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -295,8 +311,18 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     /**
      * @dev Initializes the contract.
      * @param initialTreeDepth The depth of the Merkle tree.
+     * @param feeRecipient The recipient of registration fees (can be address(0) if no fees).
+     * @param feeToken The token used to pay registration fees (can be address(0) if no fees).
+     * @param registrationFee The fee to register a World ID (default: 0).
      */
-    function initialize(uint256 initialTreeDepth) public virtual initializer {
+    function initialize(uint256 initialTreeDepth, address feeRecipient, address feeToken, uint256 registrationFee)
+        public
+        virtual
+        initializer
+    {
+        if (feeRecipient == address(0)) revert ZeroAddress();
+        if (feeToken == address(0)) revert ZeroAddress();
+
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
@@ -311,6 +337,11 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
         maxAuthenticators = 7;
         rootValidityWindow = 3600;
+
+        // Initialize fee parameters (fee may be 0)
+        _feeRecipient = feeRecipient;
+        _feeToken = IERC20(feeToken);
+        _registrationFee = registrationFee;
     }
 
     ////////////////////////////////////////////////////////////
@@ -423,6 +454,27 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      */
     function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return rootValidityWindow;
+    }
+
+    /**
+     * @dev Returns the current registration fee for creating a World ID.
+     */
+    function getRegistrationFee() public view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _registrationFee;
+    }
+
+    /**
+     * @dev Returns the current recipient for registration fees.
+     */
+    function getFeeRecipient() public view virtual onlyProxy onlyInitialized returns (address) {
+        return _feeRecipient;
+    }
+
+    /**
+     * @dev Returns the current token with which fees are paid.
+     */
+    function getFeeToken() public view virtual onlyProxy onlyInitialized returns (address) {
+        return address(_feeToken);
     }
 
     ////////////////////////////////////////////////////////////
@@ -584,6 +636,11 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         );
 
         nextLeafIndex = leafIndex + 1;
+
+        // Handle fee payment if required
+        if (_registrationFee > 0) {
+            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
+        }
     }
 
     ////////////////////////////////////////////////////////////
@@ -602,6 +659,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
     ) external virtual onlyProxy onlyInitialized {
+        if (_registrationFee > 0 && _feeToken.balanceOf(msg.sender) < _registrationFee) {
+            revert InsufficientFunds();
+        }
         _registerAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment);
         tree.insert(offchainSignerCommitment);
         _recordCurrentRoot();
@@ -631,6 +691,10 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         }
         if (recoveryAddresses.length != offchainSignerCommitments.length) {
             revert MismatchingArrayLengths();
+        }
+
+        if (_registrationFee > 0 && _feeToken.balanceOf(msg.sender) < recoveryAddresses.length * _registrationFee) {
+            revert InsufficientFunds();
         }
 
         for (uint256 i = 0; i < recoveryAddresses.length; i++) {
@@ -1030,6 +1094,38 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256 old = maxAuthenticators;
         maxAuthenticators = newMaxAuthenticators;
         emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
+    }
+
+    /**
+     * @dev Sets the recipient address for registration fees.
+     * @param newFeeRecipient The new fee recipient address.
+     */
+    function setFeeRecipient(address newFeeRecipient) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newFeeRecipient == address(0)) revert ZeroAddress();
+        address oldRecipient = _feeRecipient;
+        _feeRecipient = newFeeRecipient;
+        emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
+    }
+
+    /**
+     * @dev Sets the registration fee amount.
+     * @param newFee The new registration fee.
+     */
+    function setRegistrationFee(uint256 newFee) external virtual onlyOwner onlyProxy onlyInitialized {
+        uint256 oldFee = _registrationFee;
+        _registrationFee = newFee;
+        emit RegistrationFeeUpdated(oldFee, newFee);
+    }
+
+    /**
+     * @dev Sets the token used for paying registration fees.
+     * @param newFeeToken The new fee token address.
+     */
+    function setFeeToken(address newFeeToken) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newFeeToken == address(0)) revert ZeroAddress();
+        address oldToken = address(_feeToken);
+        _feeToken = IERC20(newFeeToken);
+        emit FeeTokenUpdated(oldToken, newFeeToken);
     }
 
     ////////////////////////////////////////////////////////////
