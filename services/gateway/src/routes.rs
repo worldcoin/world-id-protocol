@@ -2,8 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     AppState,
+    batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
+    request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
         create_account::create_account,
@@ -21,6 +23,7 @@ use alloy::providers::DynProvider;
 use axum::{
     Json, Router,
     extract::{Path, State},
+    middleware::from_fn,
     response::IntoResponse,
     routing::{get, post},
 };
@@ -30,10 +33,10 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::{
     types::{
-        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayErrorCode as ErrorCode,
-        GatewayRequestKind, GatewayRequestState, GatewayStatusResponse, HealthResponse,
-        InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
+        GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
+        IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+        UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -42,11 +45,12 @@ mod create_account;
 mod health;
 mod insert_authenticator;
 mod is_valid_root;
+pub(crate) mod middleware;
 mod recover_account;
 mod remove_authenticator;
 mod request_status;
 mod update_authenticator;
-mod validation;
+pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 
@@ -87,12 +91,18 @@ pub(crate) async fn build_app(
         .max_capacity(ROOT_CACHE_SIZE)
         .expire_after(RootExpiry)
         .build();
-    let state = AppState {
+
+    let batcher_handle = BatcherHandle {
+        create: batcher,
+        ops: ops_batcher,
+    };
+    let ctx = GatewayContext {
         registry: registry.clone(),
-        batcher,
-        ops_batcher,
+        tracker,
+        batcher: batcher_handle,
         root_cache,
     };
+    let state = AppState { ctx };
 
     Ok(Router::new()
         .route("/health", get(health))
@@ -108,7 +118,7 @@ pub(crate) async fn build_app(
         .route("/is-valid-root", get(is_valid_root))
         .route("/openapi.json", get(openapi))
         .with_state(state)
-        .layer(axum::Extension(tracker))
+        .layer(from_fn(middleware::request_id_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
