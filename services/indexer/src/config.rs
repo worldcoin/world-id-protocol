@@ -1,18 +1,19 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use alloy::{primitives::Address, providers::DynProvider};
-use sqlx::PgPool;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+
+use crate::db::DB;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: PgPool,
+    pub db: DB,
     pub registry: Arc<WorldIdRegistryInstance<DynProvider>>,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, registry: Arc<WorldIdRegistryInstance<DynProvider>>) -> Self {
-        Self { pool, registry }
+    pub fn new(db: DB, registry: Arc<WorldIdRegistryInstance<DynProvider>>) -> Self {
+        Self { db, registry }
     }
 }
 

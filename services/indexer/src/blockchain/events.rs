@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::{Address, FixedBytes, Log, U256},
+    primitives::{Address, Log, U256},
     sol_types::SolEvent,
 };
 use world_id_core::world_id_registry::WorldIdRegistry;
@@ -65,7 +65,7 @@ pub enum RegistryEvent {
 #[derive(Debug, Clone)]
 pub struct BlockchainEvent<T: Clone> {
     pub block_number: u64,
-    pub tx_hash: FixedBytes<32>,
+    pub tx_hash: U256,
     pub log_index: u64,
     pub details: T,
 }
@@ -187,7 +187,7 @@ pub fn decode_registry_event(
 
     Ok(BlockchainEvent {
         block_number,
-        tx_hash,
+        tx_hash: tx_hash.into(),
         log_index,
         details,
     })

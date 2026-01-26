@@ -1,6 +1,5 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -8,7 +7,7 @@ use std::{
 };
 
 use super::{MerkleTree, PoseidonHasher};
-use crate::db::{get_active_leaf_count, get_max_event_block, get_total_event_count};
+use crate::db::{DB, EventId, get_active_leaf_count, get_total_event_count};
 
 /// Get the metadata file path for a given cache path.
 /// Cache file: `/path/to/tree.mmap` → Metadata: `/path/to/tree.mmap.meta`
@@ -21,14 +20,11 @@ pub struct TreeCacheMetadata {
     /// Root hash of the tree when cache was written
     pub root_hash: String,
 
-    /// Last block number included in this cache (informational only)
+    /// Last block number included in this cache
     pub last_block_number: u64,
 
-    /// Last event ID processed (PRIMARY CURSOR for replay)
-    /// This is the auto-incrementing ID from world_id_events table
-    /// Using event_id instead of block_number ensures we catch all events,
-    /// including those inserted later with older block numbers (e.g., during reorgs)
-    pub last_event_id: i64,
+    /// Last log index included in this cache
+    pub last_log_index: u64,
 
     /// Number of non-zero leaves in the tree
     pub active_leaf_count: u64,
@@ -49,7 +45,7 @@ pub struct TreeCacheMetadata {
 /// Database state information for validation
 #[derive(Debug)]
 pub struct DbState {
-    pub max_block_number: u64,
+    pub last_event_id: Option<EventId>,
     #[allow(dead_code)]
     pub total_events: u64,
     #[allow(dead_code)]
@@ -77,20 +73,19 @@ pub fn read_metadata(cache_path: &Path) -> anyhow::Result<TreeCacheMetadata> {
 pub async fn write_metadata(
     cache_path: &Path,
     tree: &MerkleTree<PoseidonHasher, semaphore_rs_trees::lazy::Canonical>,
-    pool: &PgPool,
-    last_block_number: u64,
-    last_event_id: i64,
+    db: &DB,
+    last_event_id: EventId,
     tree_depth: usize,
     dense_prefix_depth: usize,
 ) -> anyhow::Result<()> {
     // Get current database state
-    let active_leaf_count = get_active_leaf_count(pool).await?;
+    let active_leaf_count = get_active_leaf_count(db.pool()).await?;
 
     // Create metadata
     let metadata = TreeCacheMetadata {
         root_hash: format!("0x{:x}", tree.root()),
-        last_block_number,
-        last_event_id,
+        last_block_number: last_event_id.block_number,
+        last_log_index: last_event_id.log_index,
         active_leaf_count,
         tree_depth,
         dense_prefix_depth,
@@ -125,7 +120,7 @@ pub async fn write_metadata(
     })?;
 
     tracing::debug!(
-        block_number = last_block_number,
+        event_id = ?last_event_id,
         root = %metadata.root_hash,
         "Wrote metadata to disk"
     );
@@ -134,13 +129,13 @@ pub async fn write_metadata(
 }
 
 /// Get current database state (for validation)
-pub async fn get_db_state(pool: &PgPool) -> anyhow::Result<DbState> {
-    let max_block_number = get_max_event_block(pool).await?;
-    let total_events = get_total_event_count(pool).await?;
-    let active_leaf_count = get_active_leaf_count(pool).await?;
+pub async fn get_db_state(db: &DB) -> anyhow::Result<DbState> {
+    let last_event_id = db.world_id_events().get_latest_id().await?;
+    let total_events = get_total_event_count(db.pool()).await?;
+    let active_leaf_count = get_active_leaf_count(db.pool()).await?;
 
     Ok(DbState {
-        max_block_number,
+        last_event_id,
         total_events,
         active_leaf_count,
     })

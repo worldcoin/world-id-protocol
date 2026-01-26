@@ -6,7 +6,7 @@ pub(crate) async fn handler(
     State(state): State<AppState>,
 ) -> Result<Json<HealthResponse>, IndexerErrorResponse> {
     let query = sqlx::query("select 1")
-        .fetch_optional(&state.pool)
+        .fetch_optional(state.db.pool())
         .await
         .map_err(|e| {
             tracing::error!("error querying the database for accounts: {}", e);
