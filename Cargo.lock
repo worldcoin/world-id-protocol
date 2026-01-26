@@ -5674,6 +5674,8 @@ dependencies = [
  "rlp",
  "ruint-macro",
  "serde_core",
+ "sqlx-core",
+ "thiserror 2.0.17",
  "valuable",
  "zeroize",
 ]
@@ -8508,7 +8510,9 @@ dependencies = [
  "hex",
  "http 1.4.0",
  "rand 0.8.5",
+ "regex",
  "reqwest",
+ "ruint",
  "semaphore-rs-hasher",
  "semaphore-rs-trees",
  "serde",
