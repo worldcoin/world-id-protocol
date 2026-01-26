@@ -56,11 +56,11 @@ impl<'a> Accounts<'a> {
 
     pub async fn update_authenticator_at_index(
         &self,
-        leaf_index: U256,
+        leaf_index: &U256,
         pubkey_id: u32,
-        new_address: Address,
-        new_pubkey: U256,
-        new_commitment: U256,
+        new_address: &Address,
+        new_pubkey: &U256,
+        new_commitment: &U256,
     ) -> anyhow::Result<()> {
         // Update authenticator at specific index (pubkey_id)
         sqlx::query(&format!(
@@ -86,11 +86,11 @@ impl<'a> Accounts<'a> {
 
     pub async fn insert_authenticator_at_index(
         &self,
-        leaf_index: U256,
+        leaf_index: &U256,
         pubkey_id: u32,
-        new_address: Address,
-        new_pubkey: U256,
-        new_commitment: U256,
+        new_address: &Address,
+        new_pubkey: &U256,
+        new_commitment: &U256,
     ) -> anyhow::Result<()> {
         // Ensure arrays are large enough and insert at specific index
         sqlx::query(&format!(
@@ -116,9 +116,9 @@ impl<'a> Accounts<'a> {
 
     pub async fn remove_authenticator_at_index(
         &self,
-        leaf_index: U256,
+        leaf_index: &U256,
         pubkey_id: u32,
-        new_commitment: U256,
+        new_commitment: &U256,
     ) -> anyhow::Result<()> {
         // Remove authenticator at specific index by setting to null
         sqlx::query(&format!(

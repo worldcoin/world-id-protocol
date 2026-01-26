@@ -9,7 +9,7 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 
 mod blockchain;
 pub mod config;
-mod db;
+pub mod db;
 mod routes;
 mod sanity_check;
 mod tree;
@@ -550,11 +550,11 @@ pub async fn handle_registry_event(
         RegistryEvent::AccountUpdated(ev) => {
             db.accounts()
                 .update_authenticator_at_index(
-                    ev.leaf_index,
+                    &ev.leaf_index,
                     ev.pubkey_id,
-                    ev.new_authenticator_address,
-                    ev.new_authenticator_pubkey,
-                    ev.new_offchain_signer_commitment,
+                    &ev.new_authenticator_address,
+                    &ev.new_authenticator_pubkey,
+                    &ev.new_offchain_signer_commitment,
                 )
                 .await?;
             db.world_id_events()
@@ -571,11 +571,11 @@ pub async fn handle_registry_event(
         RegistryEvent::AuthenticatorInserted(ev) => {
             db.accounts()
                 .insert_authenticator_at_index(
-                    ev.leaf_index,
+                    &ev.leaf_index,
                     ev.pubkey_id,
-                    ev.authenticator_address,
-                    ev.new_authenticator_pubkey,
-                    ev.new_offchain_signer_commitment,
+                    &ev.authenticator_address,
+                    &ev.new_authenticator_pubkey,
+                    &ev.new_offchain_signer_commitment,
                 )
                 .await?;
             db.world_id_events()
@@ -592,9 +592,9 @@ pub async fn handle_registry_event(
         RegistryEvent::AuthenticatorRemoved(ev) => {
             db.accounts()
                 .remove_authenticator_at_index(
-                    ev.leaf_index,
+                    &ev.leaf_index,
                     ev.pubkey_id,
-                    ev.new_offchain_signer_commitment,
+                    &ev.new_offchain_signer_commitment,
                 )
                 .await?;
             db.world_id_events()
@@ -612,11 +612,11 @@ pub async fn handle_registry_event(
             // Recovery resets to a single authenticator at index 0
             db.accounts()
                 .update_authenticator_at_index(
-                    ev.leaf_index,
+                    &ev.leaf_index,
                     0,
-                    ev.new_authenticator_address,
-                    ev.new_authenticator_pubkey,
-                    ev.new_offchain_signer_commitment,
+                    &ev.new_authenticator_address,
+                    &ev.new_authenticator_pubkey,
+                    &ev.new_offchain_signer_commitment,
                 )
                 .await?;
             db.world_id_events()

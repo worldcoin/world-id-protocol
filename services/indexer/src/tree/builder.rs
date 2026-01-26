@@ -74,10 +74,10 @@ impl TreeBuilder {
         let mut dense_leaves: Vec<Option<U256>> = vec![None; dense_prefix_size];
         let mut total_leaves = 0u64;
         let mut max_leaf_index = 0usize;
-        let mut last_cursor = String::from("0");
+        let mut last_cursor = 0usize;
 
         loop {
-            let batch = self.fetch_and_parse_leaves_batch(db, &last_cursor).await?;
+            let batch = self.fetch_and_parse_leaves_batch(db, last_cursor).await?;
 
             if batch.is_empty() {
                 break;
@@ -99,7 +99,7 @@ impl TreeBuilder {
 
             // Update cursor to last item in batch
             if let Some((last_idx, _)) = batch.last() {
-                last_cursor = last_idx.to_string();
+                last_cursor = *last_idx;
             }
 
             // Progress logging every 500k rows
@@ -136,10 +136,10 @@ impl TreeBuilder {
         if max_leaf_index >= dense_prefix_size {
             info!("Second pass: collecting and applying sparse leaves beyond dense prefix");
             let mut sparse_updates: Vec<(usize, U256)> = Vec::new();
-            let mut last_cursor = String::from("0");
+            let mut last_cursor = 0usize;
 
             loop {
-                let batch = self.fetch_and_parse_leaves_batch(db, &last_cursor).await?;
+                let batch = self.fetch_and_parse_leaves_batch(db, last_cursor).await?;
 
                 if batch.is_empty() {
                     break;
@@ -154,7 +154,7 @@ impl TreeBuilder {
 
                 // Update cursor
                 if let Some((last_idx, _)) = batch.last() {
-                    last_cursor = last_idx.to_string();
+                    last_cursor = *last_idx;
                 }
 
                 // Progress logging
@@ -212,23 +212,21 @@ impl TreeBuilder {
     }
 
     /// Fetch and parse a batch of leaves from the database.
+    /// Here we convert U256 leaf indexes to usize value.
     /// Returns Vec<(leaf_index, leaf_value)> parsed and validated.
     async fn fetch_and_parse_leaves_batch(
         &self,
         db: &DB,
-        last_cursor: &str,
+        last_cursor: usize,
     ) -> anyhow::Result<Vec<(usize, U256)>> {
         const BATCH_SIZE: i64 = 100_000;
 
-        let raw_batch = fetch_leaves_batch(db.pool(), last_cursor, BATCH_SIZE).await?;
+        let raw_batch = fetch_leaves_batch(db.pool(), &U256::from(last_cursor), BATCH_SIZE).await?;
 
         let mut parsed_batch = Vec::with_capacity(raw_batch.len());
 
-        for (leaf_index_str, commitment_str) in raw_batch {
-            let leaf_index: U256 = leaf_index_str
-                .parse()
-                .with_context(|| format!("Failed to parse leaf_index: {}", leaf_index_str))?;
-
+        let capacity = 1usize << self.tree_depth;
+        for (leaf_index, commitment) in raw_batch {
             if leaf_index == U256::ZERO {
                 continue;
             }
@@ -236,23 +234,15 @@ impl TreeBuilder {
             let leaf_index_usize = leaf_index.as_limbs()[0] as usize;
 
             // Validate leaf index is within tree capacity
-            let capacity = 1usize << self.tree_depth;
             if leaf_index_usize >= capacity {
                 anyhow::bail!(
                     "leaf index {} out of range for tree depth {}",
-                    leaf_index_usize,
+                    leaf_index,
                     self.tree_depth
                 );
             }
 
-            let leaf_val = commitment_str.parse::<U256>().with_context(|| {
-                format!(
-                    "Failed to parse offchain_signer_commitment: {}",
-                    commitment_str
-                )
-            })?;
-
-            parsed_batch.push((leaf_index_usize, leaf_val));
+            parsed_batch.push((leaf_index_usize, commitment));
         }
 
         Ok(parsed_batch)

@@ -88,7 +88,7 @@ impl<'a> WorldIdEvents<'a> {
                 ORDER BY
                     block_number DESC,
                     log_index DESC
-                LIIMT 1
+                LIMIT 1
             "#,
             self.table_name
         ))
@@ -106,12 +106,12 @@ impl<'a> WorldIdEvents<'a> {
         sqlx::query(&format!(
             r#"
                 SELECT
+                    block_number,
+                    log_index,
                     leaf_index,
                     event_type,
                     new_commitment,
-                    block_number,
-                    tx_hash,
-                    log_index
+                    tx_hash
                 FROM {}
                 WHERE
                     (block_number = $1 AND log_index > $2)
@@ -145,22 +145,22 @@ impl<'a> WorldIdEvents<'a> {
         sqlx::query(&format!(
             r#"
                 INSERT INTO {} (
+                    block_number,
+                    log_index,
                     leaf_index,
                     event_type,
                     new_commitment,
-                    block_number,
-                    tx_hash,
-                    log_index
+                    tx_hash
                 ) VALUES ($1, $2, $3, $4, $5, $6)
             "#,
             self.table_name
         ))
+        .bind(block_number as i64)
+        .bind(log_index as i64)
         .bind(leaf_index.as_le_slice())
         .bind(event_type.to_string())
         .bind(new_commitment.as_le_slice())
-        .bind(block_number as i64)
         .bind(tx_hash.as_le_slice())
-        .bind(log_index as i64)
         .execute(self.pool)
         .await?;
         Ok(())
@@ -168,7 +168,7 @@ impl<'a> WorldIdEvents<'a> {
 
     fn map_row_to_event_id(&self, row: &PgRow) -> anyhow::Result<EventId> {
         Ok(EventId {
-            block_number: row.get::<i64, _>("leaf_index") as u64,
+            block_number: row.get::<i64, _>("block_number") as u64,
             log_index: row.get::<i64, _>("log_index") as u64,
         })
     }
@@ -176,7 +176,7 @@ impl<'a> WorldIdEvents<'a> {
     fn map_row_to_world_id_event(&self, row: &PgRow) -> anyhow::Result<WorldIdEvent> {
         Ok(WorldIdEvent {
             id: self.map_row_to_event_id(row)?,
-            tx_hash: U256::from_be_slice(row.get::<&[u8], _>("tx_hash")),
+            tx_hash: U256::from_le_slice(row.get::<&[u8], _>("tx_hash")),
             event_type: EventType::try_from(row.get::<&str, _>("event_type"))?,
             leaf_index: U256::from_be_slice(row.get::<&[u8], _>("leaf_index")),
             new_commitment: U256::from_be_slice(row.get::<&[u8], _>("new_commitment")),

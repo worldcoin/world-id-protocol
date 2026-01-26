@@ -37,6 +37,7 @@ reqwest = { workspace = true }
 serial_test = "3"
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
+regex = "1"
 
 [features]
 integration-tests = [] # running integration tests requires running external services (i.e. Postgres)

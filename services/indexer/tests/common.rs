@@ -7,9 +7,12 @@ use alloy::{
     primitives::{Address, U256, address},
     providers::ProviderBuilder,
 };
+use regex::Regex;
 use sqlx::{Executor, PgPool, postgres::PgPoolOptions};
 use test_utils::anvil::TestAnvil;
+use tracing::info;
 use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_indexer::db::DB;
 use world_id_primitives::TREE_DEPTH;
 
 pub const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
@@ -98,21 +101,31 @@ impl TestSetup {
 
     async fn setup_test_database() -> String {
         let base_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://postgres:postgres@localhost:5432/postgres".to_string()
+            format!("postgresql://postgres:postgres@localhost:5432/{TEST_DB_NAME}")
         });
 
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&base_url)
-            .await
-            .unwrap();
+        {
+            let re = Regex::new(&format!("/{TEST_DB_NAME}(\\??)")).unwrap();
+            let base_url = re.replace_all(&base_url, "/postgres${1}");
 
-        let _ = pool
-            .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
-            .await;
-        pool.execute(format!("CREATE DATABASE {TEST_DB_NAME}").as_str())
-            .await
-            .unwrap();
+            let db = DB::new(&base_url, Some(1)).await.unwrap();
+
+            info!("Dropping database...");
+            let _ = db
+                .pool()
+                .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
+                .await;
+            info!("Database dropped.");
+            info!("Creating database...");
+            db.pool()
+                .execute(format!("CREATE DATABASE {TEST_DB_NAME}").as_str())
+                .await
+                .unwrap();
+            info!("Database created.");
+        }
+
+        let db = DB::new(&base_url, Some(1)).await.unwrap();
+        db.run_migrations().await.unwrap();
 
         if let Some(idx) = base_url.rfind('/') {
             format!("{}/{}", &base_url[..idx], TEST_DB_NAME)
@@ -123,15 +136,15 @@ impl TestSetup {
 
     async fn cleanup_test_database() {
         let base_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://postgres:postgres@localhost:5432/postgres".to_string()
+            format!("postgresql://postgres:postgres@localhost:5432/{TEST_DB_NAME}")
         });
 
-        if let Ok(pool) = PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&base_url)
-            .await
-        {
-            let _ = pool
+        let re = Regex::new(&format!("/{TEST_DB_NAME}(\\??)")).unwrap();
+        let base_url = re.replace_all(&base_url, "/postgres${1}");
+
+        if let Ok(db) = DB::new(&base_url, Some(1)).await {
+            let _ = db
+                .pool()
                 .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
                 .await;
         }

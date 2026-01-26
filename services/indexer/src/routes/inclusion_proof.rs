@@ -61,7 +61,7 @@ pub(crate) async fn handler(
     let account_row = sqlx::query(
         "select offchain_signer_commitment, authenticator_pubkeys from accounts where leaf_index = $1",
     )
-    .bind(leaf_index.to_string())
+    .bind(req.leaf_index.as_le_slice())
     .fetch_optional(state.db.pool())
     .await
     .ok()
@@ -93,13 +93,8 @@ pub(crate) async fn handler(
         IndexerErrorResponse::internal_server_error()
     })?;
 
-    let offchain_signer_commitment: U256 = row
-        .get::<String, _>("offchain_signer_commitment")
-        .parse()
-        .map_err(|e| {
-            tracing::error!(leaf_index = %leaf_index, "Invalid offchain_signer_commitment stored for account: {e}");
-            IndexerErrorResponse::internal_server_error()
-        })?;
+    let offchain_signer_commitment =
+        U256::from_le_slice(row.get::<&[u8], _>("offchain_signer_commitment"));
 
     let tree = GLOBAL_TREE.read().await;
 
