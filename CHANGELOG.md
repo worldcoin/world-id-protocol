@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.3.0...world-id-primitives-v0.4.0) - 2026-01-26
+
+### Added
+
+- [**breaking**] New rp_signature module and include action ([#243](https://github.com/worldcoin/world-id-protocol/pull/243))
+- final circuit updates ([#235](https://github.com/worldcoin/world-id-protocol/pull/235))
+- Make primitives crate wasm compatible ([#229](https://github.com/worldcoin/world-id-protocol/pull/229))
+- [**breaking**] remove OprfPublicKey from ProofRequest, now is returned from oprf nodes during distributed_oprf ([#215](https://github.com/worldcoin/world-id-protocol/pull/215))
+- integrate and update RpRegistry to load and verifiy ecdsa signature in oprf-node ([#197](https://github.com/worldcoin/world-id-protocol/pull/197))
+
+### Other
+
+- rust nits ([#211](https://github.com/worldcoin/world-id-protocol/pull/211))
+
 ## [0.3.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.2.0...world-id-primitives-v0.3.0) - 2026-01-14
 
 ### Added
