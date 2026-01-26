@@ -1,8 +1,12 @@
+//! Operations batcher for insert/remove/recover/update operations.
+//!
+//! This batcher collects operations and submits them via Multicall3.
+
 use std::{sync::Arc, time::Duration};
 
 use crate::RequestTracker;
 use alloy::{
-    primitives::{Address, Bytes, U256, address},
+    primitives::{Address, Bytes, address},
     providers::DynProvider,
 };
 use tokio::sync::mpsc;
@@ -25,65 +29,18 @@ alloy::sol! {
 
 #[derive(Clone)]
 pub struct OpsBatcherHandle {
-    pub tx: mpsc::Sender<OpEnvelope>,
+    pub tx: mpsc::Sender<OpsEnvelope>,
 }
 
+/// Envelope for ops batcher containing pre-computed calldata.
 #[derive(Debug)]
-pub enum OpKind {
-    Update {
-        leaf_index: U256,
-        old_authenticator_address: Address,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: u32,
-        new_pubkey: U256,
-    },
-    Insert {
-        leaf_index: U256,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: u32,
-        new_pubkey: U256,
-    },
-    Remove {
-        leaf_index: U256,
-        authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        pubkey_id: u32,
-        authenticator_pubkey: U256,
-    },
-    Recover {
-        leaf_index: U256,
-        new_authenticator_address: Address,
-        old_commit: U256,
-        new_commit: U256,
-        signature: Bytes,
-        sibling_nodes: Vec<U256>,
-        nonce: U256,
-        new_pubkey: U256,
-    },
-}
-
-#[derive(Debug)]
-pub struct OpEnvelope {
+pub struct OpsEnvelope {
     pub id: String,
-    pub kind: OpKind,
+    pub calldata: Bytes,
 }
 
 pub struct OpsBatcherRunner {
-    rx: mpsc::Receiver<OpEnvelope>,
+    rx: mpsc::Receiver<OpsEnvelope>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     window: Duration,
     max_batch_size: usize,
@@ -95,7 +52,7 @@ impl OpsBatcherRunner {
         registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
         window: Duration,
         max_batch_size: usize,
-        rx: mpsc::Receiver<OpEnvelope>,
+        rx: mpsc::Receiver<OpsEnvelope>,
         tracker: RequestTracker,
     ) -> Self {
         Self {
@@ -107,123 +64,8 @@ impl OpsBatcherRunner {
         }
     }
 
-    /// Simulate an operation to check if it would revert without spending gas
-    async fn simulate_operation(&self, kind: &OpKind) -> Result<(), String> {
-        match kind {
-            OpKind::Update {
-                leaf_index,
-                old_authenticator_address,
-                new_authenticator_address,
-                old_commit,
-                new_commit,
-                signature,
-                sibling_nodes,
-                nonce,
-                pubkey_id,
-                new_pubkey,
-            } => self
-                .registry
-                .updateAuthenticator(
-                    *leaf_index,
-                    *old_authenticator_address,
-                    *new_authenticator_address,
-                    *pubkey_id,
-                    *new_pubkey,
-                    *old_commit,
-                    *new_commit,
-                    signature.clone(),
-                    sibling_nodes.clone(),
-                    *nonce,
-                )
-                .call()
-                .await
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
-            OpKind::Insert {
-                leaf_index,
-                new_authenticator_address,
-                old_commit,
-                new_commit,
-                signature,
-                sibling_nodes,
-                nonce,
-                pubkey_id,
-                new_pubkey,
-            } => self
-                .registry
-                .insertAuthenticator(
-                    *leaf_index,
-                    *new_authenticator_address,
-                    *pubkey_id,
-                    *new_pubkey,
-                    *old_commit,
-                    *new_commit,
-                    signature.clone(),
-                    sibling_nodes.clone(),
-                    *nonce,
-                )
-                .call()
-                .await
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
-            OpKind::Remove {
-                leaf_index,
-                authenticator_address,
-                old_commit,
-                new_commit,
-                signature,
-                sibling_nodes,
-                nonce,
-                pubkey_id,
-                authenticator_pubkey,
-            } => self
-                .registry
-                .removeAuthenticator(
-                    *leaf_index,
-                    *authenticator_address,
-                    *pubkey_id,
-                    *authenticator_pubkey,
-                    *old_commit,
-                    *new_commit,
-                    signature.clone(),
-                    sibling_nodes.clone(),
-                    *nonce,
-                )
-                .call()
-                .await
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
-            OpKind::Recover {
-                leaf_index,
-                new_authenticator_address,
-                old_commit,
-                new_commit,
-                signature,
-                sibling_nodes,
-                nonce,
-                new_pubkey,
-            } => self
-                .registry
-                .recoverAccount(
-                    *leaf_index,
-                    *new_authenticator_address,
-                    *new_pubkey,
-                    *old_commit,
-                    *new_commit,
-                    signature.clone(),
-                    sibling_nodes.clone(),
-                    *nonce,
-                )
-                .call()
-                .await
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
-        }
-    }
-
     pub async fn run(mut self) {
         let provider = self.registry.provider().clone();
-        let contract = self.registry.clone();
         let mc = Multicall3::new(MULTICALL3_ADDR, provider);
 
         loop {
@@ -231,25 +73,6 @@ impl OpsBatcherRunner {
                 tracing::info!("ops batcher channel closed");
                 return;
             };
-
-            // Simulate the first operation before starting a batch
-            if let Err(sim_error) = self.simulate_operation(&first.kind).await {
-                tracing::warn!(id = %first.id, error = %sim_error, "operation pre-flight simulation failed");
-                // Parse the error to get a specific error code if possible
-                let code = parse_contract_error(&sim_error);
-                let error_msg = if matches!(code, GatewayErrorCode::BadRequest) {
-                    format!("pre-flight check failed: {sim_error}")
-                } else {
-                    code.to_string()
-                };
-                self.tracker
-                    .set_status(
-                        &first.id,
-                        GatewayRequestState::failed(error_msg, Some(code)),
-                    )
-                    .await;
-                continue; // Skip this operation and wait for the next one
-            }
 
             let mut batch = vec![first];
             let deadline = tokio::time::Instant::now() + self.window;
@@ -259,30 +82,7 @@ impl OpsBatcherRunner {
                     break;
                 }
                 match tokio::time::timeout_at(deadline, self.rx.recv()).await {
-                    Ok(Some(req)) => {
-                        // Simulate each additional operation before adding to batch
-                        if let Err(sim_error) = self.simulate_operation(&req.kind).await {
-                            tracing::warn!(id = %req.id, error = %sim_error, "operation pre-flight simulation failed");
-                            // Parse the error to get a specific error code if possible
-                            let code = parse_contract_error(&sim_error);
-                            let error_msg = if matches!(code, GatewayErrorCode::BadRequest) {
-                                format!("pre-flight check failed: {sim_error}")
-                            } else {
-                                code.to_string()
-                            };
-
-                            self.tracker
-                                .set_status(
-                                    &req.id,
-                                    GatewayRequestState::failed(error_msg, Some(code)),
-                                )
-                                .await;
-                            // Skip this operation but continue batching
-                        } else {
-                            batch.push(req);
-                        }
-                    }
-
+                    Ok(Some(req)) => batch.push(req),
                     Ok(None) => {
                         tracing::info!("ops batcher channel closed while batching");
                         break;
@@ -296,112 +96,14 @@ impl OpsBatcherRunner {
                 .set_status_batch(&ids, GatewayRequestState::Batching)
                 .await;
 
-            let mut calls: Vec<Multicall3::Call3> = Vec::with_capacity(batch.len());
-            for env in &batch {
-                let data: alloy::primitives::Bytes = match &env.kind {
-                    OpKind::Update {
-                        leaf_index,
-                        old_authenticator_address,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        new_pubkey,
-                    } => contract
-                        .updateAuthenticator(
-                            *leaf_index,
-                            *old_authenticator_address,
-                            *new_authenticator_address,
-                            *pubkey_id,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Insert {
-                        leaf_index,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        new_pubkey,
-                    } => contract
-                        .insertAuthenticator(
-                            *leaf_index,
-                            *new_authenticator_address,
-                            *pubkey_id,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Remove {
-                        leaf_index,
-                        authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        pubkey_id,
-                        authenticator_pubkey,
-                    } => contract
-                        .removeAuthenticator(
-                            *leaf_index,
-                            *authenticator_address,
-                            *pubkey_id,
-                            *authenticator_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                    OpKind::Recover {
-                        leaf_index,
-                        new_authenticator_address,
-                        old_commit,
-                        new_commit,
-                        signature,
-                        sibling_nodes,
-                        nonce,
-                        new_pubkey,
-                    } => contract
-                        .recoverAccount(
-                            *leaf_index,
-                            *new_authenticator_address,
-                            *new_pubkey,
-                            *old_commit,
-                            *new_commit,
-                            signature.clone(),
-                            sibling_nodes.clone(),
-                            *nonce,
-                        )
-                        .calldata()
-                        .clone(),
-                };
-                calls.push(Multicall3::Call3 {
+            let calls: Vec<Multicall3::Call3> = batch
+                .iter()
+                .map(|env| Multicall3::Call3 {
                     target: *self.registry.address(),
                     allowFailure: false,
-                    callData: data,
-                });
-            }
+                    callData: env.calldata.clone(),
+                })
+                .collect();
 
             let res = mc.aggregate3(calls).send().await;
             match res {
