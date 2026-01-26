@@ -464,6 +464,7 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             OprfKeyRegistry::initializeCall {
+                _owner: signer.address(),
                 _keygenAdmin: signer.address(),
                 _keyGenVerifierAddress: *key_gen_verifier.address(),
                 _threshold: 2,

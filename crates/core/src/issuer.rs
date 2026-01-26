@@ -59,7 +59,7 @@ impl Issuer {
         let contract =
             CredentialSchemaIssuerRegistry::new(*self.config.registry_address(), provider);
 
-        let _receipt = contract
+        let receipt = contract
             .register(
                 issuer_schema_id,
                 self.signer.offchain_signer_pubkey().into(),
@@ -67,9 +67,17 @@ impl Issuer {
             )
             .send()
             .await
-            .map_err(|e| IssuerError::Generic(format!("unexpected contract error: {e}")))?
+            .map_err(|e| IssuerError::Generic(format!("failed to send transaction: {e}")))?
             .get_receipt()
             .await?;
+
+        if !receipt.status() {
+            return Err(IssuerError::RegistrationFailed(format!(
+                "transaction reverted (tx: {}, block: {})",
+                receipt.transaction_hash,
+                receipt.block_number.unwrap_or_default()
+            )));
+        }
 
         Ok(())
     }
@@ -88,6 +96,10 @@ pub enum IssuerError {
     /// Alloy pending transaction error
     #[error(transparent)]
     PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
+
+    /// Registration failed with revert
+    #[error("Registration failed: {0}")]
+    RegistrationFailed(String),
 
     /// Generic unexpected error
     #[error("Unexpected error: {0}")]
