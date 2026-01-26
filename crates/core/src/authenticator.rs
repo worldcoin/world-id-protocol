@@ -410,11 +410,7 @@ impl Authenticator {
         credential_sub_blinding_factor: FieldElement,
     ) -> Result<UniquenessProof, AuthenticatorError> {
         let prepared = self
-            .prepare_proof(
-                proof_request,
-                credential,
-                credential_sub_blinding_factor,
-            )
+            .prepare_proof(proof_request, credential, credential_sub_blinding_factor)
             .await?;
         self.generate_proof_with_prepared(prepared)
     }
@@ -521,9 +517,7 @@ impl Authenticator {
         let (proof, _public, nullifier) =
             crate::proof::finalize_nullifier_proof(&nullifier_material, prepared, &mut rng)
                 .map_err(|e| {
-                    AuthenticatorError::Generic(format!(
-                        "Failed to generate nullifier proof: {e}"
-                    ))
+                    AuthenticatorError::Generic(format!("Failed to generate nullifier proof: {e}"))
                 })?;
 
         Ok((proof, nullifier.into()))
