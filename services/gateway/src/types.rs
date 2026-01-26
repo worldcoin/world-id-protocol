@@ -1,6 +1,6 @@
 use crate::request::GatewayContext;
 use alloy::primitives::U256;
-use moka::{Expiry, future::Cache};
+use moka::Expiry;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Maximum number of authenticators per account (matches contract default).
@@ -66,6 +66,4 @@ impl Expiry<U256, U256> for RootExpiry {
 pub(crate) struct AppState {
     /// Gateway context for request validation and submission.
     pub(crate) ctx: GatewayContext,
-    /// Cache of valid roots to their expiration timestamps.
-    pub(crate) root_cache: Cache<U256, U256>,
 }

@@ -12,7 +12,11 @@ use crate::{
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
 };
-use alloy::{primitives::Bytes, providers::DynProvider};
+use alloy::{
+    primitives::{Bytes, U256},
+    providers::DynProvider,
+};
+use moka::future::Cache;
 use uuid::Uuid;
 use world_id_core::{
     types::{
@@ -32,6 +36,7 @@ pub struct GatewayContext {
     pub registry: Arc<Registry>,
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
+    pub root_cache: Cache<U256, U256>,
 }
 
 /// A request that has been validated and is ready for submission.

@@ -33,7 +33,7 @@ fn is_expired(expires_at: U256, now: U256) -> bool {
 ///
 /// Expiration is handled automatically by moka's `Expiry` policy.
 async fn is_cached_root(state: &AppState, root: U256) -> bool {
-    state.root_cache.get(&root).await.is_some()
+    state.ctx.root_cache.get(&root).await.is_some()
 }
 
 /// Cache decision for a valid root.
@@ -99,7 +99,7 @@ pub(crate) async fn is_valid_root(
         // Cache only valid roots to avoid serving stale negatives indefinitely.
         match cache_policy_for_root(state.ctx.registry.clone(), root, now).await {
             Ok(CachePolicy::Cache(expires_at)) => {
-                state.root_cache.insert(root, expires_at).await;
+                state.ctx.root_cache.insert(root, expires_at).await;
             }
             Ok(CachePolicy::Skip) => {}
             Err(err) => {

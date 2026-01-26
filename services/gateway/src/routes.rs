@@ -100,8 +100,9 @@ pub(crate) async fn build_app(
         registry: registry.clone(),
         tracker,
         batcher: batcher_handle,
+        root_cache,
     };
-    let state = AppState { ctx, root_cache };
+    let state = AppState { ctx };
 
     Ok(Router::new()
         .route("/health", get(health))
