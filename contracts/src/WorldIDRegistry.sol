@@ -607,6 +607,11 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         uint256[] calldata authenticatorPubkeys,
         uint256 offchainSignerCommitment
     ) internal virtual {
+        // Handle fee payment if required
+        if (_registrationFee > 0) {
+            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
+        }
+
         if (authenticatorAddresses.length > maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
@@ -636,11 +641,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         );
 
         nextLeafIndex = leafIndex + 1;
-
-        // Handle fee payment if required
-        if (_registrationFee > 0) {
-            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
-        }
     }
 
     ////////////////////////////////////////////////////////////
