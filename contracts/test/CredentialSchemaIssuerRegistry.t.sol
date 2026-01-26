@@ -18,6 +18,10 @@ contract MockOprfKeyRegistry {
         }
         registeredKeys[oprfKeyId] = true;
     }
+
+    function deleteOprfPublicKey(uint160 oprfKeyId) external {
+        registeredKeys[oprfKeyId] = false;
+    }
 }
 
 contract CredentialIssuerRegistryTest is Test {

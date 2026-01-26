@@ -260,8 +260,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         delete _idToAddress[issuerSchemaId];
         delete idToSchemaUri[issuerSchemaId];
 
-        // FIXME: needs interface exposure
-        // _oprfKeyRegistry.deleteOprfPublicKey(uint160(issuerSchemaId));
+        _oprfKeyRegistry.deleteOprfPublicKey(uint160(issuerSchemaId));
 
         emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
     }
