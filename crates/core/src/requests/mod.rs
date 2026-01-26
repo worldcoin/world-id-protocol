@@ -8,7 +8,7 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
-use taceo_oprf_types::OprfKeyId;
+use taceo_oprf_types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof, rp::RpId};
 
 /// Protocol schema version for proof requests and responses.
@@ -58,6 +58,8 @@ pub struct ProofRequest {
     pub rp_id: RpId,
     /// `OprfKeyId` of the RP
     pub oprf_key_id: OprfKeyId,
+    /// The `ShareEpoch` of the OPRF key to use for this request
+    pub share_epoch: ShareEpoch,
     /// The raw representation of the action. This must be already a field element.
     ///
     /// When dealing with strings or bytes, such value can be hashed e.g. with a byte-friendly
@@ -274,17 +276,18 @@ impl ProofRequest {
     /// # Errors
     /// Returns a `PrimitiveError` if `FieldElement` serialization fails (which should never occur in practice).
     ///
-    /// Note: the timestamp is encoded as little-endian to mirror the RP-side signing
+    /// The digest is computed as: `SHA256(nonce || action || created_at || expires_at)`.
+    /// This mirrors the RP signature message format from `rp::compute_rp_signature_msg`.
+    /// Note: the timestamp is encoded as big-endian to mirror the RP-side signing
     /// performed in test fixtures and the OPRF stub.
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
         use k256::sha2::{Digest, Sha256};
+        use world_id_primitives::rp::compute_rp_signature_msg;
 
-        let mut writer = Vec::new();
+        let msg =
+            compute_rp_signature_msg(*self.nonce, *self.action, self.created_at, self.expires_at);
         let mut hasher = Sha256::new();
-        self.nonce.serialize_as_bytes(&mut writer)?;
-        hasher.update(&writer);
-        // Keep byte order aligned with RP signature generation (little-endian).
-        hasher.update(self.created_at.to_be_bytes());
+        hasher.update(&msg);
         Ok(hasher.finalize().into())
     }
 
@@ -552,6 +555,7 @@ mod tests {
             expires_at: 1_700_100_000,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: FieldElement::ZERO,
             signature: test_signature(),
             nonce: test_nonce(),
@@ -591,6 +595,7 @@ mod tests {
             expires_at: 1_735_689_600, // 2025-01-01
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: FieldElement::ZERO,
             signature: test_signature(),
             nonce: test_nonce(),
@@ -671,6 +676,7 @@ mod tests {
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(1),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -745,6 +751,7 @@ mod tests {
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(5),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -887,6 +894,7 @@ mod tests {
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(1),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -992,6 +1000,7 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(1),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1033,6 +1042,7 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(1),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1097,6 +1107,7 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(1),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1233,6 +1244,7 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(5),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1277,6 +1289,7 @@ mod tests {
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(5),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1325,6 +1338,7 @@ mod tests {
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
             action: test_field_element(1),
             signature: test_signature(),
             nonce: test_nonce(),

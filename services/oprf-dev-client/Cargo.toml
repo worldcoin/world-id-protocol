@@ -22,7 +22,8 @@ secrecy = "0.10"
 taceo-nodes-observability = "0.1"
 taceo-oprf-client = { workspace = true }
 taceo-oprf-core = { workspace = true }
-taceo-oprf-test = { workspace = true }
+taceo-oprf-test-utils = { workspace = true }
+taceo-oprf-dev-client = { workspace = true }
 taceo-oprf-types = { workspace = true }
 test-utils = { path = "../../crates/test-utils" }
 tokio = { workspace = true, features = [

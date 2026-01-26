@@ -30,6 +30,9 @@ pub struct RegistryTestContext {
     pub anvil: TestAnvil,
     pub world_id_registry: Address,
     pub credential_registry: Address,
+    pub rp_registry: Address,
+    pub oprf_key_registry: Address,
+    pub verifier: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
     pub issuer_schema_id: U256,
@@ -51,6 +54,38 @@ impl RegistryTestContext {
             .deploy_credential_schema_issuer_registry(deployer.clone())
             .await
             .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
+        let oprf_key_registry = anvil
+            .deploy_oprf_key_registry(deployer.clone())
+            .await
+            .wrap_err("failed to deploy OprfKeyRegistry")?;
+        let rp_registry = anvil
+            .deploy_rp_registry(deployer.clone(), oprf_key_registry)
+            .await
+            .wrap_err("failed to deploy RpRegistry")?;
+        let verifier = anvil
+            .deploy_verifier(
+                deployer.clone(),
+                credential_registry,
+                world_id_registry,
+                oprf_key_registry,
+            )
+            .await
+            .wrap_err("failed to deploy Verifier")?;
+
+        // signers must match the ones used in the TestSecretManager
+        let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
+        anvil
+            .register_oprf_nodes(
+                oprf_key_registry,
+                deployer.clone(),
+                oprf_node_signers.iter().map(|s| s.address()).collect(),
+            )
+            .await?;
+
+        // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens
+        anvil
+            .add_oprf_key_registry_admin(oprf_key_registry, deployer.clone(), rp_registry)
+            .await?;
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer.clone()))
@@ -94,6 +129,9 @@ impl RegistryTestContext {
             anvil,
             world_id_registry,
             credential_registry,
+            oprf_key_registry,
+            rp_registry,
+            verifier,
             issuer_private_key,
             issuer_public_key,
             issuer_schema_id,
@@ -157,6 +195,7 @@ pub struct RpFixture {
     pub action: Fq,
     pub nonce: Fq,
     pub current_timestamp: u64,
+    pub expiration_timestamp: u64,
     pub signature: Signature,
     pub rp_session_id_r_seed: FieldElement,
     pub signing_key: SigningKey,
@@ -178,11 +217,17 @@ pub fn generate_rp_fixture() -> RpFixture {
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
+    let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
     let signing_key = SigningKey::random(&mut rng);
     let signer = PrivateKeySigner::from_signing_key(signing_key.clone());
 
-    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        nonce,
+        action,
+        current_timestamp,
+        expiration_timestamp,
+    );
     let signature = signer.sign_message_sync(&msg).expect("can sign");
 
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
@@ -197,6 +242,7 @@ pub fn generate_rp_fixture() -> RpFixture {
         action,
         nonce,
         current_timestamp,
+        expiration_timestamp,
         signature,
         rp_session_id_r_seed,
         signing_key,

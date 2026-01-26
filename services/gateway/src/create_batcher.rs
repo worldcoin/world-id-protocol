@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::RequestTracker;
 use alloy::{
@@ -8,7 +8,7 @@ use alloy::{
 use tokio::sync::mpsc;
 use world_id_core::{
     types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error},
-    world_id_registry::WorldIdRegistry,
+    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
 #[derive(Clone)]
@@ -24,8 +24,7 @@ pub struct CreateReqEnvelope {
 
 pub struct CreateBatcherRunner {
     rx: mpsc::Receiver<CreateReqEnvelope>,
-    provider: DynProvider,
-    registry: Address,
+    registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     window: Duration,
     max_batch_size: usize,
     tracker: RequestTracker,
@@ -33,8 +32,7 @@ pub struct CreateBatcherRunner {
 
 impl CreateBatcherRunner {
     pub fn new(
-        provider: DynProvider,
-        registry: Address,
+        registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
         window: Duration,
         max_batch_size: usize,
         rx: mpsc::Receiver<CreateReqEnvelope>,
@@ -42,7 +40,6 @@ impl CreateBatcherRunner {
     ) -> Self {
         Self {
             rx,
-            provider,
             registry,
             window,
             max_batch_size,
@@ -51,9 +48,6 @@ impl CreateBatcherRunner {
     }
 
     pub async fn run(mut self) {
-        let provider = self.provider.clone();
-        let contract = WorldIdRegistry::new(self.registry, provider);
-
         loop {
             let Some(first) = self.rx.recv().await else {
                 tracing::info!("create batcher channel closed");
@@ -94,7 +88,9 @@ impl CreateBatcherRunner {
                 commits.push(env.req.offchain_signer_commitment);
             }
 
-            let call = contract.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
+            let call =
+                self.registry
+                    .createManyAccounts(recovery_addresses, auths, pubkeys, commits);
             match call.send().await {
                 Ok(builder) => {
                     let hash = format!("0x{:x}", builder.tx_hash());

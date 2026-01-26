@@ -113,6 +113,26 @@ sol!(
     )
 );
 
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    Verifier,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/Verifier.sol/Verifier.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    VerifierNullifier,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/VerifierNullifier.sol/Verifier.json"
+    )
+);
+
 pub struct TestAnvil {
     pub instance: AnvilInstance,
     pub rpc_url: String,
@@ -431,6 +451,7 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             OprfKeyRegistry::initializeCall {
+                _owner: signer.address(),
                 _keygenAdmin: signer.address(),
                 _keyGenVerifierAddress: *key_gen_verifier.address(),
                 _threshold: 2,
@@ -442,6 +463,43 @@ impl TestAnvil {
         let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await
             .context("failed to deploy OprfKeyRegistry proxy")?;
+
+        Ok(*proxy.address())
+    }
+
+    pub async fn deploy_verifier(
+        &self,
+        signer: PrivateKeySigner,
+        credential_issuer_registry: Address,
+        world_id_registry: Address,
+        oprf_key_registry: Address,
+    ) -> Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+
+        let verifier_nullifier = VerifierNullifier::deploy(provider.clone())
+            .await
+            .context("failed to deploy VerifierNullifier contract")?;
+
+        let verifier = Verifier::deploy(provider.clone())
+            .await
+            .context("failed to deploy Verifier contract")?;
+
+        let init_data = Bytes::from(
+            Verifier::initializeCall {
+                _credentialIssuerRegistry: credential_issuer_registry,
+                _worldIDRegistry: world_id_registry,
+                _oprfKeyRegistry: oprf_key_registry,
+                _verifierNullifier: *verifier_nullifier.address(),
+                _proofTimestampDelta: uint!(3600_U256),
+            }
+            .abi_encode(),
+        );
+
+        let proxy = ERC1967Proxy::deploy(provider, *verifier.address(), init_data)
+            .await
+            .context("failed to deploy Verifier proxy")?;
 
         Ok(*proxy.address())
     }

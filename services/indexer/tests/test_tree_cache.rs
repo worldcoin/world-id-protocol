@@ -514,11 +514,11 @@ async fn test_authenticator_removed_replay() {
         (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
         VALUES ($1, $2, $3, $4, $5, $6)"#,
     )
-    .bind("1")
+    .bind(U256::from(1))
     .bind("removed")
-    .bind(new_commitment_after_removal.to_string())
+    .bind(new_commitment_after_removal)
     .bind((last_block + 1) as i64)
-    .bind("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    .bind(U256::from(1234))
     .bind(0i64)
     .execute(&setup.pool)
     .await
@@ -528,9 +528,10 @@ async fn test_authenticator_removed_replay() {
     sqlx::query(
         r#"UPDATE accounts
         SET offchain_signer_commitment = $1
-        WHERE leaf_index = '1'"#,
+        WHERE leaf_index = $2"#,
     )
-    .bind(new_commitment_after_removal.to_string())
+    .bind(new_commitment_after_removal)
+    .bind(U256::from(1))
     .execute(&setup.pool)
     .await
     .expect("Failed to update account");
@@ -999,11 +1000,17 @@ async fn test_corrupted_cache_triggers_rebuild() {
     );
 
     // Verify the metadata reflects the events that were indexed (should have last_event_id == 2)
-    let last_event_id = metadata_after["last_event_id"].as_i64().unwrap();
+    let last_block_number = metadata_after["last_block_number"].as_i64().unwrap();
     assert_eq!(
-        last_event_id, 2,
-        "Rebuilt cache should reflect indexed events, got event_id: {}",
-        last_event_id
+        last_block_number, 7,
+        "Rebuilt cache should reflect indexed events, got block_number: {}",
+        last_block_number
+    );
+    let last_log_index = metadata_after["last_log_index"].as_i64().unwrap();
+    assert_eq!(
+        last_log_index, 0,
+        "Rebuilt cache should reflect indexed events, got log_index: {}",
+        last_log_index
     );
 
     cleanup_cache_files(&cache_path);

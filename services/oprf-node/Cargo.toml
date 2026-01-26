@@ -43,6 +43,7 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
 world-id-primitives = { workspace = true }
 moka.workspace = true
+metrics.workspace = true
 
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }

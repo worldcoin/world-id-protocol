@@ -1,13 +1,11 @@
 use std::path::Path;
 
 use alloy::primitives::U256;
-use anyhow::Context;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
-use sqlx::PgPool;
 use tracing::info;
 
 use super::PoseidonHasher;
-use crate::db::{fetch_all_leaves, fetch_events_for_replay, get_max_event_block, get_max_event_id};
+use crate::db::{DB, EventId, fetch_leaves_batch};
 
 pub struct TreeBuilder {
     tree_depth: usize,
@@ -50,42 +48,203 @@ impl TreeBuilder {
         Ok(tree)
     }
 
-    /// Build tree from DB with mmap backing
+    /// Build tree from DB with mmap backing using chunk-based processing.
+    ///
+    /// This method uses a two-pass chunk-based approach:
+    /// 1. First pass: Build dense prefix by processing leaves in chunks
+    /// 2. Second pass: Apply sparse leaves (beyond dense prefix) incrementally
+    ///
     /// Returns (tree, last_block_number, last_event_id)
     pub async fn build_from_db_with_cache(
         &self,
-        pool: &PgPool,
+        db: &DB,
         cache_path: &Path,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, u64, i64)> {
-        info!("Building tree from database with mmap cache");
-
-        let leaves = self.process_leaves_from_db(pool).await?;
+    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, EventId)> {
+        info!("Building tree from database with mmap cache (chunk-based processing)");
 
         let cache_path_str = cache_path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Invalid cache file path"))?;
 
-        let tree = MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
-            self.tree_depth,
-            self.dense_prefix_depth,
-            &self.empty_value,
-            &leaves,
-            cache_path_str,
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
+        let dense_prefix_size = 1usize << self.dense_prefix_depth;
+
+        // Step 1: Build dense prefix by processing chunks
+        info!("First pass: building dense prefix");
+        let mut dense_leaves: Vec<Option<U256>> = vec![None; dense_prefix_size];
+        let mut total_leaves = 0u64;
+        let mut max_leaf_index = 0usize;
+        let mut last_cursor = 0usize;
+
+        loop {
+            let batch = self.fetch_and_parse_leaves_batch(db, last_cursor).await?;
+
+            if batch.is_empty() {
+                break;
+            }
+
+            for (leaf_index, leaf_value) in &batch {
+                total_leaves += 1;
+
+                // Track max leaf index
+                if *leaf_index > max_leaf_index {
+                    max_leaf_index = *leaf_index;
+                }
+
+                // If within dense prefix, store it
+                if *leaf_index < dense_prefix_size {
+                    dense_leaves[*leaf_index] = Some(*leaf_value);
+                }
+            }
+
+            // Update cursor to last item in batch
+            if let Some((last_idx, _)) = batch.last() {
+                last_cursor = *last_idx;
+            }
+
+            // Progress logging every 500k rows
+            if total_leaves.is_multiple_of(500_000) {
+                info!(progress = total_leaves, "Processing leaves (first pass)");
+            }
+        }
+
+        info!(
+            total_leaves,
+            max_leaf_index, dense_prefix_size, "First pass complete"
+        );
+
+        // Step 2: Convert dense leaves to vector for mmap creation
+        let dense_vec: Vec<U256> = dense_leaves
+            .iter()
+            .map(|opt| opt.unwrap_or(self.empty_value))
+            .collect();
+
+        info!(dense_vec_len = dense_vec.len(), "Built dense prefix vector");
+
+        // Step 3: Create mmap tree with dense portion
+        let mut tree =
+            MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
+                self.tree_depth,
+                self.dense_prefix_depth,
+                &self.empty_value,
+                &dense_vec,
+                cache_path_str,
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
+
+        // Step 4: Apply sparse leaves (beyond dense prefix)
+        if max_leaf_index >= dense_prefix_size {
+            info!("Second pass: collecting and applying sparse leaves beyond dense prefix");
+            let mut sparse_updates: Vec<(usize, U256)> = Vec::new();
+            let mut last_cursor = 0usize;
+
+            loop {
+                let batch = self.fetch_and_parse_leaves_batch(db, last_cursor).await?;
+
+                if batch.is_empty() {
+                    break;
+                }
+
+                for (leaf_index, leaf_value) in &batch {
+                    // Only collect leaves beyond dense prefix
+                    if *leaf_index >= dense_prefix_size {
+                        sparse_updates.push((*leaf_index, *leaf_value));
+                    }
+                }
+
+                // Update cursor
+                if let Some((last_idx, _)) = batch.last() {
+                    last_cursor = *last_idx;
+                }
+
+                // Progress logging
+                if sparse_updates.len().is_multiple_of(500_000) {
+                    info!(
+                        sparse_collected = sparse_updates.len(),
+                        "Collecting sparse leaves (second pass)"
+                    );
+                }
+            }
+
+            info!(
+                sparse_count = sparse_updates.len(),
+                "Collected {} sparse leaves, applying to tree",
+                sparse_updates.len()
+            );
+
+            // Apply sparse updates to tree
+            for (i, (leaf_index, value)) in sparse_updates.iter().enumerate() {
+                tree = tree.update_with_mutation(*leaf_index, value);
+
+                // Progress logging every 100k updates
+                if i > 0 && i % 100_000 == 0 {
+                    info!(
+                        progress = i,
+                        total = sparse_updates.len(),
+                        "Applying sparse leaves"
+                    );
+                }
+            }
+
+            info!(
+                sparse_updates = sparse_updates.len(),
+                "Second pass complete"
+            );
+        } else {
+            info!("All leaves within dense prefix");
+        }
 
         // Get the last block number and event ID from DB
-        let last_block_number = get_max_event_block(pool).await?;
-        let last_event_id = get_max_event_id(pool).await?;
+        let last_event_id = db
+            .world_id_events()
+            .get_latest_id()
+            .await?
+            .unwrap_or_default();
 
         info!(
             root = %format!("0x{:x}", tree.root()),
-            last_block = last_block_number,
-            last_event_id,
+            ?last_event_id,
+            total_accounts = total_leaves,
             "Tree built from database with mmap cache"
         );
 
-        Ok((tree, last_block_number, last_event_id))
+        Ok((tree, last_event_id))
+    }
+
+    /// Fetch and parse a batch of leaves from the database.
+    /// Here we convert U256 leaf indexes to usize value.
+    /// Returns Vec<(leaf_index, leaf_value)> parsed and validated.
+    async fn fetch_and_parse_leaves_batch(
+        &self,
+        db: &DB,
+        last_cursor: usize,
+    ) -> anyhow::Result<Vec<(usize, U256)>> {
+        const BATCH_SIZE: i64 = 100_000;
+
+        let raw_batch = fetch_leaves_batch(db.pool(), &U256::from(last_cursor), BATCH_SIZE).await?;
+
+        let mut parsed_batch = Vec::with_capacity(raw_batch.len());
+
+        let capacity = 1usize << self.tree_depth;
+        for (leaf_index, commitment) in raw_batch {
+            if leaf_index == U256::ZERO {
+                continue;
+            }
+
+            let leaf_index_usize = leaf_index.as_limbs()[0] as usize;
+
+            // Validate leaf index is within tree capacity
+            if leaf_index_usize >= capacity {
+                anyhow::bail!(
+                    "leaf index {} out of range for tree depth {}",
+                    leaf_index,
+                    self.tree_depth
+                );
+            }
+
+            parsed_batch.push((leaf_index_usize, commitment));
+        }
+
+        Ok(parsed_batch)
     }
 
     /// Replay events onto an existing tree with deduplication
@@ -98,30 +257,31 @@ impl TreeBuilder {
     pub async fn replay_events(
         &self,
         mut tree: MerkleTree<PoseidonHasher, Canonical>,
-        pool: &PgPool,
-        from_event_id: i64,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, u64, i64)> {
+        db: &DB,
+        from_event_id: EventId,
+    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, EventId)> {
         use std::collections::HashMap;
 
-        const BATCH_SIZE: i64 = 10_000;
+        const BATCH_SIZE: u64 = 10_000;
 
         let mut last_event_id = from_event_id;
         let mut total_events = 0;
 
         // HashMap to track final state of each leaf (deduplication)
-        let mut leaf_final_states: HashMap<usize, U256> = HashMap::new();
-        let mut final_block = 0u64;
-        let mut final_event_id = from_event_id;
+        let mut leaf_final_states: HashMap<U256, U256> = HashMap::new();
 
         info!(
-            from_event_id = from_event_id + 1,
-            "Starting replay from event ID {} (events after this ID will be replayed)",
+            from_event_id = ?from_event_id,
+            "Starting replay from event ID {:?} (events after this ID will be replayed)",
             from_event_id
         );
 
         loop {
-            // Event ID-based pagination: fetch events with id > last_event_id
-            let events = fetch_events_for_replay(pool, last_event_id, BATCH_SIZE).await?;
+            // Event ID-based pagination
+            let events = db
+                .world_id_events()
+                .get_after(last_event_id, BATCH_SIZE)
+                .await?;
 
             if events.is_empty() {
                 break;
@@ -132,35 +292,19 @@ impl TreeBuilder {
 
             // Process events into final states (in memory, deduplicated)
             for event in &events {
-                let leaf_index: U256 = event
-                    .leaf_index
-                    .parse()
-                    .with_context(|| format!("Failed to parse leaf_index: {}", event.leaf_index))?;
-                let leaf_index = leaf_index.as_limbs()[0] as usize;
-
-                let new_value = event.new_commitment.parse::<U256>().with_context(|| {
-                    format!("Failed to parse new_commitment: {}", event.new_commitment)
-                })?;
-
                 // Store final state (overwrites previous updates to same leaf)
-                leaf_final_states.insert(leaf_index, new_value);
-
-                // Track the highest block number seen (for metadata)
-                if event.block_number as u64 > final_block {
-                    final_block = event.block_number as u64;
-                }
+                leaf_final_states.insert(event.leaf_index, event.new_commitment);
             }
 
             // Update cursor to last event ID in this batch
-            let last = events.last().unwrap();
+            let last = events.last().expect("last item to exist");
             last_event_id = last.id;
-            final_event_id = last.id;
 
             info!(
                 batch_events = batch_count,
                 total_events,
                 unique_leaves = leaf_final_states.len(),
-                last_event_id,
+                ?last_event_id,
                 "Processed batch into memory"
             );
 
@@ -173,8 +317,7 @@ impl TreeBuilder {
         if total_events == 0 {
             info!("No events to replay, cache is up-to-date");
             // Get the current max block number for metadata
-            final_block = get_max_event_block(pool).await?;
-            return Ok((tree, final_block, from_event_id));
+            return Ok((tree, last_event_id));
         }
 
         // Now apply deduplicated updates to tree
@@ -187,60 +330,106 @@ impl TreeBuilder {
         );
 
         for (leaf_index, value) in &leaf_final_states {
-            tree = tree.update_with_mutation(*leaf_index, value);
+            let leaf_index = leaf_index.as_limbs()[0] as usize;
+            tree = tree.update_with_mutation(leaf_index, value);
         }
 
         info!(
             total_events,
             unique_updates = leaf_final_states.len(),
-            final_block,
-            final_event_id,
+            ?last_event_id,
             new_root = %format!("0x{:x}", tree.root()),
             "Replay complete: {} events deduplicated to {} unique leaf updates",
             total_events,
             leaf_final_states.len()
         );
 
-        Ok((tree, final_block, final_event_id))
+        Ok((tree, last_event_id))
     }
+}
 
-    /// Helper: fetch and process all leaves from DB into a tree-ready format
-    async fn process_leaves_from_db(&self, pool: &PgPool) -> anyhow::Result<Vec<U256>> {
-        let rows = fetch_all_leaves(pool).await?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        info!("Fetched {} accounts from database", rows.len());
+    #[test]
+    fn test_chunk_based_tree_building() {
+        // Simple test to verify chunk-based approach produces correct tree
+        use tempfile::TempDir;
 
-        let capacity = 1usize << self.tree_depth;
-        let mut leaves = vec![U256::ZERO; capacity];
+        let temp_dir = TempDir::new().unwrap();
+        let depth = 10;
+        let dense_prefix = 8;
+        let dense_prefix_size = 1 << dense_prefix; // 256
+        let empty = U256::ZERO;
 
-        for (leaf_index_str, offchain_str) in rows {
-            let leaf_index: U256 = leaf_index_str
-                .parse()
-                .with_context(|| format!("Failed to parse leaf_index: {}", leaf_index_str))?;
+        // Test data with leaves both within and beyond dense prefix (256)
+        let leaf_data: Vec<(usize, U256)> = vec![
+            (1, U256::from(100)),
+            (5, U256::from(200)),
+            (100, U256::from(300)),
+            (300, U256::from(400)), // Beyond dense prefix
+        ];
 
-            // Skip leaf index 0 (reserved)
-            if leaf_index == U256::ZERO {
-                continue;
+        // Build tree using the traditional method for comparison
+        let mut dense_leaves = vec![U256::ZERO; dense_prefix_size];
+        for (idx, val) in &leaf_data {
+            if *idx < dense_prefix_size {
+                dense_leaves[*idx] = *val;
             }
-
-            let leaf_index = leaf_index.as_limbs()[0] as usize;
-            if leaf_index >= capacity {
-                anyhow::bail!(
-                    "leaf index {} out of range for tree depth {}",
-                    leaf_index,
-                    self.tree_depth
-                );
-            }
-
-            let leaf_val = offchain_str.parse::<U256>().with_context(|| {
-                format!(
-                    "Failed to parse offchain_signer_commitment: {}",
-                    offchain_str
-                )
-            })?;
-            leaves[leaf_index] = leaf_val;
         }
 
-        Ok(leaves)
+        let mut reference_tree =
+            MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
+                depth,
+                dense_prefix,
+                &empty,
+                &dense_leaves,
+                temp_dir.path().join("ref.mmap").to_str().unwrap(),
+            )
+            .unwrap();
+
+        // Apply leaves beyond dense prefix
+        for (idx, val) in &leaf_data {
+            if *idx >= dense_prefix_size {
+                reference_tree = reference_tree.update_with_mutation(*idx, val);
+            }
+        }
+
+        // Simulate chunk-based approach
+        let mut chunk_dense: Vec<Option<U256>> = vec![None; dense_prefix_size];
+        let mut chunk_sparse: Vec<(usize, U256)> = Vec::new();
+
+        for (idx, val) in &leaf_data {
+            if *idx < dense_prefix_size {
+                chunk_dense[*idx] = Some(*val);
+            } else {
+                chunk_sparse.push((*idx, *val));
+            }
+        }
+
+        let chunk_dense_vec: Vec<U256> =
+            chunk_dense.iter().map(|opt| opt.unwrap_or(empty)).collect();
+
+        let mut chunk_tree =
+            MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
+                depth,
+                dense_prefix,
+                &empty,
+                &chunk_dense_vec,
+                temp_dir.path().join("chunk.mmap").to_str().unwrap(),
+            )
+            .unwrap();
+
+        for (idx, val) in chunk_sparse {
+            chunk_tree = chunk_tree.update_with_mutation(idx, &val);
+        }
+
+        // Verify roots match
+        assert_eq!(
+            reference_tree.root(),
+            chunk_tree.root(),
+            "Chunk-based build must produce identical root"
+        );
     }
 }

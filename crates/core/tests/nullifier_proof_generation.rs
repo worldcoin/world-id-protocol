@@ -40,6 +40,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,
+        ..
     } = RegistryTestContext::new().await?;
 
     let mut rng = thread_rng();
@@ -195,6 +196,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         action: rp_fixture.action.into(),
         nonce: rp_fixture.nonce.into(),
         current_timestamp: rp_fixture.current_timestamp,
+        expiration_timestamp: rp_fixture.expiration_timestamp,
         rp_signature: rp_fixture.signature,
         signal_hash,
         session_id_r_seed: rp_fixture.rp_session_id_r_seed,
