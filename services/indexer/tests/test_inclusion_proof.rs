@@ -154,6 +154,8 @@ async fn test_backfill_and_live_sync() {
 #[cfg(feature = "integration-tests")]
 #[serial]
 async fn test_insertion_cycle_and_avoids_race_condition() {
+    use tracing::info;
+
     let setup = TestSetup::new_with_tree_depth(6).await;
 
     let temp_cache_path =
@@ -195,13 +197,13 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
         (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
         values ($1, $2, $3, $4, $5)"#,
     )
-    .bind(U256::from(1).as_le_slice())
+    .bind(U256::from(1))
     .bind(RECOVERY_ADDRESS.as_slice())
     .bind(Json(vec![
         "0x0000000000000000000000000000000000000011".to_string()
     ]))
     .bind(Json(vec![pk.to_string()]))
-    .bind(U256::from(99).as_le_slice())
+    .bind(U256::from(99))
     .execute(&setup.pool)
     .await
     .unwrap();
@@ -211,11 +213,11 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
         (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
         values ($1, $2, $3, $4, $5, $6)"#,
     )
-    .bind(U256::from(1).as_le_slice())
+    .bind(U256::from(1))
     .bind("created")
-    .bind(U256::from(99).as_le_slice())
+    .bind(U256::from(99))
     .bind(1i64)
-    .bind(U256::from(1).as_le_slice())
+    .bind(U256::from(1))
     .bind(0i64)
     .execute(&setup.pool)
     .await

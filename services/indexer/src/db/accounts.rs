@@ -34,7 +34,7 @@ impl<'a> Accounts<'a> {
             "#,
             self.table_name,
         ))
-        .bind(leaf_index.as_le_slice())
+        .bind(leaf_index)
         .bind(recovery_address.as_slice())
         .bind(Json(
             authenticator_addresses
@@ -48,7 +48,7 @@ impl<'a> Accounts<'a> {
                 .map(|p| p.to_string())
                 .collect::<Vec<_>>(),
         ))
-        .bind(offchain_signer_commitment.as_le_slice())
+        .bind(offchain_signer_commitment)
         .execute(self.pool)
         .await?;
         Ok(())
@@ -74,11 +74,11 @@ impl<'a> Accounts<'a> {
             "#,
             self.table_name,
         ))
-            .bind(leaf_index.as_le_slice())
+            .bind(leaf_index)
             .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
             .bind(new_address.to_string())
             .bind(new_pubkey.to_string())
-            .bind(new_commitment.as_le_slice())
+            .bind(new_commitment)
             .execute(self.pool)
             .await?;
         Ok(())
@@ -104,11 +104,11 @@ impl<'a> Accounts<'a> {
             "#,
             self.table_name,
         ))
-            .bind(leaf_index.as_le_slice())
+            .bind(leaf_index)
             .bind(format!("{{{pubkey_id}}}"))
             .bind(new_address.to_string())
             .bind(new_pubkey.to_string())
-            .bind(new_commitment.as_le_slice())
+            .bind(new_commitment)
             .execute(self.pool)
             .await?;
         Ok(())
@@ -132,9 +132,9 @@ impl<'a> Accounts<'a> {
             "#,
             self.table_name,
         ))
-        .bind(leaf_index.as_le_slice())
+        .bind(leaf_index)
         .bind(format!("{{{pubkey_id}}}"))
-        .bind(new_commitment.as_le_slice())
+        .bind(new_commitment)
         .execute(self.pool)
         .await?;
         Ok(())

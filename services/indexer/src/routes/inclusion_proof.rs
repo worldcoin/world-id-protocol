@@ -61,7 +61,7 @@ pub(crate) async fn handler(
     let account_row = sqlx::query(
         "select offchain_signer_commitment, authenticator_pubkeys from accounts where leaf_index = $1",
     )
-    .bind(req.leaf_index.as_le_slice())
+    .bind(req.leaf_index)
     .fetch_optional(state.db.pool())
     .await
     .ok()
@@ -93,8 +93,7 @@ pub(crate) async fn handler(
         IndexerErrorResponse::internal_server_error()
     })?;
 
-    let offchain_signer_commitment =
-        U256::from_le_slice(row.get::<&[u8], _>("offchain_signer_commitment"));
+    let offchain_signer_commitment = row.get::<U256, _>("offchain_signer_commitment");
 
     let tree = GLOBAL_TREE.read().await;
 

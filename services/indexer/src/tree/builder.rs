@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use alloy::primitives::U256;
-use anyhow::Context;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use tracing::info;
 

@@ -157,10 +157,10 @@ impl<'a> WorldIdEvents<'a> {
         ))
         .bind(block_number as i64)
         .bind(log_index as i64)
-        .bind(leaf_index.as_le_slice())
+        .bind(leaf_index)
         .bind(event_type.to_string())
-        .bind(new_commitment.as_le_slice())
-        .bind(tx_hash.as_le_slice())
+        .bind(new_commitment)
+        .bind(tx_hash)
         .execute(self.pool)
         .await?;
         Ok(())
@@ -176,10 +176,10 @@ impl<'a> WorldIdEvents<'a> {
     fn map_row_to_world_id_event(&self, row: &PgRow) -> anyhow::Result<WorldIdEvent> {
         Ok(WorldIdEvent {
             id: self.map_row_to_event_id(row)?,
-            tx_hash: U256::from_le_slice(row.get::<&[u8], _>("tx_hash")),
+            tx_hash: row.get::<U256, _>("tx_hash"),
             event_type: EventType::try_from(row.get::<&str, _>("event_type"))?,
-            leaf_index: U256::from_be_slice(row.get::<&[u8], _>("leaf_index")),
-            new_commitment: U256::from_be_slice(row.get::<&[u8], _>("new_commitment")),
+            leaf_index: row.get::<U256, _>("leaf_index"),
+            new_commitment: row.get::<U256, _>("new_commitment"),
         })
     }
 }

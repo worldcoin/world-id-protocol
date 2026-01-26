@@ -1,4 +1,4 @@
-use alloy::{primitives::U256, signers::k256::elliptic_curve::consts::U25};
+use alloy::primitives::U256;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use crate::db::{accounts::Accounts, world_id_events::WorldIdEvents};
@@ -73,8 +73,8 @@ pub async fn fetch_recent_account_updates(
 
     rows.iter()
         .map(|row| {
-            let leaf_index = U256::from_le_slice(row.get::<&[u8], _>("leaf_index"));
-            let commitment = U256::from_le_slice(row.get::<&[u8], _>("new_commitment"));
+            let leaf_index = row.get::<U256, _>("leaf_index");
+            let commitment = row.get::<U256, _>("new_commitment");
             Ok((leaf_index, commitment))
         })
         .collect()
@@ -88,7 +88,7 @@ pub async fn fetch_recent_account_updates(
 pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
     let result =
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE leaf_index != $1")
-            .bind(U256::ZERO.as_le_slice())
+            .bind(U256::ZERO)
             .fetch_one(pool)
             .await?;
 
@@ -116,15 +116,15 @@ pub async fn fetch_leaves_batch(
          ORDER BY leaf_index ASC
          LIMIT $2",
     )
-    .bind(last_cursor.as_le_slice())
+    .bind(last_cursor)
     .bind(batch_size)
     .fetch_all(pool)
     .await?;
 
     rows.iter()
         .map(|row| {
-            let leaf_index = U256::from_le_slice(row.get::<&[u8], _>("leaf_index"));
-            let commitment = U256::from_le_slice(row.get::<&[u8], _>("offchain_signer_commitment"));
+            let leaf_index = row.get::<U256, _>("leaf_index");
+            let commitment = row.get::<U256, _>("offchain_signer_commitment");
             Ok((leaf_index, commitment))
         })
         .collect()
