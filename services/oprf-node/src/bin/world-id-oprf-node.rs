@@ -18,6 +18,7 @@ async fn main() -> eyre::Result<ExitCode> {
     let tracing_config = taceo_nodes_observability::TracingConfig::try_from_env()?;
     let _tracing_handle = taceo_nodes_observability::initialize_tracing(&tracing_config)?;
     taceo_oprf_service::metrics::describe_metrics();
+    world_id_oprf_node::metrics::describe_metrics();
 
     tracing::info!("{}", taceo_nodes_common::version_info!());
 

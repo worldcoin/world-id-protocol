@@ -195,6 +195,7 @@ pub struct RpFixture {
     pub action: Fq,
     pub nonce: Fq,
     pub current_timestamp: u64,
+    pub expiration_timestamp: u64,
     pub signature: Signature,
     pub rp_session_id_r_seed: FieldElement,
     pub signing_key: SigningKey,
@@ -216,11 +217,17 @@ pub fn generate_rp_fixture() -> RpFixture {
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
+    let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
     let signing_key = SigningKey::random(&mut rng);
     let signer = PrivateKeySigner::from_signing_key(signing_key.clone());
 
-    let msg = world_id_primitives::oprf::compute_rp_signature_msg(nonce, current_timestamp);
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        nonce,
+        action,
+        current_timestamp,
+        expiration_timestamp,
+    );
     let signature = signer.sign_message_sync(&msg).expect("can sign");
 
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
@@ -235,6 +242,7 @@ pub fn generate_rp_fixture() -> RpFixture {
         action,
         nonce,
         current_timestamp,
+        expiration_timestamp,
         signature,
         rp_session_id_r_seed,
         signing_key,

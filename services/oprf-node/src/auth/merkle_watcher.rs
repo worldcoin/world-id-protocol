@@ -28,6 +28,11 @@ use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry::{self, RootRecorded};
 use world_id_primitives::FieldElement;
 
+use crate::metrics::{
+    METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
+    METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,
+};
+
 /// Error returned by the [`MerkleWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 #[error("alloy error: {0}")]
@@ -55,6 +60,7 @@ impl MerkleWatcher {
     /// * `ws_rpc_url` - WebSocket RPC URL for blockchain connection
     /// * `max_merkle_cache_size` - Maximum number of merkle roots to cache
     /// * `root_validity_window` - Duration for which a merkle root is considered valid
+    /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
     /// * `started` - AtomicBool to indicate when the service has started
     /// * `cancellation_token` - CancellationToken to cancel the service in case of an error
     #[instrument(level = "info", skip_all)]
@@ -63,6 +69,7 @@ impl MerkleWatcher {
         ws_rpc_url: &str,
         max_merkle_cache_size: u64,
         root_validity_window: Duration,
+        cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
@@ -83,6 +90,10 @@ impl MerkleWatcher {
         let merkle_root_cache: Cache<FieldElement, ()> = Cache::builder()
             .max_capacity(max_merkle_cache_size)
             .time_to_live(root_validity_window)
+            .eviction_listener(|key, _value, cause| {
+                tracing::debug!("evicting root {key} from cache because of {cause:?}");
+                ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).decrement(1);
+            })
             .build();
 
         // Insert current root
@@ -96,6 +107,9 @@ impl MerkleWatcher {
             .event_signature(RootRecorded::SIGNATURE_HASH);
         let sub = provider.subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
+
+        // set to 1 because we already inserted the current root
+        ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(1.0);
 
         // indicate that the merkle watcher has started
         started.store(true, Ordering::Relaxed);
@@ -112,12 +126,27 @@ impl MerkleWatcher {
                             merkle_root_cache
                                 .insert(event.root.try_into().expect("root is in field"), ())
                                 .await;
+                            ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE)
+                                .increment(1);
                             tracing::trace!("registered new root: {}", event.root);
                         }
                         Err(err) => {
                             tracing::warn!("failed to decode contract event: {err:?}");
                         }
                     }
+                }
+            }
+        });
+
+        // periodically run maintenance tasks on the cache
+        // this is needed to update metrics in a timely manner, as the eviction listener is only called when an entry is added/removed/accessed
+        tokio::spawn({
+            let merkle_root_cache = merkle_root_cache.clone();
+            let mut interval = tokio::time::interval(cache_maintenance_interval);
+            async move {
+                loop {
+                    interval.tick().await;
+                    merkle_root_cache.run_pending_tasks().await;
                 }
             }
         });
@@ -138,10 +167,12 @@ impl MerkleWatcher {
         if self.merkle_root_cache.contains_key(&root) {
             tracing::trace!("root was in cache");
             tracing::trace!("root valid: true");
+            ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS).increment(1);
             return Ok(true);
         }
 
         tracing::debug!("check in contract");
+        ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES).increment(1);
         let contract = WorldIdRegistry::new(self.contract_address, self.provider.clone());
         let valid = contract
             .isValidRoot(root.into())
@@ -149,10 +180,9 @@ impl MerkleWatcher {
             .await
             .map_err(MerkleWatcherError)?;
 
-        if valid {
-            tracing::debug!("add root to cache");
-            self.merkle_root_cache.insert(root, ()).await;
-        }
+        // we don't cache valid roots here, only when we get the log from the contract.
+        // this ensures that the validity window is aligned with the one in the contract.
+
         tracing::debug!("root valid: {valid}");
 
         Ok(valid)
@@ -185,6 +215,7 @@ mod tests {
             anvil.ws_endpoint(),
             100,
             Duration::from_secs(3600),
+            Duration::from_secs(60),
             started_services.new_service(),
             cancellation_token,
         )
@@ -237,6 +268,7 @@ mod tests {
             anvil.ws_endpoint(),
             100,
             Duration::from_secs(1),
+            Duration::from_secs(60),
             started_services.new_service(),
             cancellation_token,
         )

@@ -74,6 +74,7 @@ world-id-oprf-node = { version = "0.1", path = "./services/oprf-node"}
 zeroize = "1"
 axum = { version = "0.8", features = ["macros", "json"] }
 moka = { version = "0.12.12", features = ["future"] }
+metrics = "0.24"
 
 [patch.crates-io]
 taceo-oprf-core = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "02c6442" }

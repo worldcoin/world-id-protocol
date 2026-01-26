@@ -64,6 +64,19 @@ pub struct WorldOprfNodeConfig {
     )]
     pub current_time_stamp_max_difference: Duration,
 
+    /// The interval for running maintenance tasks for caches.
+    ///
+    /// This includes removing expired entries from caches (invalidated automatically,
+    /// but not removed unless entries are added/removed or maintenance task are run)
+    /// and running potential eviction listeners to update metrics.
+    #[clap(
+        long,
+        env = "OPRF_NODE_CACHE_MAINTENANCE_INTERVAL",
+        default_value = "1min",
+        value_parser = humantime::parse_duration
+    )]
+    pub cache_maintenance_interval: Duration,
+
     /// The OPRF node config
     #[clap(flatten)]
     pub node_config: OprfNodeConfig,

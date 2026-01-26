@@ -444,6 +444,7 @@ impl Authenticator {
             action: proof_request.action,
             nonce: proof_request.nonce,
             current_timestamp: proof_request.created_at,
+            expiration_timestamp: proof_request.expires_at,
             rp_signature: proof_request.signature,
             signal_hash: request_item.signal_hash(),
             genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0), // When not provided, the minimum is set to 0 to "ignore" the constraint
