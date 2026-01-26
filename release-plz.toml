@@ -43,3 +43,7 @@ publish = false
 [[package]]
 name = "world-id-oprf-dev-client"
 publish = false
+
+[[package]]
+name = "common"
+publish = false
