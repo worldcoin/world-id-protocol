@@ -38,7 +38,6 @@ pub struct GatewayContext {
 pub struct Request<T> {
     id: Uuid,
     kind: GatewayRequestKind,
-    #[allow(dead_code)]
     payload: T,
     /// Pre-computed calldata for the contract call.
     calldata: Bytes,
@@ -46,19 +45,16 @@ pub struct Request<T> {
 
 impl<T> Request<T> {
     /// Get the request ID.
-    #[allow(dead_code)]
     pub fn id(&self) -> Uuid {
         self.id
     }
 
     /// Get the request kind.
-    #[allow(dead_code)]
     pub fn kind(&self) -> GatewayRequestKind {
         self.kind.clone()
     }
 
     /// Calldata for the contract call.
-    #[allow(dead_code)]
     pub fn calldata(&self) -> Bytes {
         self.calldata.clone()
     }
@@ -125,7 +121,7 @@ impl Request<CreateAccountRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         // Register in tracker
         ctx.tracker
-            .new_request_with_id(self.id.to_string(), self.kind.clone())
+            .new_request_with_id(self.id().to_string(), self.kind().clone())
             .await?;
 
         // Queue to batcher with typed request for createManyAccounts batching
@@ -168,12 +164,12 @@ impl Request<InsertAuthenticatorRequest> {
             .await?;
 
         // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id, self.calldata, DEFAULT_INSERT_AUTHENTICATOR_GAS);
+        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_INSERT_AUTHENTICATOR_GAS);
 
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker
                 .set_status(
-                    &self.id.to_string(),
+                    &self.id().to_string(),
                     GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
                 )
                 .await;
@@ -181,8 +177,8 @@ impl Request<InsertAuthenticatorRequest> {
         }
 
         Ok(SubmittedRequest {
-            id: self.id,
-            kind: self.kind,
+            id: self.id(),
+            kind: self.kind(),
         })
     }
 }
@@ -203,16 +199,16 @@ impl Request<UpdateAuthenticatorRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         // Register in tracker
         ctx.tracker
-            .new_request_with_id(self.id.to_string(), self.kind.clone())
+            .new_request_with_id(self.id().to_string(), self.kind())
             .await?;
 
         // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id, self.calldata, DEFAULT_UPDATE_AUTHENTICATOR_GAS);
+        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_UPDATE_AUTHENTICATOR_GAS);
 
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker
                 .set_status(
-                    &self.id.to_string(),
+                    &self.id().to_string(),
                     GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
                 )
                 .await;
@@ -220,8 +216,8 @@ impl Request<UpdateAuthenticatorRequest> {
         }
 
         Ok(SubmittedRequest {
-            id: self.id,
-            kind: self.kind,
+            id: self.id(),
+            kind: self.kind(),
         })
     }
 }
@@ -242,16 +238,15 @@ impl Request<RemoveAuthenticatorRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         // Register in tracker
         ctx.tracker
-            .new_request_with_id(self.id.to_string(), self.kind.clone())
+            .new_request_with_id(self.id().to_string(), self.kind())
             .await?;
 
         // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id, self.calldata, DEFAULT_REMOVE_AUTHENTICATOR_GAS);
-
+        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_REMOVE_AUTHENTICATOR_GAS);
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker
                 .set_status(
-                    &self.id.to_string(),
+                    &self.id().to_string(),
                     GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
                 )
                 .await;
@@ -259,8 +254,8 @@ impl Request<RemoveAuthenticatorRequest> {
         }
 
         Ok(SubmittedRequest {
-            id: self.id,
-            kind: self.kind,
+            id: self.id(),
+            kind: self.kind(),
         })
     }
 }
@@ -281,16 +276,15 @@ impl Request<RecoverAccountRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         // Register in tracker
         ctx.tracker
-            .new_request_with_id(self.id.to_string(), self.kind.clone())
+            .new_request_with_id(self.id().to_string(), self.kind().clone())
             .await?;
 
         // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id, self.calldata, DEFAULT_RECOVER_ACCOUNT_GAS);
-
+        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_RECOVER_ACCOUNT_GAS);
         if !ctx.batcher.submit(cmd).await {
             ctx.tracker
                 .set_status(
-                    &self.id.to_string(),
+                    &self.id().to_string(),
                     GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
                 )
                 .await;
@@ -298,8 +292,8 @@ impl Request<RecoverAccountRequest> {
         }
 
         Ok(SubmittedRequest {
-            id: self.id,
-            kind: self.kind,
+            id: self.id(),
+            kind: self.kind(),
         })
     }
 }
