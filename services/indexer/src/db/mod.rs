@@ -44,6 +44,11 @@ impl DB {
     pub fn accounts(&self) -> Accounts<'_> {
         Accounts::new(&self.pool)
     }
+
+    pub async fn ping(&self) -> anyhow::Result<()> {
+        sqlx::query("SELECT 1").fetch_one(&self.pool).await?;
+        Ok(())
+    }
 }
 
 pub async fn fetch_recent_account_updates(
