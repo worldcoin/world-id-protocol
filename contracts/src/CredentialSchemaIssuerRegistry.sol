@@ -109,7 +109,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     // Stores the on-chain signer address for each issuerSchemaId, i.e. who is authorized to perform updates on the issuerSchemaId.
     mapping(uint64 => address) private _idToAddress;
 
-    mapping(uint64 => uint256) private _nonces;
+    mapping(uint64 => uint256) private _idToSignatureNonce;
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
     mapping(uint64 => string) public idToSchemaUri;
@@ -246,7 +246,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
             revert IdNotRegistered();
         }
         bytes32 messageHash = _hashTypedDataV4(
-            keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId]))
+            keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _idToSignatureNonce[issuerSchemaId]))
         );
 
         if (!SignatureChecker.isValidSignatureNow(_idToAddress[issuerSchemaId], messageHash, signature)) {
@@ -255,7 +255,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
         address signer = _idToAddress[issuerSchemaId];
 
-        _nonces[issuerSchemaId]++;
+        _idToSignatureNonce[issuerSchemaId]++;
         delete _idToPubkey[issuerSchemaId];
         delete _idToAddress[issuerSchemaId];
         delete idToSchemaUri[issuerSchemaId];
@@ -286,7 +286,11 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
-                    UPDATE_PUBKEY_TYPEHASH, issuerSchemaId, newPubkeyHash, oldPubkeyHash, _nonces[issuerSchemaId]
+                    UPDATE_PUBKEY_TYPEHASH,
+                    issuerSchemaId,
+                    newPubkeyHash,
+                    oldPubkeyHash,
+                    _idToSignatureNonce[issuerSchemaId]
                 )
             )
         );
@@ -298,7 +302,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _idToPubkey[issuerSchemaId] = newPubkey;
         emit IssuerSchemaPubkeyUpdated(issuerSchemaId, oldPubkey, newPubkey);
 
-        _nonces[issuerSchemaId]++;
+        _idToSignatureNonce[issuerSchemaId]++;
     }
 
     function updateSigner(uint64 issuerSchemaId, address newSigner, bytes calldata signature)
@@ -318,7 +322,9 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         }
 
         bytes32 messageHash = _hashTypedDataV4(
-            keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId]))
+            keccak256(
+                abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _idToSignatureNonce[issuerSchemaId])
+            )
         );
 
         address oldSigner = _idToAddress[issuerSchemaId];
@@ -330,7 +336,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _idToAddress[issuerSchemaId] = newSigner;
         emit IssuerSchemaSignerUpdated(issuerSchemaId, oldSigner, newSigner);
 
-        _nonces[issuerSchemaId]++;
+        _idToSignatureNonce[issuerSchemaId]++;
     }
 
     /**
@@ -371,7 +377,12 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
-                abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUriHash, _nonces[issuerSchemaId])
+                abi.encode(
+                    UPDATE_ISSUER_SCHEMA_URI_TYPEHASH,
+                    issuerSchemaId,
+                    schemaUriHash,
+                    _idToSignatureNonce[issuerSchemaId]
+                )
             )
         );
 
@@ -384,7 +395,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
         emit IssuerSchemaUpdated(issuerSchemaId, oldSchemaUri, schemaUri);
 
-        _nonces[issuerSchemaId]++;
+        _idToSignatureNonce[issuerSchemaId]++;
     }
 
     /**
@@ -420,7 +431,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     }
 
     function nonceOf(uint64 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _nonces[issuerSchemaId];
+        return _idToSignatureNonce[issuerSchemaId];
     }
 
     function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
