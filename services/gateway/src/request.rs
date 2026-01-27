@@ -9,7 +9,6 @@ use crate::{
             DEFAULT_UPDATE_AUTHENTICATOR_GAS,
         },
     },
-    inflight_tracker::InflightTracker,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
 };
@@ -38,7 +37,6 @@ pub struct GatewayContext {
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
     pub root_cache: Cache<U256, U256>,
-    pub inflight_tracker: InflightTracker,
 }
 
 /// A request that has been validated and is ready for submission.
@@ -129,7 +127,7 @@ impl Request<CreateAccountRequest> {
         // Atomically check and insert all authenticator addresses to prevent duplicates
         let auth_addresses = self.payload.authenticator_addresses.clone();
 
-        if let Err(_conflicting_addr) = ctx.inflight_tracker.try_insert_all(&auth_addresses).await {
+        if let Err(_conflicting_addr) = ctx.tracker.try_insert_inflight(&auth_addresses).await {
             return Err(GatewayErrorResponse::bad_request(
                 GatewayErrorCode::DuplicateRequestInFlight,
             ));
@@ -142,7 +140,7 @@ impl Request<CreateAccountRequest> {
             .await
         {
             // Remove from inflight tracker if an error appears
-            ctx.inflight_tracker.remove_all(&auth_addresses).await;
+            ctx.tracker.remove_inflight(&auth_addresses).await;
             return Err(err);
         };
 
@@ -151,7 +149,7 @@ impl Request<CreateAccountRequest> {
 
         if !ctx.batcher.submit(cmd).await {
             // Remove from inflight tracker if batcher submission fails
-            ctx.inflight_tracker.remove_all(&auth_addresses).await;
+            ctx.tracker.remove_inflight(&auth_addresses).await;
             ctx.tracker
                 .set_status(
                     &self.id.to_string(),
