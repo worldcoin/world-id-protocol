@@ -13,7 +13,7 @@ use crate::{
     routes::validation::RequestValidation,
 };
 use alloy::{
-    primitives::{Bytes, U256},
+    primitives::{Address, Bytes, U256},
     providers::DynProvider,
 };
 use moka::future::Cache;
@@ -37,6 +37,7 @@ pub struct GatewayContext {
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
     pub root_cache: Cache<U256, U256>,
+    pub inflight_authenticators: Cache<Address, ()>,
 }
 
 /// A request that has been validated and is ready for submission.
@@ -124,15 +125,34 @@ impl Request<CreateAccountRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        // Check if any authenticator addresses are already in-flight
+        for addr in &self.payload.authenticator_addresses {
+            if ctx.inflight_authenticators.get(addr).await.is_some() {
+                return Err(GatewayErrorResponse::bad_request(
+                    GatewayErrorCode::DuplicateRequestInFlight,
+                ));
+            }
+        }
+
         // Register in tracker
         ctx.tracker
             .new_request_with_id(self.id().to_string(), self.kind().clone())
             .await?;
 
+        // Add all authenticator addresses to the in-flight cache
+        let auth_addresses = self.payload.authenticator_addresses.clone();
+        for addr in &auth_addresses {
+            ctx.inflight_authenticators.insert(*addr, ()).await;
+        }
+
         // Queue to batcher with typed request for createManyAccounts batching
         let cmd = Command::create_account(self.id, self.payload, DEFAULT_CREATE_ACCOUNT_GAS);
 
         if !ctx.batcher.submit(cmd).await {
+            // Remove from cache if batcher submission fails
+            for addr in &auth_addresses {
+                ctx.inflight_authenticators.invalidate(addr).await;
+            }
             ctx.tracker
                 .set_status(
                     &self.id.to_string(),

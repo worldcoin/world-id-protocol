@@ -53,6 +53,8 @@ mod update_authenticator;
 pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
+/// Default TTL for the cache as a safety fallback.
+const CACHE_TTL: Duration = Duration::from_mins(5);
 
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
@@ -62,6 +64,10 @@ pub(crate) async fn build_app(
     redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
     let tracker = RequestTracker::new(redis_url).await;
+
+    // Cache for in-flight authenticator addresses to prevent duplicate requests
+    let inflight_authenticators = Cache::builder().time_to_live(CACHE_TTL).build();
+
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
@@ -70,6 +76,7 @@ pub(crate) async fn build_app(
         max_create_batch_size,
         rx,
         tracker.clone(),
+        inflight_authenticators.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -101,6 +108,7 @@ pub(crate) async fn build_app(
         tracker,
         batcher: batcher_handle,
         root_cache,
+        inflight_authenticators,
     };
     let state = AppState { ctx };
 
