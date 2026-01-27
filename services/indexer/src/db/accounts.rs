@@ -1,5 +1,5 @@
 use alloy::primitives::{Address, U256};
-use sqlx::{PgPool, types::Json};
+use sqlx::{PgPool, Row, postgres::PgRow, types::Json};
 
 pub struct Accounts<'a> {
     pool: &'a PgPool,
@@ -12,6 +12,37 @@ impl<'a> Accounts<'a> {
             pool,
             table_name: "accounts".to_string(),
         }
+    }
+
+    pub async fn get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
+        &self,
+        leaf_index: &U256,
+    ) -> anyhow::Result<Option<(U256, Vec<U256>)>> {
+        let result = sqlx::query(&format!(
+            r#"
+                                SELECT
+                                    authenticator_pubkeys,
+                                    offchain_signer_commitment
+                                FROM {}
+                                WHERE
+                                    leaf_index = $1
+                            "#,
+            self.table_name
+        ))
+        .bind(leaf_index)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(result.map(|row| {
+            let offchain_signer_commitment = row.get::<U256, _>("offchain_signer_commitment");
+            let pubkeys: Vec<U256> = row
+                .get::<Json<Vec<String>>, _>("authenticator_pubkeys")
+                .0
+                .iter()
+                .filter_map(|s| s.parse::<U256>().ok())
+                .collect();
+            (offchain_signer_commitment, pubkeys)
+        }))
     }
 
     pub async fn insert(
