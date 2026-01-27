@@ -16,7 +16,10 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     providers::DynProvider,
 };
-use moka::future::Cache;
+use moka::{
+    future::Cache,
+    ops::compute::{CompResult, Op},
+};
 use uuid::Uuid;
 use world_id_core::{
     types::{
@@ -125,12 +128,41 @@ impl Request<CreateAccountRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Check if any authenticator addresses are already in-flight
-        for addr in &self.payload.authenticator_addresses {
-            if ctx.inflight_authenticators.get(addr).await.is_some() {
-                return Err(GatewayErrorResponse::bad_request(
-                    GatewayErrorCode::DuplicateRequestInFlight,
-                ));
+        // Atomically check and insert all authenticator addresses to prevent TOCTOU races
+        let auth_addresses = self.payload.authenticator_addresses.clone();
+        let mut inserted_addresses: Vec<Address> = Vec::new();
+
+        for addr in &auth_addresses {
+            let result = ctx
+                .inflight_authenticators
+                .entry_by_ref(addr)
+                .and_compute_with(|entry| async move {
+                    if entry.is_some() {
+                        // Already exists, don't modify
+                        Op::Nop
+                    } else {
+                        // Doesn't exist, insert
+                        Op::Put(())
+                    }
+                })
+                .await;
+
+            match result {
+                CompResult::Inserted(_) => {
+                    // Successfully inserted this address
+                    inserted_addresses.push(*addr);
+                }
+                CompResult::Unchanged(_) => {
+                    // Entry already existed - rollback and return error
+                    for inserted_addr in &inserted_addresses {
+                        ctx.inflight_authenticators.invalidate(inserted_addr).await;
+                    }
+                    return Err(GatewayErrorResponse::bad_request(
+                        GatewayErrorCode::DuplicateRequestInFlight,
+                    ));
+                }
+                // These cases shouldn't happen with our Op::Put/Op::Nop logic
+                _ => unreachable!("Unexpected CompResult variant"),
             }
         }
 
@@ -138,12 +170,6 @@ impl Request<CreateAccountRequest> {
         ctx.tracker
             .new_request_with_id(self.id().to_string(), self.kind().clone())
             .await?;
-
-        // Add all authenticator addresses to the in-flight cache
-        let auth_addresses = self.payload.authenticator_addresses.clone();
-        for addr in &auth_addresses {
-            ctx.inflight_authenticators.insert(*addr, ()).await;
-        }
 
         // Queue to batcher with typed request for createManyAccounts batching
         let cmd = Command::create_account(self.id, self.payload, DEFAULT_CREATE_ACCOUNT_GAS);
