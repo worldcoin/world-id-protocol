@@ -224,7 +224,6 @@ pub fn generate_rp_fixture() -> RpFixture {
 
     let msg = world_id_primitives::rp::compute_rp_signature_msg(
         nonce,
-        action,
         current_timestamp,
         expiration_timestamp,
     );

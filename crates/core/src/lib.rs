@@ -44,6 +44,7 @@ pub(crate) use signer::Signer;
 pub mod proof;
 
 #[cfg(feature = "authenticator")]
+/// Nullifier generation using OPRF.
 pub mod nullifier;
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]

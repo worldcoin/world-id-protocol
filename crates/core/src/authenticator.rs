@@ -470,7 +470,7 @@ impl Authenticator {
         credential_sub_blinding_factor: FieldElement,
         session_id_r_seed: FieldElement,
         session_id: Option<FieldElement>,
-        request_timestamp: u64,
+        request_timestamp: u64, // TODO: Convert into min_expiration
     ) -> Result<(Proof<Bn254>, FieldElement), AuthenticatorError> {
         // TODO: load once and from bytes
         let nullifier_material = crate::proof::load_embedded_nullifier_material();

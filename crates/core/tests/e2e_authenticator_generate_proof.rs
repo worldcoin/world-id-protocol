@@ -224,7 +224,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
         share_epoch: rp_fixture.share_epoch,
-        action: rp_fixture.action.into(),
+        session_id: None,
+        action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
@@ -232,7 +233,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             issuer_schema_id: issuer_schema_id_u64.into(),
             signal: Some("my_signal".to_string()),
             genesis_issued_at_min: None,
-            session_id: None,
         }],
         constraints: None,
     };

@@ -27,7 +27,9 @@ pub struct AuthenticatorProofInput {
 }
 
 impl AuthenticatorProofInput {
-    pub fn new(
+    /// Creates a new authenticator proof input.
+    #[must_use]
+    pub const fn new(
         key_set: AuthenticatorPublicKeySet,
         inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         private_key: EdDSAPrivateKey,
@@ -42,8 +44,10 @@ impl AuthenticatorProofInput {
     }
 }
 
+/// Nullifier computed using OPRF.
 pub struct OprfNullifier {
     pub(crate) query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
+    /// The OPRF output with verification data.
     pub verifiable_oprf_output: VerifiableOprfOutput,
 }
 
@@ -53,7 +57,7 @@ impl OprfNullifier {
     /// # Errors
     ///
     /// Returns [`ProofError`] in the following cases:
-    /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the key_set.
+    /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the `key_set`.
     /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
     /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
     pub async fn generate(
