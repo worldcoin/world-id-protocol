@@ -182,6 +182,11 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      */
     error ZeroAddress();
 
+    /**
+     * @dev Thrown when the passed id is invalid for the operation. Usually this means the `id` used is equal to `0` which is not allowed.
+     */
+    error InvalidId();
+
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -422,6 +427,8 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
 
     function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
         if (_relyingParties[rpId].initialized) revert RpIdAlreadyInUse(rpId);
+
+        if (rpId == 0) revert InvalidId();
 
         if (manager == address(0)) revert ManagerCannotBeZeroAddress();
 
