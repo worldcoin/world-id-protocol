@@ -7,9 +7,6 @@ contracts/out/*
 contracts/cache/
 contracts/broadcast/
 
-# Circom (compressed files are generated in build.rs)
-circom/*.compressed
-
 # Node (if used later)
 node_modules/
 

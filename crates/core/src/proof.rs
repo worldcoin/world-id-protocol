@@ -52,26 +52,31 @@ pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
     "c1d951716e3b74b72e4ea0429986849cadc43cccc630a7ee44a56a6199a66b9a";
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const QUERY_GRAPH_BYTES: &[u8] = include_bytes!("../../../circom/OPRFQueryGraph.bin");
+const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
 
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const NULLIFIER_GRAPH_BYTES: &[u8] = include_bytes!("../../../circom/OPRFNullifierGraph.bin");
+const NULLIFIER_GRAPH_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifierGraph.bin"));
 
 #[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys"), not(docsrs)))]
-const QUERY_ZKEY_BYTES: &[u8] = include_bytes!("../../../circom/OPRFQuery.arks.zkey");
+const QUERY_ZKEY_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQuery.arks.zkey"));
 
 #[cfg(all(feature = "compress-zkeys", not(docsrs)))]
-const QUERY_ZKEY_BYTES: &[u8] = include_bytes!("../../../circom/OPRFQuery.arks.zkey.compressed");
+const QUERY_ZKEY_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQuery.arks.zkey.compressed"));
 
 #[cfg(docsrs)]
 const QUERY_ZKEY_BYTES: &[u8] = &[];
 
 #[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys"), not(docsrs)))]
-const NULLIFIER_ZKEY_BYTES: &[u8] = include_bytes!("../../../circom/OPRFNullifier.arks.zkey");
+const NULLIFIER_ZKEY_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifier.arks.zkey"));
 
 #[cfg(all(feature = "compress-zkeys", not(docsrs)))]
-const NULLIFIER_ZKEY_BYTES: &[u8] =
-    include_bytes!("../../../circom/OPRFNullifier.arks.zkey.compressed");
+const NULLIFIER_ZKEY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/OPRFNullifier.arks.zkey.compressed"
+));
 
 #[cfg(docsrs)]
 const NULLIFIER_ZKEY_BYTES: &[u8] = &[];

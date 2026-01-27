@@ -129,7 +129,7 @@ impl Config {
     /// Optional directory to cache uncompressed circuit zkeys.
     #[must_use]
     pub fn zkey_cache_dir(&self) -> Option<&Path> {
-        self.zkey_cache_dir.as_ref().map(|p| p.as_path())
+        self.zkey_cache_dir.as_deref()
     }
 
     /// Sets the directory used to cache uncompressed circuit zkeys.
