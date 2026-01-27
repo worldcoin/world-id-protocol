@@ -58,12 +58,17 @@ pub struct ProofRequest {
     pub created_at: u64,
     /// Unix timestamp (seconds since epoch) when request expires
     pub expires_at: u64,
-    /// Registered RP id
+    /// Registered RP ID
     pub rp_id: RpId,
     /// `OprfKeyId` of the RP
     pub oprf_key_id: OprfKeyId,
     /// The `ShareEpoch` of the OPRF key to use for this request
     pub share_epoch: ShareEpoch,
+    /// If provided, a Session Proof(s) will be generated instead of a Uniqueness Proof(s).
+    ///
+    /// The proof will only be valid if the session ID is meant for this context and this
+    /// particular World ID holder.
+    pub session_id: Option<FieldElement>,
     /// The raw representation of the action. This must be already a field element.
     ///
     /// When dealing with strings or bytes, such value can be hashed e.g. with a byte-friendly
@@ -106,12 +111,6 @@ pub struct RequestItem {
     /// If present, the proof will include a constraint that the credential's genesis issued at timestamp
     /// is greater than or equal to this value. This is useful for migration from previous protocol versions.
     pub genesis_issued_at_min: Option<u64>,
-
-    /// If provided, a Session Proof will be generated instead of a Uniqueness Proof.
-    ///
-    /// The proof will only be valid if the session ID is meant for this context and this
-    /// particular World ID holder.
-    pub session_id: Option<FieldElement>,
 }
 
 impl RequestItem {
@@ -122,14 +121,12 @@ impl RequestItem {
         issuer_schema_id: FieldElement,
         signal: Option<String>,
         genesis_issued_at_min: Option<u64>,
-        session_id: Option<FieldElement>,
     ) -> Self {
         Self {
             identifier,
             issuer_schema_id,
             signal,
             genesis_issued_at_min,
-            session_id,
         }
     }
 
@@ -152,6 +149,13 @@ pub struct ProofResponse {
     pub id: String,
     /// Version corresponding to request version
     pub version: RequestVersion,
+    /// RP session identifier that links multiple proofs for the same
+    /// user/RP pair across requests.
+    ///
+    /// When session proofs are enabled, this is the hex-encoded field element
+    /// emitted by the session circuit; otherwise it is omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<FieldElement>,
     /// Per-credential results
     pub responses: Vec<ResponseItem>,
 }
@@ -171,22 +175,18 @@ pub struct ResponseItem {
 
     /// Issuer schema id this item refers to (serialized as hex string)
     pub issuer_schema_id: FieldElement,
+
     /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<WorldIdProof>,
+
     /// RP-scoped nullifier derived from the credential, action, and RP id.
     ///
     /// Encoded as a hex string representation of the field element output by
     /// the nullifier circuit. Present only when a proof was produced.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nullifier: Option<FieldElement>,
-    /// Optional RP session identifier that links multiple proofs for the same
-    /// user/RP pair across requests.
-    ///
-    /// When session proofs are enabled, this is the hex-encoded field element
-    /// emitted by the session circuit; otherwise it is omitted.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<FieldElement>,
+
     /// Present if credential not provided
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -580,6 +580,7 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             share_epoch: ShareEpoch::default(),
+            session_id: None,
             action: FieldElement::ZERO,
             signature: test_signature(),
             nonce: test_nonce(),
@@ -588,7 +589,6 @@ mod tests {
                 issuer_schema_id: test_field_element(1),
                 signal: Some("test_signal".into()),
                 genesis_issued_at_min: None,
-                session_id: None,
             }],
             constraints: None,
         };
@@ -620,6 +620,7 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             share_epoch: ShareEpoch::default(),
+            session_id: None,
             action: FieldElement::ZERO,
             signature: test_signature(),
             nonce: test_nonce(),
@@ -629,14 +630,12 @@ mod tests {
                     issuer_schema_id: test_field_element(1),
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "document".into(),
                     issuer_schema_id: test_field_element(2),
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
             ],
             constraints: None,
@@ -701,6 +700,7 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             share_epoch: ShareEpoch::default(),
+            session_id: None,
             action: test_field_element(1),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -709,7 +709,6 @@ mod tests {
                 issuer_schema_id: test_field_element(1),
                 signal: None,
                 genesis_issued_at_min: None,
-                session_id: None,
             }],
             constraints: Some(deep),
         };
@@ -776,6 +775,7 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             share_epoch: ShareEpoch::default(),
+            session_id: None,
             action: test_field_element(5),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -785,63 +785,54 @@ mod tests {
                     issuer_schema_id: id10,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_11".into(),
                     issuer_schema_id: id11,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_12".into(),
                     issuer_schema_id: id12,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_13".into(),
                     issuer_schema_id: id13,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_14".into(),
                     issuer_schema_id: id14,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_15".into(),
                     issuer_schema_id: id15,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_16".into(),
                     issuer_schema_id: id16,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_17".into(),
                     issuer_schema_id: id17,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
                 RequestItem {
                     identifier: "test_req_18".into(),
                     issuer_schema_id: id18,
                     signal: None,
                     genesis_issued_at_min: None,
-                    session_id: None,
                 },
             ],
             constraints: Some(expr),
@@ -1025,6 +1016,7 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             share_epoch: ShareEpoch::default(),
+            session_id: Some(test_field_element(55)),
             action: test_field_element(1),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1033,7 +1025,6 @@ mod tests {
                 issuer_schema_id: test_field_element(1),
                 signal: Some("abcd-efgh-ijkl".into()),
                 genesis_issued_at_min: Some(1_725_381_192),
-                session_id: Some(test_field_element(55)),
             }],
             constraints: None,
         };
