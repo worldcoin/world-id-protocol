@@ -6,7 +6,9 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     Credential, FieldElement, Signer,
-    requests::ProofRequest,
+    nullifier::{AuthenticatorProofInput, OprfNullifier},
+    proof::{ProofError, generate_nullifier_proof},
+    requests::{ProofRequest, RequestItem},
     types::{
         AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
         IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
@@ -45,8 +47,6 @@ static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
-
-type UniquenessProof = (Proof<Bn254>, FieldElement);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 pub struct Authenticator {
@@ -393,86 +393,19 @@ impl Authenticator {
         }
     }
 
-    /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`.
+    /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
-    /// This assumes the Authenticator has already parsed the `[ProofRequest]` and determined
-    /// which `[Credential]` is appropriate for the request.
-    ///
-    /// # Errors
-    /// - Will error if the any of the provided parameters are not valid.
-    /// - Will error if any of the required network requests fail.
-    /// - Will error if the user does not have a registered World ID.
-    #[allow(clippy::future_not_send)]
-    pub async fn generate_proof(
-        &self,
-        proof_request: ProofRequest,
-        credential: Credential,
-        credential_sub_blinding_factor: FieldElement,
-    ) -> Result<UniquenessProof, AuthenticatorError> {
-        let prepared = self
-            .prepare_proof(proof_request, credential, credential_sub_blinding_factor)
-            .await?;
-        self.generate_proof_with_prepared(prepared)
-    }
-
-    /// Prepares a proof by computing the nullifier via OPRF and building circuit inputs.
-    ///
-    /// Use [`Self::generate_proof_with_prepared`] to finalize the Groth16 proof after
-    /// replay-guard checks are complete.
-    ///
+    /// This should generally only be called for Uniqueness Proofs. For Session Proofs,
+    /// the nullifier is computed as an internal operation.
+    //
     /// # Errors
     ///
-    /// Returns an error if the inputs are invalid, network requests fail, or
-    /// OPRF preparation fails.
-    #[allow(clippy::future_not_send)]
-    pub async fn prepare_proof(
+    /// - Will raise a [`ProofError`] if there is any issue generating the proof (including network issues, misconfiguration, etc.)
+    /// - Raises an error if the OPRF Nodes configuration is not correctly set.
+    pub async fn generate_nullifier(
         &self,
-        proof_request: ProofRequest,
-        credential: Credential,
-        credential_sub_blinding_factor: FieldElement,
-    ) -> Result<crate::proof::PreparedNullifier, AuthenticatorError> {
-        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
-        let key_index = key_set
-            .iter()
-            .position(|pk| pk.pk == self.offchain_pubkey().pk)
-            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        // TODO: load once and from bytes
-        let query_material = crate::proof::load_embedded_query_material();
-
-        let request_item = proof_request
-            .find_request_by_issuer_schema_id(credential.issuer_schema_id.into())
-            .ok_or(AuthenticatorError::InvalidCredentialForProofRequest)?;
-
-        let mut rng = rand::rngs::OsRng;
-
-        // use the provided session id or default to zero
-        let session_id = request_item.session_id.unwrap_or(FieldElement::ZERO);
-        // TODO store this somewhere to use for potential session proofs
-        let session_id_r_seed = FieldElement::random(&mut rng);
-
-        let args = SingleProofInput::<TREE_DEPTH> {
-            credential,
-            inclusion_proof,
-            key_set,
-            key_index,
-            session_id_r_seed,
-            session_id,
-            credential_sub_blinding_factor,
-            rp_id: proof_request.rp_id,
-            oprf_key_id: proof_request.oprf_key_id,
-            share_epoch: proof_request.share_epoch.into_inner(),
-            action: proof_request.action,
-            nonce: proof_request.nonce,
-            current_timestamp: proof_request.created_at,
-            expiration_timestamp: proof_request.expires_at,
-            rp_signature: proof_request.signature,
-            signal_hash: request_item.signal_hash(),
-            genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0), // When not provided, the minimum is set to 0 to "ignore" the constraint
-        };
-
-        let private_key = self.signer.offchain_signer_private_key().expose_secret();
-
+        proof_request: &ProofRequest,
+    ) -> Result<OprfNullifier, AuthenticatorError> {
         let services = self.config.nullifier_oracle_urls();
         if services.is_empty() {
             return Err(AuthenticatorError::Generic(
@@ -488,39 +421,78 @@ impl Authenticator {
         }
         let threshold = requested_threshold.min(services.len());
 
-        crate::proof::prepare_nullifier(
+        // TODO: load once and from bytes
+        let query_material = crate::proof::load_embedded_query_material();
+
+        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
+        let key_index = key_set
+            .iter()
+            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+
+        let authenticator_input = AuthenticatorProofInput::new(
+            key_set,
+            inclusion_proof,
+            self.signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .clone(),
+            key_index,
+        );
+
+        Ok(OprfNullifier::generate(
             services,
             threshold,
             &query_material,
-            args,
-            private_key,
+            authenticator_input,
+            proof_request,
             self.ws_connector.clone(),
-            &mut rng,
         )
-        .await
-        .map_err(|e| AuthenticatorError::Generic(format!("Failed to prepare nullifier: {e}")))
+        .await?)
     }
 
-    /// Finalizes a previously prepared proof by generating the Groth16 nullifier proof.
+    /// FIXME: Proper description.
+    ///
+    /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`.
+    ///
+    /// This assumes the Authenticator has already parsed the `[ProofRequest]` and determined
+    /// which `[Credential]` is appropriate for the request.
     ///
     /// # Errors
-    ///
-    /// Returns an error if proof generation or verification fails.
-    pub fn generate_proof_with_prepared(
+    /// - Will error if the any of the provided parameters are not valid.
+    /// - Will error if any of the required network requests fail.
+    /// - Will error if the user does not have a registered World ID.
+    pub fn generate_single_uniqueness_proof(
         &self,
-        prepared: crate::proof::PreparedNullifier,
-    ) -> Result<UniquenessProof, AuthenticatorError> {
+        request_item: &RequestItem,
+        credential: &Credential,
+        credential_sub_blinding_factor: FieldElement,
+        oprf_nullifier: OprfNullifier,
+    ) -> Result<(Proof<Bn254>, FieldElement), AuthenticatorError> {
         // TODO: load once and from bytes
         let nullifier_material = crate::proof::load_embedded_nullifier_material();
 
-        let mut rng = rand::thread_rng();
-        let (proof, _public, nullifier) =
-            crate::proof::finalize_nullifier_proof(&nullifier_material, prepared, &mut rng)
-                .map_err(|e| {
-                    AuthenticatorError::Generic(format!("Failed to generate nullifier proof: {e}"))
-                })?;
+        let mut rng = rand::rngs::OsRng;
 
-        Ok((proof, nullifier.into()))
+        let proof = generate_nullifier_proof(
+            &nullifier_material,
+            &mut rng,
+            credential,
+            credential_sub_blinding_factor,
+            oprf_nullifier,
+            request_item,
+            FieldElement::ZERO, // `session_id` is always 0 for uniqueness proofs
+            FieldElement::ZERO, // fixme
+            0,                  // fixme
+        )?;
+
+        // FIXME: encode as response item
+        Ok((proof.0, proof.2.into()))
+    }
+
+    /// FIXME. DESCRIBE ME PROPERLY
+    pub fn generate_single_session_proof(&self) {
+        todo!("not yet implemented");
     }
 
     /// Inserts a new authenticator to the account.
@@ -976,6 +948,10 @@ pub enum AuthenticatorError {
         /// Detailed error message.
         error_message: String,
     },
+
+    /// Error on proof generation
+    #[error(transparent)]
+    ProofError(#[from] ProofError),
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

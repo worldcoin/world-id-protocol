@@ -288,8 +288,7 @@ impl ProofRequest {
         use k256::sha2::{Digest, Sha256};
         use world_id_primitives::rp::compute_rp_signature_msg;
 
-        let msg =
-            compute_rp_signature_msg(*self.nonce, *self.action, self.created_at, self.expires_at);
+        let msg = compute_rp_signature_msg(*self.nonce, self.created_at, self.expires_at);
         let mut hasher = Sha256::new();
         hasher.update(&msg);
         Ok(hasher.finalize().into())
@@ -301,7 +300,7 @@ impl ProofRequest {
             ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
             leaf_index.into(),
             *FieldElement::from(self.rp_id),
-            *self.action,
+            *self.computed_action(),
         ];
         let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
         poseidon2_4.permutation(&input)[1].into()
