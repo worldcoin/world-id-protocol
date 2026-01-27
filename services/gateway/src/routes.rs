@@ -53,8 +53,8 @@ mod update_authenticator;
 pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
-/// Default TTL for the cache as a safety fallback.
-const CACHE_TTL: Duration = Duration::from_mins(5);
+/// Default TTL to 5 mins for the cache as a safety fallback.
+const CACHE_TTL: Duration = Duration::from_secs(300);
 
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
