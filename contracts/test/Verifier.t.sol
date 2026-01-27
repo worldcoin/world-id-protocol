@@ -8,8 +8,8 @@ import {Verifier as VerifierNullifier} from "../src/VerifierNullifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 
-uint256 constant credentialIssuerIdCorrect = 1;
-uint256 constant credentialIssuerIdWrong = 2;
+uint64 constant credentialIssuerIdCorrect = 1;
+uint64 constant credentialIssuerIdWrong = 2;
 
 uint64 constant rpIdCorrect = 3604927112168642455;
 uint64 constant rpIdWrong = 2;
@@ -47,7 +47,7 @@ contract WorldIDRegistryMock {
 }
 
 contract CredentialSchemaIssuerRegistryMock {
-    function issuerSchemaIdToPubkey(uint256 issuerSchemaId)
+    function issuerSchemaIdToPubkey(uint64 issuerSchemaId)
         public
         view
         virtual

@@ -173,6 +173,7 @@ async fn spawn_orpf_node(
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         world_id_registry_contract,
         rp_registry_contract,
+        cache_maintenance_interval: Duration::from_secs(60),
         node_config: taceo_oprf_service::config::OprfNodeConfig {
             environment: taceo_oprf_service::config::Environment::Dev,
             rp_secret_id_prefix: format!("oprf/rp/n{id}"),
@@ -270,6 +271,8 @@ async fn spawn_key_gen(
         start_block: Some(0),
         max_transaction_attempts: 3,
         max_wait_time_transaction_confirmation: Duration::from_secs(60),
+        max_gas_per_transaction: 8000000,
+        confirmations_for_transaction: 1, // must be 1 for anvil
     };
     let never = async { futures::future::pending::<()>().await };
     tokio::spawn(async move {

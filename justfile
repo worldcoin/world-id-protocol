@@ -38,7 +38,7 @@ run-setup:
     world_id_registry=$(grep -oP 'WorldIDRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_world_id_registry.log)
     echo "starting OprfKeyRegistry contract.."
     just deploy-oprf-key-registry-with-deps-anvil | tee logs/deploy_oprf_key_registry.log
-    oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
+    oprf_key_registry=$(grep -oP 'OprfKeyRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     echo "starting RpRegistry contract..."
     just deploy-erc20-mock-anvil | tee logs/deploy_erc20_mock.log
     erc20_mock=$(grep -oP 'ERC20Mock deployed to: \K0x[a-fA-F0-9]+' logs/deploy_erc20_mock.log)
@@ -61,14 +61,14 @@ run-oprf-key-registry-and-nodes $OPRF_SERVICE_WORLD_ID_REGISTRY_CONTRACT:
     mkdir -p logs
     echo "starting OprfKeyRegistry contract.."
     just deploy-oprf-key-registry-with-deps-anvil | tee logs/deploy_oprf_key_registry.log
-    oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
+    oprf_key_registry=$(grep -oP 'OprfKeyRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     sleep 1
     echo "starting OPRF services..."
     OPRF_SERVICE_RP_REGISTRY_CONTRACT=$oprf_key_registry just run-nodes
 
 run-dev-client *args:
     #!/usr/bin/env bash
-    oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
+    oprf_key_registry=$(grep -oP 'OprfKeyRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     world_id_registry=$(grep -oP 'WorldIDRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_world_id_registry.log)
     rp_registry=$(grep -oP 'RpRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_rp_registry.log)
     cargo build -p world-id-oprf-dev-client --release

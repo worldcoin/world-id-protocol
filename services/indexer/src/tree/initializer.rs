@@ -1,11 +1,10 @@
 use std::{fmt, path::PathBuf, time::Instant};
 
 use alloy::primitives::U256;
-use sqlx::PgPool;
 use tracing::{info, warn};
 
 use super::{builder::TreeBuilder, metadata};
-use crate::db::get_max_event_id;
+use crate::db::{DB, EventId};
 
 /// State of cache files on disk
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +73,7 @@ impl TreeInitializer {
 
     /// Initialize tree: try restore + replay, fallback to full rebuild.
     /// Updates GLOBAL_TREE atomically and returns nothing.
-    pub async fn initialize(&self, pool: &PgPool) -> anyhow::Result<()> {
+    pub async fn initialize(&self, db: &DB) -> anyhow::Result<()> {
         let start = Instant::now();
 
         let cache_state = self.check_cache_files();
@@ -82,18 +81,18 @@ impl TreeInitializer {
 
         // If either file is missing, skip restore attempt and do full rebuild
         if cache_state.is_valid() {
-            match self.try_restore_and_replay(pool).await {
+            match self.try_restore_and_replay(db).await {
                 Ok(()) => {
                     info!("Successfully restored and updated tree from cache");
                 }
                 Err(e) => {
                     warn!("Cache restore failed ({}), doing full rebuild", e);
-                    self.full_rebuild_and_update_global_tree(pool).await?;
+                    self.full_rebuild_and_update_global_tree(db).await?;
                 }
             }
         } else {
             info!("{}, building tree from scratch", cache_state);
-            self.full_rebuild_and_update_global_tree(pool).await?;
+            self.full_rebuild_and_update_global_tree(db).await?;
         };
 
         info!("Tree initialization took {:?}", start.elapsed());
@@ -102,36 +101,40 @@ impl TreeInitializer {
 
     /// Try to restore from cache and replay missed events.
     /// Updates GLOBAL_TREE atomically.
-    async fn try_restore_and_replay(&self, pool: &PgPool) -> anyhow::Result<()> {
+    async fn try_restore_and_replay(&self, db: &DB) -> anyhow::Result<()> {
         use crate::tree::GLOBAL_TREE;
 
         // 1. Read metadata
         let metadata = metadata::read_metadata(&self.cache_path)?;
 
         info!(
-            cache_block = metadata.last_block_number,
-            cache_event_id = metadata.last_event_id,
+            cache_block_number = metadata.last_block_number,
+            cache_log_index = metadata.last_log_index,
             cache_root = %metadata.root_hash,
             "Found cache metadata"
         );
 
         // 2. Get current DB state
-        let db_state = metadata::get_db_state(pool).await?;
-        let current_event_id = get_max_event_id(pool).await?;
+        let db_state = metadata::get_db_state(db).await?;
 
-        let blocks_behind = db_state
-            .max_block_number
+        let last_event_id = db_state.last_event_id.unwrap_or_default();
+
+        let blocks_behind = last_event_id
+            .block_number
             .saturating_sub(metadata.last_block_number);
-        let events_behind = current_event_id.saturating_sub(metadata.last_event_id);
+
+        let logs_behind = last_event_id
+            .log_index
+            .saturating_sub(metadata.last_log_index);
 
         info!(
-            current_block = db_state.max_block_number,
-            current_event_id,
+            current_block_number = last_event_id.block_number,
+            current_log_index = last_event_id.log_index,
             blocks_behind,
-            events_behind,
-            "Cache is {} blocks / {} events behind",
+            logs_behind,
+            "Cache is {} blocks / {} logsbehind",
             blocks_behind,
-            events_behind
+            logs_behind
         );
 
         // 3. Restore tree from mmap
@@ -148,19 +151,28 @@ impl TreeInitializer {
         }
 
         // 5. Replay events if needed (based on event ID, not block number)
-        let final_tree = if events_behind == 0 {
+        let final_tree = if metadata.last_block_number == last_event_id.block_number
+            && metadata.last_log_index == last_event_id.log_index
+        {
             info!("Cache is up-to-date, no replay needed");
             tree
         } else {
             // Use event ID as the replay cursor (not block number)
-            let (updated_tree, new_block, new_event_id) = self
+            let (updated_tree, new_event_id) = self
                 .builder
-                .replay_events(tree, pool, metadata.last_event_id)
+                .replay_events(
+                    tree,
+                    db,
+                    crate::db::EventId {
+                        block_number: metadata.last_block_number,
+                        log_index: metadata.last_log_index,
+                    },
+                )
                 .await?;
 
             info!(
-                replayed_to_block = new_block,
-                replayed_to_event_id = new_event_id,
+                replayed_to_block_number = new_event_id.block_number,
+                replayed_to_log_index = new_event_id.log_index,
                 new_root = %format!("0x{:x}", updated_tree.root()),
                 "Replay complete"
             );
@@ -169,8 +181,7 @@ impl TreeInitializer {
             metadata::write_metadata(
                 &self.cache_path,
                 &updated_tree,
-                pool,
-                new_block,
+                db,
                 new_event_id,
                 self.tree_depth,
                 self.dense_prefix_depth,
@@ -191,14 +202,14 @@ impl TreeInitializer {
 
     /// Full rebuild from database and atomically replace GLOBAL_TREE.
     /// Used during initialization and for recovery when cache is corrupted.
-    async fn full_rebuild_and_update_global_tree(&self, pool: &PgPool) -> anyhow::Result<()> {
+    async fn full_rebuild_and_update_global_tree(&self, db: &DB) -> anyhow::Result<()> {
         use crate::tree::GLOBAL_TREE;
 
         info!("Starting full tree rebuild with cache");
 
-        let (tree, last_block, last_event_id) = self
+        let (tree, last_event_id) = self
             .builder
-            .build_from_db_with_cache(pool, &self.cache_path)
+            .build_from_db_with_cache(db, &self.cache_path)
             .await?;
 
         // Replace GLOBAL_TREE atomically
@@ -212,8 +223,7 @@ impl TreeInitializer {
         metadata::write_metadata(
             &self.cache_path,
             &tree_for_metadata,
-            pool,
-            last_block,
+            db,
             last_event_id,
             self.tree_depth,
             self.dense_prefix_depth,
@@ -222,8 +232,8 @@ impl TreeInitializer {
 
         info!(
             root = %format!("0x{:x}", tree_for_metadata.root()),
-            last_block,
-            last_event_id,
+            last_block_number = last_event_id.block_number,
+            last_log_index = last_event_id.log_index,
             "Full rebuild and GLOBAL_TREE update complete"
         );
 
@@ -242,30 +252,41 @@ impl TreeInitializer {
     /// Most pages are already in memory if the tree was recently used.
     ///
     /// Returns the number of events applied to the tree.
-    pub async fn sync_with_db(&self, pool: &PgPool) -> anyhow::Result<u64> {
+    pub async fn sync_with_db(&self, db: &DB) -> anyhow::Result<(u64, u64)> {
         use crate::tree::GLOBAL_TREE;
 
         // 1. Read current metadata to get last_event_id
         let metadata = metadata::read_metadata(&self.cache_path)?;
 
         info!(
-            cache_event_id = metadata.last_event_id,
-            cache_block = metadata.last_block_number,
+            cache_block_number = metadata.last_block_number,
+            cache_log_index = metadata.last_log_index,
             "Starting tree sync from cache metadata"
         );
 
         // 2. Check if there are new events
-        let current_event_id = get_max_event_id(pool).await?;
-        let events_behind = current_event_id.saturating_sub(metadata.last_event_id);
+        let db_state = metadata::get_db_state(db).await?;
 
-        if events_behind == 0 {
+        let last_event_id = db_state.last_event_id.unwrap_or_default();
+
+        if metadata.last_block_number == last_event_id.block_number
+            && metadata.last_log_index == last_event_id.log_index
+        {
             info!("Tree is up-to-date, no sync needed");
-            return Ok(0);
+            return Ok((0, 0));
         }
 
+        let blocks_behind = last_event_id
+            .block_number
+            .saturating_sub(metadata.last_block_number);
+
+        let logs_behind = last_event_id
+            .log_index
+            .saturating_sub(metadata.last_log_index);
+
         info!(
-            current_event_id,
-            events_behind, "Tree is {} events behind, syncing", events_behind
+            ?last_event_id,
+            blocks_behind, "Tree is {} blocks behind, syncing", blocks_behind
         );
 
         // 3. Restore tree from mmap (creates separate instance, doesn't touch GLOBAL_TREE)
@@ -283,9 +304,9 @@ impl TreeInitializer {
 
             // Trigger full rebuild instead of failing
             return self
-                .full_rebuild_and_update_global_tree(pool)
+                .full_rebuild_and_update_global_tree(db)
                 .await
-                .map(|_| 0);
+                .map(|_| (0, 0));
         }
 
         info!(
@@ -294,9 +315,16 @@ impl TreeInitializer {
         );
 
         // 5. Replay events on the restored tree (GLOBAL_TREE still serves requests)
-        let (updated_tree, new_block, new_event_id) = self
+        let (updated_tree, new_event_id) = self
             .builder
-            .replay_events(tree, pool, metadata.last_event_id)
+            .replay_events(
+                tree,
+                db,
+                EventId {
+                    block_number: metadata.last_block_number,
+                    log_index: metadata.last_log_index,
+                },
+            )
             .await?;
 
         // 6. Replace GLOBAL_TREE atomically (one brief write lock)
@@ -310,8 +338,7 @@ impl TreeInitializer {
         metadata::write_metadata(
             &self.cache_path,
             &tree_for_metadata,
-            pool,
-            new_block,
+            db,
             new_event_id,
             self.tree_depth,
             self.dense_prefix_depth,
@@ -319,12 +346,12 @@ impl TreeInitializer {
         .await?;
 
         info!(
-            synced_to_block = new_block,
-            synced_to_event_id = new_event_id,
-            events_applied = events_behind,
+            synced_to_block_number = new_event_id.block_number,
+            synced_to_log_index = new_event_id.log_index,
+            blocks_applied = blocks_behind,
             "Tree sync complete"
         );
 
-        Ok(events_behind as u64)
+        Ok((blocks_behind as u64, logs_behind as u64))
     }
 }

@@ -1,81 +1,23 @@
-use crate::{
-    ops_batcher::{OpEnvelope, OpKind},
-    request_tracker::RequestTracker,
-    routes::validation::ValidateRequest,
-    types::AppState,
-};
-use alloy::primitives::{Bytes, U256};
-use axum::{Json, extract::State};
-use world_id_core::{
-    types::{
-        GatewayErrorCode as ErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, RemoveAuthenticatorRequest,
-    },
-    world_id_registry::WorldIdRegistry,
+//! Remove authenticator handler.
+
+use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use axum::{Extension, Json, extract::State};
+use world_id_core::types::{
+    GatewayErrorResponse, GatewayStatusResponse, RemoveAuthenticatorRequest,
 };
 
+/// POST /v1/authenticators/remove
+///
+/// Remove an authenticator from an account.
 pub(crate) async fn remove_authenticator(
     State(state): State<AppState>,
-    axum::Extension(tracker): axum::Extension<RequestTracker>,
-    Json(req): Json<RemoveAuthenticatorRequest>,
+    Extension(RequestId(id)): Extension<RequestId>,
+    Json(payload): Json<RemoveAuthenticatorRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
-    let pubkey_id = req.pubkey_id.unwrap_or(0);
-    let authenticator_pubkey = req.authenticator_pubkey.unwrap_or(U256::ZERO);
-
-    // Input validation
-    req.validate()?;
-
-    // Simulate the operation before queueing to catch errors early
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    contract
-        .removeAuthenticator(
-            req.leaf_index,
-            req.authenticator_address,
-            pubkey_id,
-            authenticator_pubkey,
-            req.old_offchain_signer_commitment,
-            req.new_offchain_signer_commitment,
-            Bytes::from(req.signature.clone()),
-            req.sibling_nodes.clone(),
-            req.nonce,
-        )
-        .call()
+    payload
+        .into_request(id, &state.ctx)
+        .await?
+        .submit(&state.ctx)
         .await
-        .map_err(GatewayErrorResponse::from_simulation_error)?;
-
-    let (id, record) = tracker
-        .new_request(GatewayRequestKind::RemoveAuthenticator)
-        .await?;
-    let env = OpEnvelope {
-        id: id.clone(),
-        kind: OpKind::Remove {
-            leaf_index: req.leaf_index,
-            authenticator_address: req.authenticator_address,
-            old_commit: req.old_offchain_signer_commitment,
-            new_commit: req.new_offchain_signer_commitment,
-            sibling_nodes: req.sibling_nodes.clone(),
-            signature: Bytes::from(req.signature.clone()),
-            nonce: req.nonce,
-            pubkey_id,
-            authenticator_pubkey,
-        },
-    };
-
-    if state.ops_batcher.tx.send(env).await.is_err() {
-        tracker
-            .set_status(
-                &id,
-                GatewayRequestState::failed_from_code(ErrorCode::BatcherUnavailable),
-            )
-            .await;
-        return Err(GatewayErrorResponse::batcher_unavailable());
-    }
-
-    let body = GatewayStatusResponse {
-        request_id: id,
-        kind: record.kind,
-        status: record.status,
-    };
-
-    Ok(Json(body))
+        .map(|r| Json(r.into_response()))
 }

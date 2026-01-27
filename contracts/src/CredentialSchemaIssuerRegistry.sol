@@ -7,6 +7,9 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
@@ -14,6 +17,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
 contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+    using SafeERC20 for IERC20;
+
     error ImplementationNotInitialized();
 
     /**
@@ -30,6 +35,41 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @dev Thrown when the provided pubkey is invalid (for example if either coordinate is zero).
      */
     error InvalidPubkey();
+
+    /**
+     * @dev Thrown when an invalid signer is provided (e.g. zero address)
+     */
+    error InvalidSigner();
+
+    /**
+     * @dev Thrown when an issuerSchemaId is not registered
+     */
+    error IdNotRegistered();
+
+    /**
+     * @dev Thrown when trying to update signer to the same address that's already assigned
+     */
+    error SignerAlreadyAssigned();
+
+    /**
+     * @dev Thrown when the provided issuerSchemaId is invalid
+     */
+    error InvalidIssuerSchemaId();
+
+    /**
+     * @dev Thrown when trying to set an address to the zero address.
+     */
+    error ZeroAddress();
+
+    /**
+     * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
+     */
+    error IdAlreadyInUse(uint64 id);
+
+    /**
+     * @dev Thrown when the passed id is invalid for the operation. Usually this means the `id` used is equal to `0` which is not allowed.
+     */
+    error InvalidId();
 
     modifier onlyInitialized() {
         _onlyInitialized();
@@ -55,16 +95,28 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
-    mapping(uint256 => Pubkey) private _idToPubkey;
+    // DO NOT REORDER! To ensure compatibility between upgrades, it is exceedingly important
+    // that no reordering of these variables takes place. If reordering happens, a storage
+    // clash will occur (effectively a memory safety error).
+
+    mapping(uint64 => Pubkey) private _idToPubkey;
 
     // Stores the on-chain signer address for each issuerSchemaId, i.e. who is authorized to perform updates on the issuerSchemaId.
-    mapping(uint256 => address) private _idToAddress;
+    mapping(uint64 => address) private _idToAddress;
 
-    uint256 private _nextId = 1;
-    mapping(uint256 => uint256) private _nonces;
+    mapping(uint64 => uint256) private _idToSignatureNonce;
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
-    mapping(uint256 => string) public idToSchemaUri;
+    mapping(uint64 => string) public idToSchemaUri;
+
+    // the fee to register an issuer schema
+    uint256 private _registrationFee;
+
+    // the recipient of registration fees
+    address private _feeRecipient;
+
+    // the token used to pay registration fees
+    IERC20 private _feeToken;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -73,13 +125,13 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     string public constant EIP712_NAME = "CredentialSchemaIssuerRegistry";
     string public constant EIP712_VERSION = "1.0";
 
-    string public constant REMOVE_ISSUER_SCHEMA_TYPEDEF = "RemoveIssuerSchema(uint256 issuerSchemaId,uint256 nonce)";
+    string public constant REMOVE_ISSUER_SCHEMA_TYPEDEF = "RemoveIssuerSchema(uint64 issuerSchemaId,uint256 nonce)";
     string public constant UPDATE_PUBKEY_TYPEDEF =
-        "UpdateIssuerSchemaPubkey(uint256 issuerSchemaId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)Pubkey(uint256 x,uint256 y)";
+        "UpdateIssuerSchemaPubkey(uint64 issuerSchemaId,Pubkey newPubkey,Pubkey oldPubkey,uint256 nonce)Pubkey(uint256 x,uint256 y)";
     string public constant UPDATE_SIGNER_TYPEDEF =
-        "UpdateIssuerSchemaSigner(uint256 issuerSchemaId,address newSigner,uint256 nonce)";
+        "UpdateIssuerSchemaSigner(uint64 issuerSchemaId,address newSigner,uint256 nonce)";
     string public constant UPDATE_ISSUER_SCHEMA_URI_TYPEDEF =
-        "UpdateIssuerSchemaUri(uint256 issuerSchemaId,string schemaUri,uint256 nonce)";
+        "UpdateIssuerSchemaUri(uint64 issuerSchemaId,string schemaUri,uint256 nonce)";
     string public constant PUBKEY_TYPEDEF = "Pubkey(uint256 x,uint256 y)";
 
     bytes32 public constant REMOVE_ISSUER_SCHEMA_TYPEHASH = keccak256(abi.encodePacked(REMOVE_ISSUER_SCHEMA_TYPEDEF));
@@ -89,15 +141,22 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         keccak256(abi.encodePacked(UPDATE_ISSUER_SCHEMA_URI_TYPEDEF));
     bytes32 public constant PUBKEY_TYPEHASH = keccak256(abi.encodePacked(PUBKEY_TYPEDEF));
 
+    // the OPRF key registry contract, used to init OPRF key gen for blinding factors of credentials
+    IOprfKeyRegistry public _oprfKeyRegistry;
+
     ////////////////////////////////////////////////////////////
     //                        Events                          //
     ////////////////////////////////////////////////////////////
 
-    event IssuerSchemaRegistered(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaRemoved(uint256 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaPubkeyUpdated(uint256 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
-    event IssuerSchemaSignerUpdated(uint256 indexed issuerSchemaId, address oldSigner, address newSigner);
-    event IssuerSchemaUpdated(uint256 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
+    event IssuerSchemaRegistered(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer, uint160 oprfKeyId);
+    event IssuerSchemaRemoved(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
+    event IssuerSchemaPubkeyUpdated(uint64 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
+    event IssuerSchemaSignerUpdated(uint64 indexed issuerSchemaId, address oldSigner, address newSigner);
+    event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
+
+    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
+    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -111,58 +170,104 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     /**
      * @dev Initializes the contract.
      */
-    function initialize() public virtual initializer {
+    function initialize(address feeRecipient, address feeToken, uint256 registrationFee, address oprfKeyRegistry)
+        public
+        virtual
+        initializer
+    {
+        require(feeRecipient != address(0), "initialize a fee recipient");
+        require(feeToken != address(0), "initialize a fee token");
+        require(oprfKeyRegistry != address(0), "initialize a OprfKeyRegistry");
+
         __EIP712_init(EIP712_NAME, EIP712_VERSION);
         __Ownable_init(msg.sender);
         __Ownable2Step_init();
-        _nextId = 1;
+        _feeRecipient = feeRecipient;
+        _feeToken = IERC20(feeToken);
+        _registrationFee = registrationFee;
+        _oprfKeyRegistry = IOprfKeyRegistry(oprfKeyRegistry);
     }
 
     ////////////////////////////////////////////////////////////
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
-    function register(Pubkey memory pubkey, address signer) public virtual onlyProxy onlyInitialized returns (uint256) {
+    function register(uint64 issuerSchemaId, Pubkey memory pubkey, address signer)
+        public
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256)
+    {
+        if (issuerSchemaId == 0) {
+            revert InvalidId();
+        }
+
         if (_isEmptyPubkey(pubkey)) {
             revert InvalidPubkey();
         }
-        require(signer != address(0), "Registry: signer cannot be zero address");
 
-        uint256 issuerSchemaId = _nextId;
+        if (signer == address(0)) {
+            revert InvalidSigner();
+        }
+
+        Pubkey memory existingPubkey = _idToPubkey[issuerSchemaId];
+        if (!_isEmptyPubkey(existingPubkey)) {
+            revert IdAlreadyInUse(issuerSchemaId);
+        }
+
+        // An OPRF Key is initialized to allow authenticators to compute the blinding factor for this credential
+        // NOTE that the `issuerSchemaId` must be unique across issuers and RPs (from `RpRegistry`) as the `oprfKeyId` must be unique
+        // This call may revert with `AlreadySubmitted()` if the ID is taken
+        _oprfKeyRegistry.initKeyGen(uint160(issuerSchemaId));
+
         _idToPubkey[issuerSchemaId] = pubkey;
         _idToAddress[issuerSchemaId] = signer;
-        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer);
-        _nextId = issuerSchemaId + 1;
+
+        emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, uint160(issuerSchemaId));
+
+        if (_registrationFee > 0) {
+            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
+        }
+
         return issuerSchemaId;
     }
 
-    function remove(uint256 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
+    function remove(uint64 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
-        require(!_isEmptyPubkey(pubkey), "Registry: id not registered");
+        if (_isEmptyPubkey(pubkey)) {
+            revert IdNotRegistered();
+        }
         bytes32 messageHash = _hashTypedDataV4(
-            keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _nonces[issuerSchemaId]))
+            keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _idToSignatureNonce[issuerSchemaId]))
         );
 
         if (!SignatureChecker.isValidSignatureNow(_idToAddress[issuerSchemaId], messageHash, signature)) {
             revert InvalidSignature();
         }
 
-        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, _idToAddress[issuerSchemaId]);
+        address signer = _idToAddress[issuerSchemaId];
 
-        _nonces[issuerSchemaId]++;
+        _idToSignatureNonce[issuerSchemaId]++;
         delete _idToPubkey[issuerSchemaId];
         delete _idToAddress[issuerSchemaId];
         delete idToSchemaUri[issuerSchemaId];
+
+        _oprfKeyRegistry.deleteOprfPublicKey(uint160(issuerSchemaId));
+
+        emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
     }
 
-    function updatePubkey(uint256 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
+    function updatePubkey(uint64 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
         public
         virtual
         onlyProxy
         onlyInitialized
     {
         Pubkey memory oldPubkey = _idToPubkey[issuerSchemaId];
-        require(!_isEmptyPubkey(oldPubkey), "Registry: id not registered");
+        if (_isEmptyPubkey(oldPubkey)) {
+            revert IdNotRegistered();
+        }
 
         if (_isEmptyPubkey(newPubkey)) {
             revert InvalidPubkey();
@@ -174,7 +279,11 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
-                    UPDATE_PUBKEY_TYPEHASH, issuerSchemaId, newPubkeyHash, oldPubkeyHash, _nonces[issuerSchemaId]
+                    UPDATE_PUBKEY_TYPEHASH,
+                    issuerSchemaId,
+                    newPubkeyHash,
+                    oldPubkeyHash,
+                    _idToSignatureNonce[issuerSchemaId]
                 )
             )
         );
@@ -186,21 +295,29 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _idToPubkey[issuerSchemaId] = newPubkey;
         emit IssuerSchemaPubkeyUpdated(issuerSchemaId, oldPubkey, newPubkey);
 
-        _nonces[issuerSchemaId]++;
+        _idToSignatureNonce[issuerSchemaId]++;
     }
 
-    function updateSigner(uint256 issuerSchemaId, address newSigner, bytes calldata signature)
+    function updateSigner(uint64 issuerSchemaId, address newSigner, bytes calldata signature)
         public
         virtual
         onlyProxy
         onlyInitialized
     {
-        require(!_isEmptyPubkey(_idToPubkey[issuerSchemaId]), "Registry: id not registered");
-        require(newSigner != address(0), "Registry: newSigner cannot be zero address");
-        require(_idToAddress[issuerSchemaId] != newSigner, "Registry: newSigner is already the assigned signer");
+        if (_isEmptyPubkey(_idToPubkey[issuerSchemaId])) {
+            revert IdNotRegistered();
+        }
+        if (newSigner == address(0)) {
+            revert InvalidSigner();
+        }
+        if (_idToAddress[issuerSchemaId] == newSigner) {
+            revert SignerAlreadyAssigned();
+        }
 
         bytes32 messageHash = _hashTypedDataV4(
-            keccak256(abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _nonces[issuerSchemaId]))
+            keccak256(
+                abi.encode(UPDATE_SIGNER_TYPEHASH, issuerSchemaId, newSigner, _idToSignatureNonce[issuerSchemaId])
+            )
         );
 
         address oldSigner = _idToAddress[issuerSchemaId];
@@ -212,7 +329,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _idToAddress[issuerSchemaId] = newSigner;
         emit IssuerSchemaSignerUpdated(issuerSchemaId, oldSigner, newSigner);
 
-        _nonces[issuerSchemaId]++;
+        _idToSignatureNonce[issuerSchemaId]++;
     }
 
     /**
@@ -220,7 +337,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer+schema ID.
      * @return The schema URI for the issuerSchemaId.
      */
-    function getIssuerSchemaUri(uint256 issuerSchemaId)
+    function getIssuerSchemaUri(uint64 issuerSchemaId)
         public
         view
         virtual
@@ -237,22 +354,28 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param schemaUri The new schema URI to set.
      * @param signature The signature of the issuer authorizing the update.
      */
-    function updateIssuerSchemaUri(uint256 issuerSchemaId, string memory schemaUri, bytes calldata signature)
+    function updateIssuerSchemaUri(uint64 issuerSchemaId, string memory schemaUri, bytes calldata signature)
         public
         virtual
         onlyProxy
         onlyInitialized
     {
-        require(issuerSchemaId != 0, "Schema ID not registered");
-        require(
-            keccak256(bytes(schemaUri)) != keccak256(bytes(idToSchemaUri[issuerSchemaId])),
-            SchemaUriIsTheSameAsCurrentOne()
-        );
+        if (issuerSchemaId == 0) {
+            revert InvalidIssuerSchemaId();
+        }
+        if (keccak256(bytes(schemaUri)) == keccak256(bytes(idToSchemaUri[issuerSchemaId]))) {
+            revert SchemaUriIsTheSameAsCurrentOne();
+        }
 
         bytes32 schemaUriHash = keccak256(bytes(schemaUri));
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
-                abi.encode(UPDATE_ISSUER_SCHEMA_URI_TYPEHASH, issuerSchemaId, schemaUriHash, _nonces[issuerSchemaId])
+                abi.encode(
+                    UPDATE_ISSUER_SCHEMA_URI_TYPEHASH,
+                    issuerSchemaId,
+                    schemaUriHash,
+                    _idToSignatureNonce[issuerSchemaId]
+                )
             )
         );
 
@@ -265,7 +388,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
         emit IssuerSchemaUpdated(issuerSchemaId, oldSchemaUri, schemaUri);
 
-        _nonces[issuerSchemaId]++;
+        _idToSignatureNonce[issuerSchemaId]++;
     }
 
     /**
@@ -273,7 +396,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer-schema ID whose pubkey will be returned.
      * @return The pubkey for the issuerSchemaId.
      */
-    function issuerSchemaIdToPubkey(uint256 issuerSchemaId)
+    function issuerSchemaIdToPubkey(uint64 issuerSchemaId)
         public
         view
         virtual
@@ -289,7 +412,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
      * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
      * @return The on-chain signer address for the issuerSchemaId.
      */
-    function getSignerForIssuerSchemaId(uint256 issuerSchemaId)
+    function getSignerForIssuerSchemaId(uint64 issuerSchemaId)
         public
         view
         virtual
@@ -300,16 +423,57 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return _idToAddress[issuerSchemaId];
     }
 
-    function nextIssuerSchemaId() public view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _nextId;
-    }
-
-    function nonceOf(uint256 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _nonces[issuerSchemaId];
+    function nonceOf(uint64 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _idToSignatureNonce[issuerSchemaId];
     }
 
     function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
         return pubkey.x == 0 || pubkey.y == 0;
+    }
+
+    /**
+     * @dev Returns the current registration fee for an issuer schema.
+     */
+    function getRegistrationFee() public view onlyProxy onlyInitialized returns (uint256) {
+        return _registrationFee;
+    }
+
+    /**
+     * @dev Returns the current recipient for issuer schema registration fees.
+     */
+    function getFeeRecipient() public view onlyProxy onlyInitialized returns (address) {
+        return _feeRecipient;
+    }
+
+    /**
+     * @dev Returns the current token with which fees are paid.
+     */
+    function getFeeToken() public view onlyProxy onlyInitialized returns (address) {
+        return address(_feeToken);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    Owner Functions                     //
+    ////////////////////////////////////////////////////////////
+
+    function setFeeRecipient(address newFeeRecipient) external onlyOwner onlyProxy onlyInitialized {
+        if (newFeeRecipient == address(0)) revert ZeroAddress();
+        address oldRecipient = _feeRecipient;
+        _feeRecipient = newFeeRecipient;
+        emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
+    }
+
+    function setRegistrationFee(uint256 newFee) external onlyOwner onlyProxy onlyInitialized {
+        uint256 oldFee = _registrationFee;
+        _registrationFee = newFee;
+        emit RegistrationFeeUpdated(oldFee, newFee);
+    }
+
+    function setFeeToken(address newFeeToken) external onlyOwner onlyProxy onlyInitialized {
+        if (newFeeToken == address(0)) revert ZeroAddress();
+        address oldToken = address(_feeToken);
+        _feeToken = IERC20(newFeeToken);
+        emit FeeTokenUpdated(oldToken, newFeeToken);
     }
 
     ////////////////////////////////////////////////////////////

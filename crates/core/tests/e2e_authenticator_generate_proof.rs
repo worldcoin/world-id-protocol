@@ -44,10 +44,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         ..
     } = RegistryTestContext::new().await?;
 
-    let issuer_schema_id_u64 = issuer_schema_id
-        .try_into()
-        .expect("issuer schema id fits in u64");
-
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
@@ -56,8 +52,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: world_id_registry,
-        rpc_url: anvil.endpoint().to_string(),
-        signer_args,
+        provider: world_id_gateway::ProviderArgs {
+            http: Some(vec![anvil.endpoint().parse().unwrap()]),
+            signer: Some(signer_args),
+            ..Default::default()
+        },
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
@@ -205,7 +204,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .expect("system time after epoch")
         .as_secs();
     let (mut credential, credential_sub_blinding_factor) =
-        build_base_credential(issuer_schema_id_u64, leaf_index_u64, now, now + 60);
+        build_base_credential(issuer_schema_id, leaf_index_u64, now, now + 60);
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()
@@ -226,7 +225,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
-            issuer_schema_id: issuer_schema_id_u64.into(),
+            issuer_schema_id: issuer_schema_id.into(),
             signal: Some("my_signal".to_string()),
             genesis_issued_at_min: None,
             session_id: None,

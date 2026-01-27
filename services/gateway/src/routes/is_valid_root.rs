@@ -1,17 +1,13 @@
-use crate::types::AppState;
-use alloy::{primitives::U256, providers::DynProvider};
+use crate::{request::Registry, types::AppState};
+use alloy::primitives::U256;
 use axum::{Json, extract::State};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::warn;
-use world_id_core::{
-    types::{GatewayErrorResponse, IsValidRootQuery, IsValidRootResponse},
-    world_id_registry::WorldIdRegistry,
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
+use tracing::warn;
+use world_id_core::types::{GatewayErrorResponse, IsValidRootQuery, IsValidRootResponse};
 
-/// Default root validity window for cache.
-///
-/// Set to 1 hour.
-const DEFAULT_CACHE_TTL_SECS: u64 = 60 * 60;
 /// Safety buffer for expirations, so we expire a bit early relative to chain time.
 const CACHE_SKEW_SECS: u64 = 120;
 
@@ -37,7 +33,7 @@ fn is_expired(expires_at: U256, now: U256) -> bool {
 ///
 /// Expiration is handled automatically by moka's `Expiry` policy.
 async fn is_cached_root(state: &AppState, root: U256) -> bool {
-    state.root_cache.get(&root).await.is_some()
+    state.ctx.root_cache.get(&root).await.is_some()
 }
 
 /// Cache decision for a valid root.
@@ -48,7 +44,7 @@ enum CachePolicy {
 
 /// Decide whether and for how long to cache a valid root.
 async fn cache_policy_for_root(
-    contract: &WorldIdRegistry::WorldIdRegistryInstance<DynProvider>,
+    contract: Arc<Registry>,
     root: U256,
     now: U256,
 ) -> Result<CachePolicy, GatewayErrorResponse> {
@@ -67,11 +63,6 @@ async fn cache_policy_for_root(
         .call()
         .await
         .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
-    if validity_window == U256::ZERO {
-        // The WorldIdRegistry contract considers the root valid forever if
-        // validity_window == 0, we set a default expiration to 1 hour in the future.
-        return Ok(CachePolicy::Cache(now + U256::from(DEFAULT_CACHE_TTL_SECS)));
-    }
 
     // Subtract a small skew allowance to avoid serving expired roots if local time lags chain time.
     let expiration = ts
@@ -96,17 +87,19 @@ pub(crate) async fn is_valid_root(
         return Ok(Json(IsValidRootResponse { valid: true }));
     }
     let now = now_timestamp()?;
-    let contract = WorldIdRegistry::new(state.registry_addr, state.provider.clone());
-    let valid = contract
+
+    let valid = state
+        .ctx
+        .registry
         .isValidRoot(root)
         .call()
         .await
         .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
     if valid {
         // Cache only valid roots to avoid serving stale negatives indefinitely.
-        match cache_policy_for_root(&contract, root, now).await {
+        match cache_policy_for_root(state.ctx.registry.clone(), root, now).await {
             Ok(CachePolicy::Cache(expires_at)) => {
-                state.root_cache.insert(root, expires_at).await;
+                state.ctx.root_cache.insert(root, expires_at).await;
             }
             Ok(CachePolicy::Skip) => {}
             Err(err) => {

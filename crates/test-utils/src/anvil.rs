@@ -228,10 +228,15 @@ impl TestAnvil {
     pub async fn deploy_credential_schema_issuer_registry(
         &self,
         signer: PrivateKeySigner,
+        oprf_key_registry_address: Address,
     ) -> Result<Address> {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+
+        let erc20_mock = ERC20Mock::deploy(provider.clone())
+            .await
+            .context("failed to deploy ERC20Mock contract")?;
 
         let implementation = CredentialSchemaIssuerRegistry::deploy(provider.clone())
             .await
@@ -239,7 +244,15 @@ impl TestAnvil {
 
         let implementation_address = *implementation.address();
 
-        let init_data = Bytes::from(CredentialSchemaIssuerRegistry::initializeCall {}.abi_encode());
+        let init_data = Bytes::from(
+            CredentialSchemaIssuerRegistry::initializeCall {
+                feeRecipient: signer.address(),
+                feeToken: *erc20_mock.address(),
+                registrationFee: uint!(0_U256),
+                oprfKeyRegistry: oprf_key_registry_address,
+            }
+            .abi_encode(),
+        );
 
         let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await
@@ -415,7 +428,7 @@ impl TestAnvil {
         let baby_jub_jub_address =
             Self::deploy_contract(provider.clone(), baby_jub_jub_bytecode, Bytes::new())
                 .await
-                .context("failed to deploy BabyJubJub library")?;
+                .context("failed to deploy BabyJubJub contract")?;
 
         // Step 3: Link BabyJubJub to OprfKeyRegistry
         let oprf_key_registry_json = include_str!(concat!(
@@ -451,6 +464,7 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             OprfKeyRegistry::initializeCall {
+                _owner: signer.address(),
                 _keygenAdmin: signer.address(),
                 _keyGenVerifierAddress: *key_gen_verifier.address(),
                 _threshold: 2,

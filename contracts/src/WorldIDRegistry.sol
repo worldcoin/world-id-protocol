@@ -130,7 +130,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     string public constant EIP712_VERSION = "1.0";
 
     /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
-    uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 160;
+    uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 96;
 
     ////////////////////////////////////////////////////////////
     //                        Errors                         //
@@ -348,7 +348,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         // Check if the root is known and not expired
         uint256 ts = rootToTimestamp[root];
         if (ts == 0) return false;
-        if (rootValidityWindow == 0) return true;
         return block.timestamp <= ts + rootValidityWindow;
     }
 
@@ -1013,7 +1012,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Sets the validity window for historic roots. 0 means roots never expire.
+     * @dev Sets the validity window for historic roots.
      */
     function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
@@ -1025,7 +1024,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
-        if (newMaxAuthenticators >= MAX_AUTHENTICATORS_HARD_LIMIT) {
+        if (newMaxAuthenticators > MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
         }
         uint256 old = maxAuthenticators;
