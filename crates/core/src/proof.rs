@@ -34,8 +34,8 @@ pub use groth16_material::circom::{
 
 use crate::HashableCredential;
 
-const OPRF_QUERY_DS: &[u8] = b"World ID Query";
-const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
+pub(crate) const OPRF_QUERY_DS: &[u8] = b"World ID Query";
+pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
@@ -324,62 +324,6 @@ pub fn finalize_nullifier_proof<R: Rng + CryptoRng>(
     }
 
     Ok((proof.into(), public, nullifier))
-}
-
-/// Generates a nullifier proof for a given query.
-///
-/// Full workflow:
-/// 1. Signs and blinds the OPRF query using the user's credentials and key material.
-/// 2. Initiates sessions with the provided OPRF services and waits for enough responses.
-/// 3. Computes the `DLog` equality challenges using Shamir interpolation.
-/// 4. Collects the responses and verifies the challenges.
-/// 5. Generates the final Groth16 nullifier proof along with public inputs.
-///
-/// # Arguments
-///
-/// * `services` - List of OPRF service URLs to contact.
-/// * `threshold` - Minimum number of valid peer responses required.
-/// * `query_material` - Groth16 material (proving key and matrices) used for the query proof.
-/// * `nullifier_material` - Groth16 material (proving key and matrices) used for the nullifier proof.
-/// * `args` - [`SingleProofInput`] containing all input data (credentials, Merkle membership, query, keys, signal, etc.).
-/// * `private_key` - The user's private key for signing the blinded query.
-/// * `connector` - Connector for WebSocket communication with OPRF nodes.
-/// * `rng` - A cryptographically secure random number generator.
-///
-/// # Returns
-///
-/// On success, returns a tuple:
-/// 1. `Proof<Bn254>` – the generated nullifier proof,
-/// 2. `Vec<ark_babyjubjub::Fq>` – the public inputs for the proof,
-/// 3. `ark_babyjubjub::Fq` – the computed nullifier.
-///
-/// # Errors
-///
-/// Returns [`ProofError`] in the following cases:
-/// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
-/// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
-#[expect(clippy::too_many_arguments)]
-pub async fn nullifier<R: Rng + CryptoRng>(
-    services: &[String],
-    threshold: usize,
-    query_material: &CircomGroth16Material,
-    nullifier_material: &CircomGroth16Material,
-    args: SingleProofInput<TREE_DEPTH>,
-    private_key: &eddsa_babyjubjub::EdDSAPrivateKey,
-    connector: Connector,
-    rng: &mut R,
-) -> Result<(Proof<Bn254>, Vec<ark_babyjubjub::Fq>, ark_babyjubjub::Fq), ProofError> {
-    let prepared = prepare_nullifier(
-        services,
-        threshold,
-        query_material,
-        args,
-        private_key,
-        connector,
-        rng,
-    )
-    .await?;
-    finalize_nullifier_proof(nullifier_material, prepared, rng)
 }
 
 /// Helper function to generate the OPRF request authentication structure and query proof.

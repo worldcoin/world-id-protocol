@@ -4,12 +4,16 @@
 //! for Authenticators to handle such requests.
 
 mod constraints;
+use ark_ff::PrimeField;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
+use poseidon2::Poseidon2;
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf_types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof, rp::RpId};
+
+use crate::proof::OPRF_QUERY_DS;
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -64,7 +68,7 @@ pub struct ProofRequest {
     ///
     /// When dealing with strings or bytes, such value can be hashed e.g. with a byte-friendly
     /// hash function like keccak256 or SHA256 and then reduced to a field element.
-    pub action: FieldElement,
+    pub action: Option<FieldElement>,
     /// The RP's ECDSA signature over the request
     pub signature: alloy::signers::Signature,
     /// Unique nonce for this request (serialized as hex string)
@@ -289,6 +293,27 @@ impl ProofRequest {
         let mut hasher = Sha256::new();
         hasher.update(&msg);
         Ok(hasher.finalize().into())
+    }
+
+    /// Computes the digest which the authenticator needs to sign in order to request a nullifier from OPRF nodes.
+    pub fn digest_for_authenticator(&self, leaf_index: u64) -> FieldElement {
+        let input = [
+            ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
+            leaf_index.into(),
+            *FieldElement::from(self.rp_id),
+            *self.action,
+        ];
+        let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
+        poseidon2_4.permutation(&input)[1].into()
+    }
+
+    /// DESCRIPTION
+    pub fn computed_action(&self) -> FieldElement {
+        // if session_id -> compute differently
+        match self.action {
+            Some(action) => action,
+            None => todo!("Not ready"),
+        }
     }
 
     /// Validate that a response satisfies this request: id match and constraints semantics.
