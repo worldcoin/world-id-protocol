@@ -57,11 +57,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     error InvalidIssuerSchemaId();
 
     /**
-     * @dev Thrown when the fee payment is not enough to cover registration.
-     */
-    error InsufficientFunds();
-
-    /**
      * @dev Thrown when trying to set an address to the zero address.
      */
     error ZeroAddress();
@@ -204,8 +199,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         onlyInitialized
         returns (uint256)
     {
-        if (_feeToken.balanceOf(msg.sender) < _registrationFee) revert InsufficientFunds();
-
         if (issuerSchemaId == 0) {
             revert InvalidId();
         }

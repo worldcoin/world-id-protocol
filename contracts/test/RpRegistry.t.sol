@@ -733,7 +733,7 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         feeToken.approve(address(registry), fee - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
+        vm.expectRevert();
         vm.prank(manager1);
         registry.register(rpId, manager1, signer1, domain);
     }
@@ -805,7 +805,7 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         feeToken.approve(address(registry), fee * 3 - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
+        vm.expectRevert();
         vm.prank(manager1);
         registry.registerMany(rpIds, managers, signers, domains);
     }

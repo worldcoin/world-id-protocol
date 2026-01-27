@@ -168,11 +168,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     error InvalidSignature();
 
     /**
-     * @dev Thrown when the fee payment is not enough to cover registration.
-     */
-    error InsufficientFunds();
-
-    /**
      * @dev Thrown when trying to set an address to the zero address.
      */
     error ZeroAddress();
@@ -231,7 +226,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         onlyProxy
         onlyInitialized
     {
-        if (_feeToken.balanceOf(msg.sender) < _registrationFee) revert InsufficientFunds();
         _register(rpId, manager, signer, unverifiedWellKnownDomain);
     }
 
@@ -254,8 +248,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         ) {
             revert MismatchingArrayLengths();
         }
-
-        if (_feeToken.balanceOf(msg.sender) < rpIds.length * _registrationFee) revert InsufficientFunds();
 
         for (uint256 i = 0; i < rpIds.length; i++) {
             _register(rpIds[i], managers[i], signers[i], unverifiedWellKnownDomains[i]);
