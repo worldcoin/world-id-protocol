@@ -108,6 +108,14 @@ contract RpRegistryTest is Test {
         registry.register(rpId, manager1, address(0), wellKnownDomain);
     }
 
+    function testCannotRegisterWithInvalidId() public {
+        uint64 rpId = 0;
+        string memory wellKnownDomain = "example.world.org";
+
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidId.selector));
+        registry.register(rpId, manager1, signer1, wellKnownDomain);
+    }
+
     function testRegisterMany() public {
         uint64[] memory rpIds = new uint64[](3);
         rpIds[0] = 1;
@@ -264,6 +272,27 @@ contract RpRegistryTest is Test {
         domains[1] = "app2.world.org";
 
         vm.expectRevert(abi.encodeWithSelector(RpRegistry.SignerCannotBeZeroAddress.selector));
+        registry.registerMany(rpIds, managers, signers, domains);
+    }
+
+    function testRegisterManyInvalidId() public {
+        uint64[] memory rpIds = new uint64[](2);
+        rpIds[0] = 0;
+        rpIds[1] = 2;
+
+        address[] memory managers = new address[](2);
+        managers[0] = manager1;
+        managers[1] = manager2;
+
+        address[] memory signers = new address[](2);
+        signers[0] = signer1;
+        signers[1] = signer2;
+
+        string[] memory domains = new string[](2);
+        domains[0] = "app1.world.org";
+        domains[1] = "app2.world.org";
+
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidId.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
