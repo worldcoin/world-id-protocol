@@ -9,6 +9,7 @@ use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 mod batcher;
 mod config;
 mod create_batcher;
+mod metrics;
 mod ops_batcher;
 mod request;
 mod request_tracker;
@@ -72,6 +73,8 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> anyhow::Result<()> {
+    metrics::describe_metrics();
+
     let cfg = GatewayConfig::from_env();
     let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(

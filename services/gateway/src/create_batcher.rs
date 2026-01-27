@@ -1,6 +1,12 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::RequestTracker;
+use crate::{
+    RequestTracker,
+    metrics::{
+        METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
+        METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
+    },
+};
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
@@ -71,7 +77,12 @@ impl CreateBatcherRunner {
                 }
             }
 
+            let batch_size = batch.len();
             let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
+
+            ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => "create").increment(1);
+            ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => "create").record(batch_size as f64);
+
             self.tracker
                 .set_status_batch(&ids, GatewayRequestState::Batching)
                 .await;
@@ -91,8 +102,15 @@ impl CreateBatcherRunner {
             let call =
                 self.registry
                     .createManyAccounts(recovery_addresses, auths, pubkeys, commits);
+
+            let start = std::time::Instant::now();
             match call.send().await {
                 Ok(builder) => {
+                    let latency_ms = start.elapsed().as_millis() as f64;
+                    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "create")
+                        .record(latency_ms);
+                    ::metrics::counter!(METRICS_BATCH_SUCCESS, "type" => "create").increment(1);
+
                     let hash = format!("0x{:x}", builder.tx_hash());
                     self.tracker
                         .set_status_batch(
@@ -146,6 +164,11 @@ impl CreateBatcherRunner {
                     });
                 }
                 Err(err) => {
+                    let latency_ms = start.elapsed().as_millis() as f64;
+                    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "create")
+                        .record(latency_ms);
+                    ::metrics::counter!(METRICS_BATCH_FAILURE, "type" => "create").increment(1);
+
                     tracing::error!(error = %err, "create batch send failed");
                     let error_str = err.to_string();
                     let code = parse_contract_error(&error_str);
