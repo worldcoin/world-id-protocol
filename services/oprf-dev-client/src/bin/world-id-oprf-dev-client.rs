@@ -371,8 +371,9 @@ async fn stress_test(
 
     tracing::info!("sending init requests..");
     let (sessions, finish_requests) = taceo_oprf_dev_client::send_init_requests(
-        threshold,
         &nodes,
+        "rp",
+        threshold,
         connector,
         cmd.sequential,
         init_requests,
