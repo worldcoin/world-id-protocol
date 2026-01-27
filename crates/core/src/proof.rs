@@ -198,6 +198,7 @@ fn build_query_builder() -> CircomGroth16MaterialBuilder {
 /// # Errors
 ///
 /// Returns [`ProofError`] if proof generation or verification fails.
+#[allow(clippy::too_many_arguments)]
 pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     nullifier_material: &CircomGroth16Material,
     rng: &mut R,
@@ -205,7 +206,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     credential_sub_blinding_factor: FieldElement,
     oprf_nullifier: OprfNullifier,
     request_item: &RequestItem,
-    session_id: FieldElement,
+    session_id: Option<FieldElement>,
     session_id_r_seed: FieldElement,
     timestamp: u64,
 ) -> Result<(Proof<Bn254>, Vec<ark_babyjubjub::Fq>, ark_babyjubjub::Fq), ProofError> {
@@ -227,7 +228,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
         id_commitment_r: *session_id_r_seed,
-        id_commitment: *session_id,
+        id_commitment: *session_id.unwrap_or(FieldElement::ZERO),
         dlog_e: oprf_nullifier.verifiable_oprf_output.dlog_proof.e,
         dlog_s: oprf_nullifier.verifiable_oprf_output.dlog_proof.s,
         oprf_pk: oprf_nullifier

@@ -461,12 +461,16 @@ impl Authenticator {
     /// - Will error if the any of the provided parameters are not valid.
     /// - Will error if any of the required network requests fail.
     /// - Will error if the user does not have a registered World ID.
-    pub fn generate_single_uniqueness_proof(
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_single_proof(
         &self,
+        oprf_nullifier: OprfNullifier,
         request_item: &RequestItem,
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,
-        oprf_nullifier: OprfNullifier,
+        session_id_r_seed: FieldElement,
+        session_id: Option<FieldElement>,
+        request_timestamp: u64,
     ) -> Result<(Proof<Bn254>, FieldElement), AuthenticatorError> {
         // TODO: load once and from bytes
         let nullifier_material = crate::proof::load_embedded_nullifier_material();
@@ -480,18 +484,13 @@ impl Authenticator {
             credential_sub_blinding_factor,
             oprf_nullifier,
             request_item,
-            FieldElement::ZERO, // `session_id` is always 0 for uniqueness proofs
-            FieldElement::ZERO, // fixme
-            0,                  // fixme
+            session_id,
+            session_id_r_seed,
+            request_timestamp,
         )?;
 
         // FIXME: encode as response item
         Ok((proof.0, proof.2.into()))
-    }
-
-    /// FIXME. DESCRIBE ME PROPERLY
-    pub fn generate_single_session_proof(&self) {
-        todo!("not yet implemented");
     }
 
     /// Inserts a new authenticator to the account.
