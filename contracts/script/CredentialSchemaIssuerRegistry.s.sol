@@ -17,8 +17,19 @@ contract DeployCredentialSchemaIssuerRegistryScript is Script {
         // Deploy implementation
         CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry{salt: bytes32(uint256(0))}();
 
+        address feeRecipient = vm.envAddress("FEE_RECIPIENT");
+        address feeToken = vm.envAddress("FEE_TOKEN");
+        uint256 registrationFee = vm.envUint("REGISTRATION_FEE");
+        address oprfKeyRegistryAddress = vm.envAddress("OPRF_KEY_REGISTRY_ADDRESS");
+
         // Encode initializer call
-        bytes memory initData = abi.encodeWithSelector(CredentialSchemaIssuerRegistry.initialize.selector);
+        bytes memory initData = abi.encodeWithSelector(
+            CredentialSchemaIssuerRegistry.initialize.selector,
+            feeRecipient,
+            feeToken,
+            registrationFee,
+            oprfKeyRegistryAddress
+        );
 
         // Deploy proxy
         proxy = new ERC1967Proxy{salt: bytes32(uint256(0))}(address(implementation), initData);

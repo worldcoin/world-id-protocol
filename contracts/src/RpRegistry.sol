@@ -128,9 +128,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     error ImplementationNotInitialized();
 
     /**
-     * @dev Thrown when the requested rpId to be registered is already in use. rpIds must be unique.
+     * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
      */
-    error RpIdAlreadyInUse(uint64 rpId);
+    error IdAlreadyInUse(uint64 id);
 
     /**
      * @dev Thrown when the provided rpId is not registered.
@@ -166,16 +166,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      * @dev Thrown when the provided signature is invalid for the operation.
      */
     error InvalidSignature();
-
-    /**
-     * @dev Thrown when the fee payment is not enough to cover registration.
-     */
-    error InsufficientFunds();
-
-    /**
-     * @dev Thrown when the registration fee is not paid.
-     */
-    error PaymentFailure();
 
     /**
      * @dev Thrown when trying to set an address to the zero address.
@@ -241,7 +231,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         onlyProxy
         onlyInitialized
     {
-        if (_feeToken.balanceOf(msg.sender) < _registrationFee) revert InsufficientFunds();
         _register(rpId, manager, signer, unverifiedWellKnownDomain);
     }
 
@@ -264,8 +253,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         ) {
             revert MismatchingArrayLengths();
         }
-
-        if (_feeToken.balanceOf(msg.sender) < rpIds.length * _registrationFee) revert InsufficientFunds();
 
         for (uint256 i = 0; i < rpIds.length; i++) {
             _register(rpIds[i], managers[i], signers[i], unverifiedWellKnownDomains[i]);
@@ -426,7 +413,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     ////////////////////////////////////////////////////////////
 
     function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
-        if (_relyingParties[rpId].initialized) revert RpIdAlreadyInUse(rpId);
+        if (_relyingParties[rpId].initialized) revert IdAlreadyInUse(rpId);
 
         if (rpId == 0) revert InvalidId();
 

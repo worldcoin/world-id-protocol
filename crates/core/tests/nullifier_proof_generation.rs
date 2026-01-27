@@ -36,6 +36,7 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
     let RegistryTestContext {
         anvil,
         world_id_registry,
+        oprf_key_registry: _,
         credential_registry: issuer_registry,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
@@ -148,10 +149,6 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .leafIndex
         .try_into()
         .map_err(|_| eyre!("leaf index exceeded u64 range"))?;
-    // Convert issuerSchemaId to field‑friendly u64 for circuits
-    let issuer_schema_id_u64: u64 = issuer_schema_id
-        .try_into()
-        .map_err(|_| eyre!("issuer schema id exceeded u64 range"))?;
 
     // Construct a minimal credential (bound to issuerSchemaId and leaf index)
     let genesis_issued_at = std::time::SystemTime::now()
@@ -160,12 +157,8 @@ async fn test_nullifier_proof_generation() -> eyre::Result<()> {
         .as_secs();
     let expires_at = genesis_issued_at + 86_400;
 
-    let (credential, credential_sub_blinding_factor) = build_base_credential(
-        issuer_schema_id_u64,
-        leaf_index,
-        genesis_issued_at,
-        expires_at,
-    );
+    let (credential, credential_sub_blinding_factor) =
+        build_base_credential(issuer_schema_id, leaf_index, genesis_issued_at, expires_at);
 
     let credential = credential
         .sign(&issuer_sk)

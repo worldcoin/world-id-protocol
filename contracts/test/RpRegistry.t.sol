@@ -8,7 +8,16 @@ import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract OprfKeyRegistryMock {
-    function initKeyGen(uint160 oprfKeyId) external {}
+    error AlreadySubmitted();
+
+    mapping(uint160 => bool) public registeredKeys;
+
+    function initKeyGen(uint160 oprfKeyId) external {
+        if (registeredKeys[oprfKeyId]) {
+            revert AlreadySubmitted();
+        }
+        registeredKeys[oprfKeyId] = true;
+    }
 }
 
 contract RpRegistryTest is Test {
@@ -88,7 +97,7 @@ contract RpRegistryTest is Test {
 
         registry.register(rpId, manager1, signer1, wellKnownDomain);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdAlreadyInUse.selector, rpId));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.IdAlreadyInUse.selector, rpId));
         registry.register(rpId, manager2, signer2, wellKnownDomain);
     }
 
@@ -229,7 +238,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdAlreadyInUse.selector, 1));
+        vm.expectRevert(abi.encodeWithSelector(RpRegistry.IdAlreadyInUse.selector, 1));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -753,7 +762,7 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         feeToken.approve(address(registry), fee - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
+        vm.expectRevert();
         vm.prank(manager1);
         registry.register(rpId, manager1, signer1, domain);
     }
@@ -825,8 +834,94 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         feeToken.approve(address(registry), fee * 3 - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
+        vm.expectRevert();
         vm.prank(manager1);
         registry.registerMany(rpIds, managers, signers, domains);
+    }
+
+    // Duplicate ID Tests
+
+    function testCannotRegisterDuplicateIdInOprfKeyRegistry() public {
+        uint64 rpId1 = 5000;
+        uint64 rpId2 = 5001;
+        string memory domain = "example.world.org";
+
+        // Register first RP
+        registry.register(rpId1, manager1, signer1, domain);
+
+        // Manually register the same OPRF key ID that would be used by rpId2
+        // by directly calling the mock OprfKeyRegistry
+        oprfKeyRegistry.initKeyGen(uint160(rpId2));
+
+        // Try to register second RP - should fail because OPRF key is already taken
+        vm.expectRevert(OprfKeyRegistryMock.AlreadySubmitted.selector);
+        registry.register(rpId2, manager2, signer2, domain);
+    }
+
+    function testMultipleRpsWithDifferentIds() public {
+        string memory domain1 = "app1.world.org";
+        string memory domain2 = "app2.world.org";
+        string memory domain3 = "app3.world.org";
+
+        // Register multiple RPs with different IDs - should all succeed
+        uint64 id1 = 6000;
+        uint64 id2 = 6001;
+        uint64 id3 = 6002;
+
+        registry.register(id1, manager1, signer1, domain1);
+        registry.register(id2, manager2, signer2, domain2);
+
+        address manager3 = vm.addr(0x7777);
+        address signer3 = vm.addr(0x8888);
+        registry.register(id3, manager3, signer3, domain3);
+
+        // Verify all are registered correctly
+        RpRegistry.RelyingParty memory rp1 = registry.getRp(id1);
+        assertEq(rp1.manager, manager1);
+        assertEq(rp1.signer, signer1);
+        assertEq(rp1.unverifiedWellKnownDomain, domain1);
+        assertEq(rp1.oprfKeyId, uint160(id1));
+        assertTrue(rp1.active);
+
+        RpRegistry.RelyingParty memory rp2 = registry.getRp(id2);
+        assertEq(rp2.manager, manager2);
+        assertEq(rp2.signer, signer2);
+        assertEq(rp2.unverifiedWellKnownDomain, domain2);
+        assertEq(rp2.oprfKeyId, uint160(id2));
+        assertTrue(rp2.active);
+
+        RpRegistry.RelyingParty memory rp3 = registry.getRp(id3);
+        assertEq(rp3.manager, manager3);
+        assertEq(rp3.signer, signer3);
+        assertEq(rp3.unverifiedWellKnownDomain, domain3);
+        assertEq(rp3.oprfKeyId, uint160(id3));
+        assertTrue(rp3.active);
+    }
+
+    function testOprfKeyIdMatchesRpId() public {
+        uint64 rpId = 7000;
+        string memory domain = "test.world.org";
+
+        registry.register(rpId, manager1, signer1, domain);
+
+        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+
+        // The oprfKeyId should equal uint160(rpId)
+        assertEq(rp.oprfKeyId, uint160(rpId));
+    }
+
+    function testCannotRegisterRpWithIdThatConflictsWithCredentialRegistry() public {
+        // This test demonstrates that if an ID is taken in the OprfKeyRegistry
+        // (potentially by a CredentialSchemaIssuerRegistry), the RpRegistry cannot use it
+
+        uint64 conflictingId = 8000;
+        string memory domain = "conflict.world.org";
+
+        // Simulate that this OPRF key was already registered by CredentialSchemaIssuerRegistry
+        oprfKeyRegistry.initKeyGen(uint160(conflictingId));
+
+        // Try to register RP with same ID - should fail
+        vm.expectRevert(OprfKeyRegistryMock.AlreadySubmitted.selector);
+        registry.register(conflictingId, manager1, signer1, domain);
     }
 }

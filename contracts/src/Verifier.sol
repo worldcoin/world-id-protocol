@@ -171,7 +171,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 signalHash,
         uint256 authenticatorRoot,
         uint256 proofTimestamp,
-        uint256 credentialIssuerId,
+        uint64 credentialIssuerId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[4] calldata compressedProof
     ) external view virtual onlyProxy onlyInitialized {

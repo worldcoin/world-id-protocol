@@ -1,5 +1,5 @@
 use crate::{Signer, issuer::CredentialSchemaIssuerRegistry::Pubkey};
-use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol, sol_types::SolEvent};
+use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol};
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
@@ -40,11 +40,11 @@ impl Issuer {
         Ok(Self { signer, config })
     }
 
-    /// Registers a new credential schema on-chain.
+    /// Registers a new credential schema on-chain with the provided ID.
     ///
     /// # Errors
     /// Will error if the transaction fails or if the event is not found in the receipt.
-    pub async fn register_schema(&mut self) -> Result<U256, IssuerError> {
+    pub async fn register_schema(&mut self, issuer_schema_id: u64) -> Result<(), IssuerError> {
         let rpc_url = self
             .config
             .rpc_url()
@@ -61,32 +61,25 @@ impl Issuer {
 
         let receipt = contract
             .register(
+                issuer_schema_id,
                 self.signer.offchain_signer_pubkey().into(),
                 self.signer.onchain_signer_address(),
             )
             .send()
             .await
-            .map_err(|e| IssuerError::Generic(format!("unexpected contract error: {e}")))?
+            .map_err(|e| IssuerError::Generic(format!("failed to send transaction: {e}")))?
             .get_receipt()
             .await?;
 
-        let issuer_schema_id = receipt
-            .logs()
-            .iter()
-            .find_map(|log| {
-                CredentialSchemaIssuerRegistry::IssuerSchemaRegistered::decode_log(
-                    log.inner.as_ref(),
-                )
-                .ok()
-            })
-            .ok_or_else(|| {
-                IssuerError::Generic(
-                    "IssuerSchemaRegistered event not found in transaction receipt".to_string(),
-                )
-            })?
-            .issuerSchemaId;
+        if !receipt.status() {
+            return Err(IssuerError::RegistrationFailed(format!(
+                "transaction reverted (tx: {}, block: {})",
+                receipt.transaction_hash,
+                receipt.block_number.unwrap_or_default()
+            )));
+        }
 
-        Ok(issuer_schema_id)
+        Ok(())
     }
 }
 
@@ -103,6 +96,10 @@ pub enum IssuerError {
     /// Alloy pending transaction error
     #[error(transparent)]
     PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
+
+    /// Registration failed with revert
+    #[error("Registration failed: {0}")]
+    RegistrationFailed(String),
 
     /// Generic unexpected error
     #[error("Unexpected error: {0}")]

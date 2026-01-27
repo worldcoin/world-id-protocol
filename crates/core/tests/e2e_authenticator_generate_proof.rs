@@ -44,10 +44,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         ..
     } = RegistryTestContext::new().await?;
 
-    let issuer_schema_id_u64 = issuer_schema_id
-        .try_into()
-        .expect("issuer schema id fits in u64");
-
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
@@ -208,7 +204,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .expect("system time after epoch")
         .as_secs();
     let (mut credential, credential_sub_blinding_factor) =
-        build_base_credential(issuer_schema_id_u64, leaf_index_u64, now, now + 60);
+        build_base_credential(issuer_schema_id, leaf_index_u64, now, now + 60);
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()
@@ -229,7 +225,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
-            issuer_schema_id: issuer_schema_id_u64.into(),
+            issuer_schema_id: issuer_schema_id.into(),
             signal: Some("my_signal".to_string()),
             genesis_issued_at_min: None,
             session_id: None,
