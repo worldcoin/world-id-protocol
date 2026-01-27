@@ -109,6 +109,8 @@ impl MerkleWatcher {
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
+        ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(0.0);
+
         eyre::ensure!(
             max_merkle_cache_size > 0,
             "max merkle cache size must be > 0"
@@ -122,10 +124,6 @@ impl MerkleWatcher {
         let merkle_root_cache = Cache::builder()
             .max_capacity(max_merkle_cache_size)
             .expire_after(RootExpiry)
-            .eviction_listener(|key, _value, cause| {
-                tracing::debug!("evicting root {key} from cache because of {cause:?}");
-                ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).decrement(1);
-            })
             .build();
 
         // we subscribe here to not miss any events between fetching the latest root and starting the subscription
@@ -169,17 +167,14 @@ impl MerkleWatcher {
         if root_validity_window == 0 {
             tracing::debug!("insert latest root with infinite validity");
             merkle_root_cache.insert(latest_root, 0).await;
-            ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(1.0);
         } else if elapsed >= root_validity_window {
             tracing::debug!("latest root is expired, not caching");
-            ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(0.0);
         } else {
             let remaining_validity = root_validity_window.saturating_sub(elapsed);
             tracing::debug!("insert latest root with remaining validity {remaining_validity}s");
             merkle_root_cache
                 .insert(latest_root, remaining_validity)
                 .await;
-            ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(1.0);
         }
 
         let latest_root = Arc::new(RwLock::new(latest_root));
@@ -214,9 +209,6 @@ impl MerkleWatcher {
                                         "insert root with current validity window {root_validity_window}"
                                     );
                                     merkle_root_cache.insert(root, root_validity_window).await;
-
-                                    ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE)
-                                        .increment(1);
                                 }
                                 Err(err) => {
                                     tracing::warn!("failed to decode contract event: {err:?}");
@@ -262,8 +254,7 @@ impl MerkleWatcher {
             }
         });
 
-        // periodically run maintenance tasks on the cache
-        // this is needed to update metrics in a timely manner, as the eviction listener is only called when an entry is added/removed/accessed
+        // periodically run maintenance tasks on the cache and update metrics
         tokio::spawn({
             let merkle_root_cache = merkle_root_cache.clone();
             let mut interval = tokio::time::interval(cache_maintenance_interval);
@@ -271,6 +262,8 @@ impl MerkleWatcher {
                 loop {
                     interval.tick().await;
                     merkle_root_cache.run_pending_tasks().await;
+                    let size = merkle_root_cache.entry_count() as f64;
+                    ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(size);
                 }
             }
         });
@@ -332,8 +325,6 @@ impl MerkleWatcher {
                 tracing::debug!("inserting root {root} into cache with infinite validity");
                 self.merkle_root_cache.insert(root, 0).await;
             }
-
-            ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).increment(1);
         }
 
         Ok(valid)
