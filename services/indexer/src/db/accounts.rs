@@ -1,5 +1,5 @@
 use alloy::primitives::{Address, U256};
-use sqlx::{PgPool, Row, postgres::PgRow, types::Json};
+use sqlx::{PgPool, Row, types::Json};
 
 pub struct Accounts<'a> {
     pool: &'a PgPool,

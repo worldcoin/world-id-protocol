@@ -73,8 +73,6 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> anyhow::Result<()> {
-    metrics::describe_metrics();
-
     let cfg = GatewayConfig::from_env();
     let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(
