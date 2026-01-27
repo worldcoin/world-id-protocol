@@ -34,7 +34,6 @@ pub struct CreateBatcherRunner {
     window: Duration,
     max_batch_size: usize,
     tracker: RequestTracker,
-    inflight_tracker: InflightTracker,
 }
 
 impl CreateBatcherRunner {
@@ -44,7 +43,6 @@ impl CreateBatcherRunner {
         max_batch_size: usize,
         rx: mpsc::Receiver<CreateReqEnvelope>,
         tracker: RequestTracker,
-        inflight_tracker: InflightTracker,
     ) -> Self {
         Self {
             rx,
@@ -52,7 +50,6 @@ impl CreateBatcherRunner {
             window,
             max_batch_size,
             tracker,
-            inflight_tracker,
         }
     }
 
@@ -129,7 +126,6 @@ impl CreateBatcherRunner {
 
                     let tracker = self.tracker.clone();
                     let ids_for_receipt = ids.clone();
-                    let inflight_tracker = self.inflight_tracker.clone();
                     let addresses_for_cleanup = all_addresses.clone();
                     tokio::spawn(async move {
                         match builder.get_receipt().await {
@@ -170,7 +166,7 @@ impl CreateBatcherRunner {
                             }
                         }
                         // Remove all addresses from the in-flight tracker after finalization
-                        inflight_tracker.remove_all(&addresses_for_cleanup).await;
+                        tracker.remove_inflight(&addresses_for_cleanup).await;
                     });
                 }
                 Err(err) => {
@@ -186,7 +182,7 @@ impl CreateBatcherRunner {
                         .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
                         .await;
                     // Remove all addresses from the in-flight tracker on send failure
-                    self.inflight_tracker.remove_all(&all_addresses).await;
+                    self.tracker.remove_inflight(&all_addresses).await;
                 }
             }
         }
