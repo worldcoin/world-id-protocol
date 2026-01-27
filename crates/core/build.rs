@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(feature = "embed-zkeys")]
 use std::{fs::File, io};
 
 #[cfg(feature = "embed-zkeys")]
@@ -103,7 +104,7 @@ fn download_file(url: &str, output_path: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
-fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<PathBuf> {
+fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<()> {
     let output_path = out_dir.join(path.file_name().ok_or_eyre("invalid path")?);
 
     // Check for local file first (development)
@@ -117,7 +118,7 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<PathBuf> {
             if path.exists() {
                 std::fs::hard_link(&path, &output_path).ok();
                 println!("cargo:rerun-if-changed={}", path.display());
-                return Ok(output_path);
+                return Ok(());
             }
         }
     }
@@ -133,25 +134,17 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<PathBuf> {
         );
 
         download_file(&url, &output_path)?;
-        Ok(output_path)
+        Ok(())
     }
 
     #[cfg(not(feature = "embed-zkeys"))]
-    {
-        Err(format!(
-            "Circuit file {} not found locally and embed-zkeys feature is not enabled. \
-             Enable the embed-zkeys feature or provide circuit files manually.",
-            filename
-        )
-        .into())
-    }
+    return Ok(());
 }
 
 fn is_arks_zkey(path: &Path) -> bool {
-    match path.file_name().and_then(|name| name.to_str()) {
-        Some(name) => name.ends_with(".arks.zkey"),
-        None => false,
-    }
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".arks.zkey"))
 }
 
 fn is_up_to_date(input: &Path, output: &Path) -> bool {
