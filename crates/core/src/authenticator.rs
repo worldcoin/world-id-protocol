@@ -38,7 +38,6 @@ use taceo_oprf_client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
-    proof::SingleProofInput,
 };
 
 static MASK_RECOVERY_COUNTER: U256 =
