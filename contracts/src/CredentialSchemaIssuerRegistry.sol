@@ -37,7 +37,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     error InvalidPubkey();
 
     /**
-     * @dev Thrown when an invalid signer is preovided (e.g. zero address)
+     * @dev Thrown when an invalid signer is provided (e.g. zero address)
      */
     error InvalidSigner();
 
