@@ -17,6 +17,15 @@ pub struct RequestRecord {
     pub status: GatewayRequestState,
 }
 
+/// Error type for in-flight address insertion failures.
+#[derive(Debug)]
+pub enum InflightInsertError {
+    /// An address was already in-flight (duplicate request).
+    Duplicate(Address),
+    /// An infrastructure error occurred (e.g., Redis failure).
+    Infrastructure,
+}
+
 const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
 const CACHE_MAX_CAPACITY: u64 = 100_000;
 /// TTL for in-flight authenticator addresses (5 minutes safety fallback).
@@ -260,10 +269,14 @@ impl RequestTracker {
     /// Attempts to atomically insert all addresses as in-flight.
     ///
     /// Returns `Ok(())` if all addresses were successfully inserted.
-    /// Returns `Err(addr)` if any address was already in-flight (returns the conflicting address).
+    /// Returns `Err(InflightInsertError::Duplicate(addr))` if any address was already in-flight.
+    /// Returns `Err(InflightInsertError::Infrastructure)` if a Redis/infrastructure error occurred.
     ///
     /// If insertion fails partway through, already-inserted addresses are rolled back.
-    pub async fn try_insert_inflight(&self, addresses: &[Address]) -> Result<(), Address> {
+    pub async fn try_insert_inflight(
+        &self,
+        addresses: &[Address],
+    ) -> Result<(), InflightInsertError> {
         if let Some(manager) = &self.redis_manager {
             self.try_insert_inflight_redis(manager.clone(), addresses)
                 .await
@@ -282,12 +295,13 @@ impl RequestTracker {
     }
 
     /// Attempts to insert all addresses into Redis using `SET NX` for atomicity.
-    /// Returns `Err(addr)` if any address already exists, rolling back prior insertions.
+    /// Returns `Err(Duplicate(addr))` if any address already exists, rolling back prior insertions.
+    /// Returns `Err(Infrastructure)` if a Redis error occurs.
     async fn try_insert_inflight_redis(
         &self,
         mut manager: ConnectionManager,
         addresses: &[Address],
-    ) -> Result<(), Address> {
+    ) -> Result<(), InflightInsertError> {
         let mut inserted_keys: Vec<String> = Vec::new();
 
         for addr in addresses {
@@ -307,17 +321,17 @@ impl RequestTracker {
                     inserted_keys.push(key);
                 }
                 Ok(None) => {
-                    // Key already exists - rollback and return error
+                    // Key already exists - rollback and return duplicate error
                     self.rollback_inflight_redis(&mut manager, &inserted_keys)
                         .await;
-                    return Err(*addr);
+                    return Err(InflightInsertError::Duplicate(*addr));
                 }
                 Err(e) => {
                     tracing::error!("Redis error during in-flight insert: {e}");
-                    // On Redis error, rollback what we inserted and return error
+                    // On Redis error, rollback what we inserted and return infrastructure error
                     self.rollback_inflight_redis(&mut manager, &inserted_keys)
                         .await;
-                    return Err(*addr);
+                    return Err(InflightInsertError::Infrastructure);
                 }
             }
         }
@@ -347,8 +361,11 @@ impl RequestTracker {
     }
 
     /// Attempts to insert all addresses into the local cache using atomic compute operations.
-    /// Returns `Err(addr)` if any address already exists, rolling back prior insertions.
-    async fn try_insert_inflight_local(&self, addresses: &[Address]) -> Result<(), Address> {
+    /// Returns `Err(Duplicate(addr))` if any address already exists, rolling back prior insertions.
+    async fn try_insert_inflight_local(
+        &self,
+        addresses: &[Address],
+    ) -> Result<(), InflightInsertError> {
         let mut inserted_addresses: Vec<Address> = Vec::new();
 
         for addr in addresses {
@@ -369,11 +386,11 @@ impl RequestTracker {
                     inserted_addresses.push(*addr);
                 }
                 CompResult::Unchanged(_) => {
-                    // Already exists - rollback and return error
+                    // Already exists - rollback and return duplicate error
                     for inserted_addr in &inserted_addresses {
                         self.inflight_cache.invalidate(inserted_addr).await;
                     }
-                    return Err(*addr);
+                    return Err(InflightInsertError::Duplicate(*addr));
                 }
                 _ => unreachable!("Unexpected CompResult variant"),
             }
