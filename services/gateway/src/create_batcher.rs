@@ -11,7 +11,6 @@ use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
 };
-use moka::future::Cache;
 use tokio::sync::mpsc;
 use world_id_core::{
     types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error},
@@ -35,7 +34,7 @@ pub struct CreateBatcherRunner {
     window: Duration,
     max_batch_size: usize,
     tracker: RequestTracker,
-    inflight_authenticators: Cache<Address, ()>,
+    inflight_tracker: InflightTracker,
 }
 
 impl CreateBatcherRunner {
@@ -45,7 +44,7 @@ impl CreateBatcherRunner {
         max_batch_size: usize,
         rx: mpsc::Receiver<CreateReqEnvelope>,
         tracker: RequestTracker,
-        inflight_authenticators: Cache<Address, ()>,
+        inflight_tracker: InflightTracker,
     ) -> Self {
         Self {
             rx,
@@ -53,7 +52,7 @@ impl CreateBatcherRunner {
             window,
             max_batch_size,
             tracker,
-            inflight_authenticators,
+            inflight_tracker,
         }
     }
 
@@ -130,7 +129,7 @@ impl CreateBatcherRunner {
 
                     let tracker = self.tracker.clone();
                     let ids_for_receipt = ids.clone();
-                    let cache = self.inflight_authenticators.clone();
+                    let inflight_tracker = self.inflight_tracker.clone();
                     let addresses_for_cleanup = all_addresses.clone();
                     tokio::spawn(async move {
                         match builder.get_receipt().await {
@@ -170,10 +169,8 @@ impl CreateBatcherRunner {
                                     .await;
                             }
                         }
-                        // Remove all addresses from the in-flight cache after finalization
-                        for addr in addresses_for_cleanup {
-                            cache.invalidate(&addr).await;
-                        }
+                        // Remove all addresses from the in-flight tracker after finalization
+                        inflight_tracker.remove_all(&addresses_for_cleanup).await;
                     });
                 }
                 Err(err) => {
@@ -188,10 +185,8 @@ impl CreateBatcherRunner {
                     self.tracker
                         .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
                         .await;
-                    // Remove all addresses from the in-flight cache on send failure
-                    for addr in all_addresses {
-                        self.inflight_authenticators.invalidate(&addr).await;
-                    }
+                    // Remove all addresses from the in-flight tracker on send failure
+                    self.inflight_tracker.remove_all(&all_addresses).await;
                 }
             }
         }

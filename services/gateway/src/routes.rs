@@ -4,6 +4,7 @@ use crate::{
     AppState,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
+    inflight_tracker::InflightTracker,
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -19,6 +20,7 @@ use crate::{
     },
     types::RootExpiry,
 };
+use redis::{Client, aio::ConnectionManager};
 use alloy::providers::DynProvider;
 use axum::{
     Json, Router,
@@ -53,8 +55,6 @@ mod update_authenticator;
 pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
-/// Default TTL to 5 mins for the cache as a safety fallback.
-const CACHE_TTL: Duration = Duration::from_secs(300);
 
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
@@ -63,10 +63,21 @@ pub(crate) async fn build_app(
     max_ops_batch_size: usize,
     redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
+    // Create Redis connection manager if URL is provided
+    let redis_manager = if let Some(ref url) = redis_url {
+        let client = Client::open(url.as_str()).expect("Unable to connect to Redis");
+        let manager = ConnectionManager::new(client)
+            .await
+            .expect("Unable to create Redis connection manager for in-flight tracker");
+        Some(manager)
+    } else {
+        None
+    };
+
     let tracker = RequestTracker::new(redis_url).await;
 
-    // Cache for in-flight authenticator addresses to prevent duplicate requests
-    let inflight_authenticators = Cache::builder().time_to_live(CACHE_TTL).build();
+    // Create in-flight tracker with Redis support (or local fallback)
+    let inflight_tracker = InflightTracker::new(redis_manager);
 
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -76,7 +87,7 @@ pub(crate) async fn build_app(
         max_create_batch_size,
         rx,
         tracker.clone(),
-        inflight_authenticators.clone(),
+        inflight_tracker.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -108,7 +119,7 @@ pub(crate) async fn build_app(
         tracker,
         batcher: batcher_handle,
         root_cache,
-        inflight_authenticators,
+        inflight_tracker,
     };
     let state = AppState { ctx };
 
