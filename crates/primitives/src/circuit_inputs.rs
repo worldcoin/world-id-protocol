@@ -4,10 +4,17 @@
 
 use std::collections::HashMap;
 
+use ark_ff::{PrimeField, Zero};
+use eddsa_babyjubjub::EdDSAPublicKey;
 use groth16_material::circom::ProofInput;
+use poseidon2::Poseidon2;
 use ruint::aliases::U256;
 
-use crate::authenticator::MAX_AUTHENTICATOR_KEYS;
+use crate::{
+    FieldElement,
+    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
+    merkle::MerkleInclusionProof,
+};
 
 type BaseField = ark_babyjubjub::Fq;
 type ScalarField = ark_babyjubjub::Fr;
@@ -74,6 +81,139 @@ pub struct QueryProofCircuitInput<const MAX_DEPTH: usize> {
     pub action: BaseField,
     /// The nonce of the proof request. See `SingleProofInput` for more details.
     pub nonce: BaseField,
+}
+
+#[derive(Debug, thiserror::Error)]
+/// Errors that can occur when validating the inputs for a single World ID proof.
+pub enum ProofInputError {
+    /// The specified Merkle tree depth is invalid.
+    #[error("The specified Merkle tree depth is invalid (expected: {expected}, got: {is}).")]
+    InvalidMerkleTreeDepth {
+        /// Expected depth.
+        expected: usize,
+        /// Actual depth.
+        is: BaseField,
+    },
+    /// The set of authenticator public keys is invalid.
+    #[error("The set of authenticator public keys is invalid.")]
+    InvalidAuthenticatorPublicKeySet,
+    /// The Merkle Tree index is out of bounds.
+    #[error("The Merkle Tree index is out of bounds (got: {is}, max: 2^{depth}).")]
+    InvalidMerkleTreeIndex {
+        /// Actual index.
+        is: BaseField,
+        /// Tree depth.
+        depth: usize,
+    },
+    /// The provided Merkle tree inclusion proof is invalid.
+    #[error("The provided Merkle tree inclusion proof is invalid.")]
+    InvalidMerkleTreeInclusionProof,
+    /// The signature over the nonce and RP ID is invalid.
+    #[error("The signature over the nonce and RP ID is invalid.")]
+    InvalidSignature,
+    /// The provided Authenticator public key index is invalid.
+    #[error(
+        "The provided authenticator public key index is out of bounds (got: {is}, len: {len})."
+    )]
+    AuthenticatorPublicKeyIndexOutOfBounds {
+        /// Actual index.
+        is: BaseField,
+        /// Length of PK array.
+        len: usize,
+    },
+    /// The provided blinding factor is invalid.
+    #[error("The provided blinding factor is invalid.")]
+    InvalidBlindingFactor,
+}
+
+impl<const TREE_DEPTH: usize> QueryProofCircuitInput<TREE_DEPTH> {
+    /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.
+    pub fn check_input_validity(&self) -> Result<(), ProofInputError> {
+        // 1. Check that the depth is within bounds.
+        if self.depth != BaseField::new((TREE_DEPTH as u64).into()) {
+            return Err(ProofInputError::InvalidMerkleTreeDepth {
+                expected: TREE_DEPTH,
+                is: self.depth,
+            });
+        }
+        // 2. Check the merkle proof is valid
+        // Check the Merkle tree idx is valid.
+        let idx_u64 = u64::try_from(FieldElement(self.mt_index)).map_err(|_| {
+            ProofInputError::InvalidMerkleTreeIndex {
+                is: self.mt_index,
+                depth: TREE_DEPTH,
+            }
+        })?;
+        if idx_u64 >= (1u64 << TREE_DEPTH) {
+            return Err(ProofInputError::InvalidMerkleTreeIndex {
+                is: self.mt_index,
+                depth: TREE_DEPTH,
+            });
+        }
+
+        // Build the leaf from the PKs.
+        let pk_set = AuthenticatorPublicKeySet::new(Some(
+            self.pk.iter().map(|&x| EdDSAPublicKey { pk: x }).collect(),
+        ))
+        .map_err(|_| ProofInputError::InvalidAuthenticatorPublicKeySet)?;
+        let pk_set_hash = pk_set.leaf_hash();
+        let merkle_tree_inclusion_proof = MerkleInclusionProof::new(
+            FieldElement(self.merkle_root),
+            idx_u64,
+            self.siblings.map(FieldElement),
+        );
+        if !merkle_tree_inclusion_proof.is_valid(FieldElement(pk_set_hash)) {
+            return Err(ProofInputError::InvalidMerkleTreeInclusionProof);
+        }
+
+        // 3. Check that the signature is valid.
+        let pk_index_usize = usize::try_from(FieldElement(self.pk_index)).map_err(|_| {
+            ProofInputError::AuthenticatorPublicKeyIndexOutOfBounds {
+                is: self.pk_index,
+                len: MAX_AUTHENTICATOR_KEYS,
+            }
+        })?;
+        let pk = pk_set.get(pk_index_usize).ok_or(
+            ProofInputError::AuthenticatorPublicKeyIndexOutOfBounds {
+                is: self.pk_index,
+                len: MAX_AUTHENTICATOR_KEYS,
+            },
+        )?;
+
+        /// Helper function to compute the query hash for a given account, RP ID, and action.
+        /// Copied from core for now, since it would introduce a circular dependency to import it.
+        fn query_hash(
+            leaf_index: u64,
+            rp_id: FieldElement,
+            action: FieldElement,
+        ) -> ark_babyjubjub::Fq {
+            const OPRF_QUERY_DS: &[u8] = b"World ID Query";
+            let input = [
+                ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
+                leaf_index.into(),
+                *FieldElement::from(rp_id),
+                *action,
+            ];
+            let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
+            poseidon2_4.permutation(&input)[1]
+        }
+
+        let query = query_hash(idx_u64, FieldElement(self.rp_id), FieldElement(self.action));
+        let signature = eddsa_babyjubjub::EdDSASignature {
+            r: self.r,
+            s: self.s,
+        };
+
+        if !pk.verify(query, &signature) {
+            return Err(ProofInputError::InvalidSignature);
+        }
+
+        if self.beta.is_zero() {
+            return Err(ProofInputError::InvalidBlindingFactor);
+        }
+
+        Ok(())
+    }
 }
 
 impl<const MAX_DEPTH: usize> ProofInput for QueryProofCircuitInput<MAX_DEPTH> {
