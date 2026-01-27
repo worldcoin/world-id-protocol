@@ -167,9 +167,17 @@ impl Request<CreateAccountRequest> {
         }
 
         // Register in tracker
-        ctx.tracker
+        if let Err(err) = ctx
+            .tracker
             .new_request_with_id(self.id().to_string(), self.kind().clone())
-            .await?;
+            .await
+        {
+            // Remove from cache if an error appears
+            for addr in &auth_addresses {
+                ctx.inflight_authenticators.invalidate(addr).await;
+            }
+            return Err(err);
+        };
 
         // Queue to batcher with typed request for createManyAccounts batching
         let cmd = Command::create_account(self.id, self.payload, DEFAULT_CREATE_ACCOUNT_GAS);
