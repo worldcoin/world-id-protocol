@@ -174,7 +174,6 @@ impl RpRegistryWatcher {
         }
 
         tracing::debug!("rp {rp_id} not found in store, querying RpRegistry...");
-        ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
         let contract = RpRegistry::new(self.contract_address, &self.provider);
         let rp = contract
             .getRp(rp_id.into_inner())
@@ -183,6 +182,8 @@ impl RpRegistryWatcher {
             .map_err(RpRegistryWatcherError::AlloyError)?;
 
         if rp.initialized {
+            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+
             let relying_party = RelyingParty {
                 signer: rp.signer,
                 oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
