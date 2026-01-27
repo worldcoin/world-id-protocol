@@ -98,7 +98,7 @@ embed-zkeys = []
 # Compress the embedded zkeys to reduce binary size
 compress-zkeys = ["embed-zkeys"]
 
-issuer = ["alloy/signer-local", "dep:secrecy", "dep:tokio"]
+issuer = ["alloy/signer-local", "dep:secrecy", "dep:tokio", "alloy/reqwest"]
 
 rp = ["dep:taceo-oprf-types", "alloy/signers"]
 
