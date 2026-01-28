@@ -4,7 +4,7 @@ use alloy::primitives::U256;
 use tracing::{info, warn};
 
 use super::{builder::TreeBuilder, metadata};
-use crate::db::{DB, EventId};
+use crate::db::{DB, WorldTreeEventId};
 
 /// State of cache files on disk
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,7 +163,7 @@ impl TreeInitializer {
                 .replay_events(
                     tree,
                     db,
-                    crate::db::EventId {
+                    crate::db::WorldTreeEventId {
                         block_number: metadata.last_block_number,
                         log_index: metadata.last_log_index,
                     },
@@ -320,7 +320,7 @@ impl TreeInitializer {
             .replay_events(
                 tree,
                 db,
-                EventId {
+                WorldTreeEventId {
                     block_number: metadata.last_block_number,
                     log_index: metadata.last_log_index,
                 },
