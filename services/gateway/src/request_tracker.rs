@@ -387,9 +387,7 @@ impl RequestTracker {
                 }
                 CompResult::Unchanged(_) => {
                     // Already exists - rollback and return duplicate error
-                    for inserted_addr in &inserted_addresses {
-                        self.inflight_cache.invalidate(inserted_addr).await;
-                    }
+                    self.remove_inflight_local(&inserted_addresses).await;
                     return Err(InflightInsertError::Duplicate(*addr));
                 }
                 _ => unreachable!("Unexpected CompResult variant"),
