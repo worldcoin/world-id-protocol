@@ -262,8 +262,10 @@ impl RequestTracker {
     /// Attempts to atomically insert all addresses as in-flight.
     ///
     /// Returns `Ok(())` if all addresses were successfully inserted.
-    /// Returns `Err(InflightInsertError::Duplicate(addr))` if any address was already in-flight.
-    /// Returns `Err(InflightInsertError::Infrastructure)` if a Redis/infrastructure error occurred.
+    /// Returns `Err(GatewayErrorResponse)` with `DuplicateRequestInFlight` code if any address
+    /// was already in-flight.
+    /// Returns `Err(GatewayErrorResponse)` with internal server error if a Redis/infrastructure
+    /// error occurred.
     ///
     /// If insertion fails partway through, already-inserted addresses are rolled back.
     pub async fn try_insert_inflight(
@@ -288,8 +290,10 @@ impl RequestTracker {
     }
 
     /// Attempts to insert all addresses into Redis using `SET NX` for atomicity.
-    /// Returns `Err(Duplicate(addr))` if any address already exists, rolling back prior insertions.
-    /// Returns `Err(Infrastructure)` if a Redis error occurs.
+    ///
+    /// Returns `Err(GatewayErrorResponse)` with `DuplicateRequestInFlight` code if any address
+    /// already exists, rolling back prior insertions.
+    /// Returns `Err(GatewayErrorResponse)` with internal server error if a Redis error occurs.
     async fn try_insert_inflight_redis(
         &self,
         mut manager: ConnectionManager,
@@ -360,7 +364,9 @@ impl RequestTracker {
     }
 
     /// Attempts to insert all addresses into the local cache using atomic compute operations.
-    /// Returns `Err(Duplicate(addr))` if any address already exists, rolling back prior insertions.
+    ///
+    /// Returns `Err(GatewayErrorResponse)` with `DuplicateRequestInFlight` code if any address
+    /// already exists, rolling back prior insertions.
     async fn try_insert_inflight_local(
         &self,
         addresses: &[Address],
