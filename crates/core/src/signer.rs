@@ -55,10 +55,12 @@ impl Signer {
         &self.offchain_signer
     }
 
+    /// Returns the address of the on-chain signer.
     pub const fn onchain_signer_address(&self) -> Address {
         self.onchain_signer.address()
     }
 
+    /// Returns the public key of the off-chain signer.
     pub fn offchain_signer_pubkey(&self) -> EdDSAPublicKey {
         self.offchain_signer.expose_secret().public()
     }
