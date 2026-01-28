@@ -341,6 +341,9 @@ impl TestAnvil {
         let init_data = Bytes::from(
             WorldIDRegistry::initializeCall {
                 initialTreeDepth: U256::from(tree_depth),
+                feeRecipient: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
+                feeToken: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
+                registrationFee: U256::from(0),
             }
             .abi_encode(),
         );
