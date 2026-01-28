@@ -221,8 +221,8 @@ impl RegistryEvent {
         let typed = WorldIdRegistry::RootRecorded::decode_log(&prim)?;
 
         Ok(RootRecordedEvent {
-            root: typed.root,
-            timestamp: typed.timestamp,
+            root: typed.data.root,
+            timestamp: typed.data.timestamp,
         })
     }
 }
