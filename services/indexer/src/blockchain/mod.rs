@@ -40,20 +40,6 @@ impl Blockchain {
         })
     }
 
-    pub async fn get_world_tree_events(
-        &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> anyhow::Result<Vec<Log>> {
-        let filter = Filter::new()
-            .address(self.world_id_registry)
-            .event_signature(RegistryEvent::signatures())
-            .from_block(from_block)
-            .to_block(to_block);
-
-        Ok(self.http_provider.get_logs(&filter).await?)
-    }
-
     pub async fn stream_world_tree_events(
         &self,
         from_block: u64,

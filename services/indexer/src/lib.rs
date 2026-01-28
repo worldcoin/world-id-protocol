@@ -560,12 +560,6 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if tree_cache_params.is_some()
-                    && let Err(e) = update_tree_with_event(&event.details).await
-                {
-                    tracing::error!(?e, ?event, "failed to update tree for live event");
-                }
-
                 // Update cache metadata if tree was updated
                 if let Some(cache_params) = tree_cache_params {
                     if let Err(e) = update_tree_with_event(&event.details).await {
