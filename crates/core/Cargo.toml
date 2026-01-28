@@ -95,6 +95,7 @@ authenticator = [
     "dep:webpki-roots",
     "dep:axum",
     "dep:tokio",
+    "dep:world-id-credential",
 ]
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
