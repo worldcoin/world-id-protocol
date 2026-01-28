@@ -6,6 +6,6 @@ alter table world_id_events drop constraint if exists commitment_update_events_t
 -- Rename table to world_id_events
 alter table if exists world_id_events rename to world_tree_events;
 
-alter index if exists idx_world_id_events_block rename to idx_world_tree_events_block_number;
-alter index if exists idx_world_id_events_leaf rename to idx_world_tree_events_leaf_index;
+alter index if exists idx_world_id_events_block_number rename to idx_world_tree_events_block_number;
+alter index if exists idx_world_id_events_leaf_index rename to idx_world_tree_events_leaf_index;
 alter index if exists idx_world_id_events_created_at rename to idx_world_tree_events_created_at;

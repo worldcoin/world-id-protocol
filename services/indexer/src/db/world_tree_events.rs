@@ -1,7 +1,7 @@
 use core::fmt;
 
 use alloy::primitives::U256;
-use sqlx::{PgPool, Row, postgres::PgRow};
+use sqlx::{Postgres, Row};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WorldTreeEventId {
@@ -55,31 +55,40 @@ impl<'a> TryFrom<&'a str> for WorldTreeEventType {
     }
 }
 
-pub struct WorldTreeEvents<'a> {
-    pool: &'a PgPool,
+pub struct WorldTreeEvents<'a, E>
+where
+    E: sqlx::Executor<'a, Database = Postgres>,
+{
+    executor: E,
     table_name: String,
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> WorldTreeEvents<'a> {
-    pub fn new(pool: &'a PgPool) -> Self {
+impl<'a, E> WorldTreeEvents<'a, E>
+where
+    E: sqlx::Executor<'a, Database = Postgres>,
+{
+    pub fn with_executor(executor: E) -> Self {
         Self {
-            pool,
+            executor,
             table_name: "world_tree_events".to_string(),
+            _marker: std::marker::PhantomData,
         }
     }
 
-    pub async fn get_latest_block(&self) -> anyhow::Result<Option<u64>> {
+    pub async fn get_latest_block(self) -> anyhow::Result<Option<u64>> {
         let rec: Option<(Option<i64>,)> = sqlx::query_as(&format!(
             "SELECT MAX(block_number) FROM {}",
             self.table_name
         ))
-        .fetch_optional(self.pool)
+        .fetch_optional(self.executor)
         .await?;
         Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
     }
 
-    pub async fn get_latest_id(&self) -> anyhow::Result<Option<WorldTreeEventId>> {
-        sqlx::query(&format!(
+    pub async fn get_latest_id(self) -> anyhow::Result<Option<WorldTreeEventId>> {
+        let table_name = self.table_name;
+        let result = sqlx::query(&format!(
             r#"
                 SELECT
                     block_number,
@@ -90,20 +99,28 @@ impl<'a> WorldTreeEvents<'a> {
                     log_index DESC
                 LIMIT 1
             "#,
-            self.table_name
+            table_name
         ))
-        .fetch_optional(self.pool)
-        .await?
-        .map(|row| self.map_row_to_event_id(&row))
-        .transpose()
+        .fetch_optional(self.executor)
+        .await?;
+
+        result
+            .map(|row| {
+                Ok(WorldTreeEventId {
+                    block_number: row.get::<i64, _>("block_number") as u64,
+                    log_index: row.get::<i64, _>("log_index") as u64,
+                })
+            })
+            .transpose()
     }
 
     pub async fn get_after(
-        &self,
+        self,
         event_id: WorldTreeEventId,
         limit: u64,
     ) -> anyhow::Result<Vec<WorldTreeEvent>> {
-        sqlx::query(&format!(
+        let table_name = self.table_name;
+        let rows = sqlx::query(&format!(
             r#"
                 SELECT
                     block_number,
@@ -121,20 +138,32 @@ impl<'a> WorldTreeEvents<'a> {
                     log_index ASC,
                 LIMIT $3
             "#,
-            self.table_name
+            table_name
         ))
         .bind(event_id.block_number as i64)
         .bind(event_id.log_index as i64)
         .bind(limit as i64)
-        .fetch_all(self.pool)
-        .await?
-        .iter()
-        .map(|row| self.map_row_to_world_tree_event(row))
-        .collect()
+        .fetch_all(self.executor)
+        .await?;
+
+        rows.iter()
+            .map(|row| {
+                Ok(WorldTreeEvent {
+                    id: WorldTreeEventId {
+                        block_number: row.get::<i64, _>("block_number") as u64,
+                        log_index: row.get::<i64, _>("log_index") as u64,
+                    },
+                    tx_hash: row.get::<U256, _>("tx_hash"),
+                    event_type: WorldTreeEventType::try_from(row.get::<&str, _>("event_type"))?,
+                    leaf_index: row.get::<U256, _>("leaf_index"),
+                    offchain_signer_commitment: row.get::<U256, _>("offchain_signer_commitment"),
+                })
+            })
+            .collect()
     }
 
     pub async fn insert_event(
-        &self,
+        self,
         leaf_index: &U256,
         event_type: WorldTreeEventType,
         offchain_signer_commitment: &U256,
@@ -161,25 +190,8 @@ impl<'a> WorldTreeEvents<'a> {
         .bind(event_type.to_string())
         .bind(offchain_signer_commitment)
         .bind(tx_hash)
-        .execute(self.pool)
+        .execute(self.executor)
         .await?;
         Ok(())
-    }
-
-    fn map_row_to_event_id(&self, row: &PgRow) -> anyhow::Result<WorldTreeEventId> {
-        Ok(WorldTreeEventId {
-            block_number: row.get::<i64, _>("block_number") as u64,
-            log_index: row.get::<i64, _>("log_index") as u64,
-        })
-    }
-
-    fn map_row_to_world_tree_event(&self, row: &PgRow) -> anyhow::Result<WorldTreeEvent> {
-        Ok(WorldTreeEvent {
-            id: self.map_row_to_event_id(row)?,
-            tx_hash: row.get::<U256, _>("tx_hash"),
-            event_type: WorldTreeEventType::try_from(row.get::<&str, _>("event_type"))?,
-            leaf_index: row.get::<U256, _>("leaf_index"),
-            offchain_signer_commitment: row.get::<U256, _>("offchain_signer_commitment"),
-        })
     }
 }

@@ -1,21 +1,29 @@
 use alloy::primitives::{Address, U256};
-use sqlx::{PgPool, Row, types::Json};
+use sqlx::{Postgres, Row, types::Json};
 
-pub struct Accounts<'a> {
-    pool: &'a PgPool,
+pub struct Accounts<'a, E>
+where
+    E: sqlx::Executor<'a, Database = Postgres>,
+{
+    executor: E,
     table_name: String,
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Accounts<'a> {
-    pub fn new(pool: &'a PgPool) -> Self {
+impl<'a, E> Accounts<'a, E>
+where
+    E: sqlx::Executor<'a, Database = Postgres>,
+{
+    pub fn with_executor(executor: E) -> Self {
         Self {
-            pool,
+            executor,
             table_name: "accounts".to_string(),
+            _marker: std::marker::PhantomData,
         }
     }
 
     pub async fn get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
-        &self,
+        self,
         leaf_index: &U256,
     ) -> anyhow::Result<Option<(U256, Vec<U256>)>> {
         let result = sqlx::query(&format!(
@@ -30,7 +38,7 @@ impl<'a> Accounts<'a> {
             self.table_name
         ))
         .bind(leaf_index)
-        .fetch_optional(self.pool)
+        .fetch_optional(self.executor)
         .await?;
 
         Ok(result.map(|row| {
@@ -46,7 +54,7 @@ impl<'a> Accounts<'a> {
     }
 
     pub async fn insert(
-        &self,
+        self,
         leaf_index: &U256,
         recovery_address: &Address,
         authenticator_addresses: &[Address],
@@ -80,13 +88,13 @@ impl<'a> Accounts<'a> {
                 .collect::<Vec<_>>(),
         ))
         .bind(offchain_signer_commitment)
-        .execute(self.pool)
+        .execute(self.executor)
         .await?;
         Ok(())
     }
 
     pub async fn update_authenticator_at_index(
-        &self,
+        self,
         leaf_index: &U256,
         pubkey_id: u32,
         new_address: &Address,
@@ -110,13 +118,51 @@ impl<'a> Accounts<'a> {
             .bind(new_address.to_string())
             .bind(new_pubkey.to_string())
             .bind(new_commitment)
-            .execute(self.pool)
+            .execute(self.executor)
             .await?;
         Ok(())
     }
 
+    pub async fn reset_authenticator(
+        self,
+        leaf_index: &U256,
+        new_address: &Address,
+        new_pubkey: &U256,
+        new_commitment: &U256,
+    ) -> anyhow::Result<()> {
+        // Reset all authenticators to single one
+        sqlx::query(&format!(
+            r#"
+                UPDATE {} SET
+                    authenticator_addresses = $2
+                    authenticator_pubkeys = $3,
+                    offchain_signer_commitment = $4
+                WHERE
+                    leaf_index = $1
+            "#,
+            self.table_name,
+        ))
+        .bind(leaf_index)
+        .bind(Json(
+            vec![new_address]
+                .iter()
+                .map(|a| a.to_string())
+                .collect::<Vec<_>>(),
+        ))
+        .bind(Json(
+            vec![new_pubkey]
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>(),
+        ))
+        .bind(new_commitment)
+        .execute(self.executor)
+        .await?;
+        Ok(())
+    }
+
     pub async fn insert_authenticator_at_index(
-        &self,
+        self,
         leaf_index: &U256,
         pubkey_id: u32,
         new_address: &Address,
@@ -140,13 +186,13 @@ impl<'a> Accounts<'a> {
             .bind(new_address.to_string())
             .bind(new_pubkey.to_string())
             .bind(new_commitment)
-            .execute(self.pool)
+            .execute(self.executor)
             .await?;
         Ok(())
     }
 
     pub async fn remove_authenticator_at_index(
-        &self,
+        self,
         leaf_index: &U256,
         pubkey_id: u32,
         new_commitment: &U256,
@@ -166,7 +212,7 @@ impl<'a> Accounts<'a> {
         .bind(leaf_index)
         .bind(format!("{{{pubkey_id}}}"))
         .bind(new_commitment)
-        .execute(self.pool)
+        .execute(self.executor)
         .await?;
         Ok(())
     }

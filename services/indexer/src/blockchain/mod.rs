@@ -40,6 +40,16 @@ impl Blockchain {
         })
     }
 
+    /// Streams World Tree events from the blockchain.
+    ///
+    /// This function ensures that no events are missed by combining historical
+    /// events (from `from_block` to the latest block) with new events from a
+    /// WebSocket subscription. The WebSocket subscription only returns new logs,
+    /// so we backfill historical data. Additionally, it filters out duplicates
+    /// by only including new events that occur after the latest block number
+    /// at the time of the query. It is crucial to first create a subscription
+    /// and then check for last block number to not miss any logs between the
+    /// call for last block number and subscription creation.
     pub async fn stream_world_tree_events(
         &self,
         from_block: u64,

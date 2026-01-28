@@ -1,24 +1,26 @@
 use alloy::primitives::U256;
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
-
-use crate::db::{
-    accounts::Accounts, world_tree_events::WorldTreeEvents, world_tree_roots::WorldTreeRoots,
-};
+use sqlx::{Acquire, PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 
 mod accounts;
+mod events_committer;
 mod world_tree_events;
 mod world_tree_roots;
 
-pub use world_tree_events::{WorldTreeEventId, WorldTreeEventType};
-pub use world_tree_roots::{WorldTreeRootEventType, WorldTreeRootId};
+pub use accounts::Accounts;
+pub use events_committer::EventsCommitter;
+pub use world_tree_events::{WorldTreeEventId, WorldTreeEventType, WorldTreeEvents};
+pub use world_tree_roots::{WorldTreeRootEventType, WorldTreeRootId, WorldTreeRoots};
+
+// Type alias for convenience (for potential future generics)
+pub type DB = PostgresDB;
 
 #[derive(Clone)]
-pub struct DB {
+pub struct PostgresDB {
     pool: PgPool,
 }
 
-impl DB {
-    pub async fn new(db_url: &str, max_connections: Option<u32>) -> anyhow::Result<DB> {
+impl PostgresDB {
+    pub async fn new(db_url: &str, max_connections: Option<u32>) -> anyhow::Result<Self> {
         tracing::info!("Connecting to DB...");
         let pool = PgPoolOptions::new()
             .max_connections(max_connections.unwrap_or(10))
@@ -27,6 +29,10 @@ impl DB {
         tracing::info!("🟢 Connection to DB successful.");
 
         Ok(Self { pool })
+    }
+
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self { pool }
     }
 
     pub async fn run_migrations(&self) -> anyhow::Result<()> {
@@ -41,16 +47,23 @@ impl DB {
         &self.pool
     }
 
-    pub fn world_tree_events(&self) -> WorldTreeEvents<'_> {
-        WorldTreeEvents::new(&self.pool)
+    pub async fn transaction(
+        &self,
+        isoloation_level: IsolationLevel,
+    ) -> anyhow::Result<PostgresDBTransaction> {
+        PostgresDBTransaction::new(&self.pool, isoloation_level).await
     }
 
-    pub fn world_tree_roots(&self) -> WorldTreeRoots<'_> {
-        WorldTreeRoots::new(&self.pool)
+    pub fn world_tree_events(&self) -> WorldTreeEvents<'_, &PgPool> {
+        WorldTreeEvents::with_executor(&self.pool)
     }
 
-    pub fn accounts(&self) -> Accounts<'_> {
-        Accounts::new(&self.pool)
+    pub fn world_tree_roots(&self) -> WorldTreeRoots<'_, &PgPool> {
+        WorldTreeRoots::with_executor(&self.pool)
+    }
+
+    pub fn accounts(&self) -> Accounts<'_, &PgPool> {
+        Accounts::with_executor(&self.pool)
     }
 
     pub async fn ping(&self) -> anyhow::Result<()> {
@@ -59,10 +72,92 @@ impl DB {
     }
 }
 
-pub async fn fetch_recent_account_updates(
-    pool: &PgPool,
+/// Transaction isolation level
+///
+/// PG docs: https://www.postgresql.org/docs/current/transaction-iso.html
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IsolationLevel {
+    ReadUncommited,
+    ReadCommitted,
+    RepeatableRead,
+    Serializable,
+}
+
+pub struct PostgresDBTransaction<'a> {
+    tx: Transaction<'a, Postgres>,
+}
+
+impl<'a> PostgresDBTransaction<'a> {
+    async fn new(pool: &PgPool, isolation_level: IsolationLevel) -> anyhow::Result<Self> {
+        let mut tx = pool.begin().await?;
+
+        let conn = tx.acquire().await?;
+
+        match isolation_level {
+            IsolationLevel::ReadUncommited => {
+                sqlx::query("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+                    .execute(&mut *conn)
+                    .await?;
+            }
+            IsolationLevel::ReadCommitted => {
+                sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+                    .execute(&mut *conn)
+                    .await?;
+            }
+            IsolationLevel::RepeatableRead => {
+                sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                    .execute(&mut *conn)
+                    .await?;
+            }
+            IsolationLevel::Serializable => {
+                sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+                    .execute(&mut *conn)
+                    .await?;
+            }
+        }
+
+        Ok(Self { tx })
+    }
+
+    /// Get a world_tree_events table accessor for executing a single query.
+    /// Multiple calls to this or other table methods are allowed within the same transaction.
+    pub async fn world_tree_events(
+        &mut self,
+    ) -> anyhow::Result<WorldTreeEvents<'_, &mut PgConnection>> {
+        let conn = self.tx.acquire().await?;
+        Ok(WorldTreeEvents::with_executor(conn))
+    }
+
+    /// Get a world_tree_roots table accessor for executing a single query.
+    pub async fn world_tree_roots(
+        &mut self,
+    ) -> anyhow::Result<WorldTreeRoots<'_, &mut PgConnection>> {
+        let conn = self.tx.acquire().await?;
+        Ok(WorldTreeRoots::with_executor(conn))
+    }
+
+    /// Get an accounts table accessor for executing a single query.
+    pub async fn accounts(&mut self) -> anyhow::Result<Accounts<'_, &mut PgConnection>> {
+        let conn = self.tx.acquire().await?;
+        Ok(Accounts::with_executor(conn))
+    }
+
+    pub async fn commit(self) -> anyhow::Result<()> {
+        Ok(self.tx.commit().await?)
+    }
+
+    pub async fn rollback(self) -> anyhow::Result<()> {
+        Ok(self.tx.rollback().await?)
+    }
+}
+
+pub async fn fetch_recent_account_updates<'a, E>(
+    executor: E,
     since: std::time::SystemTime,
-) -> anyhow::Result<Vec<(U256, U256)>> {
+) -> anyhow::Result<Vec<(U256, U256)>>
+where
+    E: sqlx::Executor<'a, Database = Postgres>,
+{
     // Convert SystemTime to timestamp
     let since_duration = since
         .duration_since(std::time::UNIX_EPOCH)
@@ -81,7 +176,7 @@ pub async fn fetch_recent_account_updates(
         "#,
     )
     .bind(since_timestamp)
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
 
     rows.iter()
@@ -98,30 +193,39 @@ pub async fn fetch_recent_account_updates(
 // =============================================================================
 
 /// Count active (non-zero) leaves in the accounts table.
-pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
+pub async fn get_active_leaf_count<'a, E>(executor: E) -> anyhow::Result<u64>
+where
+    E: sqlx::Executor<'a, Database = Postgres>,
+{
     let result =
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE leaf_index != $1")
             .bind(U256::ZERO)
-            .fetch_one(pool)
+            .fetch_one(executor)
             .await?;
 
     Ok(result as u64)
 }
 
 /// Count total events in world_tree_events.
-pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
+pub async fn get_total_event_count<'a, E>(executor: E) -> anyhow::Result<u64>
+where
+    E: sqlx::Executor<'a, Database = Postgres>,
+{
     let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM world_tree_events")
-        .fetch_one(pool)
+        .fetch_one(executor)
         .await?;
 
     Ok(result as u64)
 }
 
-pub async fn fetch_leaves_batch(
-    pool: &PgPool,
+pub async fn fetch_leaves_batch<'a, E>(
+    executor: E,
     last_cursor: &U256,
     batch_size: i64,
-) -> anyhow::Result<Vec<(U256, U256)>> {
+) -> anyhow::Result<Vec<(U256, U256)>>
+where
+    E: sqlx::Executor<'a, Database = Postgres>,
+{
     let rows = sqlx::query(
         "SELECT leaf_index, offchain_signer_commitment
          FROM accounts
@@ -131,7 +235,7 @@ pub async fn fetch_leaves_batch(
     )
     .bind(last_cursor)
     .bind(batch_size)
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
 
     rows.iter()

@@ -18,7 +18,7 @@ pub use crate::db::fetch_recent_account_updates;
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
-    db::{DB, WorldTreeEventType},
+    db::{DB, EventsCommitter, WorldTreeEventType},
     tree::{GLOBAL_TREE, update_tree_with_commitment},
 };
 pub use config::GlobalConfig;
@@ -371,128 +371,44 @@ async fn run_both(
     Ok(())
 }
 
-pub async fn handle_registry_event(
+pub async fn handle_registry_event<'a>(
     db: &DB,
+    events_committer: &mut EventsCommitter<'a>,
     event: &BlockchainEvent<RegistryEvent>,
+    tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
-    match &event.details {
-        RegistryEvent::AccountCreated(ev) => {
-            db.accounts()
-                .insert(
-                    &ev.leaf_index,
-                    &ev.recovery_address,
-                    &ev.authenticator_addresses,
-                    &ev.authenticator_pubkeys,
-                    &ev.offchain_signer_commitment,
-                )
-                .await?;
-            db.world_tree_events()
-                .insert_event(
-                    &ev.leaf_index,
-                    WorldTreeEventType::AccountCreated,
-                    &ev.offchain_signer_commitment,
-                    event.block_number,
-                    &event.tx_hash,
-                    event.log_index,
-                )
-                .await?;
+    events_committer.handle_event(event.clone()).await?;
+
+    // Update cache metadata if tree was updated
+    if let Some(cache_params) = tree_cache_params {
+        if let Err(e) = update_tree_with_event(&event.details).await {
+            tracing::error!(?e, ?event, "failed to update tree for live event");
         }
-        RegistryEvent::AccountUpdated(ev) => {
-            db.accounts()
-                .update_authenticator_at_index(
-                    &ev.leaf_index,
-                    ev.pubkey_id,
-                    &ev.new_authenticator_address,
-                    &ev.new_authenticator_pubkey,
-                    &ev.new_offchain_signer_commitment,
-                )
-                .await?;
-            db.world_tree_events()
-                .insert_event(
-                    &ev.leaf_index,
-                    WorldTreeEventType::AccountUpdated,
-                    &ev.new_offchain_signer_commitment,
-                    event.block_number,
-                    &event.tx_hash,
-                    event.log_index,
-                )
-                .await?;
-        }
-        RegistryEvent::AuthenticatorInserted(ev) => {
-            db.accounts()
-                .insert_authenticator_at_index(
-                    &ev.leaf_index,
-                    ev.pubkey_id,
-                    &ev.authenticator_address,
-                    &ev.new_authenticator_pubkey,
-                    &ev.new_offchain_signer_commitment,
-                )
-                .await?;
-            db.world_tree_events()
-                .insert_event(
-                    &ev.leaf_index,
-                    WorldTreeEventType::AuthenticationInserted,
-                    &ev.new_offchain_signer_commitment,
-                    event.block_number,
-                    &event.tx_hash,
-                    event.log_index,
-                )
-                .await?;
-        }
-        RegistryEvent::AuthenticatorRemoved(ev) => {
-            db.accounts()
-                .remove_authenticator_at_index(
-                    &ev.leaf_index,
-                    ev.pubkey_id,
-                    &ev.new_offchain_signer_commitment,
-                )
-                .await?;
-            db.world_tree_events()
-                .insert_event(
-                    &ev.leaf_index,
-                    WorldTreeEventType::AuthenticationRemoved,
-                    &ev.new_offchain_signer_commitment,
-                    event.block_number,
-                    &event.tx_hash,
-                    event.log_index,
-                )
-                .await?;
-        }
-        RegistryEvent::AccountRecovered(ev) => {
-            // Recovery resets to a single authenticator at index 0
-            db.accounts()
-                .update_authenticator_at_index(
-                    &ev.leaf_index,
-                    0,
-                    &ev.new_authenticator_address,
-                    &ev.new_authenticator_pubkey,
-                    &ev.new_offchain_signer_commitment,
-                )
-                .await?;
-            db.world_tree_events()
-                .insert_event(
-                    &ev.leaf_index,
-                    WorldTreeEventType::AccountRecovered,
-                    &ev.new_offchain_signer_commitment,
-                    event.block_number,
-                    &event.tx_hash,
-                    event.log_index,
-                )
-                .await?;
-        }
-        RegistryEvent::RootRecorded(ev) => {
-            db.world_tree_roots()
-                .insert_event(
-                    event.block_number,
-                    event.log_index,
-                    db::WorldTreeRootEventType::RootRecorded,
-                    &event.tx_hash,
-                    &ev.root,
-                    &ev.timestamp,
-                )
-                .await?;
-        }
+
+        let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
+        let tree = GLOBAL_TREE.read().await;
+
+        // Get the current max event ID to track replay position
+        let current_event_id = db
+            .world_tree_events()
+            .get_latest_id()
+            .await?
+            .unwrap_or_default();
+
+        tree::metadata::write_metadata(
+            &cache_path_buf,
+            &tree,
+            db,
+            current_event_id,
+            cache_params.tree_depth,
+            cache_params.dense_prefix_depth,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(?e, "Failed to update cache metadata");
+        });
     }
+
     Ok(())
 }
 
@@ -549,6 +465,7 @@ pub async fn stream_logs(
     tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
     let mut stream = blockchain.stream_world_tree_events(start_from).await?;
+    let mut events_committer = EventsCommitter::new(db);
 
     while let Some(log) = stream.next().await {
         tracing::info!(?log, "processing live registry log");
@@ -556,38 +473,11 @@ pub async fn stream_logs(
             Ok(event) => {
                 tracing::info!(?event, "decoded live registry event");
 
-                if let Err(e) = handle_registry_event(db, &event).await {
-                    tracing::error!(?e, ?event, "failed to handle registry event in DB");
-                }
-
-                // Update cache metadata if tree was updated
-                if let Some(cache_params) = tree_cache_params {
-                    if let Err(e) = update_tree_with_event(&event.details).await {
-                        tracing::error!(?e, ?event, "failed to update tree for live event");
-                    }
-
-                    let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
-                    let tree = GLOBAL_TREE.read().await;
-
-                    // Get the current max event ID to track replay position
-                    let current_event_id = db
-                        .world_tree_events()
-                        .get_latest_id()
-                        .await?
-                        .unwrap_or_default();
-
-                    tree::metadata::write_metadata(
-                        &cache_path_buf,
-                        &tree,
-                        db,
-                        current_event_id,
-                        cache_params.tree_depth,
-                        cache_params.dense_prefix_depth,
-                    )
-                    .await
-                    .unwrap_or_else(|e| {
-                        tracing::warn!(?e, "Failed to update cache metadata");
-                    });
+                if let Err(e) =
+                    handle_registry_event(db, &mut events_committer, &event, tree_cache_params)
+                        .await
+                {
+                    tracing::error!(?e, ?event, "failed to handle registry event");
                 }
             }
             Err(ref e) => {
