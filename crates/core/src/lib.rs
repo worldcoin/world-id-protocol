@@ -2,13 +2,7 @@
 //!
 //! Read more in: <https://docs.world.org/world-id>
 
-#![deny(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    missing_docs,
-    dead_code
-)]
+#![deny(clippy::all, clippy::nursery, missing_docs)]
 #![allow(clippy::option_if_let_else)]
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};

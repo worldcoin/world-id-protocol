@@ -2,6 +2,7 @@
 #[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
+#[cfg(feature = "authenticator")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "authenticator")]
 use strum::EnumString;
