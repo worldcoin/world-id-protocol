@@ -73,7 +73,7 @@ axum = { workspace = true, optional = true }
 
 # Internal
 world-id-issuer = { workspace = true, optional = true }
-world-id-credential = { workspace = true }
+world-id-credential = { workspace = true, optional = true }
 
 [features]
 default = ["authenticator", "embed-zkeys"]
@@ -99,7 +99,7 @@ authenticator = [
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
-issuer = ["dep:world-id-issuer"]
+issuer = ["dep:world-id-issuer", "dep:world-id-credential", "dep:secrecy"]
 
 rp = ["dep:taceo-oprf-types", "alloy/signers"]
 
