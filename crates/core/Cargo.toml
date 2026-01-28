@@ -67,6 +67,7 @@ k256 = { workspace = true, features = ["ecdsa", "serde"] }
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
+zeroize = { workspace = true, optional = true }
 
 [features]
 default = ["authenticator", "embed-zkeys"]
@@ -88,6 +89,7 @@ authenticator = [
     "dep:webpki-roots",
     "dep:axum",
     "dep:tokio",
+    "dep:zeroize"
 ]
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]

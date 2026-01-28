@@ -70,9 +70,9 @@ pub struct QueryProofCircuitInput<const MAX_DEPTH: usize> {
     ///
     /// TODO: Will require updates once the new `RpRegistry` is launched.
     pub rp_id: BaseField,
-    /// The action for the proof request. See `SingleProofInput` for more details.
+    /// The action for the proof request. See `ProofRequest` for more details.
     pub action: BaseField,
-    /// The nonce of the proof request. See `SingleProofInput` for more details.
+    /// The nonce of the proof request. See `ProofRequest` for more details.
     pub nonce: BaseField,
 }
 
@@ -155,7 +155,7 @@ pub struct NullifierProofCircuitInput<const MAX_DEPTH: usize> {
     pub oprf_response: Affine,
 
     // SECTION: RP Inputs
-    /// The hashed signal provided by the RP and committed to by the user. See `SingleProofInput` for more details.
+    /// The hashed signal provided by the RP and committed to by the user. See `ProofRequest` for more details.
     pub signal_hash: BaseField,
 }
 

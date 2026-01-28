@@ -8490,6 +8490,7 @@ dependencies = [
  "webpki-roots 1.0.5",
  "world-id-gateway",
  "world-id-primitives",
+ "zeroize",
 ]
 
 [[package]]

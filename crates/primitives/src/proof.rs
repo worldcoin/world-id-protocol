@@ -3,13 +3,7 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
-#[cfg(feature = "oprf")]
-use taceo_oprf_types::OprfKeyId;
 
-#[cfg(feature = "oprf")]
-use crate::{
-    Credential, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId,
-};
 use crate::{FieldElement, PrimitiveError};
 
 /// Represents a base World ID proof.
@@ -119,69 +113,6 @@ impl<'de> Deserialize<'de> for WorldIdProof {
             hex::decode(String::deserialize(deserializer)?).map_err(D::Error::custom)?;
         Self::from_compressed_bytes(&compressed_bytes).map_err(D::Error::custom)
     }
-}
-
-/// The arguments required to generate a World ID Uniqueness Proof.
-///
-/// This request results in a final Uniqueness Proof (π2), but a Query Proof (π1) must be
-/// generated in the process.
-///
-/// Requires the `oprf` feature (not available in WASM builds).
-#[cfg(feature = "oprf")]
-pub struct SingleProofInput<const TREE_DEPTH: usize> {
-    // SECTION: User Inputs
-    /// The credential of the user which will be proven in the World ID Proof.
-    pub credential: Credential,
-    /// The Merkle inclusion proof which proves ownership of the user's account in the `WorldIDRegistry` contract.
-    pub inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
-    /// The complete set of authenticator public keys for the World ID Account.
-    pub key_set: AuthenticatorPublicKeySet,
-    /// The index of the public key which will be used to sign from the set of public keys.
-    pub key_index: u64,
-    /// The `r_seed` is a random seed used to generate the `session_id`.
-    pub session_id_r_seed: FieldElement,
-    /// The `session_id` is a unique identifier
-    /// for the RP+User+Action, and it lets prove the same World ID is being used
-    /// in future proofs if the RP provides the valid `session_id`.
-    pub session_id: FieldElement,
-    /// The factor used to blind the subject of the credential to avoid issuer correlation.
-    ///
-    /// This factor is hashed with the `leaf_index` to get the credential's `sub`.
-    pub credential_sub_blinding_factor: FieldElement,
-
-    /// SECTION: RP Inputs
-
-    /// The ID of the RP requesting the proof.
-    pub rp_id: RpId,
-    /// The `OprfKeyId` for the RP requesting the proof.
-    pub oprf_key_id: OprfKeyId,
-    /// The epoch of the `DLog` share (currently always `0`).
-    pub share_epoch: u128,
-    /// The specific hashed action for which the user is generating the proof. The output nullifier will
-    /// be unique for the combination of this action, the `rp_id` and the user.
-    pub action: FieldElement,
-    /// The unique identifier for this proof request. Provided by the RP.
-    pub nonce: FieldElement,
-    /// The timestamp from the RP's request.
-    /// TODO: Document why this is required.
-    pub current_timestamp: u64,
-    /// The expiration timestamp for the RP's request (unix seconds).
-    pub expiration_timestamp: u64,
-    /// The RP's signature over the request. This is used to ensure the RP is legitimately requesting the proof
-    /// from the user and reduce phishing surface area.
-    ///
-    /// The signature is computed over `nonce || action || created_at || expires_at`, ECDSA on the `secp256k1` curve.
-    pub rp_signature: alloy_primitives::Signature,
-    /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
-    /// to ensure the integrity of the proof. For example, in a voting application, the signal could
-    /// be used to encode the user's vote.
-    pub signal_hash: FieldElement,
-
-    /// The minimum genesis issued at (unix seconds) of the credential.
-    ///
-    /// This minimum allows RPs to require that the credential was first issued
-    /// after a certain time (`genesis_issued_at` in the `Credential` must be >= `genesis_issued_at_min`)
-    pub genesis_issued_at_min: u64,
 }
 
 #[cfg(test)]
