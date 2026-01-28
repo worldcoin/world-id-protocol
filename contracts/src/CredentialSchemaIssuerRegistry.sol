@@ -101,6 +101,8 @@ contract CredentialSchemaIssuerRegistry is Base, ICredentialSchemaIssuerRegistry
             revert IdAlreadyInUse(issuerSchemaId);
         }
 
+        _collectFee();
+
         // An OPRF Key is initialized to allow authenticators to compute the blinding factor for this credential
         // NOTE that the `issuerSchemaId` must be unique across issuers and RPs (from `RpRegistry`) as the `oprfKeyId` must be unique
         // This call may revert with `AlreadySubmitted()` if the ID is taken
@@ -110,8 +112,6 @@ contract CredentialSchemaIssuerRegistry is Base, ICredentialSchemaIssuerRegistry
         _idToAddress[issuerSchemaId] = signer;
 
         emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, uint160(issuerSchemaId));
-
-        _collectFee();
 
         return issuerSchemaId;
     }
