@@ -1,11 +1,15 @@
-use crate::{request::Registry, types::AppState};
+use crate::{
+    metrics::{METRICS_ROOT_CACHE_HITS, METRICS_ROOT_CACHE_MISSES},
+    request::Registry,
+    types::AppState,
+};
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tracing::warn;
+use tracing::{instrument, warn};
 use world_id_core::types::{GatewayErrorResponse, IsValidRootQuery, IsValidRootResponse};
 
 /// Safety buffer for expirations, so we expire a bit early relative to chain time.
@@ -78,14 +82,17 @@ async fn cache_policy_for_root(
 }
 
 /// Validate whether a root is currently valid according to the registry contract.
+#[instrument(name = "is_valid_root", skip(state), fields(root = %q.root))]
 pub(crate) async fn is_valid_root(
     State(state): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<IsValidRootQuery>,
 ) -> Result<Json<IsValidRootResponse>, GatewayErrorResponse> {
     let root = req_u256("root", &q.root)?;
     if is_cached_root(&state, root).await {
+        ::metrics::counter!(METRICS_ROOT_CACHE_HITS).increment(1);
         return Ok(Json(IsValidRootResponse { valid: true }));
     }
+    ::metrics::counter!(METRICS_ROOT_CACHE_MISSES).increment(1);
     let now = now_timestamp()?;
 
     let valid = state

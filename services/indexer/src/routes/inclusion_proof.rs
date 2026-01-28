@@ -3,7 +3,6 @@ use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;
 use semaphore_rs_trees::{Branch, proof::InclusionProof};
-use sqlx::Row;
 use world_id_core::{
     EdDSAPublicKey,
     types::{AccountInclusionProof, IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest},
@@ -51,40 +50,27 @@ pub(crate) async fn handler(
 ) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, IndexerErrorResponse> {
     let leaf_index = req.leaf_index;
 
-    if leaf_index == 0 {
+    if leaf_index == U256::ZERO {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
             "Leaf index cannot be 0.".to_string(),
         ));
     }
 
-    let account_row = sqlx::query(
-        "select offchain_signer_commitment, authenticator_pubkeys from accounts where leaf_index = $1",
-    )
-    .bind(req.leaf_index)
-    .fetch_optional(state.db.pool())
-    .await
-    .ok()
-    .flatten();
+    let (offchain_signer_commitment, pubkeys) = state
+        .db
+        .accounts()
+        .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(&leaf_index)
+        .await
+        .map_err(|_err| IndexerErrorResponse::internal_server_error())?
+        .ok_or(IndexerErrorResponse::not_found())?;
 
-    if account_row.is_none() {
-        return Err(IndexerErrorResponse::not_found());
-    }
-
-    let row = account_row.unwrap();
-    let pubkeys: sqlx::types::Json<Vec<String>> = row.get("authenticator_pubkeys");
     let pubkeys: Vec<EdDSAPublicKey> = pubkeys
-        .0
         .iter()
-        .filter_map(|s| {
-            // TODO: store validated pubkeys
-            let pubkey = s.parse::<U256>().map_err(|_| {
-                tracing::error!(leaf_index = %leaf_index, "Invalid public key stored for account: {s}")
-            }).ok()?;
-
+        .filter_map(|pubkey| {
             // Encoding matches insertion in core::authenticator::Authenticator operations
             EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|_| {
-                tracing::error!(leaf_index = %leaf_index, "Invalid public key stored for account (not affine compressed): {s}");
+                tracing::error!(leaf_index = %leaf_index, "Invalid public key stored for account (not affine compressed): {}", pubkey);
             }).ok()
         }).collect();
 
@@ -92,8 +78,6 @@ pub(crate) async fn handler(
         tracing::error!(leaf_index = %leaf_index, "Invalid public key set stored for account: {e}");
         IndexerErrorResponse::internal_server_error()
     })?;
-
-    let offchain_signer_commitment = row.get::<U256, _>("offchain_signer_commitment");
 
     let tree = GLOBAL_TREE.read().await;
 

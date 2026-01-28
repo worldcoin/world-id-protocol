@@ -2,6 +2,7 @@
 
 use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
 use axum::{Extension, Json, extract::State};
+use tracing::instrument;
 use world_id_core::types::{
     GatewayErrorResponse, GatewayStatusResponse, InsertAuthenticatorRequest,
 };
@@ -9,6 +10,7 @@ use world_id_core::types::{
 /// POST /v1/authenticators/insert
 ///
 /// Insert a new authenticator to an existing account.
+#[instrument(name = "insert_authenticator", skip(state, payload), fields(request_id = %id))]
 pub(crate) async fn insert_authenticator(
     State(state): State<AppState>,
     Extension(RequestId(id)): Extension<RequestId>,

@@ -8506,6 +8506,7 @@ dependencies = [
  "common",
  "dotenvy",
  "hex",
+ "metrics",
  "moka",
  "once_cell",
  "redis",
