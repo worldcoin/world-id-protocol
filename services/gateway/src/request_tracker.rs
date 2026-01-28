@@ -323,8 +323,7 @@ impl RequestTracker {
                         authenticator_address = %addr,
                         "Duplicate in-flight request detected"
                     );
-                    self.rollback_inflight_redis(&mut manager, &inserted_keys)
-                        .await;
+                    self.delete_redis_keys(&mut manager, &inserted_keys).await;
                     return Err(GatewayErrorResponse::bad_request(
                         GatewayErrorCode::DuplicateRequestInFlight,
                     ));
@@ -332,8 +331,7 @@ impl RequestTracker {
                 Err(e) => {
                     tracing::error!("Redis error during in-flight insert: {e}");
                     // On Redis error, rollback what we inserted and return infrastructure error
-                    self.rollback_inflight_redis(&mut manager, &inserted_keys)
-                        .await;
+                    self.delete_redis_keys(&mut manager, &inserted_keys).await;
                     return Err(GatewayErrorResponse::internal_server_error());
                 }
             }
@@ -342,25 +340,20 @@ impl RequestTracker {
         Ok(())
     }
 
-    /// Rolls back previously inserted Redis keys during a failed atomic insertion.
-    async fn rollback_inflight_redis(&self, manager: &mut ConnectionManager, keys: &[String]) {
+    /// Deletes the given Redis keys, logging any errors that occur.
+    async fn delete_redis_keys(&self, manager: &mut ConnectionManager, keys: &[String]) {
         for key in keys {
             let result: Result<usize, redis::RedisError> = manager.del(key).await;
             if let Err(e) = result {
-                tracing::error!("Failed to rollback Redis key {key}: {e}");
+                tracing::error!("Failed to delete Redis key {key}: {e}");
             }
         }
     }
 
     /// Removes in-flight addresses from Redis.
     async fn remove_inflight_redis(&self, mut manager: ConnectionManager, addresses: &[Address]) {
-        for addr in addresses {
-            let key = Self::inflight_key(addr);
-            let result: Result<usize, redis::RedisError> = manager.del(&key).await;
-            if let Err(e) = result {
-                tracing::error!("Failed to remove in-flight key from Redis {key}: {e}");
-            }
-        }
+        let keys: Vec<String> = addresses.iter().map(Self::inflight_key).collect();
+        self.delete_redis_keys(&mut manager, &keys).await;
     }
 
     /// Attempts to insert all addresses into the local cache using atomic compute operations.
