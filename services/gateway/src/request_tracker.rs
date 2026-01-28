@@ -9,21 +9,14 @@ use moka::{
 use redis::{AsyncTypedCommands, Client, SetExpiry, SetOptions, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use world_id_core::types::{GatewayErrorResponse, GatewayRequestKind, GatewayRequestState};
+use world_id_core::types::{
+    GatewayErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
     pub kind: GatewayRequestKind,
     pub status: GatewayRequestState,
-}
-
-/// Error type for in-flight address insertion failures.
-#[derive(Debug)]
-pub enum InflightInsertError {
-    /// An address was already in-flight (duplicate request).
-    Duplicate(Address),
-    /// An infrastructure error occurred (e.g., Redis failure).
-    Infrastructure,
 }
 
 const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
@@ -276,7 +269,7 @@ impl RequestTracker {
     pub async fn try_insert_inflight(
         &self,
         addresses: &[Address],
-    ) -> Result<(), InflightInsertError> {
+    ) -> Result<(), GatewayErrorResponse> {
         if let Some(manager) = &self.redis_manager {
             self.try_insert_inflight_redis(manager.clone(), addresses)
                 .await
@@ -301,7 +294,7 @@ impl RequestTracker {
         &self,
         mut manager: ConnectionManager,
         addresses: &[Address],
-    ) -> Result<(), InflightInsertError> {
+    ) -> Result<(), GatewayErrorResponse> {
         let mut inserted_keys: Vec<String> = Vec::new();
 
         for addr in addresses {
@@ -322,16 +315,22 @@ impl RequestTracker {
                 }
                 Ok(None) => {
                     // Key already exists - rollback and return duplicate error
+                    tracing::warn!(
+                        authenticator_address = %addr,
+                        "Duplicate in-flight request detected"
+                    );
                     self.rollback_inflight_redis(&mut manager, &inserted_keys)
                         .await;
-                    return Err(InflightInsertError::Duplicate(*addr));
+                    return Err(GatewayErrorResponse::bad_request(
+                        GatewayErrorCode::DuplicateRequestInFlight,
+                    ));
                 }
                 Err(e) => {
                     tracing::error!("Redis error during in-flight insert: {e}");
                     // On Redis error, rollback what we inserted and return infrastructure error
                     self.rollback_inflight_redis(&mut manager, &inserted_keys)
                         .await;
-                    return Err(InflightInsertError::Infrastructure);
+                    return Err(GatewayErrorResponse::internal_server_error());
                 }
             }
         }
@@ -365,7 +364,7 @@ impl RequestTracker {
     async fn try_insert_inflight_local(
         &self,
         addresses: &[Address],
-    ) -> Result<(), InflightInsertError> {
+    ) -> Result<(), GatewayErrorResponse> {
         let mut inserted_addresses: Vec<Address> = Vec::new();
 
         for addr in addresses {
@@ -387,8 +386,14 @@ impl RequestTracker {
                 }
                 CompResult::Unchanged(_) => {
                     // Already exists - rollback and return duplicate error
+                    tracing::warn!(
+                        authenticator_address = %addr,
+                        "Duplicate in-flight request detected"
+                    );
                     self.remove_inflight_local(&inserted_addresses).await;
-                    return Err(InflightInsertError::Duplicate(*addr));
+                    return Err(GatewayErrorResponse::bad_request(
+                        GatewayErrorCode::DuplicateRequestInFlight,
+                    ));
                 }
                 _ => unreachable!("Unexpected CompResult variant"),
             }
