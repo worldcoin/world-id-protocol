@@ -47,29 +47,39 @@ interface IVerifier {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @notice Emitted when the credential schema issuer registry is updated
+     * @notice Emitted when the credential schema issuer registry is updated.
+     * @param oldCredentialSchemaIssuerRegistry The previous registry address.
+     * @param newCredentialSchemaIssuerRegistry The new registry address.
      */
     event CredentialSchemaIssuerRegistryUpdated(
         address oldCredentialSchemaIssuerRegistry, address newCredentialSchemaIssuerRegistry
     );
 
     /**
-     * @notice Emitted when the World ID Registry is updated
+     * @notice Emitted when the World ID Registry is updated.
+     * @param oldWorldIDRegistry The previous registry address.
+     * @param newWorldIDRegistry The new registry address.
      */
     event WorldIDRegistryUpdated(address oldWorldIDRegistry, address newWorldIDRegistry);
 
     /**
-     * @notice Emitted when the OPRF key registry is updated
+     * @notice Emitted when the OPRF key registry is updated.
+     * @param oldOprfKeyRegistry The previous registry address.
+     * @param newOprfKeyRegistry The new registry address.
      */
     event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
 
     /**
-     * @notice Emitted when the Groth16Verifier is updated
+     * @notice Emitted when the nullifier verifier is updated.
+     * @param oldGroth16Verifier The previous nullifier verifier address.
+     * @param newGroth16Verifier The new nullifier verifier address.
      */
     event Groth16VerifierNullifierUpdated(address oldGroth16Verifier, address newGroth16Verifier);
 
     /**
-     * @notice Emitted when the proof timestamp delta is updated
+     * @notice Emitted when the proof timestamp delta is updated.
+     * @param oldProofTimestampDelta The previous proof timestamp delta value.
+     * @param newProofTimestampDelta The new proof timestamp delta value.
      */
     event ProofTimestampDeltaUpdated(uint256 oldProofTimestampDelta, uint256 newProofTimestampDelta);
 
@@ -79,6 +89,18 @@ interface IVerifier {
 
     /**
      * @notice Verifies a Uniqueness Proof for a specific World ID.
+     * @dev Validates the authenticator root, credential issuer registration, and delegates to the nullifier verifier for proof verification.
+     * @param nullifier The nullifier hash to verify uniqueness.
+     * @param action The action identifier.
+     * @param rpId The relying party identifier.
+     * @param sessionId The identifier for a specific RP-specific session.
+     * @param nonce The nonce used in the proof.
+     * @param signalHash The hash of the signal which was committed in the proof.
+     * @param authenticatorRoot The merkle root of the authenticator set.
+     * @param proofTimestamp The timestamp when the proof was generated.
+     * @param credentialIssuerId The ID of the credential issuer.
+     * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
+     * @param compressedProof The compressed Groth16 proof.
      */
     function verify(
         uint256 nullifier,
@@ -99,27 +121,32 @@ interface IVerifier {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @notice Updates the credential schema issuer registry address
+     * @notice Updates the credential schema issuer registry address.
+     * @param _credentialSchemaIssuerRegistry The new credential schema issuer registry address.
      */
     function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry) external;
 
     /**
-     * @notice Updates the World ID registry address
+     * @notice Updates the World ID registry address.
+     * @param _worldIDRegistry The new World ID registry address.
      */
     function updateWorldIDRegistry(address _worldIDRegistry) external;
 
     /**
-     * @notice Updates the OPRF key registry address
+     * @notice Updates the OPRF key registry address.
+     * @param _oprfKeyRegistry The new OPRF key registry address.
      */
     function updateOprfKeyRegistry(address _oprfKeyRegistry) external;
 
     /**
-     * @notice Updates the Nullifier Verifier address
+     * @notice Updates the Nullifier Verifier address.
+     * @param _verifierNullifier The new nullifier verifier address.
      */
     function updateVerifierNullifier(address _verifierNullifier) external;
 
     /**
      * @notice Updates the proof timestamp delta
+     * @param _proofTimestampDelta The new proof timestamp delta value in seconds.
      */
     function updateProofTimestampDelta(uint256 _proofTimestampDelta) external;
 }

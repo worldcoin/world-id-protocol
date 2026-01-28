@@ -44,6 +44,10 @@ contract WorldIDRegistry is
     //                        Members                         //
     ////////////////////////////////////////////////////////////
 
+    // DO NOT REORDER! To ensure compatibility between upgrades, it is exceedingly important
+    // that no reordering of these variables takes place. If reordering happens, a storage
+    // clash will occur (effectively a memory safety error).
+
     // leafIndex -> [96 bits pubkeyId bitmap][160 bits recoveryAddress]
     // Note that while 96 bits are reserved for the pubkeyId bitmap, only `maxAuthenticators` bits are used in practice.
     mapping(uint256 => uint256) internal _leafIndexToRecoveryAddressPacked;
@@ -146,31 +150,22 @@ contract WorldIDRegistry is
     //                  Public View Functions                 //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Returns the domain separator for the EIP712 structs.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
 
-    /**
-     * @dev Returns the current tree root.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function currentRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return tree.root;
     }
 
-    /**
-     * @dev Returns the recovery address for the given World ID (based on its leaf index).
-     * @param leafIndex The index of the leaf.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getRecoveryAddress(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
         return _getRecoveryAddress(leafIndex);
     }
 
-    /**
-     * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
         // The latest root is always valid.
         if (root == latestRoot) return true;
@@ -180,10 +175,7 @@ contract WorldIDRegistry is
         return block.timestamp <= ts + rootValidityWindow;
     }
 
-    /**
-     * @dev Returns the packed account data for an authenticator address.
-     * @param authenticatorAddress The authenticator address to query.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getPackedAccountData(address authenticatorAddress)
         external
         view
@@ -195,61 +187,42 @@ contract WorldIDRegistry is
         return authenticatorAddressToPackedAccountData[authenticatorAddress];
     }
 
-    /**
-     * @dev Returns the signature nonce for a leaf index.
-     * @param leafIndex The leaf index to query.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getSignatureNonce(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return leafIndexToSignatureNonce[leafIndex];
     }
 
-    /**
-     * @dev Returns the recovery counter for a leaf index.
-     * @param leafIndex The leaf index to query.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getRecoveryCounter(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return leafIndexToRecoveryCounter[leafIndex];
     }
 
-    /**
-     * @dev Returns the next available leaf index.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return nextLeafIndex;
     }
 
-    /**
-     * @dev Returns the depth of the Merkle tree.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getTreeDepth() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return treeDepth;
     }
 
-    /**
-     * @dev Returns the maximum number of authenticators allowed per account.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getMaxAuthenticators() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return maxAuthenticators;
     }
 
-    /**
-     * @dev Returns the timestamp when a root was recorded.
-     * @param root The root to query.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getRootTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return rootToTimestamp[root];
     }
 
-    /**
-     * @dev Returns the latest root.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getLatestRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return latestRoot;
     }
 
-    /**
-     * @dev Returns the root validity window in seconds.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return rootValidityWindow;
     }
@@ -281,6 +254,8 @@ contract WorldIDRegistry is
 
     /**
      * @dev Helper function to get recovery address from the packed storage.
+     * @param leafIndex The leaf index of the account.
+     * @return The recovery address for the account.
      */
     function _getRecoveryAddress(uint256 leafIndex) internal view returns (address) {
         return address(uint160(_leafIndexToRecoveryAddressPacked[leafIndex]));
@@ -288,6 +263,8 @@ contract WorldIDRegistry is
 
     /**
      * @dev Helper function to get pubkey bitmap from the packed storage.
+     * @param leafIndex The leaf index of the account.
+     * @return The pubkey bitmap for the account.
      */
     function _getPubkeyBitmap(uint256 leafIndex) internal view returns (uint256) {
         return _leafIndexToRecoveryAddressPacked[leafIndex] >> 160;
@@ -350,6 +327,8 @@ contract WorldIDRegistry is
     /**
      * @dev Helper function to set pubkey bitmap packed, preserving the recovery address. The
      * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
+     * @param leafIndex The leaf index of the account.
+     * @param bitmap The new pubkey bitmap to set.
      */
     function _setPubkeyBitmap(uint256 leafIndex, uint256 bitmap) internal {
         if (bitmap >> 96 != 0) {
@@ -365,6 +344,9 @@ contract WorldIDRegistry is
     /**
      * @dev Helper function to set recovery address and pubkey bitmap packed. The
      * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
+     * @param leafIndex The leaf index of the account.
+     * @param recoveryAddress The recovery address to set.
+     * @param bitmap The pubkey bitmap to set.
      */
     function _setRecoveryAddressAndBitmap(uint256 leafIndex, address recoveryAddress, uint256 bitmap) internal {
         if (bitmap >> 96 != 0) {
@@ -385,6 +367,10 @@ contract WorldIDRegistry is
 
     /**
      * @dev Updates a leaf in the tree and records the new root.
+     * @param leafIndex The leaf index to update.
+     * @param oldOffchainSignerCommitment The old offchain signer commitment (current leaf value).
+     * @param newOffchainSignerCommitment The new offchain signer commitment (new leaf value).
+     * @param siblingNodes The Merkle proof sibling nodes.
      */
     function _updateLeafAndRecord(
         uint256 leafIndex,
@@ -398,6 +384,10 @@ contract WorldIDRegistry is
 
     /**
      * @dev Internal function to register an account.
+     * @param recoveryAddress The recovery address for the new account.
+     * @param authenticatorAddresses The authenticator addresses for the new account.
+     * @param authenticatorPubkeys The authenticator pubkeys for the new account.
+     * @param offchainSignerCommitment The offchain signer commitment for the new account.
      */
     function _registerAccount(
         address recoveryAddress,
@@ -445,12 +435,7 @@ contract WorldIDRegistry is
     //         Public State-Changing Functions                //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Creates a new World ID account.
-     * @param recoveryAddress The address of the recovery signer.
-     * @param authenticatorAddresses The addresses of the authenticators.
-     * @param offchainSignerCommitment The offchain signer commitment.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function createAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
@@ -465,12 +450,7 @@ contract WorldIDRegistry is
         _recordCurrentRoot();
     }
 
-    /**
-     * @dev Creates multiple World ID accounts.
-     * @param recoveryAddresses The addresses of the recovery signers.
-     * @param authenticatorAddresses The addresses of the authenticators.
-     * @param offchainSignerCommitments The offchain signer commitments.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function createManyAccounts(
         address[] calldata recoveryAddresses,
         address[][] calldata authenticatorAddresses,
@@ -506,15 +486,7 @@ contract WorldIDRegistry is
         _recordCurrentRoot();
     }
 
-    /**
-     * @dev Updates an existing Authenticator.
-     * @param oldAuthenticatorAddress The authenticator address to update.
-     * @param newAuthenticatorAddress The new authenticator address.
-     * @param oldOffchainSignerCommitment The old offchain signer commitment.
-     * @param newOffchainSignerCommitment The new offchain signer commitment.
-     * @param signature The signature.
-     * @param siblingNodes The sibling nodes.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function updateAuthenticator(
         uint256 leafIndex,
         address oldAuthenticatorAddress,
@@ -601,13 +573,7 @@ contract WorldIDRegistry is
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
     }
 
-    /**
-     * @dev Inserts a new Authenticator.
-     * @param newAuthenticatorAddress The authenticator address to insert.
-     * @param newOffchainSignerCommitment The new offchain signer commitment.
-     * @param signature The signature.
-     * @param siblingNodes The sibling nodes.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function insertAuthenticator(
         uint256 leafIndex,
         address newAuthenticatorAddress,
@@ -676,14 +642,7 @@ contract WorldIDRegistry is
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
     }
 
-    /**
-     * @dev Removes an Authenticator.
-     * @param authenticatorAddress The authenticator address to remove.
-     * @param oldOffchainSignerCommitment The old offchain signer commitment.
-     * @param newOffchainSignerCommitment The new offchain signer commitment.
-     * @param signature The signature.
-     * @param siblingNodes The sibling nodes.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function removeAuthenticator(
         uint256 leafIndex,
         address authenticatorAddress,
@@ -754,17 +713,7 @@ contract WorldIDRegistry is
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
     }
 
-    /**
-     * @dev Recovers a World ID.
-     * @param leafIndex The index of the leaf.
-     * @param newAuthenticatorAddress The new authenticator address.
-     * @param newAuthenticatorPubkey The new authenticator pubkey.
-     * @param oldOffchainSignerCommitment The old offchain signer commitment.
-     * @param newOffchainSignerCommitment The new offchain signer commitment.
-     * @param signature The signature.
-     * @param siblingNodes The sibling nodes.
-     * @param nonce The signature nonce.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function recoverAccount(
         uint256 leafIndex,
         address newAuthenticatorAddress,
@@ -827,13 +776,7 @@ contract WorldIDRegistry is
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
     }
 
-    /**
-     * @dev Updates the recovery address for a World ID.
-     * @param leafIndex The index of the leaf.
-     * @param newRecoveryAddress The new recovery address.
-     * @param signature The signature authorizing the change.
-     * @param nonce The signature nonce.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function updateRecoveryAddress(uint256 leafIndex, address newRecoveryAddress, bytes memory signature, uint256 nonce)
         external
         virtual
@@ -873,18 +816,14 @@ contract WorldIDRegistry is
     //                      Owner Functions                   //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Sets the validity window for historic roots.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
         rootValidityWindow = newWindow;
         emit RootValidityWindowUpdated(old, newWindow);
     }
 
-    /**
-     * @dev Set an updated maximum number of authenticators allowed.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
         if (newMaxAuthenticators > MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
@@ -894,10 +833,7 @@ contract WorldIDRegistry is
         emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
     }
 
-    /**
-     * @dev Sets the recipient address for registration fees.
-     * @param newFeeRecipient The new fee recipient address.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setFeeRecipient(address newFeeRecipient) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newFeeRecipient == address(0)) revert ZeroAddress();
         address oldRecipient = _feeRecipient;
@@ -905,20 +841,14 @@ contract WorldIDRegistry is
         emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
     }
 
-    /**
-     * @dev Sets the registration fee amount.
-     * @param newFee The new registration fee.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setRegistrationFee(uint256 newFee) external virtual onlyOwner onlyProxy onlyInitialized {
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
     }
 
-    /**
-     * @dev Sets the token used for paying registration fees.
-     * @param newFeeToken The new fee token address.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setFeeToken(address newFeeToken) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newFeeToken == address(0)) revert ZeroAddress();
         address oldToken = address(_feeToken);

@@ -179,6 +179,9 @@ interface ICredentialSchemaIssuerRegistry {
 
     /**
      * @dev Updates the schema URI for a specific issuer schema ID.
+     * @param issuerSchemaId The issuer-schema ID whose schema URI will be updated.
+     * @param schemaUri The new schema URI to set.
+     * @param signature The signature from the authorized signer authorizing the update.
      */
     function updateIssuerSchemaUri(uint64 issuerSchemaId, string memory schemaUri, bytes calldata signature) external;
 
@@ -213,4 +216,44 @@ interface ICredentialSchemaIssuerRegistry {
      * @return The current nonce for the issuer-schema ID.
      */
     function nonceOf(uint64 issuerSchemaId) external view returns (uint256);
+
+    /**
+     * @dev Returns the current registration fee for an issuer schema.
+     * @return The registration fee amount.
+     */
+    function getRegistrationFee() external view returns (uint256);
+
+    /**
+     * @dev Returns the current recipient for issuer schema registration fees.
+     * @return The fee recipient address.
+     */
+    function getFeeRecipient() external view returns (address);
+
+    /**
+     * @dev Returns the current token with which fees are paid.
+     * @return The fee token address.
+     */
+    function getFeeToken() external view returns (address);
+
+    ////////////////////////////////////////////////////////////
+    //                   OWNER FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Sets the fee recipient address where registration fees are sent.
+     * @param newFeeRecipient The new address to receive registration fees.
+     */
+    function setFeeRecipient(address newFeeRecipient) external;
+
+    /**
+     * @dev Sets the registration fee amount required to register a new relying party.
+     * @param newFee The new registration fee amount.
+     */
+    function setRegistrationFee(uint256 newFee) external;
+
+    /**
+     * @dev Sets the ERC20 token address used for paying registration fees. Use address(0) for native ETH.
+     * @param newFeeToken The new token address for fee payments.
+     */
+    function setFeeToken(address newFeeToken) external;
 }

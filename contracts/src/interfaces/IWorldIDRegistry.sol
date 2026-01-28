@@ -513,4 +513,22 @@ interface IWorldIDRegistry {
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external;
+
+    /**
+     * @dev Sets the fee recipient address where registration fees are sent.
+     * @param newFeeRecipient The new address to receive registration fees.
+     */
+    function setFeeRecipient(address newFeeRecipient) external;
+
+    /**
+     * @dev Sets the registration fee amount required to register a new relying party.
+     * @param newFee The new registration fee amount.
+     */
+    function setRegistrationFee(uint256 newFee) external;
+
+    /**
+     * @dev Sets the ERC20 token address used for paying registration fees. Use address(0) for native ETH.
+     * @param newFeeToken The new token address for fee payments.
+     */
+    function setFeeToken(address newFeeToken) external;
 }

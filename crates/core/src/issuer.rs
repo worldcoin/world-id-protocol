@@ -14,7 +14,6 @@ sol!(
 );
 
 impl From<EdDSAPublicKey> for ICredentialSchemaIssuerRegistry::Pubkey {
-
     fn from(pubkey: EdDSAPublicKey) -> Self {
         Self {
             x: U256::from_limbs(pubkey.pk.x.into_bigint().0),

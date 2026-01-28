@@ -124,6 +124,7 @@ contract CredentialSchemaIssuerRegistry is
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function register(uint64 issuerSchemaId, Pubkey memory pubkey, address signer)
         public
         virtual
@@ -165,6 +166,7 @@ contract CredentialSchemaIssuerRegistry is
         return issuerSchemaId;
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function remove(uint64 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         if (_isEmptyPubkey(pubkey)) {
@@ -190,6 +192,7 @@ contract CredentialSchemaIssuerRegistry is
         emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function updatePubkey(uint64 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
         public
         virtual
@@ -230,6 +233,7 @@ contract CredentialSchemaIssuerRegistry is
         _idToSignatureNonce[issuerSchemaId]++;
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function updateSigner(uint64 issuerSchemaId, address newSigner, bytes calldata signature)
         public
         virtual
@@ -264,11 +268,7 @@ contract CredentialSchemaIssuerRegistry is
         _idToSignatureNonce[issuerSchemaId]++;
     }
 
-    /**
-     * @dev Returns the schema URI for a specific issuerSchemaId.
-     * @param issuerSchemaId The issuer+schema ID.
-     * @return The schema URI for the issuerSchemaId.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getIssuerSchemaUri(uint64 issuerSchemaId)
         public
         view
@@ -280,12 +280,7 @@ contract CredentialSchemaIssuerRegistry is
         return idToSchemaUri[issuerSchemaId];
     }
 
-    /**
-     * @dev Updates the schema URI for a specific issuer schema ID.
-     * @param issuerSchemaId The issuer-schema ID whose schema URI will be updated.
-     * @param schemaUri The new schema URI to set.
-     * @param signature The signature of the issuer authorizing the update.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function updateIssuerSchemaUri(uint64 issuerSchemaId, string memory schemaUri, bytes calldata signature)
         public
         virtual
@@ -323,11 +318,7 @@ contract CredentialSchemaIssuerRegistry is
         _idToSignatureNonce[issuerSchemaId]++;
     }
 
-    /**
-     * @dev Returns the off-chain pubkey for a specific issuerSchemaId which signs credentials and whose signature is verified on World ID ZKPs.
-     * @param issuerSchemaId The issuer-schema ID whose pubkey will be returned.
-     * @return The pubkey for the issuerSchemaId.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function issuerSchemaIdToPubkey(uint64 issuerSchemaId)
         public
         view
@@ -339,11 +330,7 @@ contract CredentialSchemaIssuerRegistry is
         return _idToPubkey[issuerSchemaId];
     }
 
-    /**
-     * @dev Returns the on-chain signer address authorized to perform updates on a specific issuerSchemaId.
-     * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
-     * @return The on-chain signer address for the issuerSchemaId.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getSignerForIssuerSchemaId(uint64 issuerSchemaId)
         public
         view
@@ -355,31 +342,31 @@ contract CredentialSchemaIssuerRegistry is
         return _idToAddress[issuerSchemaId];
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function nonceOf(uint64 issuerSchemaId) public view virtual override onlyProxy onlyInitialized returns (uint256) {
         return _idToSignatureNonce[issuerSchemaId];
     }
 
+    /**
+     * @dev Checks if a pubkey is empty (has zero coordinates).
+     * @param pubkey The pubkey to check.
+     * @return True if the pubkey is empty, false otherwise.
+     */
     function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
         return pubkey.x == 0 || pubkey.y == 0;
     }
 
-    /**
-     * @dev Returns the current registration fee for an issuer schema.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getRegistrationFee() public view onlyProxy onlyInitialized returns (uint256) {
         return _registrationFee;
     }
 
-    /**
-     * @dev Returns the current recipient for issuer schema registration fees.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getFeeRecipient() public view onlyProxy onlyInitialized returns (address) {
         return _feeRecipient;
     }
 
-    /**
-     * @dev Returns the current token with which fees are paid.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getFeeToken() public view onlyProxy onlyInitialized returns (address) {
         return address(_feeToken);
     }
@@ -388,6 +375,7 @@ contract CredentialSchemaIssuerRegistry is
     //                    Owner Functions                     //
     ////////////////////////////////////////////////////////////
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function setFeeRecipient(address newFeeRecipient) external onlyOwner onlyProxy onlyInitialized {
         if (newFeeRecipient == address(0)) revert ZeroAddress();
         address oldRecipient = _feeRecipient;
@@ -395,12 +383,14 @@ contract CredentialSchemaIssuerRegistry is
         emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function setRegistrationFee(uint256 newFee) external onlyOwner onlyProxy onlyInitialized {
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function setFeeToken(address newFeeToken) external onlyOwner onlyProxy onlyInitialized {
         if (newFeeToken == address(0)) revert ZeroAddress();
         address oldToken = address(_feeToken);
