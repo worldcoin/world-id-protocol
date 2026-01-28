@@ -7,7 +7,7 @@ use std::{
 };
 
 use super::{MerkleTree, PoseidonHasher};
-use crate::db::{DB, EventId, get_active_leaf_count, get_total_event_count};
+use crate::db::{DB, WorldTreeEventId, get_active_leaf_count, get_total_event_count};
 
 /// Get the metadata file path for a given cache path.
 /// Cache file: `/path/to/tree.mmap` → Metadata: `/path/to/tree.mmap.meta`
@@ -45,7 +45,7 @@ pub struct TreeCacheMetadata {
 /// Database state information for validation
 #[derive(Debug)]
 pub struct DbState {
-    pub last_event_id: Option<EventId>,
+    pub last_event_id: Option<WorldTreeEventId>,
     #[allow(dead_code)]
     pub total_events: u64,
     #[allow(dead_code)]
@@ -74,7 +74,7 @@ pub async fn write_metadata(
     cache_path: &Path,
     tree: &MerkleTree<PoseidonHasher, semaphore_rs_trees::lazy::Canonical>,
     db: &DB,
-    last_event_id: EventId,
+    last_event_id: WorldTreeEventId,
     tree_depth: usize,
     dense_prefix_depth: usize,
 ) -> anyhow::Result<()> {
@@ -130,7 +130,7 @@ pub async fn write_metadata(
 
 /// Get current database state (for validation)
 pub async fn get_db_state(db: &DB) -> anyhow::Result<DbState> {
-    let last_event_id = db.world_id_events().get_latest_id().await?;
+    let last_event_id = db.world_tree_events().get_latest_id().await?;
     let total_events = get_total_event_count(db.pool()).await?;
     let active_leaf_count = get_active_leaf_count(db.pool()).await?;
 

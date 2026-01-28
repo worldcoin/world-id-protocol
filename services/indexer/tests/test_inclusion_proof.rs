@@ -207,8 +207,8 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     .unwrap();
 
     sqlx::query(
-        r#"insert into world_id_events
-        (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
+        r#"insert into world_tree_events
+        (leaf_index, event_type, offchain_signer_commitment, block_number, tx_hash, log_index)
         values ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind(U256::from(1))

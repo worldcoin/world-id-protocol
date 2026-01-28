@@ -1,12 +1,12 @@
+use std::future;
+
 use alloy::{
     primitives::Address,
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
-    rpc::types::Filter,
-    sol_types::SolEvent,
+    rpc::types::{Filter, Log},
 };
-use futures_util::{Stream, StreamExt};
+use futures_util::{Stream, StreamExt, stream};
 use url::Url;
-use world_id_core::world_id_registry::WorldIdRegistry;
 
 pub use crate::blockchain::events::{BlockchainEvent, RegistryEvent};
 
@@ -40,55 +40,36 @@ impl Blockchain {
         })
     }
 
-    pub async fn get_world_id_events(
-        &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> anyhow::Result<Vec<BlockchainEvent<RegistryEvent>>> {
-        let event_signatures = vec![
-            WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-            WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-            WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-            WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-            WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-        ];
-
-        let filter = Filter::new()
-            .address(self.world_id_registry)
-            .event_signature(event_signatures)
-            .from_block(from_block)
-            .to_block(to_block);
-
-        self.http_provider
-            .get_logs(&filter)
-            .await?
-            .iter()
-            .map(events::decode_registry_event)
-            .collect()
-    }
-
-    pub async fn stream_world_id_events(
+    pub async fn stream_world_tree_events(
         &self,
         from_block: u64,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<BlockchainEvent<RegistryEvent>>>> {
-        let event_signatures = vec![
-            WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-            WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-            WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-            WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-            WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-        ];
-
         let filter = Filter::new()
             .address(self.world_id_registry)
-            .event_signature(event_signatures)
-            .from_block(from_block);
+            .event_signature(RegistryEvent::signatures());
 
         let logs = self.ws_provider.subscribe_logs(&filter).await?;
 
-        Ok(logs
-            .into_stream()
-            .map(|log| events::decode_registry_event(&log)))
+        let new_events = logs.into_stream();
+
+        let latest_block_number = self.http_provider.get_block_number().await?;
+
+        let range_filter = filter
+            .clone()
+            .from_block(from_block)
+            .to_block(latest_block_number);
+
+        let backfill_events = self.http_provider.get_logs(&range_filter).await?;
+
+        Ok(stream::iter(backfill_events)
+            .chain(new_events.filter(move |v| {
+                future::ready({
+                    v.block_number
+                        .map(|block_number| block_number > latest_block_number)
+                        .unwrap_or(false)
+                })
+            }))
+            .map(|log| RegistryEvent::decode(&log)))
     }
 
     pub async fn get_block_number(&self) -> anyhow::Result<u64> {

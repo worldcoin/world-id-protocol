@@ -5,7 +5,7 @@ use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use tracing::info;
 
 use super::PoseidonHasher;
-use crate::db::{DB, EventId, fetch_leaves_batch};
+use crate::db::{DB, WorldTreeEventId, fetch_leaves_batch};
 
 pub struct TreeBuilder {
     tree_depth: usize,
@@ -59,7 +59,7 @@ impl TreeBuilder {
         &self,
         db: &DB,
         cache_path: &Path,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, EventId)> {
+    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
         info!("Building tree from database with mmap cache (chunk-based processing)");
 
         let cache_path_str = cache_path
@@ -195,7 +195,7 @@ impl TreeBuilder {
 
         // Get the last block number and event ID from DB
         let last_event_id = db
-            .world_id_events()
+            .world_tree_events()
             .get_latest_id()
             .await?
             .unwrap_or_default();
@@ -258,8 +258,8 @@ impl TreeBuilder {
         &self,
         mut tree: MerkleTree<PoseidonHasher, Canonical>,
         db: &DB,
-        from_event_id: EventId,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, EventId)> {
+        from_event_id: WorldTreeEventId,
+    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
         use std::collections::HashMap;
 
         const BATCH_SIZE: u64 = 10_000;
@@ -279,7 +279,7 @@ impl TreeBuilder {
         loop {
             // Event ID-based pagination
             let events = db
-                .world_id_events()
+                .world_tree_events()
                 .get_after(last_event_id, BATCH_SIZE)
                 .await?;
 
@@ -293,7 +293,7 @@ impl TreeBuilder {
             // Process events into final states (in memory, deduplicated)
             for event in &events {
                 // Store final state (overwrites previous updates to same leaf)
-                leaf_final_states.insert(event.leaf_index, event.new_commitment);
+                leaf_final_states.insert(event.leaf_index, event.offchain_signer_commitment);
             }
 
             // Update cursor to last event ID in this batch
