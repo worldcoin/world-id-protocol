@@ -10,66 +10,21 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
+import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract CredentialSchemaIssuerRegistry is
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    ICredentialSchemaIssuerRegistry
+{
     using SafeERC20 for IERC20;
-
-    error ImplementationNotInitialized();
-
-    /**
-     * @dev Thrown when trying to update the schema URI to the same as the current one.
-     */
-    error SchemaUriIsTheSameAsCurrentOne();
-
-    /**
-     * @dev Thrown when the provided signature is invalid for the operation.
-     */
-    error InvalidSignature();
-
-    /**
-     * @dev Thrown when the provided pubkey is invalid (for example if either coordinate is zero).
-     */
-    error InvalidPubkey();
-
-    /**
-     * @dev Thrown when an invalid signer is provided (e.g. zero address)
-     */
-    error InvalidSigner();
-
-    /**
-     * @dev Thrown when an issuerSchemaId is not registered
-     */
-    error IdNotRegistered();
-
-    /**
-     * @dev Thrown when trying to update signer to the same address that's already assigned
-     */
-    error SignerAlreadyAssigned();
-
-    /**
-     * @dev Thrown when the provided issuerSchemaId is invalid
-     */
-    error InvalidIssuerSchemaId();
-
-    /**
-     * @dev Thrown when trying to set an address to the zero address.
-     */
-    error ZeroAddress();
-
-    /**
-     * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
-     */
-    error IdAlreadyInUse(uint64 id);
-
-    /**
-     * @dev Thrown when the passed id is invalid for the operation. Usually this means the `id` used is equal to `0` which is not allowed.
-     */
-    error InvalidId();
 
     modifier onlyInitialized() {
         _onlyInitialized();
@@ -80,15 +35,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                         Types                          //
-    ////////////////////////////////////////////////////////////
-
-    struct Pubkey {
-        uint256 x;
-        uint256 y;
     }
 
     ////////////////////////////////////////////////////////////
@@ -143,20 +89,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
 
     // the OPRF key registry contract, used to init OPRF key gen for blinding factors of credentials
     IOprfKeyRegistry public _oprfKeyRegistry;
-
-    ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event IssuerSchemaRegistered(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer, uint160 oprfKeyId);
-    event IssuerSchemaRemoved(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaPubkeyUpdated(uint64 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
-    event IssuerSchemaSignerUpdated(uint64 indexed issuerSchemaId, address oldSigner, address newSigner);
-    event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
-
-    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
-    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
-    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -423,7 +355,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return _idToAddress[issuerSchemaId];
     }
 
-    function nonceOf(uint64 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+    function nonceOf(uint64 issuerSchemaId) public view virtual override onlyProxy onlyInitialized returns (uint256) {
         return _idToSignatureNonce[issuerSchemaId];
     }
 
