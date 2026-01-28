@@ -56,9 +56,9 @@ pub mod merkle;
 #[cfg(feature = "circuits")]
 pub mod oprf;
 
-/// Contains the quintessential proof type.
+/// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
-pub use proof::WorldIdProof;
+pub use proof::ZeroKnowledgeProof;
 
 /// Contains types specifically related to relying parties.
 pub mod rp;

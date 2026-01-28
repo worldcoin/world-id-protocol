@@ -38,6 +38,7 @@ backon = { workspace = true, optional = true, features = ["tokio-sleep"] }
 poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
+ark-groth16 = { workspace = true }
 anyhow = { workspace = true }
 chrono = "0.4"
 ciborium = "0.2"
@@ -119,4 +120,3 @@ taceo-oprf-core = { workspace = true }
 mockito = "1.6"
 taceo-oprf-service = { workspace = true }
 taceo-oprf-test-utils = { workspace = true }
-taceo-groth16-sol = "0.1"

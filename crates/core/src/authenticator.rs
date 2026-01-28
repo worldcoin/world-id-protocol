@@ -8,7 +8,7 @@ use crate::{
     Credential, FieldElement, Signer,
     nullifier::{AuthenticatorProofInput, OprfNullifier},
     proof::{ProofError, generate_nullifier_proof},
-    requests::{ProofRequest, RequestItem},
+    requests::{ProofRequest, RequestItem, ResponseItem},
     types::{
         AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
         IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
@@ -26,10 +26,8 @@ use alloy::{
     uint,
 };
 use ark_babyjubjub::EdwardsAffine;
-use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
 use backon::{ExponentialBuilder, Retryable};
-use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use reqwest::StatusCode;
 use rustls::{ClientConfig, RootCertStore};
@@ -37,7 +35,8 @@ use secrecy::ExposeSecret;
 use taceo_oprf_client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
+    merkle::MerkleInclusionProof,
 };
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -482,13 +481,15 @@ impl Authenticator {
         session_id_r_seed: FieldElement,
         session_id: Option<FieldElement>,
         request_timestamp: u64, // TODO: Convert into min_expiration
-    ) -> Result<(Proof<Bn254>, FieldElement), AuthenticatorError> {
+    ) -> Result<ResponseItem, AuthenticatorError> {
         // TODO: load once and from bytes
         let nullifier_material = crate::proof::load_embedded_nullifier_material();
 
         let mut rng = rand::rngs::OsRng;
 
-        let proof = generate_nullifier_proof(
+        let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+
+        let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
             &nullifier_material,
             &mut rng,
             credential,
@@ -500,8 +501,16 @@ impl Authenticator {
             request_timestamp,
         )?;
 
-        // FIXME: encode as response item
-        Ok((proof.0, proof.2.into()))
+        let proof = ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root);
+
+        let response_item = ResponseItem::from_success(
+            request_item.identifier.clone(),
+            request_item.issuer_schema_id,
+            proof,
+            nullifier.into(),
+        );
+
+        Ok(response_item)
     }
 
     /// Inserts a new authenticator to the account.

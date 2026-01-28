@@ -46,6 +46,7 @@ taceo-oprf-core = { version = "0.3", default-features = false }
 taceo-oprf-types = { version = "0.4" }
 taceo-oprf-client = { version = "0.3" }
 taceo-oprf-service = { version = "0.3" }
+taceo-groth16-sol = { version = "0.1" }
 taceo-oprf-test-utils = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
 taceo-oprf-dev-client = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
 taceo-oprf-key-gen = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
