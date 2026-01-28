@@ -13,12 +13,11 @@ include = [
     "src/**/*",
     "bin/**/*",
     "tests/**/*",
-    "contracts/**/*",
+    "../../contracts/abi/*",
     "build.rs",
     "Cargo.toml",
     "README.md",
 ]
-
 
 [[bin]]
 name = "authenticator"
@@ -49,7 +48,11 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"], optional = true }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+], optional = true }
 circom-types = { workspace = true, optional = true }
 rand = { workspace = true }
 ark-ec = { workspace = true }
@@ -67,6 +70,10 @@ k256 = { workspace = true, features = ["ecdsa", "serde"] }
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
+
+# Internal
+world-id-issuer = { workspace = true, optional = true }
+world-id-credential = { workspace = true, optional = true }
 
 [features]
 default = ["authenticator", "embed-zkeys"]
@@ -88,11 +95,12 @@ authenticator = [
     "dep:webpki-roots",
     "dep:axum",
     "dep:tokio",
+    "dep:world-id-credential",
 ]
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
-issuer = ["alloy/signer-local", "dep:secrecy", "dep:tokio"]
+issuer = ["dep:world-id-issuer", "dep:world-id-credential", "dep:secrecy"]
 
 rp = ["dep:taceo-oprf-types", "alloy/signers"]
 

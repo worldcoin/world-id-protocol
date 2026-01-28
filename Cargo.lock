@@ -8488,7 +8488,40 @@ dependencies = [
  "tracing-subscriber 0.3.22",
  "utoipa",
  "webpki-roots 1.0.5",
+ "world-id-credential",
  "world-id-gateway",
+ "world-id-issuer",
+ "world-id-primitives",
+]
+
+[[package]]
+name = "world-id-credential"
+version = "0.3.0"
+dependencies = [
+ "alloy",
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "eyre",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "ruint",
+ "serde",
+ "serde_json",
+ "strum 0.27.2",
+ "taceo-ark-babyjubjub",
+ "taceo-circom-types",
+ "taceo-eddsa-babyjubjub",
+ "taceo-groth16-material",
+ "taceo-oprf-core",
+ "taceo-oprf-types",
+ "taceo-poseidon2 0.1.0",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "utoipa",
  "world-id-primitives",
 ]
 
@@ -8558,6 +8591,42 @@ dependencies = [
  "utoipa",
  "uuid",
  "world-id-core",
+ "world-id-primitives",
+]
+
+[[package]]
+name = "world-id-issuer"
+version = "0.3.0"
+dependencies = [
+ "alloy",
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "eyre",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "reqwest",
+ "ruint",
+ "rustls 0.23.36",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "strum 0.27.2",
+ "taceo-ark-babyjubjub",
+ "taceo-circom-types",
+ "taceo-eddsa-babyjubjub",
+ "taceo-groth16-material",
+ "taceo-oprf-core",
+ "taceo-oprf-types",
+ "taceo-poseidon2 0.1.0",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+ "utoipa",
+ "webpki-roots 1.0.5",
  "world-id-primitives",
 ]
 

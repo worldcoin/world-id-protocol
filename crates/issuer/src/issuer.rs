@@ -10,7 +10,7 @@ sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     CredentialSchemaIssuerRegistry,
-    "contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
+    "../../contracts/abi/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
 );
 
 impl From<EdDSAPublicKey> for ICredentialSchemaIssuerRegistry::Pubkey {
