@@ -97,13 +97,13 @@ contract WorldIDVerifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradea
         uint256 sessionId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 authenticatorRoot,
+        uint256 merkleRoot,
         uint256 proofTimestamp,
         uint64 credentialIssuerId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[4] calldata compressedProof
     ) external view virtual onlyProxy onlyInitialized {
-        if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
+        if (!worldIDRegistry.isValidRoot(merkleRoot)) {
             revert InvalidMerkleRoot();
         }
 
@@ -135,7 +135,7 @@ contract WorldIDVerifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradea
         pubSignals[3] = credentialIssuerPubkey.y;
         pubSignals[4] = proofTimestamp;
         pubSignals[5] = credentialGenesisIssuedAtMin;
-        pubSignals[6] = authenticatorRoot;
+        pubSignals[6] = merkleRoot;
         pubSignals[7] = treeDepth;
         pubSignals[8] = uint256(rpId);
         pubSignals[9] = action;
