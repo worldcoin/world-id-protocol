@@ -148,6 +148,52 @@ fn create_and_sign_credential(
     Ok((credential, credential_sub_blinding_factor))
 }
 
+fn create_proof_request(
+    rp_id: RpId,
+    oprf_key_id: OprfKeyId,
+    share_epoch: ShareEpoch,
+    signer: &LocalSigner<SigningKey>,
+) -> eyre::Result<ProofRequest> {
+    let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
+
+    let action = ark_babyjubjub::Fq::rand(&mut rng);
+    let nonce = ark_babyjubjub::Fq::rand(&mut rng);
+
+    let current_timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time after epoch")
+        .as_secs();
+    let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
+
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        nonce,
+        current_timestamp,
+        expiration_timestamp,
+    );
+    let signature = signer.sign_message_sync(&msg)?;
+
+    Ok(ProofRequest {
+        id: "test_request".to_string(),
+        version: RequestVersion::V1,
+        created_at: current_timestamp,
+        expires_at: expiration_timestamp,
+        rp_id,
+        oprf_key_id,
+        share_epoch,
+        session_id: None,
+        action: Some(FieldElement::from(action)),
+        signature,
+        nonce: FieldElement::from(nonce),
+        requests: vec![RequestItem {
+            identifier: "test_credential".to_string(),
+            issuer_schema_id: ISSUER_SCHEMA_ID,
+            signal: Some("my_signal".to_string()),
+            genesis_issued_at_min: None,
+        }],
+        constraints: None,
+    })
+}
+
 async fn run_nullifier(
     authenticator: &Authenticator,
     rp_id: RpId,
@@ -168,41 +214,8 @@ async fn run_nullifier(
             .expect("leaf_index fits into u64"),
     )?;
 
-    let action = ark_babyjubjub::Fq::rand(&mut rng);
-    let nonce = ark_babyjubjub::Fq::rand(&mut rng);
-    let current_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time after epoch")
-        .as_secs();
-    let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
-
-    let msg = world_id_primitives::rp::compute_rp_signature_msg(
-        nonce,
-        current_timestamp,
-        expiration_timestamp,
-    );
-    let signature = signer.sign_message_sync(&msg)?;
-
-    let proof_request = ProofRequest {
-        id: "test_request".to_string(),
-        version: RequestVersion::V1,
-        created_at: current_timestamp,
-        expires_at: expiration_timestamp,
-        rp_id,
-        oprf_key_id,
-        share_epoch,
-        session_id: None,
-        action: Some(FieldElement::from(action)),
-        signature,
-        nonce: FieldElement::from(nonce),
-        requests: vec![RequestItem {
-            identifier: "test_credential".to_string(),
-            issuer_schema_id: ISSUER_SCHEMA_ID,
-            signal: Some("my_signal".to_string()),
-            genesis_issued_at_min: None,
-        }],
-        constraints: None,
-    };
+    let proof_request = create_proof_request(rp_id, oprf_key_id, share_epoch, signer)
+        .context("while creating proof request")?;
     let request_item = proof_request
         .find_request_by_issuer_schema_id(ISSUER_SCHEMA_ID)
         .ok_or_eyre("unexpectedly not found relevant request_item")?;
@@ -248,7 +261,6 @@ fn generate_oprf_auth_request(
     query_material: &CircomGroth16Material,
 ) -> eyre::Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>)> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
-    let action = ark_babyjubjub::Fq::rand(&mut rng);
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
 
@@ -263,15 +275,18 @@ fn generate_oprf_auth_request(
         siblings,
         beta: blinding_factor.beta(),
         rp_id: *FieldElement::from(proof_request.rp_id),
-        action,
+        action: *proof_request.computed_action(),
         nonce: *proof_request.nonce,
     };
 
-    let (proof, _public_inputs) = query_material.generate_proof(&query_proof_input, &mut rng)?;
+    let (proof, public_inputs) = query_material.generate_proof(&query_proof_input, &mut rng)?;
+    query_material
+        .verify_proof(&proof, &public_inputs)
+        .expect("proof verifies");
 
     let auth = OprfRequestAuthV1 {
         proof: proof.into(),
-        action,
+        action: *proof_request.computed_action(),
         nonce: *proof_request.nonce,
         merkle_root: *inclusion_proof.root,
         current_time_stamp: proof_request.created_at,
@@ -307,48 +322,13 @@ fn prepare_nullifier_stress_test_oprf_request(
     let (credential, credential_sub_blinding_factor) =
         create_and_sign_credential(issuer_pk, issuer_sk, leaf_index)?;
 
-    let current_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time after epoch")
-        .as_secs();
-    let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
-
-    let nonce = ark_babyjubjub::Fq::rand(&mut rng);
-
-    let msg = world_id_primitives::rp::compute_rp_signature_msg(
-        nonce,
-        current_timestamp,
-        expiration_timestamp,
-    );
-    let signature = signer.sign_message_sync(&msg)?;
-
-    let proof_request = ProofRequest {
-        id: "test_request".into(),
-        version: RequestVersion::V1,
-        created_at: current_timestamp,
-        expires_at: expiration_timestamp,
-        rp_id: RpId::new(1),
-        oprf_key_id: OprfKeyId::new(U160::from(rp_id.into_inner())),
-        share_epoch,
-        session_id: None,
-        action: Some(FieldElement::ZERO),
-        signature,
-        nonce: FieldElement::from(nonce),
-        requests: vec![RequestItem {
-            identifier: "orb".into(),
-            issuer_schema_id: 1,
-            signal: Some("test_signal".into()),
-            genesis_issued_at_min: None,
-        }],
-        constraints: None,
-    };
+    let proof_request = create_proof_request(rp_id, oprf_key_id, share_epoch, signer)
+        .context("while creating proof request")?;
 
     let request_id = Uuid::new_v4();
-    let mut rng = rand::thread_rng();
-
     let query_hash = proof_request.digest_for_authenticator(leaf_index);
     let oprf_blinding_factor = BlindingFactor::rand(&mut rng);
-    let signature = authenticator_private_key.sign(query_hash.0.into());
+    let signature = authenticator_private_key.sign(*query_hash);
 
     let (oprf_request_auth, query_input) = generate_oprf_auth_request(
         &proof_request,
@@ -413,7 +393,7 @@ async fn stress_test(
     let nullifier_material = world_id_core::proof::load_embedded_nullifier_material();
 
     let mut requests = HashMap::with_capacity(cmd.runs);
-    let mut oprf_auth_requests = HashMap::with_capacity(cmd.runs);
+    let mut init_requests = HashMap::with_capacity(cmd.runs);
 
     tracing::info!("preparing requests..");
     for _ in 0..cmd.runs {
@@ -429,7 +409,7 @@ async fn stress_test(
             &query_material,
             signer,
         )?;
-        oprf_auth_requests.insert(req.id, req.oprf_request.clone());
+        init_requests.insert(req.id, req.oprf_request.clone());
         requests.insert(req.id, req);
     }
 
@@ -440,7 +420,7 @@ async fn stress_test(
         threshold,
         connector,
         cmd.sequential,
-        oprf_auth_requests,
+        init_requests,
     )
     .await?;
 
