@@ -10,7 +10,7 @@ use eyre::{Context as _, Result, eyre};
 use taceo_oprf_test_utils::health_checks;
 use taceo_oprf_types::ShareEpoch;
 use test_utils::{
-    anvil::Verifier,
+    anvil::WorldIDVerifier,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
@@ -242,10 +242,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_ne!(nullifier, FieldElement::ZERO);
 
     // verify proof with verifier contract
-    let verifier = Verifier::new(verifier, anvil.provider()?);
+    let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
+        WorldIDVerifier::new(verifier, anvil.provider()?);
     let (inclusion_proof, _key_set) = authenticator.fetch_inclusion_proof().await?;
     let compressed_proof = taceo_groth16_sol::prepare_compressed_proof(&proof.into());
-    verifier
+    world_id_verifier
         .verify(
             nullifier.into(),
             rp_fixture.action.into(),
