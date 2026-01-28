@@ -2,15 +2,15 @@
 pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
-import {Verifier} from "../src/Verifier.sol";
-import {IVerifier} from "../src/interfaces/IVerifier.sol";
+import {WorldIDVerifier} from "../src/WorldIDVerifier.sol";
+import {IWorldIDVerifier} from "../src/interfaces/IWorldIDVerifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /**
  * @title VerifierV2Mock
  * @notice Mock V2 implementation for testing upgrades
  */
-contract VerifierV2Mock is Verifier {
+contract VerifierV2Mock is WorldIDVerifier {
     // Add a new state variable to test storage layout preservation
     uint256 public newFeature;
 
@@ -32,7 +32,7 @@ contract WorldIDRegistryMock {
 }
 
 contract VerifierUpgradeTest is Test {
-    Verifier public verifier;
+    WorldIDVerifier public verifier;
     ERC1967Proxy public proxy;
     address public owner;
     address public nonOwner;
@@ -52,11 +52,11 @@ contract VerifierUpgradeTest is Test {
         proofTimestampDelta = 5 hours;
 
         // Deploy implementation V1
-        Verifier implementationV1 = new Verifier();
+        WorldIDVerifier implementationV1 = new WorldIDVerifier();
 
         // Deploy proxy with initialization
         bytes memory initData = abi.encodeWithSelector(
-            Verifier.initialize.selector,
+            WorldIDVerifier.initialize.selector,
             credentialIssuerRegistry,
             worldIDRegistry,
             oprfKeyRegistry,
@@ -65,7 +65,7 @@ contract VerifierUpgradeTest is Test {
         );
         proxy = new ERC1967Proxy(address(implementationV1), initData);
 
-        verifier = Verifier(address(proxy));
+        verifier = WorldIDVerifier(address(proxy));
     }
 
     function test_UpgradeSuccess() public {
@@ -81,7 +81,7 @@ contract VerifierUpgradeTest is Test {
         VerifierV2Mock implementationV2 = new VerifierV2Mock();
 
         // Upgrade to V2 (as owner)
-        Verifier(address(proxy)).upgradeToAndCall(address(implementationV2), "");
+        WorldIDVerifier(address(proxy)).upgradeToAndCall(address(implementationV2), "");
 
         // Wrap proxy with V2 interface
         VerifierV2Mock verifierV2 = VerifierV2Mock(address(proxy));
@@ -109,7 +109,7 @@ contract VerifierUpgradeTest is Test {
         // Try to upgrade as non-owner (should fail)
         vm.prank(nonOwner);
         vm.expectRevert();
-        Verifier(address(proxy)).upgradeToAndCall(address(implementationV2), "");
+        WorldIDVerifier(address(proxy)).upgradeToAndCall(address(implementationV2), "");
     }
 
     function test_OwnershipTransfer() public {
@@ -133,11 +133,11 @@ contract VerifierUpgradeTest is Test {
 
         // Old owner can no longer upgrade
         vm.expectRevert();
-        Verifier(address(proxy)).upgradeToAndCall(address(implementationV2), "");
+        WorldIDVerifier(address(proxy)).upgradeToAndCall(address(implementationV2), "");
 
         // New owner can upgrade
         vm.prank(newOwner);
-        Verifier(address(proxy)).upgradeToAndCall(address(implementationV2), "");
+        WorldIDVerifier(address(proxy)).upgradeToAndCall(address(implementationV2), "");
 
         // Verify upgrade succeeded
         VerifierV2Mock verifierV2 = VerifierV2Mock(address(proxy));
@@ -154,7 +154,7 @@ contract VerifierUpgradeTest is Test {
 
     function test_ImplementationCannotBeInitialized() public {
         // Deploy a fresh implementation
-        Verifier implementation = new Verifier();
+        WorldIDVerifier implementation = new WorldIDVerifier();
 
         // Try to initialize the implementation directly (should fail)
         vm.expectRevert();
@@ -167,7 +167,7 @@ contract VerifierUpgradeTest is Test {
         address newRegistry = address(0x5555);
 
         vm.expectEmit(true, true, true, true);
-        emit IVerifier.CredentialSchemaIssuerRegistryUpdated(credentialIssuerRegistry, newRegistry);
+        emit IWorldIDVerifier.CredentialSchemaIssuerRegistryUpdated(credentialIssuerRegistry, newRegistry);
 
         verifier.updateCredentialSchemaIssuerRegistry(newRegistry);
         assertEq(address(verifier.credentialSchemaIssuerRegistry()), newRegistry);
@@ -177,7 +177,7 @@ contract VerifierUpgradeTest is Test {
         address newRegistry = address(new WorldIDRegistryMock());
 
         vm.expectEmit(true, true, true, true);
-        emit IVerifier.WorldIDRegistryUpdated(worldIDRegistry, newRegistry);
+        emit IWorldIDVerifier.WorldIDRegistryUpdated(worldIDRegistry, newRegistry);
 
         verifier.updateWorldIDRegistry(newRegistry);
         assertEq(address(verifier.worldIDRegistry()), newRegistry);
@@ -187,7 +187,7 @@ contract VerifierUpgradeTest is Test {
         address newOprfKeyRegistry = address(0x7777);
 
         vm.expectEmit(true, true, true, true);
-        emit IVerifier.OprfKeyRegistryUpdated(oprfKeyRegistry, newOprfKeyRegistry);
+        emit IWorldIDVerifier.OprfKeyRegistryUpdated(oprfKeyRegistry, newOprfKeyRegistry);
 
         verifier.updateOprfKeyRegistry(newOprfKeyRegistry);
         assertEq(address(verifier.oprfKeyRegistry()), newOprfKeyRegistry);
