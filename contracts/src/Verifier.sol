@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
 import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
@@ -9,8 +9,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {CredentialSchemaIssuerRegistry} from "./CredentialSchemaIssuerRegistry.sol";
 import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {WorldIDRegistry} from "./WorldIDRegistry.sol";
-import {Verifier as VerifierNullifier} from "./VerifierNullifier.sol";
 import {IVerifier} from "./interfaces/IVerifier.sol";
+import {IVerifierNullifier} from "./interfaces/IVerifierNullifier.sol";
 
 /**
  * @title Verifier
@@ -47,7 +47,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     OprfKeyRegistry public oprfKeyRegistry;
 
     /// @notice Contract for nullifier proof verification
-    VerifierNullifier public verifierNullifier;
+    IVerifierNullifier public verifierNullifier;
 
     /// @notice Allowed delta for proof timestamps
     uint256 public proofTimestampDelta;
@@ -83,7 +83,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         __Ownable2Step_init();
         credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
         worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
-        verifierNullifier = VerifierNullifier(_verifierNullifier);
+        verifierNullifier = IVerifierNullifier(_verifierNullifier);
         oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
         proofTimestampDelta = _proofTimestampDelta;
         treeDepth = worldIDRegistry.getTreeDepth();
@@ -183,7 +183,7 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
     function updateVerifierNullifier(address _verifierNullifier) external virtual onlyOwner onlyProxy onlyInitialized {
         if (_verifierNullifier == address(0)) revert ZeroAddress();
         address oldVerifier = address(verifierNullifier);
-        verifierNullifier = VerifierNullifier(_verifierNullifier);
+        verifierNullifier = IVerifierNullifier(_verifierNullifier);
         emit Groth16VerifierNullifierUpdated(oldVerifier, _verifierNullifier);
     }
 

@@ -5,7 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {Verifier} from "../src/Verifier.sol";
 import {IVerifier} from "../src/interfaces/IVerifier.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
-import {Verifier as VerifierNullifier} from "../src/VerifierNullifier.sol";
+import {VerifierNullifier} from "../src/VerifierNullifier.sol";
+import {IVerifierNullifier} from "../src/interfaces/IVerifierNullifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 import {ICredentialSchemaIssuerRegistry} from "../src/interfaces/ICredentialSchemaIssuerRegistry.sol";
@@ -134,7 +135,7 @@ contract ProofVerifier is Test {
 
     function test_WrongRpId() public {
         vm.warp(proofTimestamp + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(VerifierNullifier.ProofInvalid.selector));
+        vm.expectRevert(abi.encodeWithSelector(IVerifierNullifier.ProofInvalid.selector));
         verifier.verify(
             nullifier,
             action,
@@ -152,7 +153,7 @@ contract ProofVerifier is Test {
 
     function test_WrongCredentialIssuer() public {
         vm.warp(proofTimestamp + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(VerifierNullifier.ProofInvalid.selector));
+        vm.expectRevert(abi.encodeWithSelector(IVerifierNullifier.ProofInvalid.selector));
         verifier.verify(
             nullifier,
             action,
@@ -176,7 +177,7 @@ contract ProofVerifier is Test {
             0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8
         ];
         vm.warp(proofTimestamp + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(VerifierNullifier.ProofInvalid.selector));
+        vm.expectRevert(abi.encodeWithSelector(IVerifierNullifier.ProofInvalid.selector));
         verifier.verify(
             nullifier,
             action,

@@ -1,25 +1,15 @@
 // SPDX-License-Identifier: MIT
+pragma solidity ^0.8.13;
 
-pragma solidity ^0.8.0;
+import {IVerifierNullifier} from "./interfaces/IVerifierNullifier.sol";
 
-/// @title Groth16 verifier template.
+/// @title VerifierNullifier
 /// @author Remco Bloemen
 /// @notice Supports verifying Groth16 proofs. Proofs can be in uncompressed
 /// (256 bytes) and compressed (128 bytes) format. A view function is provided
 /// to compress proofs.
 /// @notice See <https://2π.com/23/bn254-compression> for further explanation.
-contract Verifier {
-    /// Some of the provided public input values are larger than the field modulus.
-    /// @dev Public input elements are not automatically reduced, as this is can be
-    /// a dangerous source of bugs.
-    error PublicInputNotInField();
-
-    /// The proof is invalid.
-    /// @dev This can mean that provided Groth16 proof points are not on their
-    /// curves, that pairing equation fails, or that the proof is not for the
-    /// provided public input.
-    error ProofInvalid();
-
+contract VerifierNullifier is IVerifierNullifier {
     // Addresses of precompiles
     uint256 constant PRECOMPILE_MODEXP = 0x05;
     uint256 constant PRECOMPILE_ADD = 0x06;
@@ -518,28 +508,14 @@ contract Verifier {
         }
     }
 
-    /// Compress a proof.
-    /// @notice Will revert with InvalidProof if the curve points are invalid,
-    /// but does not verify the proof itself.
-    /// @param proof The uncompressed Groth16 proof. Elements are in the same order as for
-    /// verifyProof. I.e. Groth16 points (A, B, C) encoded as in EIP-197.
-    /// @return compressed The compressed proof. Elements are in the same order as for
-    /// verifyCompressedProof. I.e. points (A, B, C) in compressed format.
+    /// @inheritdoc IVerifierNullifier
     function compressProof(uint256[8] calldata proof) public view returns (uint256[4] memory compressed) {
         compressed[0] = compress_g1(proof[0], proof[1]);
         (compressed[2], compressed[1]) = compress_g2(proof[3], proof[2], proof[5], proof[4]);
         compressed[3] = compress_g1(proof[6], proof[7]);
     }
 
-    /// Verify a Groth16 proof with compressed points.
-    /// @notice Reverts with InvalidProof if the proof is invalid or
-    /// with PublicInputNotInField the public input is not reduced.
-    /// @notice There is no return value. If the function does not revert, the
-    /// proof was successfully verified.
-    /// @param compressedProof the points (A, B, C) in compressed format
-    /// matching the output of compressProof.
-    /// @param input the public input field elements in the scalar field Fr.
-    /// Elements must be reduced.
+    /// @inheritdoc IVerifierNullifier
     function verifyCompressedProof(uint256[4] calldata compressedProof, uint256[15] calldata input) public view {
         uint256[24] memory pairings;
 
@@ -595,15 +571,7 @@ contract Verifier {
         }
     }
 
-    /// Verify an uncompressed Groth16 proof.
-    /// @notice Reverts with InvalidProof if the proof is invalid or
-    /// with PublicInputNotInField the public input is not reduced.
-    /// @notice There is no return value. If the function does not revert, the
-    /// proof was successfully verified.
-    /// @param proof the points (A, B, C) in EIP-197 format matching the output
-    /// of compressProof.
-    /// @param input the public input field elements in the scalar field Fr.
-    /// Elements must be reduced.
+    /// @inheritdoc IVerifierNullifier
     function verifyProof(uint256[8] calldata proof, uint256[15] calldata input) public view {
         (uint256 x, uint256 y) = publicInputMSM(input);
 

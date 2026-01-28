@@ -2,13 +2,13 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {Verifier} from "../src/VerifierNullifier.sol";
+import {VerifierNullifier} from "../src/VerifierNullifier.sol";
 
-contract NullififerVerifier is Test {
-    Verifier public verifier;
+contract NullifierVerifierTest is Test {
+    VerifierNullifier public verifier;
 
     function setUp() public {
-        verifier = new Verifier();
+        verifier = new VerifierNullifier();
     }
 
     function testVerifyNullifier() public view {
