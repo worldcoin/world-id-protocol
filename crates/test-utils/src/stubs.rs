@@ -156,6 +156,7 @@ async fn spawn_orpf_node(
         max_wait_time_shutdown: Duration::from_secs(10),
         max_merkle_cache_size: 10,
         max_rp_registry_store_size: 1000,
+        max_credential_schema_issuer_registry_store_size: 1000,
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         world_id_registry_contract,
         rp_registry_contract,

@@ -44,6 +44,16 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_RP_REGISTRY_STORE_SIZE", default_value = "1000")]
     pub max_rp_registry_store_size: u64,
 
+    /// The maximum size of the CredentialSchemaIssuerRegistry store.
+    ///
+    /// Will drop old issuers if this capacity is reached.
+    #[clap(
+        long,
+        env = "OPRF_NODE_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_STORE_SIZE",
+        default_value = "1000"
+    )]
+    pub max_credential_schema_issuer_registry_store_size: u64,
+
     /// The maximum delta between the received current_time_stamp the node current_time_stamp
     #[clap(
         long,

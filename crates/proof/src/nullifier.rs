@@ -10,8 +10,11 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
-    circuit_inputs::QueryProofCircuitInput, merkle::MerkleInclusionProof, oprf::OprfRequestAuthV1,
+    FieldElement, TREE_DEPTH,
+    authenticator::AuthenticatorPublicKeySet,
+    circuit_inputs::QueryProofCircuitInput,
+    merkle::MerkleInclusionProof,
+    oprf::{OprfModule, RpOprfRequestAuthV1},
 };
 use world_id_request::ProofRequest;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -121,7 +124,7 @@ impl OprfNullifier {
         query_material.verify_proof(&proof, &public_inputs)?;
         tracing::debug!("generated query proof");
 
-        let auth = OprfRequestAuthV1 {
+        let auth = RpOprfRequestAuthV1 {
             proof: proof.into(),
             action,
             nonce: *proof_request.nonce,
@@ -136,7 +139,7 @@ impl OprfNullifier {
 
         let verifiable_oprf_output = taceo_oprf::client::distributed_oprf(
             services,
-            "rp", // module for World ID RP use-case
+            OprfModule::Rp.to_string().as_str(),
             threshold,
             proof_request.oprf_key_id,
             proof_request.share_epoch,
