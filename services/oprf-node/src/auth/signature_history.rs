@@ -36,16 +36,10 @@ impl SignatureHistory {
     /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
     pub(crate) fn init(max_signature_age: Duration, cache_maintenance_interval: Duration) -> Self {
         ::metrics::gauge!(METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE).set(0.0);
-        let signatures = Cache::builder()
-            .time_to_live(max_signature_age)
-            .eviction_listener(|_key, _value, cause| {
-                tracing::debug!("evicting signature from history because of {cause:?}");
-                ::metrics::gauge!(METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE).decrement(1);
-            })
-            .build();
 
-        // periodically run maintenance tasks on the cache
-        // this is needed to update metrics in a timely manner, as the eviction listener is only called when an entry is added/removed/accessed
+        let signatures = Cache::builder().time_to_live(max_signature_age).build();
+
+        // periodically run maintenance tasks on the cache and update metrics
         tokio::spawn({
             let signatures = signatures.clone();
             let mut interval = tokio::time::interval(cache_maintenance_interval);
@@ -53,6 +47,8 @@ impl SignatureHistory {
                 loop {
                     interval.tick().await;
                     signatures.run_pending_tasks().await;
+                    let size = signatures.entry_count() as f64;
+                    ::metrics::gauge!(METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE).set(size);
                 }
             }
         });
@@ -81,7 +77,6 @@ impl SignatureHistory {
             tracing::debug!("duplicate signature");
             return Err(DuplicateSignatureError);
         }
-        ::metrics::gauge!(METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE).increment(1);
         Ok(())
     }
 }

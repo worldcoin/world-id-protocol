@@ -38,17 +38,6 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_MERKLE_CACHE_SIZE", default_value = "100")]
     pub max_merkle_cache_size: u64,
 
-    /// The time to live of a merkle root in the cache.
-    ///
-    /// Will drop merkle roots if this duration elapsed after they were added.
-    #[clap(
-        long,
-        env = "OPRF_NODE_ROOT_VALIDITY_WINDOW",
-        default_value = "1hour",
-        value_parser = humantime::parse_duration
-    )]
-    pub root_validity_window: Duration,
-
     /// The maximum size of the RpRegistry store.
     ///
     /// Will drop old Rps if this capacity is reached.

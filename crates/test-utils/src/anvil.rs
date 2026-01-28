@@ -10,7 +10,7 @@ use alloy::{
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
-use world_id_primitives::{TREE_DEPTH, rp::RpId};
+use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
 /// Canonical Multicall3 address (same on all EVM chains).
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
@@ -591,6 +591,69 @@ impl TestAnvil {
             eyre::bail!("failed to register RP");
         }
         Ok(())
+    }
+
+    pub async fn create_account(
+        &self,
+        world_id_registry: Address,
+        signer: PrivateKeySigner,
+        auth_addr: Address,
+        pubkey: U256,
+        commitment: u64,
+    ) -> FieldElement {
+        let registry = WorldIDRegistry::new(
+            world_id_registry,
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(signer))
+                .connect(&self.instance.endpoint())
+                .await
+                .unwrap(),
+        );
+        registry
+            .createAccount(
+                Address::ZERO,
+                vec![auth_addr],
+                vec![pubkey],
+                U256::from(commitment),
+            )
+            .send()
+            .await
+            .expect("failed to submit createAccount transaction")
+            .get_receipt()
+            .await
+            .expect("createAccount transaction failed");
+
+        let root = registry
+            .getLatestRoot()
+            .call()
+            .await
+            .expect("failed to fetch root");
+
+        FieldElement::try_from(root).expect("root is in field")
+    }
+
+    pub async fn set_root_validity_window(
+        &self,
+        world_id_registry: Address,
+        signer: PrivateKeySigner,
+        root_validity_window: u64,
+    ) {
+        let registry = WorldIDRegistry::new(
+            world_id_registry,
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(signer))
+                .connect(&self.instance.endpoint())
+                .await
+                .unwrap(),
+        );
+        registry
+            .setRootValidityWindow(root_validity_window.try_into().unwrap())
+            .send()
+            .await
+            .expect("failed to submit setRootValidityWindow transaction")
+            .get_receipt()
+            .await
+            .expect("setRootValidityWindow transaction failed");
     }
 
     /// Links a library address into contract bytecode by replacing all placeholder references.
