@@ -96,7 +96,7 @@ interface IWorldIDVerifier {
      * @param sessionId The identifier for a specific RP-specific session.
      * @param nonce The nonce used in the proof.
      * @param signalHash The hash of the signal which was committed in the proof.
-     * @param authenticatorRoot The merkle root of the authenticator set.
+     * @param merkleRoot The merkle root of the authenticator set.
      * @param proofTimestamp The timestamp when the proof was generated.
      * @param credentialIssuerId The ID of the credential issuer.
      * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
@@ -109,7 +109,7 @@ interface IWorldIDVerifier {
         uint256 sessionId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 authenticatorRoot,
+        uint256 merkleRoot,
         uint256 proofTimestamp,
         uint64 credentialIssuerId,
         uint256 credentialGenesisIssuedAtMin,
