@@ -2,11 +2,13 @@
 
 use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
 use axum::{Extension, Json, extract::State};
+use tracing::instrument;
 use world_id_core::types::{CreateAccountRequest, GatewayErrorResponse, GatewayStatusResponse};
 
 /// POST /v1/accounts
 ///
 /// Create a new World ID account.
+#[instrument(name = "create_account", skip(state, payload), fields(request_id = %id))]
 pub(crate) async fn create_account(
     State(state): State<AppState>,
     Extension(RequestId(id)): Extension<RequestId>,

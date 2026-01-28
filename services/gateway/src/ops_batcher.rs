@@ -4,7 +4,13 @@
 
 use std::{sync::Arc, time::Duration};
 
-use crate::RequestTracker;
+use crate::{
+    RequestTracker,
+    metrics::{
+        METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
+        METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
+    },
+};
 use alloy::{
     primitives::{Address, Bytes, address},
     providers::DynProvider,
@@ -91,7 +97,12 @@ impl OpsBatcherRunner {
                 }
             }
 
+            let batch_size = batch.len();
             let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
+
+            ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => "ops").increment(1);
+            ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => "ops").record(batch_size as f64);
+
             self.tracker
                 .set_status_batch(&ids, GatewayRequestState::Batching)
                 .await;
@@ -105,9 +116,15 @@ impl OpsBatcherRunner {
                 })
                 .collect();
 
+            let start = std::time::Instant::now();
             let res = mc.aggregate3(calls).send().await;
             match res {
                 Ok(builder) => {
+                    let latency_ms = start.elapsed().as_millis() as f64;
+                    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "ops")
+                        .record(latency_ms);
+                    ::metrics::counter!(METRICS_BATCH_SUCCESS, "type" => "ops").increment(1);
+
                     let hash = format!("0x{:x}", builder.tx_hash());
                     self.tracker
                         .set_status_batch(
@@ -161,6 +178,11 @@ impl OpsBatcherRunner {
                     });
                 }
                 Err(e) => {
+                    let latency_ms = start.elapsed().as_millis() as f64;
+                    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "ops")
+                        .record(latency_ms);
+                    ::metrics::counter!(METRICS_BATCH_FAILURE, "type" => "ops").increment(1);
+
                     tracing::warn!(error = %e, "multicall3 send failed");
                     let error_str = e.to_string();
                     let code = parse_contract_error(&error_str);

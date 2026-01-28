@@ -154,8 +154,6 @@ async fn test_backfill_and_live_sync() {
 #[cfg(feature = "integration-tests")]
 #[serial]
 async fn test_insertion_cycle_and_avoids_race_condition() {
-    use tracing::info;
-
     let setup = TestSetup::new_with_tree_depth(6).await;
 
     let temp_cache_path =
