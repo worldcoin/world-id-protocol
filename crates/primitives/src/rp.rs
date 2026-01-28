@@ -87,7 +87,7 @@ impl<'de> Deserialize<'de> for RpId {
 
 /// Computes the message to be signed for the RP signature.
 ///
-/// The message format is: `nonce || created_at || expires_at` (80 bytes total).
+/// The message format is: `nonce || created_at || expires_at` (48 bytes total).
 /// - `nonce`: 32 bytes (big-endian)
 /// - `created_at`: 8 bytes (big-endian)
 /// - `expires_at`: 8 bytes (big-endian)
@@ -97,7 +97,7 @@ pub fn compute_rp_signature_msg(
     created_at: u64,
     expires_at: u64,
 ) -> Vec<u8> {
-    let mut msg = Vec::new();
+    let mut msg = Vec::with_capacity(48);
     msg.extend(nonce.into_bigint().to_bytes_be());
     msg.extend(created_at.to_be_bytes());
     msg.extend(expires_at.to_be_bytes());
