@@ -114,7 +114,7 @@ impl RegistryTestContext {
                     .parse()
                     .wrap_err("invalid anvil endpoint URL")?,
             );
-        let registry_contract = CredentialSchemaIssuerRegistry::new(credential_registry, provider);
+        let issuer_registry = CredentialSchemaIssuerRegistry::new(credential_registry, provider);
 
         let issuer_private_key = EdDSAPrivateKey::random(&mut thread_rng());
         let issuer_public_key = issuer_private_key.public();
@@ -125,7 +125,7 @@ impl RegistryTestContext {
 
         let issuer_schema_id: u64 = 1;
 
-        let receipt = registry_contract
+        let receipt = issuer_registry
             .register(issuer_schema_id, issuer_pubkey_repr, deployer.address())
             .send()
             .await
