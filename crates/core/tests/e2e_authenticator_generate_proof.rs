@@ -26,6 +26,7 @@ use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclu
 
 const GW_PORT: u16 = 4104;
 
+/// Generates an entire end-to-end Uniqueness Proof Generator
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()

@@ -35,7 +35,7 @@ pub struct RegistryTestContext {
     pub verifier: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
-    pub issuer_schema_id: U256,
+    pub issuer_schema_id: u64,
 }
 
 impl RegistryTestContext {
