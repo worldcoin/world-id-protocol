@@ -9,7 +9,7 @@ use crate::{
             DEFAULT_UPDATE_AUTHENTICATOR_GAS,
         },
     },
-    request_tracker::{InflightInsertError, RequestTracker},
+    request_tracker::RequestTracker,
     routes::validation::RequestValidation,
 };
 use alloy::{
@@ -127,20 +127,7 @@ impl Request<CreateAccountRequest> {
         // Atomically check and insert all authenticator addresses to prevent duplicates
         let auth_addresses = self.payload.authenticator_addresses.clone();
 
-        if let Err(e) = ctx.tracker.try_insert_inflight(&auth_addresses).await {
-            return Err(match e {
-                InflightInsertError::Duplicate(addr) => {
-                    tracing::warn!(
-                        authenticator_address = %addr,
-                        "Duplicate in-flight request detected"
-                    );
-                    GatewayErrorResponse::bad_request(GatewayErrorCode::DuplicateRequestInFlight)
-                }
-                InflightInsertError::Infrastructure => {
-                    GatewayErrorResponse::internal_server_error()
-                }
-            });
-        }
+        ctx.tracker.try_insert_inflight(&auth_addresses).await?;
 
         // Register in tracker
         if let Err(err) = ctx
