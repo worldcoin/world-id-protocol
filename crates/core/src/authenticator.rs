@@ -394,12 +394,14 @@ impl Authenticator {
 
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
-    /// This should generally only be called for Uniqueness Proofs. For Session Proofs,
-    /// the nullifier is computed as an internal operation.
-    //
+    /// A nullifier is a unique, one-time use, anonymous identifier for a World ID
+    /// on a specific RP context. It is used to ensure that a single World ID can only
+    /// perform an action once.
+    ///
     /// # Errors
     ///
-    /// - Will raise a [`ProofError`] if there is any issue generating the proof (including network issues, misconfiguration, etc.)
+    /// - Will raise a [`ProofError`] if there is any issue generating the nullifier. For example,
+    ///   network issues, unexpected incorrect responses from OPRF Nodes.
     /// - Raises an error if the OPRF Nodes configuration is not correctly set.
     pub async fn generate_nullifier(
         &self,
@@ -453,11 +455,12 @@ impl Authenticator {
     /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
     /// method generates the raw proof to be translated into a Uniqueness Proof or a Session Proof for the RP.
     ///
-    /// This assumes the Authenticator has already parsed the `[ProofRequest]` and determined
-    /// which `[Credential]` is appropriate for the request.
+    /// This assumes the RP's `[ProofRequest]` has already been parsed to determine
+    /// which `[Credential]` is appropriate for the request. This method responds to a
+    /// specific `[RequestItem]` (a `[ProofRequest]` may contain multiple items).
     ///
     /// # Arguments
-    /// - `oprff_nullifier`: The `[OprfNullifier]` generated from the `generate_nullifier` function.
+    /// - `oprf_nullifier`: The `[OprfNullifier]` output generated from the `generate_nullifier` function.
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.

@@ -67,7 +67,8 @@ impl OprfNullifier {
     ///
     /// # Arguments
     /// - `services`: The list of endpoints of all OPRF nodes.
-    /// - `threshold`: The threshold for required OPRF nodes responses.
+    /// - `threshold`: The minimum number of OPRF nodes responses required to compute a valid nullifier. The
+    ///   source of truth for this value lives in the `OprfKeyRegistry` contract.
     /// - `query_material`: The material for the query proof circuit.
     /// - `authenticator_input`: See [`AuthenticatorProofInput`] for more details.
     /// - `proof_request`: The proof request provided by the RP.
