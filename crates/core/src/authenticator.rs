@@ -450,12 +450,20 @@ impl Authenticator {
         .await?)
     }
 
-    /// FIXME: Proper description.
-    ///
-    /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`.
+    /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
+    /// method generates the raw proof to be translated into a Uniqueness Proof or a Session Proof for the RP.
     ///
     /// This assumes the Authenticator has already parsed the `[ProofRequest]` and determined
     /// which `[Credential]` is appropriate for the request.
+    ///
+    /// # Arguments
+    /// - `oprff_nullifier`: The `[OprfNullifier]` generated from the `generate_nullifier` function.
+    /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
+    /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
+    /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
+    /// - `session_id_r_seed`: The session ID random seed.
+    /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs.
+    /// - `request_timestamp`: The timestamp of the request.
     ///
     /// # Errors
     /// - Will error if the any of the provided parameters are not valid.
