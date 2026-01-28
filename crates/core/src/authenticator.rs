@@ -960,7 +960,7 @@ pub enum AuthenticatorError {
     Generic(String),
 }
 
-#[allow(dead_code)]
+#[cfg(feature = "embed-zkeys")]
 #[derive(Debug)]
 enum PollResult {
     Retryable,
