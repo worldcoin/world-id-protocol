@@ -395,3 +395,446 @@ pub fn query_hash(leaf_index: u64, rp_id: RpId, action: FieldElement) -> ark_bab
     let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
     poseidon2_4.permutation(&input)[1]
 }
+
+#[cfg(feature = "authenticator")]
+/// This module contains error types and validation functions for World ID proof inputs.
+///
+/// These are intended to assist in producing more helpul error messages for a given proof.
+/// If the circuits change in any way, these checks may also need to be updated to match the new logic.
+pub mod errors {
+    use ark_ec::{AffineRepr, CurveGroup};
+    use ark_ff::Zero;
+    use eddsa_babyjubjub::EdDSAPublicKey;
+    use poseidon2::{POSEIDON2_BN254_T3_PARAMS, POSEIDON2_BN254_T4_PARAMS, Poseidon2};
+    use taceo_oprf_core::dlog_equality::DLogEqualityProof;
+    use world_id_primitives::{
+        FieldElement,
+        authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
+        circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
+        merkle::MerkleInclusionProof,
+        rp::RpId,
+    };
+
+    type BaseField = ark_babyjubjub::Fq;
+    type Affine = ark_babyjubjub::EdwardsAffine;
+
+    #[derive(Debug, thiserror::Error)]
+    /// Errors that can occur when validating the inputs for a single World ID proof.
+    pub enum ProofInputError {
+        /// The specified Merkle tree depth is invalid.
+        #[error("The specified Merkle tree depth is invalid (expected: {expected}, got: {is}).")]
+        InvalidMerkleTreeDepth {
+            /// Expected depth.
+            expected: usize,
+            /// Actual depth.
+            is: BaseField,
+        },
+        /// The set of authenticator public keys is invalid.
+        #[error("The set of authenticator public keys is invalid.")]
+        InvalidAuthenticatorPublicKeySet,
+        /// The provided Merkle tree inclusion proof is invalid.
+        #[error("The provided Merkle tree inclusion proof is invalid.")]
+        InvalidMerkleTreeInclusionProof,
+        /// The signature over the nonce and RP ID is invalid.
+        #[error("The signature over the nonce and RP ID is invalid.")]
+        InvalidQuerySignature,
+        /// The provided blinding factor is invalid.
+        #[error("The provided blinding factor is invalid.")]
+        InvalidBlindingFactor,
+        /// The provided credential has expired.
+        #[error(
+            "The provided credential has expired (expires_at: {expires_at}, check_timestamp: {current_timestamp})."
+        )]
+        CredentialExpired {
+            /// Current timestamp.
+            current_timestamp: u64,
+            /// Expiration timestamp.
+            expires_at: u64,
+        },
+        /// The provided credential genesis issue timestamp is expired.
+        #[error(
+            "The provided credential has a genesis issued at date that is too old (genesis_issued_at: {genesis_issued_at}, check_timestamp: {genesis_issued_at_min})."
+        )]
+        CredentialGenesisExpired {
+            /// Minimum Issue date.
+            genesis_issued_at_min: u64,
+            /// Genesis issue timestamp.
+            genesis_issued_at: u64,
+        },
+        /// A value is out of bounds.
+        #[error("The value '{name}' is out of bounds (got: {is}, limit: {limit}).")]
+        ValueOutOfBounds {
+            /// Name of the value for error message.
+            name: &'static str,
+            /// Actual value.
+            is: BaseField,
+            /// Upper limit, not inclusive.
+            limit: BaseField,
+        },
+        /// The credential signature is invalid.
+        #[error("The credential signature is invalid for the given credential public key.")]
+        InvalidCredentialSignature,
+        /// The provided point is not a valid point in the prime-order subgroup of the `BabyJubJub` curve.
+        #[error(
+            "The provided point '{name}' is not a valid point in the prime-order subgroup of the BabyJubJub curve."
+        )]
+        InvalidBabyJubJubPoint {
+            /// Name of the point for error message.
+            name: &'static str,
+        },
+        /// The provided OPRF proof is invalid.
+        #[error("The provided OPRF DlogEquality proof is invalid.")]
+        InvalidOprfProof,
+        /// The provided unblinded OPRF response point is invalid.
+        #[error("The provided unblinded OPRF response point is invalid.")]
+        InvalidOprfResponse,
+        /// The provided session ID commitment is invalid.
+        #[error(
+            "The provided session ID commitment is invalid for the given id and session id randomness."
+        )]
+        InvalidIdCommitment,
+    }
+
+    /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.
+    ///
+    /// Returns the blinded OPRF query point if everything is ok.
+    ///
+    /// # Errors
+    /// This function will return a [`ProofInputError`] if any of the checks fail.
+    /// The `Display` implementation of this error can be used to get a human-readable error message on which parts of the input were invalid.
+    pub fn check_query_input_validity<const TREE_DEPTH: usize>(
+        inputs: &QueryProofCircuitInput<TREE_DEPTH>,
+    ) -> Result<Affine, ProofInputError> {
+        // 1. Check that the depth is within bounds.
+        if inputs.depth != BaseField::new((TREE_DEPTH as u64).into()) {
+            return Err(ProofInputError::InvalidMerkleTreeDepth {
+                expected: TREE_DEPTH,
+                is: inputs.depth,
+            });
+        }
+        // 2. Check the merkle proof is valid
+        // Check the Merkle tree idx is valid.
+        let idx_u64 = u64::try_from(FieldElement::from(inputs.mt_index)).map_err(|_| {
+            ProofInputError::ValueOutOfBounds {
+                name: "Merkle tree index",
+                is: inputs.mt_index,
+                limit: BaseField::new((1u64 << TREE_DEPTH).into()),
+            }
+        })?;
+        if idx_u64 >= (1u64 << TREE_DEPTH) {
+            return Err(ProofInputError::ValueOutOfBounds {
+                name: "Merkle tree index",
+                is: inputs.mt_index,
+                limit: BaseField::new((1u64 << TREE_DEPTH).into()),
+            });
+        }
+
+        // Build the leaf from the PKs.
+        let pk_set = AuthenticatorPublicKeySet::new(Some(
+            inputs
+                .pk
+                .iter()
+                .map(|&x| EdDSAPublicKey { pk: x })
+                .collect(),
+        ))
+        .map_err(|_| ProofInputError::InvalidAuthenticatorPublicKeySet)?;
+        let pk_set_hash = pk_set.leaf_hash();
+        let merkle_tree_inclusion_proof = MerkleInclusionProof::new(
+            FieldElement::from(inputs.merkle_root),
+            idx_u64,
+            inputs.siblings.map(FieldElement::from),
+        );
+        if !merkle_tree_inclusion_proof.is_valid(FieldElement::from(pk_set_hash)) {
+            return Err(ProofInputError::InvalidMerkleTreeInclusionProof);
+        }
+
+        // 3. Check that the signature is valid.
+        let pk_index_usize =
+            usize::try_from(FieldElement::from(inputs.pk_index)).map_err(|_| {
+                ProofInputError::ValueOutOfBounds {
+                    name: "Authenticator PubKey index",
+                    is: inputs.pk_index,
+                    limit: BaseField::new((MAX_AUTHENTICATOR_KEYS as u64).into()),
+                }
+            })?;
+        let pk = pk_set
+            .get(pk_index_usize)
+            .ok_or_else(|| ProofInputError::ValueOutOfBounds {
+                name: "Authenticator PubKey index",
+                is: inputs.pk_index,
+                limit: BaseField::new((MAX_AUTHENTICATOR_KEYS as u64).into()),
+            })?;
+
+        if !inputs.r.is_on_curve() || !inputs.r.is_in_correct_subgroup_assuming_on_curve() {
+            return Err(ProofInputError::InvalidBabyJubJubPoint {
+                name: "Query Signature R",
+            });
+        }
+        if !pk.pk.is_on_curve() || !pk.pk.is_in_correct_subgroup_assuming_on_curve() {
+            return Err(ProofInputError::InvalidBabyJubJubPoint {
+                name: "Authenticator Public Key",
+            });
+        }
+
+        let rp_id_u64 = u64::try_from(FieldElement::from(inputs.rp_id)).map_err(|_| {
+            ProofInputError::ValueOutOfBounds {
+                name: "RP Id",
+                is: inputs.pk_index,
+                limit: BaseField::new((MAX_AUTHENTICATOR_KEYS as u64).into()),
+            }
+        })?;
+        let query = super::query_hash(
+            idx_u64,
+            RpId::from(rp_id_u64),
+            FieldElement::from(inputs.action),
+        );
+        let signature = eddsa_babyjubjub::EdDSASignature {
+            r: inputs.r,
+            s: inputs.s,
+        };
+
+        if !pk.verify(query, &signature) {
+            return Err(ProofInputError::InvalidQuerySignature);
+        }
+
+        if inputs.beta.is_zero() {
+            return Err(ProofInputError::InvalidBlindingFactor);
+        }
+        // let query_point = taceo_oprf_core::oprf::client::blind_query(query, inputs.beta.into());
+        // Ok(query_point.blinded_query())
+        Ok(Affine::zero()) // Stub return value
+    }
+
+    /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.
+    ///
+    /// Returns the computed nullifier if everything is ok.
+    ///
+    /// # Errors
+    /// This function will return a [`ProofInputError`] if any of the checks fail.
+    /// The `Display` implementation of this error can be used to get a human-readable error message on which parts of the input were invalid.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "necessary checks for input validity should be in one function"
+    )]
+    pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
+        inputs: &NullifierProofCircuitInput<TREE_DEPTH>,
+    ) -> Result<FieldElement, ProofInputError> {
+        // 1. Check the validity of the query input.
+        let blinded_query = check_query_input_validity(&inputs.query_input)?;
+
+        // 2. Credential validity checks
+        // Check timestamps are within bounds.
+        let current_timestamp_u64 = u64::try_from(FieldElement::from(inputs.current_timestamp))
+            .map_err(|_| ProofInputError::ValueOutOfBounds {
+                name: "current timestamp",
+                is: inputs.current_timestamp,
+                limit: BaseField::new(u64::MAX.into()),
+            })?;
+        let credential_expires_at_u64 = u64::try_from(FieldElement::from(inputs.cred_expires_at))
+            .map_err(|_| ProofInputError::ValueOutOfBounds {
+            name: "credential expiry timestamp",
+            is: inputs.current_timestamp,
+            limit: BaseField::new(u64::MAX.into()),
+        })?;
+        // Check that the credential has not expired.
+        if credential_expires_at_u64 <= current_timestamp_u64 {
+            return Err(ProofInputError::CredentialExpired {
+                current_timestamp: current_timestamp_u64,
+                expires_at: credential_expires_at_u64,
+            });
+        }
+        // Genesis checks
+        let genesis_issued_at_u64 =
+            u64::try_from(FieldElement::from(inputs.cred_genesis_issued_at)).map_err(|_| {
+                ProofInputError::ValueOutOfBounds {
+                    name: "credential genesis issued at",
+                    is: inputs.cred_genesis_issued_at,
+                    limit: BaseField::new(u64::MAX.into()),
+                }
+            })?;
+        let genesis_issued_at_min_u64 =
+            u64::try_from(FieldElement::from(inputs.cred_genesis_issued_at_min)).map_err(|_| {
+                ProofInputError::ValueOutOfBounds {
+                    name: "credential genesis issued at minimum bound",
+                    is: inputs.cred_genesis_issued_at_min,
+                    limit: BaseField::new(u64::MAX.into()),
+                }
+            })?;
+        if genesis_issued_at_min_u64 > genesis_issued_at_u64 {
+            return Err(ProofInputError::CredentialGenesisExpired {
+                genesis_issued_at_min: genesis_issued_at_min_u64,
+                genesis_issued_at: genesis_issued_at_u64,
+            });
+        }
+
+        let blinded_subject = sub(
+            FieldElement::from(inputs.query_input.mt_index),
+            FieldElement::from(inputs.cred_sub_blinding_factor),
+        );
+
+        let cred_hash = hash_credential(
+            FieldElement::from(inputs.issuer_schema_id),
+            blinded_subject,
+            FieldElement::from(inputs.cred_genesis_issued_at),
+            FieldElement::from(inputs.cred_expires_at),
+            FieldElement::from(inputs.cred_hashes[0]),
+            FieldElement::from(inputs.cred_hashes[1]),
+            FieldElement::from(inputs.cred_id),
+        );
+        let pk = EdDSAPublicKey { pk: inputs.cred_pk };
+
+        let signature = eddsa_babyjubjub::EdDSASignature {
+            r: inputs.cred_r,
+            s: inputs.cred_s,
+        };
+
+        if !inputs.cred_r.is_on_curve() || !inputs.cred_r.is_in_correct_subgroup_assuming_on_curve()
+        {
+            return Err(ProofInputError::InvalidBabyJubJubPoint {
+                name: "Credential Signature R",
+            });
+        }
+        if !pk.pk.is_on_curve() || !pk.pk.is_in_correct_subgroup_assuming_on_curve() {
+            return Err(ProofInputError::InvalidBabyJubJubPoint {
+                name: "Credential Public Key",
+            });
+        }
+
+        if !pk.verify(*cred_hash, &signature) {
+            return Err(ProofInputError::InvalidCredentialSignature);
+        }
+
+        // 3. Dlog Equality proof checks
+        if !inputs.oprf_pk.is_on_curve()
+            || !inputs.oprf_pk.is_in_correct_subgroup_assuming_on_curve()
+        {
+            return Err(ProofInputError::InvalidBabyJubJubPoint {
+                name: "OPRF Public Key",
+            });
+        }
+        if !inputs.oprf_response_blinded.is_on_curve()
+            || !inputs
+                .oprf_response_blinded
+                .is_in_correct_subgroup_assuming_on_curve()
+        {
+            return Err(ProofInputError::InvalidBabyJubJubPoint {
+                name: "OPRF Blinded Response",
+            });
+        }
+
+        // check dlog eq proof is valid
+        let dlog_proof = DLogEqualityProof {
+            e: inputs.dlog_e,
+            s: inputs.dlog_s,
+        };
+        dlog_proof
+            .verify(
+                inputs.oprf_pk,
+                blinded_query,
+                inputs.oprf_response_blinded,
+                Affine::generator(),
+            )
+            .map_err(|_| ProofInputError::InvalidOprfProof)?;
+
+        // check that the unblinded response is correct
+        if !inputs.oprf_response.is_on_curve()
+            || !inputs
+                .oprf_response
+                .is_in_correct_subgroup_assuming_on_curve()
+        {
+            return Err(ProofInputError::InvalidBabyJubJubPoint {
+                name: "OPRF Unblinded Response",
+            });
+        }
+        let expected_blinded_response =
+            (inputs.oprf_response * inputs.query_input.beta).into_affine();
+        if expected_blinded_response != inputs.oprf_response_blinded {
+            return Err(ProofInputError::InvalidOprfResponse);
+        }
+
+        // check that session_id commitment is correct
+        if !inputs.id_commitment.is_zero() {
+            let expected_commitment = session_id_commitment(
+                FieldElement::from(inputs.query_input.mt_index),
+                FieldElement::from(inputs.id_commitment_r),
+            );
+            if expected_commitment != FieldElement::from(inputs.id_commitment) {
+                return Err(ProofInputError::InvalidIdCommitment);
+            }
+        }
+
+        // 4. Compute the nullifier
+        let nullfier = oprf_finalize_hash(
+            super::query_hash(
+                #[expect(
+                    clippy::missing_panics_doc,
+                    reason = "checked in check_query_input_validity"
+                )]
+                u64::try_from(FieldElement::from(inputs.query_input.mt_index)).unwrap(),
+                #[expect(
+                    clippy::missing_panics_doc,
+                    reason = "checked in check_query_input_validity"
+                )]
+                RpId::from(u64::try_from(FieldElement::from(inputs.query_input.rp_id)).unwrap()),
+                FieldElement::from(inputs.query_input.action),
+            ),
+            inputs.oprf_response,
+        );
+
+        Ok(nullfier)
+    }
+
+    // Helper functions to recompute various hashes used in the circuit
+
+    // Recompute the blinded subject, copied from credential
+    fn sub(leaf_index: FieldElement, blinding_factor: FieldElement) -> FieldElement {
+        let hasher = Poseidon2::new(&POSEIDON2_BN254_T3_PARAMS);
+        let sub_ds = FieldElement::from_be_bytes_mod_order(b"H_CS(id, r)");
+        let mut input = [*sub_ds, *leaf_index, *blinding_factor];
+        hasher.permutation_in_place(&mut input);
+        input[1].into()
+    }
+    // Recompute the OPRF finalization hash
+    fn oprf_finalize_hash(query: BaseField, oprf_response: Affine) -> FieldElement {
+        let hasher = Poseidon2::new(&POSEIDON2_BN254_T4_PARAMS);
+        let finalize_ds = FieldElement::from_be_bytes_mod_order(super::OPRF_PROOF_DS);
+        let mut input = [*finalize_ds, query, oprf_response.x, oprf_response.y];
+        hasher.permutation_in_place(&mut input);
+        input[1].into()
+    }
+
+    // Recompute the session_id_commitment
+    fn session_id_commitment(user_id: FieldElement, commitment_rand: FieldElement) -> FieldElement {
+        let hasher = Poseidon2::new(&POSEIDON2_BN254_T3_PARAMS);
+        let sub_ds = FieldElement::from_be_bytes_mod_order(b"H(id, r)");
+        let mut input = [*sub_ds, *user_id, *commitment_rand];
+        hasher.permutation_in_place(&mut input);
+        input[1].into()
+    }
+
+    // Recompute the credential hash, copied from credential
+    fn hash_credential(
+        issuer_schema_id: FieldElement,
+        sub: FieldElement,
+        genesis_issued_at: FieldElement,
+        expires_at: FieldElement,
+        claims_hash: FieldElement,
+        associated_data_hash: FieldElement,
+        id: FieldElement,
+    ) -> FieldElement {
+        let cred_ds = FieldElement::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ");
+        let hasher = Poseidon2::<_, 8, 5>::default();
+        let mut input = [
+            *cred_ds,
+            *issuer_schema_id,
+            *sub,
+            *genesis_issued_at,
+            *expires_at,
+            *claims_hash,
+            *associated_data_hash,
+            *id,
+        ];
+        hasher.permutation_in_place(&mut input);
+        input[1].into()
+    }
+}

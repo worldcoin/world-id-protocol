@@ -66,6 +66,7 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
     }
 
     /// Validates the Merkle inclusion proof structure for a given leaf.
+    #[must_use]
     pub fn is_valid(&self, leaf: FieldElement) -> bool {
         let poseidon2_2: Poseidon2<Fr, 2, 5> = Poseidon2::default();
         let mut computed = leaf.0;
