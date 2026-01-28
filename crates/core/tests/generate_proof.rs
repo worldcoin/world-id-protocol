@@ -246,7 +246,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Normally here the authenticator would check the nullifier is UNIQUE.
 
-    let (proof, nullifier) = authenticator.generate_single_proof(
+    let response_item = authenticator.generate_single_proof(
         nullifier,
         request_item,
         &credential,
@@ -256,15 +256,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         proof_request.created_at,
     )?;
 
-    assert_eq!(nullifier, raw_nullifier);
+    assert_eq!(response_item.nullifier.unwrap(), raw_nullifier);
 
     // verify proof with the `Verifier.sol` contract
     let verifier = Verifier::new(verifier, anvil.provider()?);
-    let (inclusion_proof, _key_set) = authenticator.fetch_inclusion_proof().await?; // FIXME: This should be returned from `generate_single_proof`
-    let compressed_proof = taceo_groth16_sol::prepare_compressed_proof(&proof.into());
+
     verifier
         .verify(
-            nullifier.into(),
+            response_item.nullifier.unwrap().into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
             proof_request.session_id.unwrap_or_default().into(),

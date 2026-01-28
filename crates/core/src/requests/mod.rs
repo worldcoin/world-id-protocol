@@ -11,7 +11,7 @@ use poseidon2::Poseidon2;
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf_types::{OprfKeyId, ShareEpoch};
-use world_id_primitives::{FieldElement, PrimitiveError, WorldIdProof, rp::RpId};
+use world_id_primitives::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
 
 use crate::proof::OPRF_QUERY_DS;
 
@@ -142,7 +142,7 @@ impl RequestItem {
 }
 
 /// Overall response from the Authenticator to the RP
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProofResponse {
     /// The response id references request id
@@ -165,7 +165,7 @@ pub struct ProofResponse {
 /// Each entry corresponds to one requested credential. It carries the proof
 /// material when the authenticator could satisfy the request, or an `error`
 /// explaining why the credential could not be provided.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
     /// An RP-defined identifier for this request item which can be used to match against constraints and responses.
@@ -178,7 +178,7 @@ pub struct ResponseItem {
 
     /// Proof payload
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub proof: Option<WorldIdProof>,
+    pub proof: Option<ZeroKnowledgeProof>,
 
     /// RP-scoped nullifier derived from the credential, action, and RP id.
     ///
@@ -204,6 +204,25 @@ impl ProofResponse {
             .collect();
 
         constraints.evaluate(&|t| provided.contains(t))
+    }
+}
+
+impl ResponseItem {
+    /// Create a new response item for a successfully fulfilled request.
+    #[must_use]
+    pub const fn from_success(
+        identifier: String,
+        issuer_schema_id: u64,
+        proof: ZeroKnowledgeProof,
+        nullifier: FieldElement,
+    ) -> Self {
+        Self {
+            identifier,
+            issuer_schema_id,
+            proof: Some(proof),
+            nullifier: Some(nullifier),
+            error: None,
+        }
     }
 }
 
@@ -517,14 +536,14 @@ mod tests {
                 ResponseItem {
                     identifier: "test_req_1".into(),
                     issuer_schema_id: 1,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
                 },
                 ResponseItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 2,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1002)),
                     error: None,
                 },
@@ -642,14 +661,14 @@ mod tests {
                 ResponseItem {
                     identifier: "orb".into(),
                     issuer_schema_id: 1,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
                 },
                 ResponseItem {
                     identifier: "document".into(),
                     issuer_schema_id: 2,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
                 },
@@ -664,7 +683,7 @@ mod tests {
             responses: vec![ResponseItem {
                 identifier: "orb".into(),
                 issuer_schema_id: 1,
-                proof: Some(WorldIdProof::default()),
+                proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
             }],
@@ -712,7 +731,7 @@ mod tests {
             responses: vec![ResponseItem {
                 identifier: "orb".into(),
                 issuer_schema_id: 1,
-                proof: Some(WorldIdProof::default()),
+                proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
             }],
@@ -830,21 +849,21 @@ mod tests {
                 ResponseItem {
                     identifier: "test_req_10".into(),
                     issuer_schema_id: 10,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
                 },
                 ResponseItem {
                     identifier: "test_req_11".into(),
                     issuer_schema_id: 11,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
                 },
                 ResponseItem {
                     identifier: "test_req_15".into(),
                     issuer_schema_id: 15,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
                 },
@@ -968,7 +987,7 @@ mod tests {
             responses: vec![ResponseItem {
                 identifier: "test_req_20".into(),
                 issuer_schema_id: 20,
-                proof: Some(WorldIdProof::default()),
+                proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
             }],
@@ -1012,7 +1031,7 @@ mod tests {
             responses: vec![ResponseItem {
                 identifier: "test_req_1".into(),
                 issuer_schema_id: 1,
-                proof: Some(WorldIdProof::default()),
+                proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: Some(test_field_element(1001)),
                 error: None,
             }],
@@ -1065,7 +1084,7 @@ mod tests {
                 ResponseItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 2,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
                 },
@@ -1139,14 +1158,14 @@ mod tests {
                 ResponseItem {
                     identifier: "test_req_3".into(),
                     issuer_schema_id: 3,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
                 },
                 ResponseItem {
                     identifier: "test_req_1".into(),
                     issuer_schema_id: 1,
-                    proof: Some(WorldIdProof::default()),
+                    proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1002)),
                     error: None,
                 },

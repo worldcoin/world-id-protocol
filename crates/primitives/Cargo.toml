@@ -34,6 +34,7 @@ groth16-material = { workspace = true, features = ["circom"], optional = true }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
 taceo-oprf-types = { workspace = true, optional = true }
+taceo-groth16-sol = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
