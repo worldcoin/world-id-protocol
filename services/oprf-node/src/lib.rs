@@ -14,7 +14,7 @@ use taceo_oprf_service::{
 
 use crate::{
     auth::{
-        WorldOprfRequestAuthenticator, merkle_watcher::MerkleWatcher,
+        IssuerOprfRequestAuthenticator, RpOprfRequestAuthenticator, merkle_watcher::MerkleWatcher,
         rp_registry_watcher::RpRegistryWatcher, signature_history::SignatureHistory,
     },
     config::WorldOprfNodeConfig,
@@ -75,11 +75,18 @@ pub async fn start(
         config.cache_maintenance_interval,
     );
 
-    tracing::info!("init oprf request auth service..");
-    let oprf_req_auth_service = Arc::new(WorldOprfRequestAuthenticator::init(
+    tracing::info!("init rp oprf request auth service..");
+    let rp_oprf_req_auth_service = Arc::new(RpOprfRequestAuthenticator::init(
+        merkle_watcher.clone(),
+        rp_registry_watcher.clone(),
+        signature_history,
+        config.current_time_stamp_max_difference,
+    ));
+
+    tracing::info!("init issuer oprf request auth service..");
+    let issuer_oprf_req_auth_service = Arc::new(IssuerOprfRequestAuthenticator::init(
         merkle_watcher,
         rp_registry_watcher,
-        signature_history,
         config.current_time_stamp_max_difference,
     ));
 
@@ -91,8 +98,8 @@ pub async fn start(
         cancellation_token.clone(),
     )
     .await?
-    .module("/rp", oprf_req_auth_service)
-    // .module("/issuer", oprf_req_auth_service)
+    .module("/rp", rp_oprf_req_auth_service)
+    .module("/issuer", issuer_oprf_req_auth_service)
     .build();
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;

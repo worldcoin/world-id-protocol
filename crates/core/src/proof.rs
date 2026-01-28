@@ -23,7 +23,7 @@ use taceo_oprf_types::ShareEpoch;
 use world_id_primitives::{
     FieldElement, TREE_DEPTH,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
-    oprf::OprfRequestAuthV1,
+    oprf::RpOprfRequestAuthV1,
     proof::SingleProofInput,
     rp::RpId,
 };
@@ -345,7 +345,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
     query_hash: ark_babyjubjub::Fq,
     blinding_factor: &BlindingFactor,
     rng: &mut R,
-) -> Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>), ProofError> {
+) -> Result<(RpOprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>), ProofError> {
     let signature = private_key.sign(query_hash);
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = args.inclusion_proof.siblings.map(|s| *s);
@@ -369,7 +369,7 @@ pub fn oprf_request_auth<R: Rng + CryptoRng>(
     let (proof, public_inputs) = query_material.generate_proof(&query_input, rng)?;
     query_material.verify_proof(&proof, &public_inputs)?;
 
-    let auth = OprfRequestAuthV1 {
+    let auth = RpOprfRequestAuthV1 {
         proof: proof.into(),
         action: *args.action,
         nonce: *args.nonce,

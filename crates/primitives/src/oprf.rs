@@ -7,7 +7,7 @@ use crate::rp::RpId;
 
 /// A request sent by a client to perform an OPRF evaluation.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct OprfRequestAuthV1 {
+pub struct RpOprfRequestAuthV1 {
     /// Zero-knowledge proof provided by the user.
     pub proof: Proof<Bn254>,
     /// The action
@@ -28,6 +28,31 @@ pub struct OprfRequestAuthV1 {
     pub expiration_timestamp: u64,
     /// The signature of the `nonce` || `action` || `created_at` || `expires_at`
     pub signature: alloy_primitives::Signature,
+    /// The `rp_id`
+    pub rp_id: RpId,
+}
+
+/// A request sent by a client to perform an OPRF evaluation.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IssuerOprfRequestAuthV1 {
+    /// Zero-knowledge proof provided by the user.
+    pub proof: Proof<Bn254>,
+    /// The action
+    #[serde(serialize_with = "babyjubjub::serialize_fq")]
+    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    pub action: ark_babyjubjub::Fq,
+    /// The nonce
+    #[serde(serialize_with = "babyjubjub::serialize_fq")]
+    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    pub nonce: ark_babyjubjub::Fq,
+    /// The Merkle root associated with this request.
+    #[serde(serialize_with = "babyjubjub::serialize_fq")]
+    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    pub merkle_root: ark_babyjubjub::Fq,
+    /// The current time stamp (unix secs)
+    pub current_time_stamp: u64,
+    /// Expiration timestamp of the request (unix secs)
+    pub expiration_timestamp: u64,
     /// The `rp_id`
     pub rp_id: RpId,
 }
