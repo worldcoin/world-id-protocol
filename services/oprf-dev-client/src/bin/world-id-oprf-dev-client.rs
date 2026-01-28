@@ -48,7 +48,7 @@ use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
     merkle::MerkleInclusionProof,
-    oprf::OprfRequestAuthV1,
+    oprf::RpOprfRequestAuthV1,
     proof::SingleProofInput,
     rp::RpId,
 };
@@ -230,7 +230,7 @@ fn prepare_nullifier_stress_test_oprf_request(
     SingleProofInput<TREE_DEPTH>,
     QueryProofCircuitInput<TREE_DEPTH>,
     BlindingFactor,
-    OprfRequest<OprfRequestAuthV1>,
+    OprfRequest<RpOprfRequestAuthV1>,
 )> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
