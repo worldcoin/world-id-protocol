@@ -26,14 +26,10 @@ pub use crate::authenticator::{
 pub use world_id_primitives::{Credential, CredentialVersion};
 
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
-mod credential;
-#[cfg(any(feature = "authenticator", feature = "issuer"))]
-pub use credential::HashableCredential;
+pub use world_id_credential::HashableCredential;
 
 #[cfg(feature = "issuer")]
-mod issuer;
-#[cfg(feature = "issuer")]
-pub use issuer::Issuer;
+pub use world_id_issuer::Issuer;
 
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
 mod signer;

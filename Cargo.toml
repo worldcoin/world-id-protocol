@@ -1,13 +1,15 @@
 [workspace]
 members = [
     "crates/core",
+    "crates/issuer",
+    "crates/credential",
     "crates/primitives",
     "crates/test-utils",
     "services/indexer",
     "services/gateway",
     "services/oprf-node",
     "services/oprf-dev-client",
-    "services/common"
+    "services/common",
 ]
 resolver = "2"
 
@@ -15,7 +17,11 @@ resolver = "2"
 edition = "2024"
 version = "0.3.0"
 license = "MIT"
-authors = ["World Foundation", "TACEO GmbH <hello@taceo.io>", "Tools for Humanity"]
+authors = [
+    "World Foundation",
+    "TACEO GmbH <hello@taceo.io>",
+    "Tools for Humanity",
+]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
 rust-version = "1.87"
@@ -25,19 +31,21 @@ alloy = { version = "1.5", default-features = false }
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false, features = ["babyjubjub"] }
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false, features = [
+    "babyjubjub",
+] }
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 backon = "1"
 circom-witness-rs = "0.2.1"
-circom-types = { package="taceo-circom-types", version = "=0.1.1", default-features = false }
+circom-types = { package = "taceo-circom-types", version = "=0.1.1", default-features = false }
 criterion = "0.7"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5" }
 eyre = "0.6"
 futures = "0.3"
-groth16-material = { package="taceo-groth16-material", version="0.1", default-features = false }
+groth16-material = { package = "taceo-groth16-material", version = "0.1", default-features = false }
 hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
@@ -65,16 +73,24 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2", features = ["serde"] }
 utoipa = "5"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
 uuid = { version = "1" }
 webpki-roots = "1.0"
-world-id-core = { version = "0.3.0", default-features = false, path = "crates/core"}
-world-id-primitives = { version = "0.3.0", path = "crates/primitives"}
-world-id-oprf-node = { version = "0.1", path = "./services/oprf-node"}
 zeroize = "1"
 axum = { version = "0.8", features = ["macros", "json"] }
 moka = { version = "0.12.12", features = ["future"] }
 metrics = "0.24"
+secrecy = "0.10"
+
+# Internal
+world-id-core = { version = "0.3.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.3.0", path = "crates/issuer" }
+world-id-credential = { version = "0.3.0", path = "crates/credential" }
+world-id-primitives = { version = "0.3.0", path = "crates/primitives" }
+world-id-oprf-node = { version = "0.1", path = "./services/oprf-node" }
 
 [patch.crates-io]
 taceo-oprf-core = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }

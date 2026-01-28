@@ -12,7 +12,7 @@ sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     WorldIdRegistry,
-    "contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
+    "../../contracts/abi/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
 );
 
 sol! {
