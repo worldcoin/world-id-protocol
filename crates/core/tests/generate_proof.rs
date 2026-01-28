@@ -217,7 +217,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
         created_at: rp_fixture.current_timestamp,
-        expires_at: rp_fixture.current_timestamp + 300, // 5 minutes from now
+        expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
         share_epoch: rp_fixture.share_epoch,

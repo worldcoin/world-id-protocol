@@ -345,7 +345,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// - Will error if the provided indexer URL is not valid or if there are HTTP call failures.
-    /// - Will error if the user is not registered on the registry.
+    /// - Will error if the user is not registered on the `WorldIDRegistry`.
     pub async fn fetch_inclusion_proof(
         &self,
     ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>

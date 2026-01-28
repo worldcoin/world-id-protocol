@@ -1,3 +1,5 @@
+//! Logic to generate nullifiers using the OPRF Nodes.
+
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::circom::CircomGroth16Material;
@@ -15,14 +17,18 @@ use crate::{
     requests::ProofRequest,
 };
 
-/// Inputs to a World ID Proof that are related and provided by the Authenticator.
+/// Inputs from the Authenticator to generate a nullifier.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct AuthenticatorProofInput {
+    /// The set of all public keys for all the user's authenticators.
     #[zeroize(skip)]
     key_set: AuthenticatorPublicKeySet,
+    /// Inclusion proof in the World ID Registry.
     #[zeroize(skip)]
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+    /// The off-chain signer key for the Authenticator.
     private_key: EdDSAPrivateKey,
+    /// The index at which the authenticator key is located in the `key_set`.
     key_index: u64,
 }
 
@@ -44,15 +50,27 @@ impl AuthenticatorProofInput {
     }
 }
 
-/// Nullifier computed using OPRF.
+/// Nullifier computed using OPRF Nodes.
 pub struct OprfNullifier {
+    /// The raw inputs to the Query Proof circuit
     pub(crate) query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
-    /// The OPRF output with verification data.
+    /// The result of the distributed OPRF protocol, including the final nullifier.
     pub verifiable_oprf_output: VerifiableOprfOutput,
 }
 
 impl OprfNullifier {
-    /// DESCRIPTION MISSING.
+    /// Generates a nullifier through the provided OPRF nodes for
+    /// a specific proof request.
+    ///
+    /// This method will handle the signature from the Authenticator authorizing the
+    /// request for the OPRF nodes.
+    ///
+    /// # Arguments
+    /// - `services`: The list of endpoints of all OPRF nodes.
+    /// - `threshold`: The threshold for required OPRF nodes responses.
+    /// - `query_material`: The material for the query proof circuit.
+    /// - `authenticator_input`: See [`AuthenticatorProofInput`] for more details.
+    /// - `proof_request`: The proof request provided by the RP.
     ///
     /// # Errors
     ///
@@ -77,7 +95,7 @@ impl OprfNullifier {
 
         let query_hash =
             proof_request.digest_for_authenticator(authenticator_input.inclusion_proof.leaf_index);
-        let signature = authenticator_input.private_key.sign(query_hash.0.into());
+        let signature = authenticator_input.private_key.sign(*query_hash);
 
         let action = *proof_request.computed_action();
 
