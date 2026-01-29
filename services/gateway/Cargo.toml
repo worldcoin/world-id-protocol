@@ -9,7 +9,7 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
-common = { path = "../common" }
+world-id-common = { path = "../common" }
 
 alloy = { workspace = true, features = [
     "json-rpc",

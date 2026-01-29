@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use alloy::{primitives::Address, providers::DynProvider};
-use common::ProviderArgs;
+use world_id_common::ProviderArgs;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::db::DB;

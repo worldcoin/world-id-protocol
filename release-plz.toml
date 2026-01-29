@@ -45,5 +45,5 @@ name = "world-id-oprf-dev-client"
 publish = false
 
 [[package]]
-name = "common"
+name = "world-id-common"
 publish = false

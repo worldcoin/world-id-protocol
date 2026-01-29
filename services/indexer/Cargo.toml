@@ -30,7 +30,7 @@ take_mut = "0.2.2"
 utoipa = { workspace = true }
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys", "openapi"] }
 world-id-primitives = { workspace = true }
-common = { path = "../common" }
+world-id-common = { path = "../common" }
 
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }
