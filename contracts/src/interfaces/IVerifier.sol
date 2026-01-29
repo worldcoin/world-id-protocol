@@ -93,27 +93,24 @@ interface IVerifier {
      * @param nullifier The nullifier hash to verify uniqueness.
      * @param action The action identifier.
      * @param rpId The relying party identifier.
-     * @param sessionId The identifier for a specific RP-specific session.
      * @param nonce The nonce used in the proof.
      * @param signalHash The hash of the signal which was committed in the proof.
-     * @param authenticatorRoot The merkle root of the authenticator set.
      * @param proofTimestamp The timestamp when the proof was generated.
-     * @param credentialIssuerId The ID of the credential issuer.
+     * @param issuerSchemaId The ID of the Credential issuer as included in the Credential used for the proof and the `CredentialSchemaIssuerRegistry`.
      * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
-     * @param compressedProof The compressed Groth16 proof.
+     * @param zeroKnowledgeProof The encoded Zero Knowledge Proof (first 4 elements represent a compressed Groth16 proof [a, b, b, c]
+     *   and the last element the Merkle Root of the tree in WorldIDRegistry.
      */
     function verify(
         uint256 nullifier,
         uint256 action,
         uint64 rpId,
-        uint256 sessionId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 authenticatorRoot,
         uint256 proofTimestamp,
-        uint64 credentialIssuerId,
+        uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
-        uint256[4] calldata compressedProof
+        uint256[5] calldata zeroKnowledgeProof
     ) external view;
 
     ////////////////////////////////////////////////////////////

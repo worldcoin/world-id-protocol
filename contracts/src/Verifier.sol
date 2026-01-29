@@ -94,21 +94,20 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         uint256 nullifier,
         uint256 action,
         uint64 rpId,
-        uint256 sessionId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 authenticatorRoot,
         uint256 proofTimestamp,
-        uint64 credentialIssuerId,
+        uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
-        uint256[4] calldata compressedProof
+        uint256[5] calldata zeroKnowledgeProof
     ) external view virtual onlyProxy onlyInitialized {
-        if (!worldIDRegistry.isValidRoot(authenticatorRoot)) {
+        uint256 merkleRoot = zeroKnowledgeProof[4];
+        if (!worldIDRegistry.isValidRoot(merkleRoot)) {
             revert InvalidMerkleRoot();
         }
 
         ICredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =
-            credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(credentialIssuerId);
+            credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(issuerSchemaId);
         if (credentialIssuerPubkey.x == 0 || credentialIssuerPubkey.y == 0) {
             revert UnregisteredIssuerSchemaId();
         }
@@ -130,12 +129,12 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         uint256[15] memory pubSignals;
 
         pubSignals[0] = nullifier;
-        pubSignals[1] = credentialIssuerId;
+        pubSignals[1] = issuerSchemaId;
         pubSignals[2] = credentialIssuerPubkey.x;
         pubSignals[3] = credentialIssuerPubkey.y;
         pubSignals[4] = proofTimestamp;
         pubSignals[5] = credentialGenesisIssuedAtMin;
-        pubSignals[6] = authenticatorRoot;
+        pubSignals[6] = merkleRoot;
         pubSignals[7] = treeDepth;
         pubSignals[8] = uint256(rpId);
         pubSignals[9] = action;
@@ -143,9 +142,17 @@ contract Verifier is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IV
         pubSignals[11] = oprfPublicKey.y;
         pubSignals[12] = signalHash;
         pubSignals[13] = nonce;
-        pubSignals[14] = sessionId;
 
-        verifierNullifier.verifyCompressedProof(compressedProof, pubSignals);
+        // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
+        // To verify a Session Proof use `verifySession` instead.
+        pubSignals[14] = 0;
+
+        uint256[4] memory groth16CompressedProof;
+        for (uint256 i = 0; i < 4; i++) {
+            groth16CompressedProof[i] = zeroKnowledgeProof[i];
+        }
+
+        verifierNullifier.verifyCompressedProof(groth16CompressedProof, pubSignals);
     }
 
     /// @inheritdoc IVerifier
