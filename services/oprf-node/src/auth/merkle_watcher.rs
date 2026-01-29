@@ -170,6 +170,7 @@ impl MerkleWatcher {
         } else if elapsed >= root_validity_window {
             tracing::debug!("latest root is expired, not caching");
         } else {
+            // > 0 because of the previous else if
             let remaining_validity = root_validity_window.saturating_sub(elapsed);
             tracing::debug!("insert latest root with remaining validity {remaining_validity}s");
             merkle_root_cache
@@ -312,15 +313,24 @@ impl MerkleWatcher {
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("system time after epoch")
                     .as_secs();
-                let root_timestamp =
-                    u64::try_from(contract.getRootTimestamp(root.into()).call().await.unwrap())
-                        .expect("fits in u64");
+                let root_timestamp = u64::try_from(
+                    contract
+                        .getRootTimestamp(root.into())
+                        .call()
+                        .await
+                        .map_err(MerkleWatcherError)?,
+                )
+                .expect("fits in u64");
                 let elapsed = current_timestamp.saturating_sub(root_timestamp);
                 let remaining_validity = root_validity_window.saturating_sub(elapsed);
-                tracing::debug!("insert root with remaining validity {remaining_validity}s");
-                self.merkle_root_cache
-                    .insert(root, remaining_validity)
-                    .await;
+                if remaining_validity != 0 {
+                    tracing::debug!("insert root with remaining validity {remaining_validity}s");
+                    self.merkle_root_cache
+                        .insert(root, remaining_validity)
+                        .await;
+                } else {
+                    tracing::debug!("root is already expired, not caching");
+                }
             } else {
                 tracing::debug!("inserting root {root} into cache with infinite validity");
                 self.merkle_root_cache.insert(root, 0).await;
