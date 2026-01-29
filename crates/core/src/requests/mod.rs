@@ -7,7 +7,6 @@ mod constraints;
 use ark_ff::PrimeField;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
-use poseidon2::Poseidon2;
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
@@ -319,8 +318,7 @@ impl ProofRequest {
             *FieldElement::from(self.rp_id),
             *self.computed_action(),
         ];
-        let poseidon2_4: Poseidon2<ark_babyjubjub::Fq, 4, 5> = Poseidon2::default();
-        poseidon2_4.permutation(&input)[1].into()
+        poseidon2::bn254::t4::permutation(&input)[1].into()
     }
 
     /// Gets the action value to use in the proof.

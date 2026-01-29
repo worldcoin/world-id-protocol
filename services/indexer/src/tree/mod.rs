@@ -2,7 +2,6 @@ use std::sync::LazyLock;
 
 use alloy::primitives::U256;
 use ark_bn254::Fr;
-use poseidon2::{POSEIDON2_BN254_T2_PARAMS, Poseidon2};
 use semaphore_rs_hasher::Hasher;
 pub use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use tokio::sync::RwLock;
@@ -17,10 +16,6 @@ mod tests;
 
 pub use initializer::TreeInitializer;
 
-// Poseidon2 hasher singleton
-static POSEIDON_HASHER: LazyLock<Poseidon2<Fr, 2, 5>> =
-    LazyLock::new(|| Poseidon2::new(&POSEIDON2_BN254_T2_PARAMS));
-
 pub struct PoseidonHasher {}
 
 impl Hasher for PoseidonHasher {
@@ -31,7 +26,7 @@ impl Hasher for PoseidonHasher {
         let right: Fr = right.try_into().unwrap();
         let mut input = [left, right];
         let feed_forward = input[0];
-        POSEIDON_HASHER.permutation_in_place(&mut input);
+        poseidon2::bn254::t2::permutation_in_place(&mut input);
         input[0] += feed_forward;
         input[0].into()
     }

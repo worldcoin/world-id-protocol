@@ -7,7 +7,6 @@ use ark_babyjubjub::{EdwardsAffine, Fq};
 use ark_ff::AdditiveGroup;
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use poseidon2::Poseidon2;
 use serde::{Deserialize, Serialize};
 
 use crate::{FieldElement, PrimitiveError};
@@ -111,7 +110,6 @@ impl AuthenticatorPublicKeySet {
     /// Panics if the domain separator constant cannot be converted into an `Fq`.
     #[must_use]
     pub fn leaf_hash(&self) -> Fq {
-        let poseidon2_16: Poseidon2<Fq, 16, 5> = Poseidon2::default();
         let mut input = [Fq::ZERO; 16];
 
         input[0] =
@@ -123,7 +121,7 @@ impl AuthenticatorPublicKeySet {
             input[i * 2 + 2] = pk_array[i].y;
         }
 
-        poseidon2_16.permutation(&input)[1]
+        poseidon2::bn254::t16::permutation(&input)[1]
     }
 }
 
