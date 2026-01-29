@@ -1,12 +1,16 @@
 use alloy::primitives::U256;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
-use crate::db::{accounts::Accounts, world_id_events::WorldIdEvents};
+use crate::db::{
+    accounts::Accounts, world_tree_events::WorldTreeEvents, world_tree_roots::WorldTreeRoots,
+};
 
 mod accounts;
-mod world_id_events;
+mod world_tree_events;
+mod world_tree_roots;
 
-pub use world_id_events::{EventId, EventType};
+pub use world_tree_events::{WorldTreeEventId, WorldTreeEventType};
+pub use world_tree_roots::{WorldTreeRootEventType, WorldTreeRootId};
 
 #[derive(Clone)]
 pub struct DB {
@@ -37,8 +41,12 @@ impl DB {
         &self.pool
     }
 
-    pub fn world_id_events(&self) -> WorldIdEvents<'_> {
-        WorldIdEvents::new(&self.pool)
+    pub fn world_tree_events(&self) -> WorldTreeEvents<'_> {
+        WorldTreeEvents::new(&self.pool)
+    }
+
+    pub fn world_tree_roots(&self) -> WorldTreeRoots<'_> {
+        WorldTreeRoots::new(&self.pool)
     }
 
     pub fn accounts(&self) -> Accounts<'_> {
@@ -61,13 +69,13 @@ pub async fn fetch_recent_account_updates(
         .unwrap_or_default();
     let since_timestamp = since_duration.as_secs() as i64;
 
-    // Query world_id_events for recent changes
+    // Query world_tree_events for recent changes
     let rows = sqlx::query(
         r#"
         SELECT DISTINCT ON (leaf_index)
             leaf_index,
-            new_commitment
-        FROM world_id_events
+            offchain_signer_commitment
+        FROM world_tree_events
         WHERE created_at > to_timestamp($1)
         ORDER BY leaf_index, created_at DESC
         "#,
@@ -79,7 +87,7 @@ pub async fn fetch_recent_account_updates(
     rows.iter()
         .map(|row| {
             let leaf_index = row.get::<U256, _>("leaf_index");
-            let commitment = row.get::<U256, _>("new_commitment");
+            let commitment = row.get::<U256, _>("offchain_signer_commitment");
             Ok((leaf_index, commitment))
         })
         .collect()
@@ -100,9 +108,9 @@ pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
     Ok(result as u64)
 }
 
-/// Count total events in world_id_events.
+/// Count total events in world_tree_events.
 pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
-    let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM world_id_events")
+    let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM world_tree_events")
         .fetch_one(pool)
         .await?;
 

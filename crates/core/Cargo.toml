@@ -37,6 +37,7 @@ backon = { workspace = true, optional = true, features = ["tokio-sleep"] }
 poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
+ark-groth16 = { workspace = true }
 anyhow = { workspace = true }
 chrono = "0.4"
 ciborium = "0.2"
@@ -62,14 +63,13 @@ secrecy = { version = "0.10", optional = true }
 strum = { workspace = true }
 world-id-primitives = { workspace = true }
 utoipa = { workspace = true, optional = true }
-groth16-material = { workspace = true, features = ["circom"], optional = true }
-taceo-oprf-client = { workspace = true, optional = true }
-taceo-oprf-core = { workspace = true, optional = true }
-taceo-oprf-types = { workspace = true, optional = true }
+groth16-material = { workspace = true, optional = true }
+taceo-oprf = { workspace = true, features = ["client"], optional = true }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
+zeroize = { workspace = true, optional = true }
 
 # Internal
 world-id-issuer = { workspace = true, optional = true }
@@ -88,21 +88,20 @@ authenticator = [
     "dep:reqwest",
     "dep:secrecy",
     "dep:groth16-material",
-    "dep:taceo-oprf-client",
-    "dep:taceo-oprf-core",
-    "dep:taceo-oprf-types",
+    "taceo-oprf/client",
     "dep:rustls",
     "dep:webpki-roots",
     "dep:axum",
     "dep:tokio",
     "dep:world-id-credential",
+    "dep:zeroize"
 ]
 
 embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
 issuer = ["dep:world-id-issuer", "dep:world-id-credential", "dep:secrecy"]
 
-rp = ["dep:taceo-oprf-types", "alloy/signers"]
+rp = ["dep:taceo-oprf", "alloy/signers"]
 
 cli = []
 
@@ -121,8 +120,6 @@ alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
 axum = { workspace = true, features = ["macros", "json"] }
-taceo-oprf-core = { workspace = true }
 mockito = "1.6"
-taceo-oprf-service = { workspace = true }
+taceo-oprf = { workspace = true, features = ["full"] }
 taceo-oprf-test-utils = { workspace = true }
-taceo-groth16-sol = "0.1"

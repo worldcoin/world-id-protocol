@@ -14,7 +14,8 @@ use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{Context as _, Result, eyre};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
-use taceo_oprf_types::{OprfKeyId, ShareEpoch};
+use taceo_oprf::types::{OprfKeyId, ShareEpoch};
+use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
@@ -54,19 +55,6 @@ impl RegistryTestContext {
             .deploy_oprf_key_registry(deployer.clone())
             .await
             .wrap_err("failed to deploy OprfKeyRegistry")?;
-
-        // Register OPRF nodes (required before initKeyGen can be called)
-        // signers must match the ones used in test secret managers if applicable
-        let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
-        anvil
-            .register_oprf_nodes(
-                oprf_key_registry,
-                deployer.clone(),
-                oprf_node_signers.iter().map(|s| s.address()).collect(),
-            )
-            .await
-            .wrap_err("failed to register OPRF nodes")?;
-
         let credential_registry = anvil
             .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
             .await
@@ -85,14 +73,8 @@ impl RegistryTestContext {
             .await
             .wrap_err("failed to deploy Verifier")?;
 
-        // signers must match the ones used in the TestSecretManager
-        let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
         anvil
-            .register_oprf_nodes(
-                oprf_key_registry,
-                deployer.clone(),
-                oprf_node_signers.iter().map(|s| s.address()).collect(),
-            )
+            .register_oprf_nodes(oprf_key_registry, deployer.clone(), PEER_ADDRESSES.to_vec())
             .await?;
 
         // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens
@@ -114,7 +96,7 @@ impl RegistryTestContext {
                     .parse()
                     .wrap_err("invalid anvil endpoint URL")?,
             );
-        let registry_contract = CredentialSchemaIssuerRegistry::new(credential_registry, provider);
+        let issuer_registry = CredentialSchemaIssuerRegistry::new(credential_registry, provider);
 
         let issuer_private_key = EdDSAPrivateKey::random(&mut thread_rng());
         let issuer_public_key = issuer_private_key.public();
@@ -125,7 +107,7 @@ impl RegistryTestContext {
 
         let issuer_schema_id: u64 = 1;
 
-        let receipt = registry_contract
+        let receipt = issuer_registry
             .register(issuer_schema_id, issuer_pubkey_repr, deployer.address())
             .send()
             .await
@@ -244,7 +226,6 @@ pub fn generate_rp_fixture() -> RpFixture {
 
     let msg = world_id_primitives::rp::compute_rp_signature_msg(
         nonce,
-        action,
         current_timestamp,
         expiration_timestamp,
     );

@@ -1,28 +1,20 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256, address};
+use alloy::primitives::{Address, U256};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
-use taceo_oprf_test_utils::test_secret_manager::TestSecretManager;
+use taceo_oprf::service::secret_manager::aws::AwsSecretManager as OprfServiceSercretManager;
+use taceo_oprf_key_gen::secret_manager::aws::AwsSecretManager as KeyGenSecretManager;
+use taceo_oprf_test_utils::{
+    OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1, OPRF_PEER_ADDRESS_2, OPRF_PEER_ADDRESS_3,
+    OPRF_PEER_ADDRESS_4, PEER_PRIVATE_KEYS,
+};
 use tokio::{net::TcpListener, task::JoinHandle};
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 use world_id_primitives::{TREE_DEPTH, merkle::AccountInclusionProof};
 
 use std::sync::RwLock;
-
-/// anvil wallet 5
-pub const OPRF_PEER_PRIVATE_KEY_0: &str =
-    "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba";
-pub const OPRF_PEER_ADDRESS_0: Address = address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc");
-/// anvil wallet 6
-pub const OPRF_PEER_PRIVATE_KEY_1: &str =
-    "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e";
-pub const OPRF_PEER_ADDRESS_1: Address = address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9");
-/// anvil wallet 7
-pub const OPRF_PEER_PRIVATE_KEY_2: &str =
-    "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356";
-pub const OPRF_PEER_ADDRESS_2: Address = address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955");
 
 #[derive(Clone)]
 struct IndexerState {
@@ -146,37 +138,31 @@ impl MutableIndexerStub {
     }
 }
 
-pub fn create_secret_managers() -> [TestSecretManager; 3] {
-    [
-        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_0),
-        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_1),
-        TestSecretManager::new(OPRF_PEER_PRIVATE_KEY_2),
-    ]
-}
-
 async fn spawn_orpf_node(
     id: usize,
     chain_ws_rpc_url: &str,
-    secret_manager: TestSecretManager,
+    localstack_url: &str,
     oprf_key_registry_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
     wallet_address: Address,
 ) -> String {
+    let oprf_secret_id_prefix = format!("oprf/rp/n{id}");
+    let (_, config) = taceo_oprf_test_utils::localstack_client(localstack_url).await;
+    let secret_manager = OprfServiceSercretManager::init(config, &oprf_secret_id_prefix).await;
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
     let config = WorldOprfNodeConfig {
         bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
         max_wait_time_shutdown: Duration::from_secs(10),
         max_merkle_cache_size: 10,
         max_rp_registry_store_size: 1000,
-        root_validity_window: Duration::from_secs(3600),
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         world_id_registry_contract,
         rp_registry_contract,
         cache_maintenance_interval: Duration::from_secs(60),
-        node_config: taceo_oprf_service::config::OprfNodeConfig {
-            environment: taceo_oprf_service::config::Environment::Dev,
-            rp_secret_id_prefix: format!("oprf/rp/n{id}"),
+        node_config: taceo_oprf::service::config::OprfNodeConfig {
+            environment: taceo_oprf::service::config::Environment::Dev,
+            rp_secret_id_prefix: oprf_secret_id_prefix,
             oprf_key_registry_contract,
             chain_ws_rpc_url: chain_ws_rpc_url.into(),
             ws_max_message_size: 512 * 1024,
@@ -210,52 +196,83 @@ async fn spawn_orpf_node(
 
 pub async fn spawn_oprf_nodes(
     chain_ws_rpc_url: &str,
-    secret_manager: [TestSecretManager; 3],
+    localstack_url: &str,
     key_gen_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
-) -> [String; 3] {
-    let [secret_manager0, secret_manager1, secret_manager2] = secret_manager;
-    [
+) -> [String; 5] {
+    tokio::join!(
         spawn_orpf_node(
             0,
             chain_ws_rpc_url,
-            secret_manager0,
+            localstack_url,
             key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
             OPRF_PEER_ADDRESS_0,
-        )
-        .await,
+        ),
         spawn_orpf_node(
             1,
             chain_ws_rpc_url,
-            secret_manager1,
+            localstack_url,
             key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
             OPRF_PEER_ADDRESS_1,
-        )
-        .await,
+        ),
         spawn_orpf_node(
             2,
             chain_ws_rpc_url,
-            secret_manager2,
+            localstack_url,
             key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
             OPRF_PEER_ADDRESS_2,
-        )
-        .await,
-    ]
+        ),
+        spawn_orpf_node(
+            3,
+            chain_ws_rpc_url,
+            localstack_url,
+            key_gen_contract,
+            world_id_registry_contract,
+            rp_registry_contract,
+            OPRF_PEER_ADDRESS_3,
+        ),
+        spawn_orpf_node(
+            4,
+            chain_ws_rpc_url,
+            localstack_url,
+            key_gen_contract,
+            world_id_registry_contract,
+            rp_registry_contract,
+            OPRF_PEER_ADDRESS_4,
+        ),
+    )
+    .into()
 }
 
 async fn spawn_key_gen(
     id: usize,
     chain_ws_rpc_url: &str,
-    secret_manager: TestSecretManager,
+    localstack_url: &str,
     rp_registry_contract: Address,
 ) -> String {
+    let oprf_secret_id_prefix = format!("oprf/rp/n{id}");
+    let wallet_private_key_secret_id = format!("wallet/privatekey/n{id}");
+    let (client, config) = taceo_oprf_test_utils::localstack_client(localstack_url).await;
+    client
+        .create_secret()
+        .name(wallet_private_key_secret_id.clone())
+        .secret_string(PEER_PRIVATE_KEYS[id])
+        .send()
+        .await
+        .expect("can create wallet secret");
+    let secret_manager = KeyGenSecretManager::init(
+        config,
+        &oprf_secret_id_prefix,
+        &wallet_private_key_secret_id,
+    )
+    .await;
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let url = format!("http://localhost:2{id:04}"); // set port based on id, e.g. 20001 for id 1
     let config = taceo_oprf_key_gen::config::OprfKeyGenConfig {
@@ -263,20 +280,25 @@ async fn spawn_key_gen(
         bind_addr: format!("0.0.0.0:2{id:04}").parse().unwrap(),
         oprf_key_registry_contract: rp_registry_contract,
         chain_ws_rpc_url: chain_ws_rpc_url.into(),
-        rp_secret_id_prefix: format!("oprf/rp/n{id}"),
-        wallet_private_key_secret_id: "wallet/privatekey".to_string(),
-        key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.13.arks.zkey"),
-        key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.13.bin"),
+        rp_secret_id_prefix: oprf_secret_id_prefix,
+        wallet_private_key_secret_id,
+        key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
+        key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
         max_wait_time_shutdown: Duration::from_secs(10),
         start_block: Some(0),
         max_transaction_attempts: 3,
         max_wait_time_transaction_confirmation: Duration::from_secs(60),
         max_gas_per_transaction: 8000000,
         confirmations_for_transaction: 1, // must be 1 for anvil
+        db_connection_string: "not-used-yet".into(),
     };
     let never = async { futures::future::pending::<()>().await };
     tokio::spawn(async move {
-        let res = taceo_oprf_key_gen::start(config, Arc::new(secret_manager), never).await;
+        let listener = tokio::net::TcpListener::bind(config.bind_addr)
+            .await
+            .expect("failed to bind key-gen listener");
+        let res =
+            taceo_oprf_key_gen::start(config, Arc::new(secret_manager), listener, never).await;
         eprintln!("key-gen failed to start: {res:?}");
     });
     url
@@ -284,14 +306,15 @@ async fn spawn_key_gen(
 
 pub async fn spawn_key_gens(
     chain_ws_rpc_url: &str,
-    secret_manager: [TestSecretManager; 3],
+    localstack_url: &str,
     key_gen_contract: Address,
-) -> [String; 3] {
-    let [secret_manager0, secret_manager1, secret_manager2] = secret_manager;
+) -> [String; 5] {
     tokio::join!(
-        spawn_key_gen(0, chain_ws_rpc_url, secret_manager0, key_gen_contract),
-        spawn_key_gen(1, chain_ws_rpc_url, secret_manager1, key_gen_contract),
-        spawn_key_gen(2, chain_ws_rpc_url, secret_manager2, key_gen_contract),
+        spawn_key_gen(0, chain_ws_rpc_url, localstack_url, key_gen_contract),
+        spawn_key_gen(1, chain_ws_rpc_url, localstack_url, key_gen_contract),
+        spawn_key_gen(2, chain_ws_rpc_url, localstack_url, key_gen_contract),
+        spawn_key_gen(3, chain_ws_rpc_url, localstack_url, key_gen_contract),
+        spawn_key_gen(4, chain_ws_rpc_url, localstack_url, key_gen_contract),
     )
     .into()
 }

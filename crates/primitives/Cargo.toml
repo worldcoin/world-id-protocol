@@ -15,7 +15,7 @@ default = ["circuits", "oprf"]
 # Enable circuit-related types (requires C++ toolchain, not WASM compatible)
 circuits = ["dep:circom-types", "dep:groth16-material"]
 # Enable OPRF types (not WASM compatible due to uuid dependency)
-oprf = ["dep:taceo-oprf-types"]
+oprf = ["dep:taceo-oprf"]
 
 [dependencies]
 alloy-primitives = { version = "1", default-features = false, features = [
@@ -33,7 +33,8 @@ circom-types = { workspace = true, features = ["groth16"], optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 eddsa-babyjubjub = { workspace = true }
 hex = { workspace = true }
-taceo-oprf-types = { workspace = true, optional = true }
+taceo-groth16-sol = { workspace = true }
+taceo-oprf = { workspace = true, optional = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }

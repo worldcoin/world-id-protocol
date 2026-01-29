@@ -33,6 +33,9 @@ pub use signer::Signer;
 #[cfg(feature = "authenticator")]
 pub mod proof;
 
+#[cfg(feature = "authenticator")]
+pub mod nullifier;
+
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 pub mod requests;
 

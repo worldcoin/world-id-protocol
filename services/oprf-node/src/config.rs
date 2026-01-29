@@ -4,7 +4,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use alloy::primitives::Address;
 use clap::Parser;
-use taceo_oprf_service::config::OprfNodeConfig;
+use taceo_oprf::service::config::OprfNodeConfig;
 
 /// The configuration for the OPRF node.
 ///
@@ -37,17 +37,6 @@ pub struct WorldOprfNodeConfig {
     /// Will drop least recently used merkle roots if this capacity is reached.
     #[clap(long, env = "OPRF_NODE_MERKLE_CACHE_SIZE", default_value = "100")]
     pub max_merkle_cache_size: u64,
-
-    /// The time to live of a merkle root in the cache.
-    ///
-    /// Will drop merkle roots if this duration elapsed after they were added.
-    #[clap(
-        long,
-        env = "OPRF_NODE_ROOT_VALIDITY_WINDOW",
-        default_value = "1hour",
-        value_parser = humantime::parse_duration
-    )]
-    pub root_validity_window: Duration,
 
     /// The maximum size of the RpRegistry store.
     ///

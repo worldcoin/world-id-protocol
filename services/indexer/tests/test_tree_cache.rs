@@ -505,13 +505,13 @@ async fn test_authenticator_removed_replay() {
         serde_json::from_str(&cache_meta_content).expect("Should parse metadata");
     let last_block = cache_meta["last_block_number"].as_u64().unwrap();
 
-    // Manually insert an AuthenticatorRemoved event with a non-zero new_commitment
+    // Manually insert an AuthenticatorRemoved event with a non-zero offchain_signer_commitment
     // This simulates what happens when an authenticator is removed but account has other authenticators
     let new_commitment_after_removal = U256::from(999);
 
     sqlx::query(
-        r#"INSERT INTO world_id_events
-        (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
+        r#"INSERT INTO world_tree_events
+        (leaf_index, event_type, offchain_signer_commitment, block_number, tx_hash, log_index)
         VALUES ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind(U256::from(1))

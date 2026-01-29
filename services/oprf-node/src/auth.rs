@@ -23,8 +23,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use taceo_oprf_service::OprfRequestAuthenticator;
-use taceo_oprf_types::api::v1::OprfRequest;
+use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator};
 use uuid::Uuid;
 use world_id_primitives::{TREE_DEPTH, oprf::OprfRequestAuthV1};
 
@@ -175,7 +174,6 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
-            request.auth.action,
             request.auth.current_time_stamp,
             request.auth.expiration_timestamp,
         );
