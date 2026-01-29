@@ -345,7 +345,7 @@ impl MerkleWatcher {
 mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
-    use taceo_oprf_service::StartedServices;
+    use taceo_oprf::service::StartedServices;
     use test_utils::anvil::TestAnvil;
     use tokio_util::sync::CancellationToken;
 

@@ -42,14 +42,10 @@ hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
-taceo-oprf-core = { version = "0.3", default-features = false }
-taceo-oprf-types = { version = "0.4" }
-taceo-oprf-client = { version = "0.3" }
-taceo-oprf-service = { version = "0.3" }
 taceo-groth16-sol = { version = "0.1" }
-taceo-oprf-test-utils = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
-taceo-oprf-dev-client = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
-taceo-oprf-key-gen = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
+taceo-oprf = { version = "0.1", default-features = false }
+taceo-oprf-test-utils = "0.1"
+taceo-oprf-key-gen = "0.1"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
 rand = "0.8"
@@ -78,7 +74,6 @@ moka = { version = "0.12.12", features = ["future"] }
 metrics = "0.24"
 
 [patch.crates-io]
-taceo-oprf-core = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
-taceo-oprf-types = { version = "0.4", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
-taceo-oprf-client = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
-taceo-oprf-service = { version = "0.3", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "a6b774d" }
+taceo-oprf = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "b3b95bf" }
+taceo-oprf-test-utils = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "b3b95bf" }
+taceo-oprf-key-gen = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "b3b95bf" }
