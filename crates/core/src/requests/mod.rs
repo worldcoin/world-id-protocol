@@ -333,11 +333,13 @@ impl ProofRequest {
     pub fn computed_action(&self) -> FieldElement {
         match (self.action, self.session_id) {
             // Uniqueness Proof: use the provided action
-            (Some(action), _) => action,
+            (Some(action), None) => action,
             // Session Proof: use session_id as the action binding
             (None, Some(session_id)) => session_id,
             // Invalid state: neither action nor session_id provided.
             (None, None) => panic!("ProofRequest must have either action or session_id"),
+            // Invalid state: both action and session_id are provided.
+            (Some(_), Some(_)) => panic!("ProofRequest must have exactly an action or session_id"),
         }
     }
 
@@ -393,7 +395,7 @@ impl ProofRequest {
     ///
     /// # Errors
     /// Returns an error if the JSON is invalid, contains duplicate issuer schema ids,
-    /// or is missing both `action` and `session_id`.
+    /// or does not have exactly one of `action` and `session_id`.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let v: Self = serde_json::from_str(json)?;
         // Enforce unique issuer schema ids within a single request
@@ -406,10 +408,10 @@ impl ProofRequest {
                 )));
             }
         }
-        // Ensure at least one of action or session_id is provided
-        if v.action.is_none() && v.session_id.is_none() {
+        // Ensure exactly one of action or session_id is provided
+        if v.action.is_none() == v.session_id.is_none() {
             return Err(serde_json::Error::custom(
-                "request must have either action or session_id",
+                "request must have exactly one of action or session_id",
             ));
         }
         Ok(v)
@@ -1022,7 +1024,7 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             share_epoch: ShareEpoch::default(),
-            session_id: Some(test_field_element(55)),
+            session_id: None,
             action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1281,6 +1283,99 @@ mod tests {
             msg.contains("duplicate issuer schema id"),
             "Expected error message to contain 'duplicate issuer schema id', got: {msg}"
         );
+    }
+
+    #[test]
+    fn request_rejects_missing_action_and_session_on_parse() {
+        let req = ProofRequest {
+            id: "req_missing_action_session".into(),
+            version: RequestVersion::V1,
+            created_at: 1_725_381_192,
+            expires_at: 1_725_381_492,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
+            session_id: None,
+            action: None,
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "test_req_1".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        let json = req.to_json().unwrap();
+        let err = ProofRequest::from_json(&json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("exactly one of action or session_id"),
+            "Expected error message to contain 'exactly one of action or session_id', got: {msg}"
+        );
+    }
+
+    #[test]
+    fn request_rejects_action_and_session_both_on_parse() {
+        let req = ProofRequest {
+            id: "req_both_action_session".into(),
+            version: RequestVersion::V1,
+            created_at: 1_725_381_192,
+            expires_at: 1_725_381_492,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
+            session_id: Some(test_field_element(55)),
+            action: Some(test_field_element(1)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "test_req_1".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        let json = req.to_json().unwrap();
+        let err = ProofRequest::from_json(&json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("exactly one of action or session_id"),
+            "Expected error message to contain 'exactly one of action or session_id', got: {msg}"
+        );
+    }
+
+    #[test]
+    fn request_allows_session_only_and_computed_action_uses_session_id() {
+        let session_id = test_field_element(55);
+        let req = ProofRequest {
+            id: "req_session_only".into(),
+            version: RequestVersion::V1,
+            created_at: 1_725_381_192,
+            expires_at: 1_725_381_492,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
+            session_id: Some(session_id),
+            action: None,
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "test_req_1".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        let json = req.to_json().unwrap();
+        let parsed = ProofRequest::from_json(&json).unwrap();
+        assert_eq!(parsed.computed_action(), session_id);
     }
 
     #[test]
