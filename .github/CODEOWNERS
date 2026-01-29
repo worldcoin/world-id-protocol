@@ -1,5 +1,5 @@
 * @worldcoin/protocol-contributors @rw0x0 @fabian1409 @0xThemis @dkales
-/services/oprf-node @fabian1409 @0xThemis @dkales @philsippl
-/services/oprf-dev-client @fabian1409 @0xThemis @dkales @philsippl
-/circom @fabian1409 @0xThemis @dkales @philsippl @paolodamico
-/.github/CODEOWNERS @paolodamico @philsippl @murph
+/services/oprf-node @worldcoin/team-protocol @fabian1409 @0xThemis @dkales @philsippl
+/services/oprf-dev-client @worldcoin/team-protocol @fabian1409 @0xThemis @dkales @philsippl
+/circom @worldcoin/team-protocol @fabian1409 @0xThemis @dkales @philsippl @paolodamico
+/.github/CODEOWNERS @worldcoin/team-protocol @paolodamico @philsippl @murph
