@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
 
     let nullifier = authenticator.generate_nullifier(&proof_request).await?;
 
-    let (proof, nullifier) = authenticator.generate_single_proof(
+    let proof_response = authenticator.generate_single_proof(
         nullifier,
         request_item,
         &credential,
@@ -76,8 +76,7 @@ async fn main() -> Result<()> {
         proof_request.created_at,
     )?;
 
-    println!("proof: {proof:?}");
-    println!("nullifier: {nullifier:?}");
+    println!("response: {proof_response:?}");
 
     Ok(())
 }

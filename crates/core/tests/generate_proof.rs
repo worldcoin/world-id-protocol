@@ -266,10 +266,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             response_item.nullifier.unwrap().into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
-            proof_request.session_id.unwrap_or_default().into(),
             rp_fixture.nonce.into(),
             request_item.signal_hash().into(),
-            inclusion_proof.root.into(),
             rp_fixture
                 .current_timestamp
                 .try_into()
@@ -280,7 +278,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            compressed_proof,
+            response_item.proof.unwrap().as_ethereum_representation(),
         )
         .call()
         .await?;

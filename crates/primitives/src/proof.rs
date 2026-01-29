@@ -112,6 +112,12 @@ impl<'de> Deserialize<'de> for ZeroKnowledgeProof {
     }
 }
 
+impl From<ZeroKnowledgeProof> for [U256; 5] {
+    fn from(value: ZeroKnowledgeProof) -> Self {
+        value.inner
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ruint::uint;
