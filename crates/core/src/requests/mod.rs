@@ -322,12 +322,22 @@ impl ProofRequest {
     }
 
     /// Gets the action value to use in the proof.
+    ///
+    /// For Uniqueness Proofs, this returns the action provided by the RP.
+    /// For Session Proofs (when `session_id` is provided but `action` is `None`),
+    /// this returns the `session_id` as the action binding value.
+    ///
+    /// # Panics
+    /// Panics if both `action` and `session_id` are `None`, as this represents an invalid request.
     #[must_use]
     pub fn computed_action(&self) -> FieldElement {
-        // if session_id -> compute differently
-        match self.action {
-            Some(action) => action,
-            None => todo!("Not ready"),
+        match (self.action, self.session_id) {
+            // Uniqueness Proof: use the provided action
+            (Some(action), _) => action,
+            // Session Proof: use session_id as the action binding
+            (None, Some(session_id)) => session_id,
+            // Invalid state: neither action nor session_id provided.
+            (None, None) => panic!("ProofRequest must have either action or session_id"),
         }
     }
 
@@ -382,7 +392,8 @@ impl ProofRequest {
     /// Parse from JSON
     ///
     /// # Errors
-    /// Returns an error if the JSON is invalid or contains duplicate issuer schema ids.
+    /// Returns an error if the JSON is invalid, contains duplicate issuer schema ids,
+    /// or is missing both `action` and `session_id`.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let v: Self = serde_json::from_str(json)?;
         // Enforce unique issuer schema ids within a single request
@@ -394,6 +405,12 @@ impl ProofRequest {
                     "duplicate issuer schema id: {t}"
                 )));
             }
+        }
+        // Ensure at least one of action or session_id is provided
+        if v.action.is_none() && v.session_id.is_none() {
+            return Err(serde_json::Error::custom(
+                "request must have either action or session_id",
+            ));
         }
         Ok(v)
     }
