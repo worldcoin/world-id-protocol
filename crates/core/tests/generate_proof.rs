@@ -26,6 +26,7 @@ use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclu
 
 const GW_PORT: u16 = 4104;
 
+/// Generates an entire end-to-end Uniqueness Proof Generator
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
@@ -216,41 +217,57 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
         created_at: rp_fixture.current_timestamp,
-        expires_at: rp_fixture.current_timestamp + 300, // 5 minutes from now
+        expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
         share_epoch: rp_fixture.share_epoch,
-        action: rp_fixture.action.into(),
+        session_id: None,
+        action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
-            issuer_schema_id: issuer_schema_id.into(),
+            issuer_schema_id,
             signal: Some("my_signal".to_string()),
             genesis_issued_at_min: None,
-            session_id: None,
         }],
         constraints: None,
     };
-    let request_item = proof_request.requests[0].clone();
+    let request_item = proof_request
+        .find_request_by_issuer_schema_id(issuer_schema_id)
+        .unwrap();
 
-    // Call generate_proof and ensure a nullifier is produced.
-    let (proof, nullifier) = authenticator
-        .generate_proof(proof_request, credential, credential_sub_blinding_factor)
-        .await
-        .wrap_err("failed to generate proof")?;
-    assert_ne!(nullifier, FieldElement::ZERO);
+    let nullifier = authenticator.generate_nullifier(&proof_request).await?;
+    let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
+    assert_ne!(raw_nullifier, FieldElement::ZERO);
 
-    // verify proof with verifier contract
+    let mut rng = rand::thread_rng();
+    let session_id_r_seed = FieldElement::random(&mut rng); // Normally the authenticator would provide this from cache or (in the future) OPRF Nodes
+
+    // Normally here the authenticator would check the nullifier is UNIQUE.
+
+    let (proof, nullifier) = authenticator.generate_single_proof(
+        nullifier,
+        request_item,
+        &credential,
+        credential_sub_blinding_factor,
+        session_id_r_seed,
+        proof_request.session_id,
+        proof_request.created_at,
+    )?;
+
+    assert_eq!(nullifier, raw_nullifier);
+
+    // verify proof with the `Verifier.sol` contract
     let verifier = Verifier::new(verifier, anvil.provider()?);
-    let (inclusion_proof, _key_set) = authenticator.fetch_inclusion_proof().await?;
+    let (inclusion_proof, _key_set) = authenticator.fetch_inclusion_proof().await?; // FIXME: This should be returned from `generate_single_proof`
     let compressed_proof = taceo_groth16_sol::prepare_compressed_proof(&proof.into());
     verifier
         .verify(
             nullifier.into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
-            request_item.session_id.unwrap_or_default().into(),
+            proof_request.session_id.unwrap_or_default().into(),
             rp_fixture.nonce.into(),
             request_item.signal_hash().into(),
             inclusion_proof.root.into(),

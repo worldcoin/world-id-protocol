@@ -1,7 +1,9 @@
-use std::fs::File;
+use std::{fs::File, str::FromStr};
 
 use eyre::Result;
-use world_id_core::{Authenticator, Credential, primitives::Config, requests::ProofRequest};
+use world_id_core::{
+    Authenticator, Credential, FieldElement, primitives::Config, requests::ProofRequest,
+};
 
 fn install_tracing() {
     use tracing_subscriber::{
@@ -44,15 +46,35 @@ async fn main() -> Result<()> {
     let proof_request: ProofRequest =
         ProofRequest::from_json(&std::fs::read_to_string(proof_request_path)?)?;
 
-    // TODO change this if it should come from elsewhere
-    let cred_sub_blinding_factor = std::env::args()
-        .nth(3)
-        .expect("credential sub blinding factor is required as third argument")
-        .parse()?;
+    let cred_sub_blinding_factor = FieldElement::from_str(
+        std::env::args()
+            .nth(3)
+            .expect("credential sub blinding factor is required as third argument")
+            .as_str(),
+    )?;
 
-    let (proof, nullifier) = authenticator
-        .generate_proof(proof_request, credential, cred_sub_blinding_factor)
-        .await?;
+    let session_id_r_seed = FieldElement::from_str(
+        std::env::args()
+            .nth(4)
+            .expect("session_id_r_seed is required as fourth argument")
+            .as_str(),
+    )?;
+
+    let request_item = proof_request
+        .find_request_by_issuer_schema_id(credential.issuer_schema_id)
+        .expect("the credential is not valid for the ProofRequest");
+
+    let nullifier = authenticator.generate_nullifier(&proof_request).await?;
+
+    let (proof, nullifier) = authenticator.generate_single_proof(
+        nullifier,
+        request_item,
+        &credential,
+        cred_sub_blinding_factor,
+        session_id_r_seed,
+        None, // Uniqueness Proof
+        proof_request.created_at,
+    )?;
 
     println!("proof: {proof:?}");
     println!("nullifier: {nullifier:?}");

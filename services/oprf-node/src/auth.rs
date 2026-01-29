@@ -175,7 +175,6 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
-            request.auth.action,
             request.auth.current_time_stamp,
             request.auth.expiration_timestamp,
         );
