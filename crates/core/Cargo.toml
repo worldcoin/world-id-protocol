@@ -60,10 +60,8 @@ secrecy = { version = "0.10", optional = true }
 strum = { workspace = true }
 world-id-primitives = { workspace = true }
 utoipa = { workspace = true, optional = true }
-groth16-material = { workspace = true, features = ["circom"], optional = true }
-taceo-oprf-client = { workspace = true, optional = true }
-taceo-oprf-core = { workspace = true, optional = true }
-taceo-oprf-types = { workspace = true, optional = true }
+groth16-material = { workspace = true, optional = true }
+taceo-oprf = { workspace = true, features = ["client"], optional = true }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
@@ -83,9 +81,7 @@ authenticator = [
     "dep:reqwest",
     "dep:secrecy",
     "dep:groth16-material",
-    "dep:taceo-oprf-client",
-    "dep:taceo-oprf-core",
-    "dep:taceo-oprf-types",
+    "taceo-oprf/client",
     "dep:rustls",
     "dep:webpki-roots",
     "dep:axum",
@@ -97,7 +93,7 @@ embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
 
 issuer = ["alloy/signer-local", "dep:secrecy", "dep:tokio"]
 
-rp = ["dep:taceo-oprf-types", "alloy/signers"]
+rp = ["dep:taceo-oprf", "alloy/signers"]
 
 cli = []
 
@@ -116,7 +112,6 @@ alloy = { workspace = true, features = ["rpc-types"] }
 test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
 axum = { workspace = true, features = ["macros", "json"] }
-taceo-oprf-core = { workspace = true }
 mockito = "1.6"
-taceo-oprf-service = { workspace = true }
+taceo-oprf = { workspace = true, features = ["full"] }
 taceo-oprf-test-utils = { workspace = true }

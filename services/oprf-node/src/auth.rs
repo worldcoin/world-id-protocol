@@ -23,8 +23,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use taceo_oprf_service::OprfRequestAuthenticator;
-use taceo_oprf_types::api::v1::OprfRequest;
+use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator};
 use uuid::Uuid;
 use world_id_primitives::{TREE_DEPTH, oprf::OprfRequestAuthV1};
 

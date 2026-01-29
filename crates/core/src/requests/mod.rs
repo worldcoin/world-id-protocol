@@ -10,7 +10,7 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 use poseidon2::Poseidon2;
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
-use taceo_oprf_types::{OprfKeyId, ShareEpoch};
+use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
 
 use crate::proof::OPRF_QUERY_DS;

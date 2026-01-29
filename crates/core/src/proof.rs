@@ -59,7 +59,7 @@ const NULLIFIER_ZKEY_BYTES: &[u8] =
 pub enum ProofError {
     /// Error originating from `oprf_client`.
     #[error(transparent)]
-    OprfError(#[from] taceo_oprf_client::Error),
+    OprfError(#[from] taceo_oprf::client::Error),
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),

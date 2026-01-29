@@ -10,6 +10,7 @@ use alloy::{
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use eyre::{Context, ContextCompat, Result};
+use taceo_oprf_test_utils::TestOprfKeyRegistry;
 use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
 /// Canonical Multicall3 address (same on all EVM chains).
@@ -71,16 +72,6 @@ sol!(
     concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/out/VerifierKeyGen13.sol/Verifier.json"
-    )
-);
-
-sol!(
-    #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
-    OprfKeyRegistry,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/OprfKeyRegistry.sol/OprfKeyRegistry.json"
     )
 );
 
@@ -405,82 +396,12 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        // Step 1: Deploy VerifierKeyGen13 contract (no dependencies)
-        let key_gen_verifier = VerifierKeyGen13::deploy(provider.clone())
-            .await
-            .context("failed to deploy Groth16VerifierKeyGen13 contract")?;
-
-        // Step 2: Deploy BabyJubJub library (no dependencies)
-        let baby_jub_jub_json = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
-        ));
-        let json_value: serde_json::Value = serde_json::from_str(baby_jub_jub_json)?;
-        let bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            })
-            .to_string();
-        let baby_jub_jub_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-
-        let baby_jub_jub_address =
-            Self::deploy_contract(provider.clone(), baby_jub_jub_bytecode, Bytes::new())
-                .await
-                .context("failed to deploy BabyJubJub contract")?;
-
-        // Step 3: Link BabyJubJub to OprfKeyRegistry
-        let oprf_key_registry_json = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/OprfKeyRegistry.sol/OprfKeyRegistry.json"
-        ));
-        let json_value: serde_json::Value = serde_json::from_str(oprf_key_registry_json)?;
-        let mut bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            })
-            .to_string();
-
-        bytecode_str = Self::link_bytecode_hex(
-            oprf_key_registry_json,
-            &bytecode_str,
-            "lib/oprf-key-registry/src/BabyJubJub.sol:BabyJubJub",
-            baby_jub_jub_address,
-        )?;
-
-        // Decode the fully-linked bytecode
-        let oprf_key_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-
-        let implementation_address =
-            Self::deploy_contract(provider.clone(), oprf_key_registry_bytecode, Bytes::new())
-                .await
-                .context("failed to deploy OprfKeyRegistry implementation")?;
-
-        let init_data = Bytes::from(
-            OprfKeyRegistry::initializeCall {
-                _owner: signer.address(),
-                _keygenAdmin: signer.address(),
-                _keyGenVerifierAddress: *key_gen_verifier.address(),
-                _threshold: 2,
-                _numPeers: 3,
-            }
-            .abi_encode(),
-        );
-
-        let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
-            .await
-            .context("failed to deploy OprfKeyRegistry proxy")?;
-
-        Ok(*proxy.address())
+        taceo_oprf_test_utils::deploy_anvil::deploy_oprf_key_registry_13(
+            provider.erased(),
+            signer.address(),
+        )
+        .await
+        .context("failed to deploy OprfKeyRegistry contract")
     }
 
     pub async fn deploy_verifier(
@@ -530,7 +451,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .registerOprfPeers(node_addresses)
             .send()
@@ -553,7 +474,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .addKeyGenAdmin(admin)
             .send()

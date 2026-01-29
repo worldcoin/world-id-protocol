@@ -22,15 +22,17 @@ use eyre::{Context as _, OptionExt};
 use rand::SeedableRng;
 use rustls::{ClientConfig, RootCertStore};
 use secrecy::{ExposeSecret, SecretString};
-use taceo_oprf_client::Connector;
-use taceo_oprf_core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor};
-use taceo_oprf_dev_client::{Command, StressTestCommand};
-use taceo_oprf_test_utils::health_checks;
-use taceo_oprf_types::{
-    OprfKeyId, ShareEpoch,
-    api::v1::{OprfRequest, ShareIdentifier},
-    crypto::OprfPublicKey,
+use taceo_oprf::{
+    client::Connector,
+    core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor},
+    dev_client::{Command, StressTestCommand},
+    types::{
+        OprfKeyId, ShareEpoch,
+        api::{OprfRequest, ShareIdentifier},
+        crypto::OprfPublicKey,
+    },
 };
+use taceo_oprf_test_utils::health_checks;
 use test_utils::{
     anvil::RpRegistry,
     fixtures::{MerkleFixture, build_base_credential},
@@ -117,7 +119,7 @@ pub struct OprfDevClientConfig {
 
     /// The share epoch. Will be ignored if `rp_id` is `None`.
     #[clap(long, env = "OPRF_DEV_CLIENT_SHARE_EPOCH", default_value = "0")]
-    pub share_epoch: u128,
+    pub share_epoch: u32,
 
     /// max wait time for init key-gen/reshare to succeed.
     #[clap(long, env = "OPRF_DEV_CLIENT_MAX_WAIT_TIME", default_value="2min", value_parser=humantime::parse_duration)]
@@ -341,7 +343,7 @@ fn prepare_nullifier_stress_test_oprf_request(
     )?;
 
     let blinded_request =
-        taceo_oprf_core::oprf::client::blind_query(*query_hash, oprf_blinding_factor.clone());
+        taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor.clone());
 
     let oprf_request = OprfRequest {
         request_id,
@@ -414,7 +416,7 @@ async fn stress_test(
     }
 
     tracing::info!("sending init requests..");
-    let (sessions, finish_requests) = taceo_oprf_dev_client::send_init_requests(
+    let (sessions, finish_requests) = taceo_oprf::dev_client::send_init_requests(
         &nodes,
         "rp",
         threshold,
@@ -425,7 +427,7 @@ async fn stress_test(
     .await?;
 
     tracing::info!("sending finish requests..");
-    let responses = taceo_oprf_dev_client::send_finish_requests(
+    let responses = taceo_oprf::dev_client::send_finish_requests(
         sessions,
         cmd.sequential,
         finish_requests.clone(),
@@ -437,7 +439,7 @@ async fn stress_test(
         for (id, res) in responses {
             let req = requests.get(&id).expect("is there");
             let finish_request = finish_requests.get(&id).expect("is there").clone();
-            let dlog_proof = taceo_oprf_client::verify_dlog_equality(
+            let dlog_proof = taceo_oprf::client::verify_dlog_equality(
                 id,
                 oprf_public_key,
                 &BlindedOprfRequest::new(req.oprf_request.blinded_query),
@@ -506,7 +508,7 @@ async fn reshare_test(
     run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch, signer).await?;
     tracing::info!("nullifier successful");
 
-    let (share_epoch_1, oprf_public_key_1) = taceo_oprf_dev_client::reshare(
+    let (share_epoch_1, oprf_public_key_1) = taceo_oprf::dev_client::reshare(
         &nodes,
         oprf_key_registry,
         provider.clone(),
@@ -525,7 +527,7 @@ async fn reshare_test(
     run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch_1, signer).await?;
     tracing::info!("nullifier successful");
 
-    let (share_epoch_2, oprf_public_key_2) = taceo_oprf_dev_client::reshare(
+    let (share_epoch_2, oprf_public_key_2) = taceo_oprf::dev_client::reshare(
         &nodes,
         oprf_key_registry,
         provider,

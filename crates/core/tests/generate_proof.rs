@@ -7,8 +7,8 @@ use std::{
 
 use alloy::{primitives::U256, signers::local::LocalSigner};
 use eyre::{Context as _, Result, eyre};
+use taceo_oprf::types::ShareEpoch;
 use taceo_oprf_test_utils::health_checks;
-use taceo_oprf_types::ShareEpoch;
 use test_utils::{
     anvil::Verifier,
     fixtures::{
@@ -32,6 +32,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
+
+    let (_localstack_container, localstack_url) =
+        taceo_oprf_test_utils::localstack_testcontainer().await?;
 
     let RegistryTestContext {
         anvil,
@@ -136,18 +139,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let secret_managers = test_utils::stubs::create_secret_managers();
     // OPRF key-gen instances
-    let oprf_key_gens = test_utils::stubs::spawn_key_gens(
-        anvil.ws_endpoint(),
-        secret_managers.clone(),
-        oprf_key_registry,
-    )
-    .await;
+    let oprf_key_gens =
+        test_utils::stubs::spawn_key_gens(anvil.ws_endpoint(), &localstack_url, oprf_key_registry)
+            .await;
+
     // OPRF nodes
     let nodes = test_utils::stubs::spawn_oprf_nodes(
         anvil.ws_endpoint(),
-        secret_managers.clone(),
+        &localstack_url,
         oprf_key_registry,
         world_id_registry,
         rp_registry,

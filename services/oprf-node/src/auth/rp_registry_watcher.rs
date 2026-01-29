@@ -23,7 +23,7 @@ use alloy::{
 };
 use futures::StreamExt as _;
 use moka::{future::Cache, ops::compute::Op};
-use taceo_oprf_types::OprfKeyId;
+use taceo_oprf::types::OprfKeyId;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use world_id_primitives::rp::RpId;

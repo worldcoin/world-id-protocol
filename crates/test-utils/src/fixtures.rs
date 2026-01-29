@@ -14,7 +14,7 @@ use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{Context as _, Result, eyre};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
-use taceo_oprf_types::{OprfKeyId, ShareEpoch};
+use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
@@ -54,19 +54,6 @@ impl RegistryTestContext {
             .deploy_oprf_key_registry(deployer.clone())
             .await
             .wrap_err("failed to deploy OprfKeyRegistry")?;
-
-        // Register OPRF nodes (required before initKeyGen can be called)
-        // signers must match the ones used in test secret managers if applicable
-        let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
-        anvil
-            .register_oprf_nodes(
-                oprf_key_registry,
-                deployer.clone(),
-                oprf_node_signers.iter().map(|s| s.address()).collect(),
-            )
-            .await
-            .wrap_err("failed to register OPRF nodes")?;
-
         let credential_registry = anvil
             .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
             .await
@@ -85,7 +72,7 @@ impl RegistryTestContext {
             .await
             .wrap_err("failed to deploy Verifier")?;
 
-        // signers must match the ones used in the TestSecretManager
+        // signers must match the ones used in the stubs
         let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
         anvil
             .register_oprf_nodes(

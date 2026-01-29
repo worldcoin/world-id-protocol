@@ -32,7 +32,7 @@ use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use reqwest::StatusCode;
 use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
-use taceo_oprf_client::Connector;
+use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,

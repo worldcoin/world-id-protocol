@@ -4,7 +4,10 @@ use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::circom::CircomGroth16Material;
 
-use taceo_oprf_client::{BlindingFactor, Connector, VerifiableOprfOutput};
+use taceo_oprf::{
+    client::{Connector, VerifiableOprfOutput},
+    core::oprf::BlindingFactor,
+};
 
 use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
@@ -133,7 +136,7 @@ impl OprfNullifier {
 
         tracing::debug!("executing distributed OPRF");
 
-        let verifiable_oprf_output = taceo_oprf_client::distributed_oprf(
+        let verifiable_oprf_output = taceo_oprf::client::distributed_oprf(
             services,
             "rp", // module for World ID RP use-case
             threshold,
