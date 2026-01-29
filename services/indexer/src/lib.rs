@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use alloy::{
     primitives::{Address, U256},
-    providers::{Provider, ProviderBuilder},
+    providers::DynProvider,
 };
 use futures_util::StreamExt;
 use world_id_core::world_id_registry::WorldIdRegistry;
@@ -163,13 +163,12 @@ async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
 }
 
 async fn start_http_server(
-    rpc_url: &str,
+    http_provider: DynProvider,
     registry_address: Address,
     addr: SocketAddr,
     db: DB,
 ) -> anyhow::Result<()> {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-    let registry = WorldIdRegistry::new(registry_address, provider.erased());
+    let registry = WorldIdRegistry::new(registry_address, http_provider);
     let router = routes::handler(AppState::new(db, Arc::new(registry)));
     tracing::info!(%addr, "HTTP server listening");
     axum::serve(tokio::net::TcpListener::bind(addr).await?, router).await?;
@@ -184,14 +183,16 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
 
     let tree_cache_cfg = &cfg.tree_cache;
 
+    // Build providers from ProviderArgs
+    tracing::info!("Building providers from configuration...");
+    let (http_provider, ws_provider) = cfg.provider.build_providers().await?;
+    tracing::info!("Providers built successfully.");
+
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
 
-            tracing::info!("Connecting to blockchain...");
-            let blockchain =
-                Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
-            tracing::info!("Connection to blockchain successful.");
+            let blockchain = Blockchain::new(http_provider, ws_provider, cfg.registry_address);
 
             run_indexer_only(&blockchain, db, indexer_config).await
         }
@@ -203,7 +204,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
             run_http_only(
                 db,
-                &cfg.http_rpc_url,
+                http_provider,
                 cfg.registry_address,
                 http_config,
                 tree_cache_cfg.clone(),
@@ -216,10 +217,10 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
 
-            tracing::info!("Connecting to blockchain...");
-            let blockchain =
-                Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
-            tracing::info!("Connection to blockchain successful.");
+            // Clone http_provider for the HTTP server (Blockchain will own the original)
+            let http_provider_for_server = http_provider.clone();
+
+            let blockchain = Blockchain::new(http_provider, ws_provider, cfg.registry_address);
 
             // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
@@ -228,7 +229,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             run_both(
                 &blockchain,
                 db,
-                &cfg.http_rpc_url,
+                http_provider_for_server,
                 cfg.registry_address,
                 indexer_config,
                 http_config,
@@ -267,7 +268,7 @@ async fn run_indexer_only(
 
 async fn run_http_only(
     db: DB,
-    rpc_url: &str,
+    http_provider: DynProvider,
     registry_address: Address,
     http_cfg: HttpConfig,
     tree_cache_cfg: config::TreeCacheConfig,
@@ -284,11 +285,14 @@ async fn run_http_only(
     // Start root sanity checker in the background
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
-        let rpc_url = rpc_url.to_string();
+        let sanity_provider = http_provider.clone();
         sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) =
-                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
-                    .await
+            if let Err(e) = sanity_check::root_sanity_check_loop(
+                sanity_provider,
+                registry_address,
+                sanity_interval,
+            )
+            .await
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }
@@ -307,7 +311,8 @@ async fn run_http_only(
     });
 
     // Start HTTP server
-    let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, db).await;
+    let http_result =
+        start_http_server(http_provider, registry_address, http_cfg.http_addr, db).await;
 
     poller_handle.abort();
     cache_refresh_handle.abort();
@@ -320,7 +325,7 @@ async fn run_http_only(
 async fn run_both(
     blockchain: &Blockchain,
     db: DB,
-    rpc_url: &str,
+    http_provider: DynProvider,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
@@ -329,19 +334,28 @@ async fn run_both(
     // Start HTTP server
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
-    let rpc_url_clone = rpc_url.to_string();
+    let http_provider_for_server = http_provider.clone();
     let http_handle = tokio::spawn(async move {
-        start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool).await
+        start_http_server(
+            http_provider_for_server,
+            registry_address,
+            http_addr,
+            http_pool,
+        )
+        .await
     });
 
     // Start root sanity checker in the background
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
-        let rpc_url = rpc_url.to_string();
+        let sanity_provider = http_provider.clone();
         sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) =
-                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
-                    .await
+            if let Err(e) = sanity_check::root_sanity_check_loop(
+                sanity_provider,
+                registry_address,
+                sanity_interval,
+            )
+            .await
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }

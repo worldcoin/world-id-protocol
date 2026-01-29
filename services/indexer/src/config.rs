@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use alloy::{primitives::Address, providers::DynProvider};
+use common::ProviderArgs;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::db::DB;
@@ -79,8 +80,7 @@ pub struct GlobalConfig {
     pub environment: Environment,
     pub run_mode: RunMode,
     pub db_url: String,
-    pub http_rpc_url: String,
-    pub ws_rpc_url: String,
+    pub provider: ProviderArgs,
     pub registry_address: Address,
     pub tree_cache: TreeCacheConfig,
 }
@@ -208,8 +208,8 @@ impl GlobalConfig {
 
         let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set.");
 
-        let http_rpc_url = std::env::var("RPC_URL").expect("RPC_URL must be set.");
-        let ws_rpc_url = std::env::var("WS_URL").expect("WS_URL must be set.");
+        // ProviderArgs reads from RPC_URL and WS_URL environment variables automatically
+        let provider = ProviderArgs::default();
 
         let registry_address = std::env::var("REGISTRY_ADDRESS")
             .expect("REGISTRY_ADDRESS must be set.")
@@ -223,8 +223,7 @@ impl GlobalConfig {
             environment,
             run_mode,
             db_url,
-            http_rpc_url,
-            ws_rpc_url,
+            provider,
             registry_address,
             tree_cache,
         }

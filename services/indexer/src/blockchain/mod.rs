@@ -2,11 +2,10 @@ use std::future;
 
 use alloy::{
     primitives::Address,
-    providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
-    rpc::types::{Filter, Log},
+    providers::{DynProvider, Provider},
+    rpc::types::Filter,
 };
 use futures_util::{Stream, StreamExt, stream};
-use url::Url;
 
 pub use crate::blockchain::events::{BlockchainEvent, RegistryEvent};
 
@@ -19,25 +18,16 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
-    pub async fn new(
-        http_rpc_url: &str,
-        ws_rpc_url: &str,
+    pub fn new(
+        http_provider: DynProvider,
+        ws_provider: DynProvider,
         world_id_registry: Address,
-    ) -> anyhow::Result<Self> {
-        let http_provider =
-            DynProvider::new(ProviderBuilder::new().connect_http(Url::parse(http_rpc_url)?));
-
-        let ws_provider = DynProvider::new(
-            ProviderBuilder::new()
-                .connect_ws(WsConnect::new(ws_rpc_url))
-                .await?,
-        );
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             http_provider,
             ws_provider,
             world_id_registry,
-        })
+        }
     }
 
     pub async fn stream_world_tree_events(
