@@ -289,71 +289,76 @@ impl RequestTracker {
         }
     }
 
-    /// Attempts to insert all addresses into Redis using `SET NX` for atomicity.
+    /// Attempts to atomically insert all addresses into Redis.
+    ///
+    /// Uses a Lua script to check if any keys exist and insert all keys in a single atomic
+    /// operation. This avoids race conditions that would occur with separate SET NX calls.
     ///
     /// Returns `Err(GatewayErrorResponse)` with `DuplicateRequestInFlight` code if any address
-    /// already exists, rolling back prior insertions.
+    /// already exists.
     /// Returns `Err(GatewayErrorResponse)` with internal server error if a Redis error occurs.
     async fn try_insert_inflight_redis(
         &self,
         mut manager: ConnectionManager,
         addresses: &[Address],
     ) -> Result<(), GatewayErrorResponse> {
-        let mut inserted_keys: Vec<String> = Vec::new();
+        // Lua script that atomically:
+        // 1. Checks if any key already exists
+        // 2. If none exist, sets all keys with TTL
+        // Returns nil on success, or the duplicate key on failure
+        let script = redis::Script::new(
+            r#"
+            for i, key in ipairs(KEYS) do
+                if redis.call('EXISTS', key) == 1 then
+                    return key
+                end
+            end
+            local ttl = tonumber(ARGV[1])
+            for i, key in ipairs(KEYS) do
+                redis.call('SET', key, '1', 'EX', ttl)
+            end
+            return nil
+            "#,
+        );
 
-        for addr in addresses {
-            let key = Self::inflight_key(addr);
+        let keys: Vec<String> = addresses.iter().map(Self::inflight_key).collect();
 
-            // SET NX with TTL - only sets if key doesn't exist
-            let opts = SetOptions::default()
-                .conditional_set(redis::ExistenceCheck::NX)
-                .with_expiration(SetExpiry::EX(INFLIGHT_TTL.as_secs()));
-
-            let result: Result<Option<String>, redis::RedisError> =
-                manager.set_options(&key, "1", opts).await;
-
-            match result {
-                Ok(Some(_)) => {
-                    // Successfully inserted
-                    inserted_keys.push(key);
-                }
-                Ok(None) => {
-                    // Key already exists - rollback and return duplicate error
-                    tracing::warn!(
-                        authenticator_address = %addr,
-                        "Duplicate in-flight request detected"
-                    );
-                    self.delete_redis_keys(&mut manager, &inserted_keys).await;
-                    return Err(GatewayErrorResponse::bad_request(
-                        GatewayErrorCode::DuplicateRequestInFlight,
-                    ));
-                }
-                Err(e) => {
-                    tracing::error!("Redis error during in-flight insert: {e}");
-                    // On Redis error, rollback what we inserted and return infrastructure error
-                    self.delete_redis_keys(&mut manager, &inserted_keys).await;
-                    return Err(GatewayErrorResponse::internal_server_error());
-                }
-            }
+        let mut invocation = script.prepare_invoke();
+        for key in &keys {
+            invocation.key(key);
         }
+        invocation.arg(INFLIGHT_TTL.as_secs());
 
-        Ok(())
-    }
+        let result: Result<Option<String>, redis::RedisError> =
+            invocation.invoke_async(&mut manager).await;
 
-    /// Deletes the given Redis keys, logging any errors that occur.
-    async fn delete_redis_keys(&self, manager: &mut ConnectionManager, keys: &[String]) {
-        for key in keys {
-            let result: Result<usize, redis::RedisError> = manager.del(key).await;
-            if let Err(e) = result {
-                tracing::error!("Failed to delete Redis key {key}: {e}");
+        match result {
+            Ok(None) => Ok(()),
+            Ok(Some(duplicate_key)) => {
+                tracing::warn!(
+                    key = %duplicate_key,
+                    "Duplicate in-flight request detected"
+                );
+                Err(GatewayErrorResponse::bad_request(
+                    GatewayErrorCode::DuplicateRequestInFlight,
+                ))
+            }
+            Err(e) => {
+                tracing::error!("Redis error during in-flight insert: {e}");
+                Err(GatewayErrorResponse::internal_server_error())
             }
         }
     }
 
     /// Removes in-flight addresses from Redis.
     async fn remove_inflight_redis(&self, mut manager: ConnectionManager, addresses: &[Address]) {
-        let keys: Vec<String> = addresses.iter().map(Self::inflight_key).collect();
-        self.delete_redis_keys(&mut manager, &keys).await;
+        for addr in addresses {
+            let key = Self::inflight_key(addr);
+            let result: Result<usize, redis::RedisError> = manager.del(&key).await;
+            if let Err(e) = result {
+                tracing::error!("Failed to delete Redis key {key}: {e}");
+            }
+        }
     }
 
     /// Attempts to insert all addresses into the local cache using atomic compute operations.
