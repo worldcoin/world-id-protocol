@@ -1,10 +1,17 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::RequestTracker;
+use crate::{
+    RequestTracker,
+    metrics::{
+        METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
+        METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
+    },
+};
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
 };
+use moka::future::Cache;
 use tokio::sync::mpsc;
 use world_id_core::{
     types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error},
@@ -28,6 +35,7 @@ pub struct CreateBatcherRunner {
     window: Duration,
     max_batch_size: usize,
     tracker: RequestTracker,
+    inflight_authenticators: Cache<Address, ()>,
 }
 
 impl CreateBatcherRunner {
@@ -37,6 +45,7 @@ impl CreateBatcherRunner {
         max_batch_size: usize,
         rx: mpsc::Receiver<CreateReqEnvelope>,
         tracker: RequestTracker,
+        inflight_authenticators: Cache<Address, ()>,
     ) -> Self {
         Self {
             rx,
@@ -44,6 +53,7 @@ impl CreateBatcherRunner {
             window,
             max_batch_size,
             tracker,
+            inflight_authenticators,
         }
     }
 
@@ -71,7 +81,12 @@ impl CreateBatcherRunner {
                 }
             }
 
+            let batch_size = batch.len();
             let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
+
+            ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => "create").increment(1);
+            ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => "create").record(batch_size as f64);
+
             self.tracker
                 .set_status_batch(&ids, GatewayRequestState::Batching)
                 .await;
@@ -81,18 +96,28 @@ impl CreateBatcherRunner {
             let mut pubkeys: Vec<Vec<U256>> = Vec::new();
             let mut commits: Vec<U256> = Vec::new();
 
+            // Collect all authenticator addresses from this batch for cache cleanup
+            let mut all_addresses: Vec<Address> = Vec::new();
             for env in &batch {
                 recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
                 auths.push(env.req.authenticator_addresses.clone());
                 pubkeys.push(env.req.authenticator_pubkeys.clone());
                 commits.push(env.req.offchain_signer_commitment);
+                all_addresses.extend(env.req.authenticator_addresses.iter());
             }
 
             let call =
                 self.registry
                     .createManyAccounts(recovery_addresses, auths, pubkeys, commits);
+
+            let start = std::time::Instant::now();
             match call.send().await {
                 Ok(builder) => {
+                    let latency_ms = start.elapsed().as_millis() as f64;
+                    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "create")
+                        .record(latency_ms);
+                    ::metrics::counter!(METRICS_BATCH_SUCCESS, "type" => "create").increment(1);
+
                     let hash = format!("0x{:x}", builder.tx_hash());
                     self.tracker
                         .set_status_batch(
@@ -105,6 +130,8 @@ impl CreateBatcherRunner {
 
                     let tracker = self.tracker.clone();
                     let ids_for_receipt = ids.clone();
+                    let cache = self.inflight_authenticators.clone();
+                    let addresses_for_cleanup = all_addresses.clone();
                     tokio::spawn(async move {
                         match builder.get_receipt().await {
                             Ok(receipt) => {
@@ -143,15 +170,28 @@ impl CreateBatcherRunner {
                                     .await;
                             }
                         }
+                        // Remove all addresses from the in-flight cache after finalization
+                        for addr in addresses_for_cleanup {
+                            cache.invalidate(&addr).await;
+                        }
                     });
                 }
                 Err(err) => {
+                    let latency_ms = start.elapsed().as_millis() as f64;
+                    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "create")
+                        .record(latency_ms);
+                    ::metrics::counter!(METRICS_BATCH_FAILURE, "type" => "create").increment(1);
+
                     tracing::error!(error = %err, "create batch send failed");
                     let error_str = err.to_string();
                     let code = parse_contract_error(&error_str);
                     self.tracker
                         .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
                         .await;
+                    // Remove all addresses from the in-flight cache on send failure
+                    for addr in all_addresses {
+                        self.inflight_authenticators.invalidate(&addr).await;
+                    }
                 }
             }
         }

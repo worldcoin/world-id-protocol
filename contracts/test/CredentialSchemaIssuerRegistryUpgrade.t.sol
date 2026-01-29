@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
+import {ICredentialSchemaIssuerRegistry} from "../src/interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
@@ -61,14 +62,14 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
     function test_UpgradeSuccess() public {
         // Register an issuer schema in V1
         uint64 issuerSchemaId = 1;
-        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = CredentialSchemaIssuerRegistry.Pubkey(1, 2);
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = ICredentialSchemaIssuerRegistry.Pubkey(1, 2);
         address signer = address(0x123);
 
         registry.register(issuerSchemaId, pubkey, signer);
 
         // Verify state before upgrade
         assertEq(registry.getSignerForIssuerSchemaId(issuerSchemaId), signer);
-        CredentialSchemaIssuerRegistry.Pubkey memory storedPubkey = registry.issuerSchemaIdToPubkey(issuerSchemaId);
+        ICredentialSchemaIssuerRegistry.Pubkey memory storedPubkey = registry.issuerSchemaIdToPubkey(issuerSchemaId);
         assertEq(storedPubkey.x, 1);
         assertEq(storedPubkey.y, 2);
 
@@ -83,7 +84,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
 
         // Verify storage was preserved
         assertEq(registryV2.getSignerForIssuerSchemaId(issuerSchemaId), signer);
-        CredentialSchemaIssuerRegistry.Pubkey memory storedPubkeyV2 = registryV2.issuerSchemaIdToPubkey(issuerSchemaId);
+        ICredentialSchemaIssuerRegistry.Pubkey memory storedPubkeyV2 = registryV2.issuerSchemaIdToPubkey(issuerSchemaId);
         assertEq(storedPubkeyV2.x, 1);
         assertEq(storedPubkeyV2.y, 2);
 
@@ -94,7 +95,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
 
         // Verify old functionality still works
         uint64 newIssuerSchemaId = 2;
-        CredentialSchemaIssuerRegistry.Pubkey memory newPubkey = CredentialSchemaIssuerRegistry.Pubkey(3, 4);
+        ICredentialSchemaIssuerRegistry.Pubkey memory newPubkey = ICredentialSchemaIssuerRegistry.Pubkey(3, 4);
         address newSigner = address(0x456);
         registryV2.register(newIssuerSchemaId, newPubkey, newSigner);
         assertEq(registryV2.getSignerForIssuerSchemaId(newIssuerSchemaId), newSigner);
@@ -163,7 +164,7 @@ contract CredentialSchemaIssuerRegistryUpgradeTest is Test {
         // Owner should not have any special privileges for register function
         // register() is open to everyone, no owner restriction
         uint64 issuerSchemaId = 1;
-        CredentialSchemaIssuerRegistry.Pubkey memory pubkey = CredentialSchemaIssuerRegistry.Pubkey(1, 2);
+        ICredentialSchemaIssuerRegistry.Pubkey memory pubkey = ICredentialSchemaIssuerRegistry.Pubkey(1, 2);
         address signer = address(0x123);
 
         // This should succeed (register is public)

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use eyre::Context;
 use secrecy::ExposeSecret;
-use taceo_oprf_service::{
+use taceo_oprf::service::{
     OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
 };
 
@@ -48,7 +48,6 @@ pub async fn start(
         config.world_id_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_merkle_cache_size,
-        config.root_validity_window,
         config.cache_maintenance_interval,
         started_services.new_service(),
         cancellation_token.clone(),

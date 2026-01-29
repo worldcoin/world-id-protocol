@@ -1,4 +1,5 @@
-use crate::{Signer, issuer::CredentialSchemaIssuerRegistry::Pubkey};
+use crate::Signer;
+
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol};
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
@@ -12,7 +13,7 @@ sol!(
     "contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
 );
 
-impl From<EdDSAPublicKey> for Pubkey {
+impl From<EdDSAPublicKey> for ICredentialSchemaIssuerRegistry::Pubkey {
     fn from(pubkey: EdDSAPublicKey) -> Self {
         Self {
             x: U256::from_limbs(pubkey.pk.x.into_bigint().0),

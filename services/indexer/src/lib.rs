@@ -18,7 +18,7 @@ pub use crate::db::fetch_recent_account_updates;
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
-    db::{DB, EventType},
+    db::{DB, WorldTreeEventType},
     tree::{GLOBAL_TREE, update_tree_with_commitment},
 };
 pub use config::GlobalConfig;
@@ -158,6 +158,7 @@ async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
         RegistryEvent::AccountRecovered(e) => {
             update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
         }
+        RegistryEvent::RootRecorded(_) => Ok(()),
     }
 }
 
@@ -248,21 +249,11 @@ async fn run_indexer_only(
     indexer_cfg: IndexerConfig,
 ) -> anyhow::Result<()> {
     // Determine starting block from checkpoint or env
-    let mut from = db
-        .world_id_events()
+    let from = db
+        .world_tree_events()
         .get_latest_block()
         .await?
         .unwrap_or(indexer_cfg.start_block);
-
-    // Backfill until head (update_tree = false for indexer-only mode)
-    backfill(
-        blockchain,
-        &db,
-        &mut from,
-        indexer_cfg.batch_size,
-        None, // Don't update in-memory tree or cache in indexer-only mode
-    )
-    .await?;
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
@@ -358,21 +349,11 @@ async fn run_both(
     }
 
     // Determine starting block from checkpoint or env
-    let mut from = db
-        .world_id_events()
+    let from = db
+        .world_tree_events()
         .get_latest_block()
         .await?
         .unwrap_or(indexer_cfg.start_block);
-
-    // Backfill until head (update_tree = true for both mode)
-    backfill(
-        blockchain,
-        &db,
-        &mut from,
-        indexer_cfg.batch_size,
-        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each batch
-    )
-    .await?;
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
@@ -386,137 +367,6 @@ async fn run_both(
     http_handle.abort();
     if let Some(handle) = sanity_handle {
         handle.abort();
-    }
-    Ok(())
-}
-
-async fn backfill_batch(
-    blockchain: &Blockchain,
-    db: &DB,
-    from_block: &mut u64,
-    batch_size: u64,
-    head: u64,
-    tree_cache_params: Option<&TreeCacheParams>,
-) -> anyhow::Result<()> {
-    if *from_block == 0 {
-        *from_block = 1;
-    }
-
-    let to_block = (*from_block + batch_size - 1).min(head);
-
-    let events = blockchain
-        .get_world_id_events(*from_block, to_block)
-        .await?;
-
-    if events.is_empty() {
-        tracing::info!(
-            count = events.len(),
-            from = *from_block,
-            to = to_block,
-            "no events to process"
-        );
-        return Ok(());
-    }
-
-    tracing::info!(
-        count = events.len(),
-        from = *from_block,
-        to = to_block,
-        "processing registry logs"
-    );
-
-    for event in events {
-        tracing::debug!(?event, "decoded registry event");
-
-        if let Err(e) = handle_registry_event(db, &event).await {
-            tracing::error!(?e, ?event, "failed to handle registry event in DB");
-        }
-
-        if tree_cache_params.is_some()
-            && let Err(e) = update_tree_with_event(&event.details).await
-        {
-            tracing::error!(?e, ?event, "failed to update tree for event");
-        }
-    }
-
-    // Update cache metadata if tree was updated
-    if let Some(cache_params) = tree_cache_params {
-        let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
-        let tree = GLOBAL_TREE.read().await;
-        // Get the current max event ID to track replay position
-        let current_event_id = db
-            .world_id_events()
-            .get_latest_id()
-            .await?
-            .unwrap_or_default();
-
-        tree::metadata::write_metadata(
-            &cache_path_buf,
-            &tree,
-            db,
-            current_event_id,
-            cache_params.tree_depth,
-            cache_params.dense_prefix_depth,
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(?e, "Failed to update cache metadata");
-        });
-    }
-
-    tracing::debug!(
-        from = *from_block,
-        to = to_block,
-        "✔️ finished processing batch until block {to_block}"
-    );
-    *from_block = to_block + 1;
-    Ok(())
-}
-
-/// Backfill the entire history of the registry.
-pub async fn backfill(
-    blockchain: &Blockchain,
-    db: &DB,
-    from_block: &mut u64,
-    batch_size: u64,
-    tree_cache_params: Option<&TreeCacheParams>,
-) -> anyhow::Result<()> {
-    let mut head = blockchain.get_block_number().await?;
-    loop {
-        match backfill_batch(
-            blockchain,
-            db,
-            from_block,
-            batch_size,
-            head,
-            tree_cache_params,
-        )
-        .await
-        {
-            Ok(()) => {
-                // Check if we're caught up to chain head
-                let new_head = blockchain.get_block_number().await;
-                if let Ok(new_head) = new_head {
-                    head = new_head;
-                } else {
-                    tracing::error!("failed to get current chain head; retrying after delay");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
-                }
-                if *from_block > head {
-                    tracing::info!(
-                        from = *from_block,
-                        head,
-                        "✅ backfill complete, caught up to chain head"
-                    );
-                    break;
-                }
-            }
-            Err(err) => {
-                tracing::error!(?err, "backfill error; retrying after delay");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-        }
     }
     Ok(())
 }
@@ -536,10 +386,10 @@ pub async fn handle_registry_event(
                     &ev.offchain_signer_commitment,
                 )
                 .await?;
-            db.world_id_events()
+            db.world_tree_events()
                 .insert_event(
                     &ev.leaf_index,
-                    EventType::AccountCreated,
+                    WorldTreeEventType::AccountCreated,
                     &ev.offchain_signer_commitment,
                     event.block_number,
                     &event.tx_hash,
@@ -557,10 +407,10 @@ pub async fn handle_registry_event(
                     &ev.new_offchain_signer_commitment,
                 )
                 .await?;
-            db.world_id_events()
+            db.world_tree_events()
                 .insert_event(
                     &ev.leaf_index,
-                    EventType::AccountUpdated,
+                    WorldTreeEventType::AccountUpdated,
                     &ev.new_offchain_signer_commitment,
                     event.block_number,
                     &event.tx_hash,
@@ -578,10 +428,10 @@ pub async fn handle_registry_event(
                     &ev.new_offchain_signer_commitment,
                 )
                 .await?;
-            db.world_id_events()
+            db.world_tree_events()
                 .insert_event(
                     &ev.leaf_index,
-                    EventType::AuthenticationInserted,
+                    WorldTreeEventType::AuthenticationInserted,
                     &ev.new_offchain_signer_commitment,
                     event.block_number,
                     &event.tx_hash,
@@ -597,10 +447,10 @@ pub async fn handle_registry_event(
                     &ev.new_offchain_signer_commitment,
                 )
                 .await?;
-            db.world_id_events()
+            db.world_tree_events()
                 .insert_event(
                     &ev.leaf_index,
-                    EventType::AuthenticationRemoved,
+                    WorldTreeEventType::AuthenticationRemoved,
                     &ev.new_offchain_signer_commitment,
                     event.block_number,
                     &event.tx_hash,
@@ -619,14 +469,26 @@ pub async fn handle_registry_event(
                     &ev.new_offchain_signer_commitment,
                 )
                 .await?;
-            db.world_id_events()
+            db.world_tree_events()
                 .insert_event(
                     &ev.leaf_index,
-                    EventType::AccountRecovered,
+                    WorldTreeEventType::AccountRecovered,
                     &ev.new_offchain_signer_commitment,
                     event.block_number,
                     &event.tx_hash,
                     event.log_index,
+                )
+                .await?;
+        }
+        RegistryEvent::RootRecorded(ev) => {
+            db.world_tree_roots()
+                .insert_event(
+                    event.block_number,
+                    event.log_index,
+                    db::WorldTreeRootEventType::RootRecorded,
+                    &event.tx_hash,
+                    &ev.root,
+                    &ev.timestamp,
                 )
                 .await?;
         }
@@ -686,7 +548,8 @@ pub async fn stream_logs(
     start_from: u64,
     tree_cache_params: Option<&TreeCacheParams>,
 ) -> anyhow::Result<()> {
-    let mut stream = blockchain.stream_world_id_events(start_from).await?;
+    let mut stream = blockchain.stream_world_tree_events(start_from).await?;
+
     while let Some(log) = stream.next().await {
         tracing::info!(?log, "processing live registry log");
         match log {
@@ -697,19 +560,18 @@ pub async fn stream_logs(
                     tracing::error!(?e, ?event, "failed to handle registry event in DB");
                 }
 
-                if tree_cache_params.is_some()
-                    && let Err(e) = update_tree_with_event(&event.details).await
-                {
-                    tracing::error!(?e, ?event, "failed to update tree for live event");
-                }
-
                 // Update cache metadata if tree was updated
                 if let Some(cache_params) = tree_cache_params {
+                    if let Err(e) = update_tree_with_event(&event.details).await {
+                        tracing::error!(?e, ?event, "failed to update tree for live event");
+                    }
+
                     let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
                     let tree = GLOBAL_TREE.read().await;
+
                     // Get the current max event ID to track replay position
                     let current_event_id = db
-                        .world_id_events()
+                        .world_tree_events()
                         .get_latest_id()
                         .await?
                         .unwrap_or_default();

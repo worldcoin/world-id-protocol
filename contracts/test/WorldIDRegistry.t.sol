@@ -3,11 +3,13 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
+import {IWorldIDRegistry} from "../src/interfaces/IWorldIDRegistry.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
 import {PackedAccountData} from "../src/libraries/PackedAccountData.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract WorldIDRegistryTest is Test {
     using BinaryIMT for BinaryIMTData;
@@ -32,8 +34,10 @@ contract WorldIDRegistryTest is Test {
         // Deploy implementation
         WorldIDRegistry implementation = new WorldIDRegistry();
 
-        // Deploy proxy
-        bytes memory initData = abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30);
+        // Deploy proxy with no fees
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, address(0xAAA), feeToken, 0);
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         worldIDRegistry = WorldIDRegistry(address(proxy));
@@ -199,7 +203,7 @@ contract WorldIDRegistryTest is Test {
         (bytes memory signature, uint256[] memory proof) =
             updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
 
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.AccountDoesNotExist.selector, leafIndex));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.AccountDoesNotExist.selector, leafIndex));
 
         worldIDRegistry.updateAuthenticator(
             leafIndex,
@@ -235,7 +239,7 @@ contract WorldIDRegistryTest is Test {
         (bytes memory signature, uint256[] memory proof) =
             updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
 
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
 
         worldIDRegistry.updateAuthenticator(
             leafIndex,
@@ -304,7 +308,7 @@ contract WorldIDRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdInUse.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.PubkeyIdInUse.selector));
         worldIDRegistry.insertAuthenticator(
             leafIndex,
             authenticatorAddress3,
@@ -335,7 +339,7 @@ contract WorldIDRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdInUse.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.PubkeyIdInUse.selector));
         worldIDRegistry.insertAuthenticator(
             leafIndex,
             newAuthenticatorAddress,
@@ -425,7 +429,7 @@ contract WorldIDRegistryTest is Test {
         bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
 
         vm.prank(authenticatorAddress1);
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
         worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
     }
 
@@ -501,7 +505,7 @@ contract WorldIDRegistryTest is Test {
         );
 
         vm.expectRevert(
-            abi.encodeWithSelector(WorldIDRegistry.AuthenticatorAddressAlreadyInUse.selector, authenticatorAddress1)
+            abi.encodeWithSelector(IWorldIDRegistry.AuthenticatorAddressAlreadyInUse.selector, authenticatorAddress1)
         );
         authenticatorPubkeys[0] = 2;
         worldIDRegistry.createAccount(
@@ -637,7 +641,7 @@ contract WorldIDRegistryTest is Test {
 
         uint256[] memory siblingNodes = new uint256[](30);
 
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.RecoveryNotEnabled.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.RecoveryNotEnabled.selector));
         worldIDRegistry.recoverAccount(
             1,
             authenticatorAddress1,
@@ -673,7 +677,7 @@ contract WorldIDRegistryTest is Test {
         twoAuthenticatorPubkeys[0] = 0;
         twoAuthenticatorPubkeys[1] = 0;
 
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.PubkeyIdOutOfBounds.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.PubkeyIdOutOfBounds.selector));
         worldIDRegistry.createAccount(
             alternateRecoveryAddress, twoAuthenticators, twoAuthenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
@@ -681,10 +685,10 @@ contract WorldIDRegistryTest is Test {
 
     function test_SetMaxAuthenticators_RevertWhen_ValueAboveLimit() public {
         // Should revert when trying to set maxAuthenticators above 96 (the limit)
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
         worldIDRegistry.setMaxAuthenticators(97);
 
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.OwnerMaxAuthenticatorsOutOfBounds.selector));
         worldIDRegistry.setMaxAuthenticators(type(uint256).max);
     }
 
@@ -961,7 +965,7 @@ contract WorldIDRegistryTest is Test {
         uint256 newWindow = 7200;
 
         vm.expectEmit(true, true, true, true);
-        emit WorldIDRegistry.RootValidityWindowUpdated(oldWindow, newWindow);
+        emit IWorldIDRegistry.RootValidityWindowUpdated(oldWindow, newWindow);
 
         worldIDRegistry.setRootValidityWindow(newWindow);
         assertEq(worldIDRegistry.getRootValidityWindow(), newWindow);
@@ -971,5 +975,316 @@ contract WorldIDRegistryTest is Test {
         vm.prank(address(0xdead));
         vm.expectRevert();
         worldIDRegistry.setRootValidityWindow(100);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                   Fee Tests                            //
+    ////////////////////////////////////////////////////////////
+
+    function test_SetFeeRecipient() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), 100e18);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        address newRecipient = vm.addr(0xAAAA);
+
+        vm.expectEmit();
+        emit IWorldIDRegistry.FeeRecipientUpdated(feeRecipient, newRecipient);
+
+        registry.setFeeRecipient(newRecipient);
+
+        assertEq(registry.getFeeRecipient(), newRecipient);
+    }
+
+    function test_CannotSetFeeRecipientToZeroAddress() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), 100e18);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.ZeroAddress.selector));
+        registry.setFeeRecipient(address(0));
+    }
+
+    function test_OnlyOwnerCanSetFeeRecipient() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), 100e18);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        address newRecipient = vm.addr(0xAAAA);
+
+        vm.prank(address(0xBEEF));
+        vm.expectRevert();
+        registry.setFeeRecipient(newRecipient);
+        assertEq(registry.getFeeRecipient(), feeRecipient);
+    }
+
+    function test_SetRegistrationFee() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), 0);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        uint256 newFee = 1 ether;
+
+        vm.expectEmit();
+        emit IWorldIDRegistry.RegistrationFeeUpdated(0, newFee);
+
+        registry.setRegistrationFee(newFee);
+
+        assertEq(registry.getRegistrationFee(), newFee);
+    }
+
+    function test_OnlyOwnerCanSetRegistrationFee() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), 0);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        uint256 newFee = 1 ether;
+
+        vm.prank(address(0xBEEF));
+        vm.expectRevert();
+        registry.setRegistrationFee(newFee);
+    }
+
+    function test_SetFeeToken() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), 100e18);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        ERC20Mock newToken = new ERC20Mock();
+
+        vm.expectEmit();
+        emit IWorldIDRegistry.FeeTokenUpdated(address(feeToken), address(newToken));
+
+        registry.setFeeToken(address(newToken));
+
+        assertEq(registry.getFeeToken(), address(newToken));
+    }
+
+    function test_CannotSetFeeTokenToZeroAddress() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), 100e18);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.ZeroAddress.selector));
+        registry.setFeeToken(address(0));
+    }
+
+    function test_OnlyOwnerCanSetFeeToken() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), 100e18);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        ERC20Mock newToken = new ERC20Mock();
+
+        vm.prank(address(0xBEEF));
+        vm.expectRevert();
+        registry.setFeeToken(address(newToken));
+
+        assertEq(registry.getFeeToken(), address(feeToken));
+    }
+
+    function test_CreateAccountWithFee() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        uint256 fee = 100e18;
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), fee);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        address user = vm.addr(0x1111);
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = address(0x123);
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        // Mint tokens to user and approve registry
+        feeToken.mint(user, fee);
+        vm.prank(user);
+        feeToken.approve(address(registry), fee);
+
+        uint256 recipientBalanceBefore = feeToken.balanceOf(feeRecipient);
+
+        vm.prank(user);
+        registry.createAccount(address(0xABCD), authenticatorAddresses, authenticatorPubkeys, 0x1234567890);
+
+        assertEq(feeToken.balanceOf(feeRecipient), recipientBalanceBefore + fee);
+        assertEq(feeToken.balanceOf(user), 0);
+    }
+
+    function test_CreateAccountWithExcessFee() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        uint256 fee = 100e18;
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), fee);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        address user = vm.addr(0x1111);
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = address(0x123);
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        // Mint more tokens than required and approve registry
+        feeToken.mint(user, fee * 2);
+        vm.prank(user);
+        feeToken.approve(address(registry), fee * 2);
+
+        uint256 recipientBalanceBefore = feeToken.balanceOf(feeRecipient);
+
+        vm.prank(user);
+        registry.createAccount(address(0xABCD), authenticatorAddresses, authenticatorPubkeys, 0x1234567890);
+
+        // Only the fee amount should be transferred
+        assertEq(feeToken.balanceOf(feeRecipient), recipientBalanceBefore + fee);
+        assertEq(feeToken.balanceOf(user), fee);
+    }
+
+    function test_CannotCreateAccountWithInsufficientFee() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        uint256 fee = 100e18;
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), fee);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        address user = vm.addr(0x1111);
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = address(0x123);
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        // Mint insufficient tokens
+        feeToken.mint(user, fee - 1);
+        vm.prank(user);
+        feeToken.approve(address(registry), fee - 1);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.InsufficientFunds.selector));
+        vm.prank(user);
+        registry.createAccount(address(0xABCD), authenticatorAddresses, authenticatorPubkeys, 0x1234567890);
+    }
+
+    function test_CreateManyAccountsWithFee() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        uint256 fee = 100e18;
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), fee);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        address user = vm.addr(0x1111);
+
+        address[] memory recoveryAddresses = new address[](3);
+        recoveryAddresses[0] = address(uint160(0x1000));
+        recoveryAddresses[1] = address(uint160(0x1001));
+        recoveryAddresses[2] = address(uint160(0x1002));
+
+        address[][] memory authenticatorAddresses = new address[][](3);
+        uint256[][] memory authenticatorPubkeys = new uint256[][](3);
+        uint256[] memory offchainSignerCommitments = new uint256[](3);
+
+        for (uint256 i = 0; i < 3; i++) {
+            authenticatorAddresses[i] = new address[](1);
+            authenticatorAddresses[i][0] = address(uint160(i + 1));
+            authenticatorPubkeys[i] = new uint256[](1);
+            authenticatorPubkeys[i][0] = 0;
+            offchainSignerCommitments[i] = uint256(i + 1);
+        }
+
+        // Mint tokens and approve
+        feeToken.mint(user, fee * 3);
+        vm.prank(user);
+        feeToken.approve(address(registry), fee * 3);
+
+        uint256 recipientBalanceBefore = feeToken.balanceOf(feeRecipient);
+
+        vm.prank(user);
+        registry.createManyAccounts(
+            recoveryAddresses, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitments
+        );
+
+        assertEq(feeToken.balanceOf(feeRecipient), recipientBalanceBefore + fee * 3);
+        assertEq(feeToken.balanceOf(user), 0);
+    }
+
+    function test_CannotCreateManyAccountsWithInsufficientFee() public {
+        WorldIDRegistry implementation = new WorldIDRegistry();
+        address feeRecipient = vm.addr(0x9999);
+        ERC20Mock feeToken = new ERC20Mock();
+        uint256 fee = 100e18;
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, feeRecipient, address(feeToken), fee);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        WorldIDRegistry registry = WorldIDRegistry(address(proxy));
+
+        address user = vm.addr(0x1111);
+
+        address[] memory recoveryAddresses = new address[](3);
+        recoveryAddresses[0] = address(uint160(0x1000));
+        recoveryAddresses[1] = address(uint160(0x1001));
+        recoveryAddresses[2] = address(uint160(0x1002));
+
+        address[][] memory authenticatorAddresses = new address[][](3);
+        uint256[][] memory authenticatorPubkeys = new uint256[][](3);
+        uint256[] memory offchainSignerCommitments = new uint256[](3);
+
+        for (uint256 i = 0; i < 3; i++) {
+            authenticatorAddresses[i] = new address[](1);
+            authenticatorAddresses[i][0] = address(uint160(i + 1));
+            authenticatorPubkeys[i] = new uint256[](1);
+            authenticatorPubkeys[i][0] = 0;
+            offchainSignerCommitments[i] = uint256(i + 1);
+        }
+
+        // Mint insufficient tokens (3 * fee - 1)
+        feeToken.mint(user, fee * 3 - 1);
+        vm.prank(user);
+        feeToken.approve(address(registry), fee * 3 - 1);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.InsufficientFunds.selector));
+        vm.prank(user);
+        registry.createManyAccounts(
+            recoveryAddresses, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitments
+        );
     }
 }

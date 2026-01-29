@@ -10,66 +10,21 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
+import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 /**
  * @title CredentialSchemaIssuerRegistry
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract CredentialSchemaIssuerRegistry is
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    ICredentialSchemaIssuerRegistry
+{
     using SafeERC20 for IERC20;
-
-    error ImplementationNotInitialized();
-
-    /**
-     * @dev Thrown when trying to update the schema URI to the same as the current one.
-     */
-    error SchemaUriIsTheSameAsCurrentOne();
-
-    /**
-     * @dev Thrown when the provided signature is invalid for the operation.
-     */
-    error InvalidSignature();
-
-    /**
-     * @dev Thrown when the provided pubkey is invalid (for example if either coordinate is zero).
-     */
-    error InvalidPubkey();
-
-    /**
-     * @dev Thrown when an invalid signer is provided (e.g. zero address)
-     */
-    error InvalidSigner();
-
-    /**
-     * @dev Thrown when an issuerSchemaId is not registered
-     */
-    error IdNotRegistered();
-
-    /**
-     * @dev Thrown when trying to update signer to the same address that's already assigned
-     */
-    error SignerAlreadyAssigned();
-
-    /**
-     * @dev Thrown when the provided issuerSchemaId is invalid
-     */
-    error InvalidIssuerSchemaId();
-
-    /**
-     * @dev Thrown when trying to set an address to the zero address.
-     */
-    error ZeroAddress();
-
-    /**
-     * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
-     */
-    error IdAlreadyInUse(uint64 id);
-
-    /**
-     * @dev Thrown when the passed id is invalid for the operation. Usually this means the `id` used is equal to `0` which is not allowed.
-     */
-    error InvalidId();
 
     modifier onlyInitialized() {
         _onlyInitialized();
@@ -80,15 +35,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                         Types                          //
-    ////////////////////////////////////////////////////////////
-
-    struct Pubkey {
-        uint256 x;
-        uint256 y;
     }
 
     ////////////////////////////////////////////////////////////
@@ -145,20 +91,6 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     IOprfKeyRegistry public _oprfKeyRegistry;
 
     ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event IssuerSchemaRegistered(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer, uint160 oprfKeyId);
-    event IssuerSchemaRemoved(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
-    event IssuerSchemaPubkeyUpdated(uint64 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
-    event IssuerSchemaSignerUpdated(uint64 indexed issuerSchemaId, address oldSigner, address newSigner);
-    event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
-
-    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
-    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
-    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
-
-    ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
 
@@ -192,6 +124,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                        Functions                       //
     ////////////////////////////////////////////////////////////
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function register(uint64 issuerSchemaId, Pubkey memory pubkey, address signer)
         public
         virtual
@@ -233,6 +166,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return issuerSchemaId;
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function remove(uint64 issuerSchemaId, bytes calldata signature) public virtual onlyProxy onlyInitialized {
         Pubkey memory pubkey = _idToPubkey[issuerSchemaId];
         if (_isEmptyPubkey(pubkey)) {
@@ -258,6 +192,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         emit IssuerSchemaRemoved(issuerSchemaId, pubkey, signer);
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function updatePubkey(uint64 issuerSchemaId, Pubkey memory newPubkey, bytes calldata signature)
         public
         virtual
@@ -298,6 +233,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _idToSignatureNonce[issuerSchemaId]++;
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function updateSigner(uint64 issuerSchemaId, address newSigner, bytes calldata signature)
         public
         virtual
@@ -332,11 +268,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _idToSignatureNonce[issuerSchemaId]++;
     }
 
-    /**
-     * @dev Returns the schema URI for a specific issuerSchemaId.
-     * @param issuerSchemaId The issuer+schema ID.
-     * @return The schema URI for the issuerSchemaId.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getIssuerSchemaUri(uint64 issuerSchemaId)
         public
         view
@@ -348,12 +280,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return idToSchemaUri[issuerSchemaId];
     }
 
-    /**
-     * @dev Updates the schema URI for a specific issuer schema ID.
-     * @param issuerSchemaId The issuer-schema ID whose schema URI will be updated.
-     * @param schemaUri The new schema URI to set.
-     * @param signature The signature of the issuer authorizing the update.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function updateIssuerSchemaUri(uint64 issuerSchemaId, string memory schemaUri, bytes calldata signature)
         public
         virtual
@@ -391,11 +318,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         _idToSignatureNonce[issuerSchemaId]++;
     }
 
-    /**
-     * @dev Returns the off-chain pubkey for a specific issuerSchemaId which signs credentials and whose signature is verified on World ID ZKPs.
-     * @param issuerSchemaId The issuer-schema ID whose pubkey will be returned.
-     * @return The pubkey for the issuerSchemaId.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function issuerSchemaIdToPubkey(uint64 issuerSchemaId)
         public
         view
@@ -407,11 +330,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return _idToPubkey[issuerSchemaId];
     }
 
-    /**
-     * @dev Returns the on-chain signer address authorized to perform updates on a specific issuerSchemaId.
-     * @param issuerSchemaId The issuer-schema ID whose signer will be returned.
-     * @return The on-chain signer address for the issuerSchemaId.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getSignerForIssuerSchemaId(uint64 issuerSchemaId)
         public
         view
@@ -423,31 +342,31 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         return _idToAddress[issuerSchemaId];
     }
 
-    function nonceOf(uint64 issuerSchemaId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
+    function nonceOf(uint64 issuerSchemaId) public view virtual override onlyProxy onlyInitialized returns (uint256) {
         return _idToSignatureNonce[issuerSchemaId];
     }
 
+    /**
+     * @dev Checks if a pubkey is empty (has zero coordinates).
+     * @param pubkey The pubkey to check.
+     * @return True if the pubkey is empty, false otherwise.
+     */
     function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
         return pubkey.x == 0 || pubkey.y == 0;
     }
 
-    /**
-     * @dev Returns the current registration fee for an issuer schema.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getRegistrationFee() public view onlyProxy onlyInitialized returns (uint256) {
         return _registrationFee;
     }
 
-    /**
-     * @dev Returns the current recipient for issuer schema registration fees.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getFeeRecipient() public view onlyProxy onlyInitialized returns (address) {
         return _feeRecipient;
     }
 
-    /**
-     * @dev Returns the current token with which fees are paid.
-     */
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function getFeeToken() public view onlyProxy onlyInitialized returns (address) {
         return address(_feeToken);
     }
@@ -456,6 +375,7 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
     //                    Owner Functions                     //
     ////////////////////////////////////////////////////////////
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function setFeeRecipient(address newFeeRecipient) external onlyOwner onlyProxy onlyInitialized {
         if (newFeeRecipient == address(0)) revert ZeroAddress();
         address oldRecipient = _feeRecipient;
@@ -463,12 +383,14 @@ contract CredentialSchemaIssuerRegistry is Initializable, EIP712Upgradeable, Own
         emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function setRegistrationFee(uint256 newFee) external onlyOwner onlyProxy onlyInitialized {
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
     }
 
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
     function setFeeToken(address newFeeToken) external onlyOwner onlyProxy onlyInitialized {
         if (newFeeToken == address(0)) revert ZeroAddress();
         address oldToken = address(_feeToken);

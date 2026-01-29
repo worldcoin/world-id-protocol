@@ -26,8 +26,7 @@ secrecy = "0.10"
 serde_json.workspace = true
 taceo-nodes-common = "0.1"
 taceo-nodes-observability = "0.1"
-taceo-oprf-service = { workspace = true }
-taceo-oprf-types = { workspace = true }
+taceo-oprf = { workspace = true, features = ["service"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = [
   "net",

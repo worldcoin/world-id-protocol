@@ -416,6 +416,8 @@ pub enum GatewayErrorCode {
     TransactionReverted,
     /// Error while waiting for transaction confirmation.
     ConfirmationError,
+    /// A request with the same authenticator address is already being processed.
+    DuplicateRequestInFlight,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).

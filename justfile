@@ -33,15 +33,15 @@ run-setup:
     sleep 1
     echo "preparing localstack"
     just prepare-localstack-secrets
+    just deploy-erc20-mock-anvil | tee logs/deploy_erc20_mock.log
+    erc20_mock=$(grep -oP 'ERC20Mock deployed to: \K0x[a-fA-F0-9]+' logs/deploy_erc20_mock.log)
     echo "starting WorldIDRegistry contract..."
-    just deploy-world-id-registry-anvil | tee logs/deploy_world_id_registry.log
+    FEE_TOKEN=$erc20_mock FEE_RECIPIENT=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 REGISTRATION_FEE=0 just deploy-world-id-registry-anvil | tee logs/deploy_world_id_registry.log
     world_id_registry=$(grep -oP 'WorldIDRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_world_id_registry.log)
     echo "starting OprfKeyRegistry contract.."
     just deploy-oprf-key-registry-with-deps-anvil | tee logs/deploy_oprf_key_registry.log
     oprf_key_registry=$(grep -oP 'OprfKeyRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     echo "starting RpRegistry contract..."
-    just deploy-erc20-mock-anvil | tee logs/deploy_erc20_mock.log
-    erc20_mock=$(grep -oP 'ERC20Mock deployed to: \K0x[a-fA-F0-9]+' logs/deploy_erc20_mock.log)
     OPRF_KEY_REGISTRY_ADDRESS=$oprf_key_registry FEE_TOKEN=$erc20_mock FEE_RECIPIENT=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 REGISTRATION_FEE=0 just deploy-rp-registry-anvil | tee logs/deploy_rp_registry.log
     rp_registry=$(grep -oP 'RpRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_rp_registry.log)
     OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$rp_registry just register-oprf-key-registry-admin-anvil

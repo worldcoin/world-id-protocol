@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use crate::{
     Credential, FieldElement, Signer,
-    proof::CircomGroth16Material,
-    requests::ProofRequest,
+    nullifier::{AuthenticatorProofInput, OprfNullifier},
+    proof::{ProofError, generate_nullifier_proof},
+    requests::{ProofRequest, RequestItem, ResponseItem},
     types::{
         AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
         IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
@@ -25,17 +26,16 @@ use alloy::{
     uint,
 };
 use ark_babyjubjub::EdwardsAffine;
-use ark_bn254::Bn254;
 use ark_serialize::CanonicalSerialize;
-use circom_types::groth16::Proof;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
-use taceo_oprf_client::Connector;
+use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
-    proof::SingleProofInput,
+    PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
+    merkle::MerkleInclusionProof,
 };
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -44,8 +44,6 @@ static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
     uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
-
-type UniquenessProof = (Proof<Bn254>, FieldElement);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 pub struct Authenticator {
@@ -364,7 +362,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// - Will error if the provided indexer URL is not valid or if there are HTTP call failures.
-    /// - Will error if the user is not registered on the registry.
+    /// - Will error if the user is not registered on the `WorldIDRegistry`.
     pub async fn fetch_inclusion_proof(
         &self,
     ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
@@ -411,64 +409,21 @@ impl Authenticator {
         }
     }
 
-    /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`.
+    /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
-    /// This assumes the Authenticator has already parsed the `[ProofRequest]` and determined
-    /// which `[Credential]` is appropriate for the request.
+    /// A nullifier is a unique, one-time use, anonymous identifier for a World ID
+    /// on a specific RP context. It is used to ensure that a single World ID can only
+    /// perform an action once.
     ///
     /// # Errors
-    /// - Will error if the any of the provided parameters are not valid.
-    /// - Will error if any of the required network requests fail.
-    /// - Will error if the user does not have a registered World ID.
-    #[allow(clippy::future_not_send)]
-    pub async fn generate_proof(
+    ///
+    /// - Will raise a [`ProofError`] if there is any issue generating the nullifier. For example,
+    ///   network issues, unexpected incorrect responses from OPRF Nodes.
+    /// - Raises an error if the OPRF Nodes configuration is not correctly set.
+    pub async fn generate_nullifier(
         &self,
-        proof_request: ProofRequest,
-        credential: Credential,
-        credential_sub_blinding_factor: FieldElement,
-    ) -> Result<UniquenessProof, AuthenticatorError> {
-        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
-        let key_index = key_set
-            .iter()
-            .position(|pk| pk.pk == self.offchain_pubkey().pk)
-            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        let query_material = self.query_material.as_ref();
-        let nullifier_material = self.nullifier_material.as_ref();
-
-        let request_item = proof_request
-            .find_request_by_issuer_schema_id(credential.issuer_schema_id.into())
-            .ok_or(AuthenticatorError::InvalidCredentialForProofRequest)?;
-
-        let mut rng = rand::thread_rng();
-
-        // use the provided session id or default to zero
-        let session_id = request_item.session_id.unwrap_or(FieldElement::ZERO);
-        // TODO store this somewhere to use for potential session proofs
-        let session_id_r_seed = FieldElement::random(&mut rng);
-
-        let args = SingleProofInput::<TREE_DEPTH> {
-            credential,
-            inclusion_proof,
-            key_set,
-            key_index,
-            session_id_r_seed,
-            session_id,
-            credential_sub_blinding_factor,
-            rp_id: proof_request.rp_id,
-            oprf_key_id: proof_request.oprf_key_id,
-            share_epoch: proof_request.share_epoch.into_inner(),
-            action: proof_request.action,
-            nonce: proof_request.nonce,
-            current_timestamp: proof_request.created_at,
-            expiration_timestamp: proof_request.expires_at,
-            rp_signature: proof_request.signature,
-            signal_hash: request_item.signal_hash(),
-            genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0), // When not provided, the minimum is set to 0 to "ignore" the constraint
-        };
-
-        let private_key = self.signer.offchain_signer_private_key().expose_secret();
-
+        proof_request: &ProofRequest,
+    ) -> Result<OprfNullifier, AuthenticatorError> {
         let services = self.config.nullifier_oracle_urls();
         if services.is_empty() {
             return Err(AuthenticatorError::Generic(
@@ -484,21 +439,90 @@ impl Authenticator {
         }
         let threshold = requested_threshold.min(services.len());
 
-        let mut rng = rand::thread_rng();
-        let (proof, _public, nullifier) = crate::proof::nullifier(
+        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
+        let key_index = key_set
+            .iter()
+            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+
+        let authenticator_input = AuthenticatorProofInput::new(
+            key_set,
+            inclusion_proof,
+            self.signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .clone(),
+            key_index,
+        );
+
+        Ok(OprfNullifier::generate(
             services,
             threshold,
-            query_material,
-            nullifier_material,
-            args,
-            private_key,
+            &self.query_material,
+            authenticator_input,
+            proof_request,
             self.ws_connector.clone(),
-            &mut rng,
         )
-        .await
-        .map_err(|e| AuthenticatorError::Generic(format!("Failed to generate nullifier: {e}")))?;
+        .await?)
+    }
 
-        Ok((proof, nullifier.into()))
+    /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
+    /// method generates the raw proof to be translated into a Uniqueness Proof or a Session Proof for the RP.
+    ///
+    /// This assumes the RP's `[ProofRequest]` has already been parsed to determine
+    /// which `[Credential]` is appropriate for the request. This method responds to a
+    /// specific `[RequestItem]` (a `[ProofRequest]` may contain multiple items).
+    ///
+    /// # Arguments
+    /// - `oprf_nullifier`: The `[OprfNullifier]` output generated from the `generate_nullifier` function.
+    /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
+    /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
+    /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
+    /// - `session_id_r_seed`: The session ID random seed.
+    /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs.
+    /// - `request_timestamp`: The timestamp of the request.
+    ///
+    /// # Errors
+    /// - Will error if the any of the provided parameters are not valid.
+    /// - Will error if any of the required network requests fail.
+    /// - Will error if the user does not have a registered World ID.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_single_proof(
+        &self,
+        oprf_nullifier: OprfNullifier,
+        request_item: &RequestItem,
+        credential: &Credential,
+        credential_sub_blinding_factor: FieldElement,
+        session_id_r_seed: FieldElement,
+        session_id: Option<FieldElement>,
+        request_timestamp: u64, // TODO: Convert into min_expiration
+    ) -> Result<ResponseItem, AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
+
+        let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+
+        let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
+            &self.nullifier_material,
+            &mut rng,
+            credential,
+            credential_sub_blinding_factor,
+            oprf_nullifier,
+            request_item,
+            session_id,
+            session_id_r_seed,
+            request_timestamp,
+        )?;
+
+        let proof = ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root);
+
+        let response_item = ResponseItem::from_success(
+            request_item.identifier.clone(),
+            request_item.issuer_schema_id,
+            proof,
+            nullifier.into(),
+        );
+
+        Ok(response_item)
     }
 
     /// Inserts a new authenticator to the account.
@@ -954,6 +978,10 @@ pub enum AuthenticatorError {
         /// Detailed error message.
         error_message: String,
     },
+
+    /// Error on proof generation
+    #[error(transparent)]
+    ProofError(#[from] ProofError),
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

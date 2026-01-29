@@ -9,6 +9,7 @@ use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 mod batcher;
 mod config;
 mod create_batcher;
+mod metrics;
 mod ops_batcher;
 mod request;
 mod request_tracker;
