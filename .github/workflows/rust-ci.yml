@@ -52,31 +52,34 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features
 
-  build:
-    name: Test Build
-    runs-on:
-      group: arc-public-large-amd64-runner
-    permissions:
-      contents: read
+build:
+  name: Feature Resolution (cargo-hack)
+  runs-on:
+    group: arc-public-large-amd64-runner
+  permissions:
+    contents: read
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
 
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+    - name: Build contracts
+      run: |
+        make sol-build
 
-      - name: Build contracts
-        run: |
-          make sol-build
+    - name: Install cargo-hack
+      run: |
+        cargo install cargo-hack --locked
 
-      - name: Build non-default features
-        run: |
-          cargo build -p world-id-core --no-default-features
+    - name: Check Features
+      run: |
+        cargo hack check --each-feature --no-dev-deps
 
   test:
     name: Tests
