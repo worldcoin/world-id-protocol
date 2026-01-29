@@ -52,6 +52,8 @@ k256 = { version = "0.13" }
 num-bigint = "0.4"
 taceo-groth16-sol = { version = "0.1" }
 taceo-oprf = { version = "0.1", default-features = false }
+taceo-oprf-core = { version = "0.4", default-features = false }
+taceo-oprf-types = { version = "0.5", default-features = false }
 taceo-oprf-test-utils = "0.1"
 taceo-oprf-key-gen = "0.1"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
