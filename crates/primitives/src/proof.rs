@@ -83,15 +83,11 @@ impl Serialize for ZeroKnowledgeProof {
     where
         S: Serializer,
     {
-        let concat_bytes: Vec<u8> = self
-            .inner
-            .iter()
-            .flat_map(U256::to_be_bytes::<32>)
-            .collect();
+        let bytes = self.to_compressed_bytes();
         if serializer.is_human_readable() {
-            serializer.serialize_str(&hex::encode(concat_bytes))
+            serializer.serialize_str(&hex::encode(bytes))
         } else {
-            serializer.serialize_bytes(&concat_bytes)
+            serializer.serialize_bytes(&bytes)
         }
     }
 }
