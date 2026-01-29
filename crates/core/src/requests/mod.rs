@@ -328,7 +328,8 @@ impl ProofRequest {
     /// this returns the `session_id` as the action binding value.
     ///
     /// # Panics
-    /// Panics if both `action` and `session_id` are `None`, as this represents an invalid request.
+    /// Panics if both `action` and `session_id` are `None`, or if both are provided,
+    /// as either case represents an invalid request.
     #[must_use]
     pub fn computed_action(&self) -> FieldElement {
         match (self.action, self.session_id) {
