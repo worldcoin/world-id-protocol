@@ -11,7 +11,7 @@
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Uniqueness Proof `π2`
 
-use circom_types::{ark_bn254::Bn254, groth16::Proof};
+use ark_bn254::Bn254;
 use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
@@ -209,7 +209,14 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     session_id: Option<FieldElement>,
     session_id_r_seed: FieldElement,
     timestamp: u64,
-) -> Result<(Proof<Bn254>, Vec<ark_babyjubjub::Fq>, ark_babyjubjub::Fq), ProofError> {
+) -> Result<
+    (
+        ark_groth16::Proof<Bn254>,
+        Vec<ark_babyjubjub::Fq>,
+        ark_babyjubjub::Fq,
+    ),
+    ProofError,
+> {
     let cred_signature = credential
         .signature
         .clone()
@@ -253,5 +260,5 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         )));
     }
 
-    Ok((proof.into(), public, nullifier))
+    Ok((proof, public, nullifier))
 }

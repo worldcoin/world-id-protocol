@@ -225,7 +225,7 @@ async fn run_nullifier(
         .await
         .context("while generating nullifier")?;
 
-    let (_proof, _nullifier) = authenticator
+    let _proof_response = authenticator
         .generate_single_proof(
             nullifier,
             request_item,

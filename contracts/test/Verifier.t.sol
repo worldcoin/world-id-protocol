@@ -76,7 +76,6 @@ contract ProofVerifier is Test {
 
     uint256 public proofTimestampDelta;
 
-    uint256 sessionId = 0x0;
     uint256 nullifier = 0x18a48a7958bc33c7fb3f6351e52a76da4615cd366dabff91fec68e0df1e8cf42;
     uint256 proofTimestamp = 0x6970f9bf;
     uint64 rpId = 0x3207461bd9fc9797;
@@ -86,11 +85,12 @@ contract ProofVerifier is Test {
     uint256 signalHash = 0x1578ed0de47522ad0b38e87031739c6a65caecc39ce3410bf3799e756a220f;
     uint256 nonce = 0x2c42d5fb6f893752c1f8e6a7178a3400762a64039ded1af1190109a3f5e63a1b;
 
-    uint256[4] proof = [
+    uint256[5] proof = [
         0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8,
         0x79a6dee01c030080298a09adfd0294edc84f1650b68763d0aab5d6a1c1bbd8,
         0x850d06c33658c9d2cc0e873cb45ad5375a31a6661cd4a11d833466ffe79b8bdd,
-        0x2c4257a1f6ab47e8432f815b1a48e8e760b541d92a1bbd7cedf1fa2ec51b4eed
+        0x2c4257a1f6ab47e8432f815b1a48e8e760b541d92a1bbd7cedf1fa2ec51b4eed,
+        rootCorrect
     ];
 
     function setUp() public {
@@ -118,17 +118,7 @@ contract ProofVerifier is Test {
     function test_Success() public {
         vm.warp(proofTimestamp + 1 hours);
         verifier.verify(
-            nullifier,
-            action,
-            rpIdCorrect,
-            sessionId,
-            nonce,
-            signalHash,
-            rootCorrect,
-            proofTimestamp,
-            credentialIssuerIdCorrect,
-            0,
-            proof
+            nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, proof
         );
     }
 
@@ -139,10 +129,8 @@ contract ProofVerifier is Test {
             nullifier,
             action,
             rpIdWrong, // NOTE incorrect rp id
-            sessionId,
             nonce,
             signalHash,
-            rootCorrect,
             proofTimestamp,
             credentialIssuerIdCorrect,
             0,
@@ -157,10 +145,8 @@ contract ProofVerifier is Test {
             nullifier,
             action,
             rpIdCorrect,
-            sessionId,
             nonce,
             signalHash,
-            rootCorrect,
             proofTimestamp,
             credentialIssuerIdWrong, // NOTE incorrect credential issuer id
             0,
@@ -169,44 +155,37 @@ contract ProofVerifier is Test {
     }
 
     function test_WrongProof() public {
-        uint256[4] memory brokenProof = [
+        uint256[5] memory brokenProof = [
             0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8,
             0x79a6dee01c030080298a09adfd0294edc84f1650b68763d0aab5d6a1c1bbd8,
             0x850d06c33658c9d2cc0e873cb45ad5375a31a6661cd4a11d833466ffe79b8bdd,
-            0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8
+            0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8,
+            rootCorrect
         ];
         vm.warp(proofTimestamp + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(VerifierNullifier.ProofInvalid.selector));
         verifier.verify(
-            nullifier,
-            action,
-            rpIdCorrect,
-            sessionId,
-            nonce,
-            signalHash,
-            rootCorrect,
-            proofTimestamp,
-            credentialIssuerIdCorrect,
-            0,
-            brokenProof
+            nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, brokenProof
         );
     }
 
     function test_InvalidRoot() public {
+        uint256[5] memory invalidRootProof = proof;
+        invalidRootProof[4] = rootWrong;
+
         vm.warp(proofTimestamp + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(IVerifier.InvalidMerkleRoot.selector));
+
         verifier.verify(
             nullifier,
             action,
             rpIdCorrect,
-            sessionId,
             nonce,
             signalHash,
-            rootWrong,
             proofTimestamp,
             credentialIssuerIdCorrect,
             0,
-            proof
+            invalidRootProof
         );
     }
 
@@ -214,17 +193,7 @@ contract ProofVerifier is Test {
         vm.warp(proofTimestamp - 1 hours);
         vm.expectRevert(abi.encodeWithSelector(IVerifier.NullifierFromFuture.selector));
         verifier.verify(
-            nullifier,
-            action,
-            rpIdCorrect,
-            sessionId,
-            nonce,
-            signalHash,
-            rootCorrect,
-            proofTimestamp,
-            credentialIssuerIdCorrect,
-            0,
-            proof
+            nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, proof
         );
     }
 
@@ -232,17 +201,7 @@ contract ProofVerifier is Test {
         vm.warp(proofTimestamp + 24 hours);
         vm.expectRevert(abi.encodeWithSelector(IVerifier.OutdatedNullifier.selector));
         verifier.verify(
-            nullifier,
-            action,
-            rpIdCorrect,
-            sessionId,
-            nonce,
-            signalHash,
-            rootCorrect,
-            proofTimestamp,
-            credentialIssuerIdCorrect,
-            0,
-            proof
+            nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, proof
         );
     }
 }
