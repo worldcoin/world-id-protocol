@@ -15,6 +15,7 @@ use eyre::{Context as _, Result, eyre};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
+use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
@@ -72,14 +73,8 @@ impl RegistryTestContext {
             .await
             .wrap_err("failed to deploy Verifier")?;
 
-        // signers must match the ones used in the stubs
-        let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
         anvil
-            .register_oprf_nodes(
-                oprf_key_registry,
-                deployer.clone(),
-                oprf_node_signers.iter().map(|s| s.address()).collect(),
-            )
+            .register_oprf_nodes(oprf_key_registry, deployer.clone(), PEER_ADDRESSES.to_vec())
             .await?;
 
         // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens

@@ -396,7 +396,7 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        taceo_oprf_test_utils::deploy_anvil::deploy_oprf_key_registry_13(
+        taceo_oprf_test_utils::deploy_anvil::deploy_oprf_key_registry_25(
             provider.erased(),
             signer.address(),
         )
