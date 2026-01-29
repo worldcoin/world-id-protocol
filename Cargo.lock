@@ -7140,7 +7140,7 @@ dependencies = [
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
- "taceo-poseidon2 0.2.1",
+ "taceo-poseidon2",
  "zeroize",
 ]
 
@@ -7271,7 +7271,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-oprf-core",
  "taceo-oprf-types",
- "taceo-poseidon2 0.2.1",
+ "taceo-poseidon2",
  "thiserror 2.0.17",
  "tokio",
  "tokio-tungstenite 0.28.0",
@@ -7295,7 +7295,7 @@ dependencies = [
  "subtle",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
- "taceo-poseidon2 0.2.1",
+ "taceo-poseidon2",
  "uuid",
  "zeroize",
 ]
@@ -7448,19 +7448,6 @@ dependencies = [
 
 [[package]]
 name = "taceo-poseidon2"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce5f09fc2f1c68aafd3f544313fe7e34d33b35aa666bc9e6b7a22e94b9833140"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "ark-std 0.5.0",
- "num-bigint",
- "num-traits",
-]
-
-[[package]]
-name = "taceo-poseidon2"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac59d3df4c827b3496bff929aebd6440997a5c2e946f46ff4fdd76f318447581"
@@ -7564,7 +7551,7 @@ dependencies = [
  "taceo-oprf",
  "taceo-oprf-key-gen",
  "taceo-oprf-test-utils",
- "taceo-poseidon2 0.1.0",
+ "taceo-poseidon2",
  "tokio",
  "world-id-oprf-node",
  "world-id-primitives",
@@ -8932,7 +8919,7 @@ dependencies = [
  "taceo-groth16-material",
  "taceo-oprf",
  "taceo-oprf-test-utils",
- "taceo-poseidon2 0.1.0",
+ "taceo-poseidon2",
  "test-utils",
  "thiserror 1.0.69",
  "tokio",
@@ -9000,7 +8987,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sqlx",
- "taceo-poseidon2 0.1.0",
+ "taceo-poseidon2",
  "take_mut",
  "tempfile",
  "test-utils",
@@ -9103,7 +9090,7 @@ dependencies = [
  "taceo-groth16-material",
  "taceo-groth16-sol",
  "taceo-oprf",
- "taceo-poseidon2 0.1.0",
+ "taceo-poseidon2",
  "thiserror 1.0.69",
  "url",
 ]
