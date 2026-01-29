@@ -12,13 +12,20 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
+import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
 
 /**
  * @title WorldIDRegistry
  * @author World Contributors
  * @dev The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
  */
-contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract WorldIDRegistry is
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    IWorldIDRegistry
+{
     using BinaryIMT for BinaryIMTData;
     using SafeERC20 for IERC20;
 
@@ -36,6 +43,10 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
+
+    // DO NOT REORDER! To ensure compatibility between upgrades, it is exceedingly important
+    // that no reordering of these variables takes place. If reordering happens, a storage
+    // clash will occur (effectively a memory safety error).
 
     // leafIndex -> [96 bits pubkeyId bitmap][160 bits recoveryAddress]
     // Note that while 96 bits are reserved for the pubkeyId bitmap, only `maxAuthenticators` bits are used in practice.
@@ -66,59 +77,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     IERC20 internal _feeToken;
 
     ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event AccountCreated(
-        uint256 indexed leafIndex,
-        address indexed recoveryAddress,
-        address[] authenticatorAddresses,
-        uint256[] authenticatorPubkeys,
-        uint256 offchainSignerCommitment
-    );
-    event AccountUpdated(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        uint256 newAuthenticatorPubkey,
-        address indexed oldAuthenticatorAddress,
-        address indexed newAuthenticatorAddress,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event AccountRecovered(
-        uint256 indexed leafIndex,
-        address indexed newAuthenticatorAddress,
-        uint256 indexed newAuthenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event RecoveryAddressUpdated(
-        uint256 indexed leafIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
-    );
-    event AuthenticatorInserted(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        address indexed authenticatorAddress,
-        uint256 indexed newAuthenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event AuthenticatorRemoved(
-        uint256 indexed leafIndex,
-        uint32 pubkeyId,
-        address indexed authenticatorAddress,
-        uint256 indexed authenticatorPubkey,
-        uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment
-    );
-    event RootRecorded(uint256 indexed root, uint256 timestamp);
-    event RootValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
-    event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
-    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
-    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
-    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
-
-    ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
 
@@ -142,162 +100,6 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
     uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 96;
-
-    ////////////////////////////////////////////////////////////
-    //                        Errors                         //
-    ////////////////////////////////////////////////////////////
-
-    error ImplementationNotInitialized();
-
-    /**
-     * @dev Thrown when a requested on-chain signer address is already in use by another account as an authenticator. An on-chain signer address
-     * can only be used by one account at a time.
-     * @param authenticatorAddress The target address that is already in use.
-     */
-    error AuthenticatorAddressAlreadyInUse(address authenticatorAddress);
-
-    /**
-     * @dev Thrown when the pubkey bitmap overflows, which should in practice never happen.
-     */
-    error BitmapOverflow();
-
-    /**
-     * @dev Thrown when the pubkey ID is already in use for the account on a different authenticator.
-     */
-    error PubkeyIdInUse();
-
-    /**
-     * @dev Thrown when attempting to use a pubKeyId that is greater than `maxAuthenticators`.
-     */
-    error PubkeyIdOutOfBounds();
-
-    /**
-     * @dev Thrown when a pubkey ID does not exist. We use a bitmap to track how many pubkey IDs are in use for an account.
-     */
-    error PubkeyIdDoesNotExist();
-
-    /**
-     * @dev Thrown when there is no Recovery Agent (i.e. recovery address) set for the account.
-     */
-    error RecoveryNotEnabled();
-
-    /**
-     * @dev Thrown when a requested leaf index does not exist.
-     * @param leafIndex The leaf index that does not exist.
-     */
-    error AccountDoesNotExist(uint256 leafIndex);
-
-    /**
-     * @dev Thrown when a recovered signature address is the zero address.
-     */
-    error ZeroRecoveredSignatureAddress();
-
-    /**
-     * @dev Thrown when setting a recovery or authenticator address to the zero address.
-     */
-    error ZeroAddress();
-
-    /**
-     * @dev Thrown when an invalid signature is provided.
-     */
-    error InvalidSignature();
-
-    /**
-     * @dev Thrown when the provided array lengths do not match.
-     */
-    error MismatchingArrayLengths();
-
-    /**
-     * @dev Thrown when the provided address array is empty.
-     */
-    error EmptyAddressArray();
-
-    /**
-     * @dev Thrown when the old and new authenticator addresses are the same.
-     */
-    error ReusedAuthenticatorAddress();
-
-    /**
-     * @dev Thrown when an authenticator already exists.
-     * @param authenticatorAddress The authenticator address that already exists.
-     */
-    error AuthenticatorAlreadyExists(address authenticatorAddress);
-
-    /**
-     * @dev Thrown when the leaf index does not match the expected value.
-     * @param expectedLeafIndex The expected leaf index.
-     * @param actualLeafIndex The actual leaf index.
-     */
-    error MismatchedLeafIndex(uint256 expectedLeafIndex, uint256 actualLeafIndex);
-
-    /**
-     * @dev Thrown when the recovered signature does not match the expected authenticator address.
-     * @param expectedAuthenticatorAddress The expected authenticator address.
-     * @param actualAuthenticatorAddress The actual authenticator address.
-     */
-    error MismatchedAuthenticatorSigner(address expectedAuthenticatorAddress, address actualAuthenticatorAddress);
-
-    /**
-     * @dev Thrown when a pubkey ID does not match the expected value.
-     * @param expectedPubkeyId The expected pubkey ID.
-     * @param actualPubkeyId The actual pubkey ID.
-     */
-    error MismatchedPubkeyId(uint256 expectedPubkeyId, uint256 actualPubkeyId);
-
-    /**
-     * @dev Thrown when a nonce does not match the expected value.
-     * @param expectedNonce The expected nonce value.
-     * @param actualNonce The actual nonce value.
-     */
-    error MismatchedSignatureNonce(uint256 leafIndex, uint256 expectedNonce, uint256 actualNonce);
-
-    /**
-     * @dev Thrown when a recovery counter does not match the expected value.
-     * @param leafIndex The leaf index.
-     * @param expectedRecoveryCounter The expected recovery counter.
-     * @param actualRecoveryCounter The actual recovery counter.
-     */
-    error MismatchedRecoveryCounter(uint256 leafIndex, uint256 expectedRecoveryCounter, uint256 actualRecoveryCounter);
-
-    /**
-     * @dev Thrown when a pubkey ID overflows its uint32 limit.
-     * @param pubkeyId The pubkey ID that caused the overflow.
-     */
-    error PubkeyIdOverflow(uint256 pubkeyId);
-
-    /**
-     * @dev Thrown when a recovery address is not set for an account.
-     * @param leafIndex The leaf index with no recovery address.
-     */
-    error RecoveryAddressNotSet(uint256 leafIndex);
-
-    /**
-     * @dev Thrown when an authenticator does not exist.
-     * @param authenticatorAddress The authenticator address that does not exist.
-     */
-    error AuthenticatorDoesNotExist(address authenticatorAddress);
-
-    /**
-     * @dev Thrown when an authenticator does not belong to the specified account.
-     * @param expectedLeafIndex The expected leaf index.
-     * @param actualLeafIndex The actual leaf index from the authenticator.
-     */
-    error AuthenticatorDoesNotBelongToAccount(uint256 expectedLeafIndex, uint256 actualLeafIndex);
-
-    /**
-     * @dev Thrown when trying to update max authenticators beyond the natural limit.
-     */
-    error OwnerMaxAuthenticatorsOutOfBounds();
-
-    /**
-     * @dev Thrown when the recovery counter would overflow its uint32 limit.
-     */
-    error RecoveryCounterOverflow();
-
-    /**
-     * @dev Thrown when the fee payment is not enough to cover registration.
-     */
-    error InsufficientFunds();
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -348,31 +150,22 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     //                  Public View Functions                 //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Returns the domain separator for the EIP712 structs.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
 
-    /**
-     * @dev Returns the current tree root.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function currentRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return tree.root;
     }
 
-    /**
-     * @dev Returns the recovery address for the given World ID (based on its leaf index).
-     * @param leafIndex The index of the leaf.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getRecoveryAddress(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
         return _getRecoveryAddress(leafIndex);
     }
 
-    /**
-     * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
         // The latest root is always valid.
         if (root == latestRoot) return true;
@@ -382,10 +175,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         return block.timestamp <= ts + rootValidityWindow;
     }
 
-    /**
-     * @dev Returns the packed account data for an authenticator address.
-     * @param authenticatorAddress The authenticator address to query.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getPackedAccountData(address authenticatorAddress)
         external
         view
@@ -397,61 +187,42 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         return authenticatorAddressToPackedAccountData[authenticatorAddress];
     }
 
-    /**
-     * @dev Returns the signature nonce for a leaf index.
-     * @param leafIndex The leaf index to query.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getSignatureNonce(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return leafIndexToSignatureNonce[leafIndex];
     }
 
-    /**
-     * @dev Returns the recovery counter for a leaf index.
-     * @param leafIndex The leaf index to query.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getRecoveryCounter(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return leafIndexToRecoveryCounter[leafIndex];
     }
 
-    /**
-     * @dev Returns the next available leaf index.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return nextLeafIndex;
     }
 
-    /**
-     * @dev Returns the depth of the Merkle tree.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getTreeDepth() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return treeDepth;
     }
 
-    /**
-     * @dev Returns the maximum number of authenticators allowed per account.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getMaxAuthenticators() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return maxAuthenticators;
     }
 
-    /**
-     * @dev Returns the timestamp when a root was recorded.
-     * @param root The root to query.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getRootTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return rootToTimestamp[root];
     }
 
-    /**
-     * @dev Returns the latest root.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getLatestRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return latestRoot;
     }
 
-    /**
-     * @dev Returns the root validity window in seconds.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return rootValidityWindow;
     }
@@ -483,6 +254,8 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /**
      * @dev Helper function to get recovery address from the packed storage.
+     * @param leafIndex The leaf index of the account.
+     * @return The recovery address for the account.
      */
     function _getRecoveryAddress(uint256 leafIndex) internal view returns (address) {
         return address(uint160(_leafIndexToRecoveryAddressPacked[leafIndex]));
@@ -490,6 +263,8 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /**
      * @dev Helper function to get pubkey bitmap from the packed storage.
+     * @param leafIndex The leaf index of the account.
+     * @return The pubkey bitmap for the account.
      */
     function _getPubkeyBitmap(uint256 leafIndex) internal view returns (uint256) {
         return _leafIndexToRecoveryAddressPacked[leafIndex] >> 160;
@@ -552,6 +327,8 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     /**
      * @dev Helper function to set pubkey bitmap packed, preserving the recovery address. The
      * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
+     * @param leafIndex The leaf index of the account.
+     * @param bitmap The new pubkey bitmap to set.
      */
     function _setPubkeyBitmap(uint256 leafIndex, uint256 bitmap) internal {
         if (bitmap >> 96 != 0) {
@@ -567,6 +344,9 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     /**
      * @dev Helper function to set recovery address and pubkey bitmap packed. The
      * bitmap is 96 bits, but 256 are accepted to simplify bit operations in other functions.
+     * @param leafIndex The leaf index of the account.
+     * @param recoveryAddress The recovery address to set.
+     * @param bitmap The pubkey bitmap to set.
      */
     function _setRecoveryAddressAndBitmap(uint256 leafIndex, address recoveryAddress, uint256 bitmap) internal {
         if (bitmap >> 96 != 0) {
@@ -587,6 +367,10 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /**
      * @dev Updates a leaf in the tree and records the new root.
+     * @param leafIndex The leaf index to update.
+     * @param oldOffchainSignerCommitment The old offchain signer commitment (current leaf value).
+     * @param newOffchainSignerCommitment The new offchain signer commitment (new leaf value).
+     * @param siblingNodes The Merkle proof sibling nodes.
      */
     function _updateLeafAndRecord(
         uint256 leafIndex,
@@ -600,6 +384,10 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
 
     /**
      * @dev Internal function to register an account.
+     * @param recoveryAddress The recovery address for the new account.
+     * @param authenticatorAddresses The authenticator addresses for the new account.
+     * @param authenticatorPubkeys The authenticator pubkeys for the new account.
+     * @param offchainSignerCommitment The offchain signer commitment for the new account.
      */
     function _registerAccount(
         address recoveryAddress,
@@ -647,12 +435,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     //         Public State-Changing Functions                //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Creates a new World ID account.
-     * @param recoveryAddress The address of the recovery signer.
-     * @param authenticatorAddresses The addresses of the authenticators.
-     * @param offchainSignerCommitment The offchain signer commitment.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function createAccount(
         address recoveryAddress,
         address[] calldata authenticatorAddresses,
@@ -667,12 +450,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _recordCurrentRoot();
     }
 
-    /**
-     * @dev Creates multiple World ID accounts.
-     * @param recoveryAddresses The addresses of the recovery signers.
-     * @param authenticatorAddresses The addresses of the authenticators.
-     * @param offchainSignerCommitments The offchain signer commitments.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function createManyAccounts(
         address[] calldata recoveryAddresses,
         address[][] calldata authenticatorAddresses,
@@ -708,15 +486,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _recordCurrentRoot();
     }
 
-    /**
-     * @dev Updates an existing Authenticator.
-     * @param oldAuthenticatorAddress The authenticator address to update.
-     * @param newAuthenticatorAddress The new authenticator address.
-     * @param oldOffchainSignerCommitment The old offchain signer commitment.
-     * @param newOffchainSignerCommitment The new offchain signer commitment.
-     * @param signature The signature.
-     * @param siblingNodes The sibling nodes.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function updateAuthenticator(
         uint256 leafIndex,
         address oldAuthenticatorAddress,
@@ -803,13 +573,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
     }
 
-    /**
-     * @dev Inserts a new Authenticator.
-     * @param newAuthenticatorAddress The authenticator address to insert.
-     * @param newOffchainSignerCommitment The new offchain signer commitment.
-     * @param signature The signature.
-     * @param siblingNodes The sibling nodes.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function insertAuthenticator(
         uint256 leafIndex,
         address newAuthenticatorAddress,
@@ -878,14 +642,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
     }
 
-    /**
-     * @dev Removes an Authenticator.
-     * @param authenticatorAddress The authenticator address to remove.
-     * @param oldOffchainSignerCommitment The old offchain signer commitment.
-     * @param newOffchainSignerCommitment The new offchain signer commitment.
-     * @param signature The signature.
-     * @param siblingNodes The sibling nodes.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function removeAuthenticator(
         uint256 leafIndex,
         address authenticatorAddress,
@@ -956,17 +713,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
     }
 
-    /**
-     * @dev Recovers a World ID.
-     * @param leafIndex The index of the leaf.
-     * @param newAuthenticatorAddress The new authenticator address.
-     * @param newAuthenticatorPubkey The new authenticator pubkey.
-     * @param oldOffchainSignerCommitment The old offchain signer commitment.
-     * @param newOffchainSignerCommitment The new offchain signer commitment.
-     * @param signature The signature.
-     * @param siblingNodes The sibling nodes.
-     * @param nonce The signature nonce.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function recoverAccount(
         uint256 leafIndex,
         address newAuthenticatorAddress,
@@ -1029,13 +776,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
     }
 
-    /**
-     * @dev Updates the recovery address for a World ID.
-     * @param leafIndex The index of the leaf.
-     * @param newRecoveryAddress The new recovery address.
-     * @param signature The signature authorizing the change.
-     * @param nonce The signature nonce.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function updateRecoveryAddress(uint256 leafIndex, address newRecoveryAddress, bytes memory signature, uint256 nonce)
         external
         virtual
@@ -1075,18 +816,14 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
     //                      Owner Functions                   //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Sets the validity window for historic roots.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
         uint256 old = rootValidityWindow;
         rootValidityWindow = newWindow;
         emit RootValidityWindowUpdated(old, newWindow);
     }
 
-    /**
-     * @dev Set an updated maximum number of authenticators allowed.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
         if (newMaxAuthenticators > MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
@@ -1096,10 +833,7 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
     }
 
-    /**
-     * @dev Sets the recipient address for registration fees.
-     * @param newFeeRecipient The new fee recipient address.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setFeeRecipient(address newFeeRecipient) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newFeeRecipient == address(0)) revert ZeroAddress();
         address oldRecipient = _feeRecipient;
@@ -1107,20 +841,14 @@ contract WorldIDRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgrad
         emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
     }
 
-    /**
-     * @dev Sets the registration fee amount.
-     * @param newFee The new registration fee.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setRegistrationFee(uint256 newFee) external virtual onlyOwner onlyProxy onlyInitialized {
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
     }
 
-    /**
-     * @dev Sets the token used for paying registration fees.
-     * @param newFeeToken The new fee token address.
-     */
+    /// @inheritdoc IWorldIDRegistry
     function setFeeToken(address newFeeToken) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newFeeToken == address(0)) revert ZeroAddress();
         address oldToken = address(_feeToken);

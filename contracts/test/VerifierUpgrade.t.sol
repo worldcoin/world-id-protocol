@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {Verifier} from "../src/Verifier.sol";
+import {IVerifier} from "../src/interfaces/IVerifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /**
@@ -166,7 +167,7 @@ contract VerifierUpgradeTest is Test {
         address newRegistry = address(0x5555);
 
         vm.expectEmit(true, true, true, true);
-        emit Verifier.CredentialSchemaIssuerRegistryUpdated(credentialIssuerRegistry, newRegistry);
+        emit IVerifier.CredentialSchemaIssuerRegistryUpdated(credentialIssuerRegistry, newRegistry);
 
         verifier.updateCredentialSchemaIssuerRegistry(newRegistry);
         assertEq(address(verifier.credentialSchemaIssuerRegistry()), newRegistry);
@@ -176,7 +177,7 @@ contract VerifierUpgradeTest is Test {
         address newRegistry = address(new WorldIDRegistryMock());
 
         vm.expectEmit(true, true, true, true);
-        emit Verifier.WorldIDRegistryUpdated(worldIDRegistry, newRegistry);
+        emit IVerifier.WorldIDRegistryUpdated(worldIDRegistry, newRegistry);
 
         verifier.updateWorldIDRegistry(newRegistry);
         assertEq(address(verifier.worldIDRegistry()), newRegistry);
@@ -186,7 +187,7 @@ contract VerifierUpgradeTest is Test {
         address newOprfKeyRegistry = address(0x7777);
 
         vm.expectEmit(true, true, true, true);
-        emit Verifier.OprfKeyRegistryUpdated(oprfKeyRegistry, newOprfKeyRegistry);
+        emit IVerifier.OprfKeyRegistryUpdated(oprfKeyRegistry, newOprfKeyRegistry);
 
         verifier.updateOprfKeyRegistry(newOprfKeyRegistry);
         assertEq(address(verifier.oprfKeyRegistry()), newOprfKeyRegistry);

@@ -21,7 +21,7 @@ use world_id_primitives::{
 };
 
 use crate::{
-    anvil::{CredentialSchemaIssuerRegistry, TestAnvil},
+    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, TestAnvil},
     merkle::first_leaf_merkle_path,
 };
 
@@ -118,7 +118,7 @@ impl RegistryTestContext {
 
         let issuer_private_key = EdDSAPrivateKey::random(&mut thread_rng());
         let issuer_public_key = issuer_private_key.public();
-        let issuer_pubkey_repr = CredentialSchemaIssuerRegistry::Pubkey {
+        let issuer_pubkey_repr = ICredentialSchemaIssuerRegistry::Pubkey {
             x: U256::from_limbs(issuer_public_key.pk.x.into_bigint().0),
             y: U256::from_limbs(issuer_public_key.pk.y.into_bigint().0),
         };

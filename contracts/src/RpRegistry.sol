@@ -10,6 +10,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
+import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
 
 /**
  * @title Relying Party Registry (World ID)
@@ -19,7 +20,7 @@ import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
  * repository before making any updates.
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
-contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable, IRpRegistry {
     using SafeERC20 for IERC20;
 
     modifier onlyInitialized() {
@@ -31,30 +32,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         if (_getInitializedVersion() == 0) {
             revert ImplementationNotInitialized();
         }
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                         Types                          //
-    ////////////////////////////////////////////////////////////
-
-    struct RelyingParty {
-        // whether the rpId has ever been initialized.
-        bool initialized;
-        // whether the RP is active or not. an inactive RP is not able to make requests.
-        bool active;
-        // the manager authorized to perform registry updates for the RP
-        address manager;
-        // the signer which is allowed to sign proof requests.
-        // while not recommended, it can be the same as the manager.
-        address signer;
-        // the OPRF key identifier from the OprfKeyRegistry contract.
-        // points to the committed public key from OPRF Nodes for the RP.
-        uint160 oprfKeyId;
-        // the fully qualified domain name (FQDN) where the well-known metadata file for the RP is published.
-        // the metadata file must be published in https://<unverifiedWellKnownDomain>/.well-known/world-id.json
-        // examples: `world.org`, `example.world.org`
-        // note this is unverified and it's every party responsibility to verify the domain through the well-known file.
-        string unverifiedWellKnownDomain;
     }
 
     ////////////////////////////////////////////////////////////
@@ -84,29 +61,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     IOprfKeyRegistry internal _oprfKeyRegistry;
 
     ////////////////////////////////////////////////////////////
-    //                        Events                          //
-    ////////////////////////////////////////////////////////////
-
-    event RpRegistered(
-        uint64 indexed rpId, uint160 indexed oprfKeyId, address manager, string unverifiedWellKnownDomain
-    );
-
-    event RpUpdated(
-        uint64 indexed rpId,
-        uint160 indexed oprfKeyId,
-        bool active,
-        address manager,
-        address signer,
-        string unverifiedWellKnownDomain
-    );
-
-    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
-
-    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
-
-    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
-
-    ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
 
@@ -120,62 +74,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     bytes32 public constant UPDATE_RP_TYPEHASH = keccak256(
         "UpdateRp(uint64 rpId,uint160 oprfKeyId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
     );
-
-    ////////////////////////////////////////////////////////////
-    //                        Errors                         //
-    ////////////////////////////////////////////////////////////
-
-    error ImplementationNotInitialized();
-
-    /**
-     * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
-     */
-    error IdAlreadyInUse(uint64 id);
-
-    /**
-     * @dev Thrown when the provided rpId is not registered.
-     */
-    error RpIdDoesNotExist();
-
-    /**
-     * @dev Thrown the the provided rpId is not active.
-     */
-    error RpIdInactive();
-
-    /**
-     * @dev Thrown when trying to set a manager to the zero address.
-     */
-    error ManagerCannotBeZeroAddress();
-
-    /**
-     * @dev Thrown when trying to set a signer to the zero address.
-     */
-    error SignerCannotBeZeroAddress();
-
-    /**
-     * @dev Thrown when the provided array lengths do not match.
-     */
-    error MismatchingArrayLengths();
-
-    /**
-     * @dev Thrown when the provided nonce does not match the expected nonce.
-     */
-    error InvalidNonce();
-
-    /**
-     * @dev Thrown when the provided signature is invalid for the operation.
-     */
-    error InvalidSignature();
-
-    /**
-     * @dev Thrown when trying to set an address to the zero address.
-     */
-    error ZeroAddress();
-
-    /**
-     * @dev Thrown when the passed id is invalid for the operation. Usually this means the `id` used is equal to `0` which is not allowed.
-     */
-    error InvalidId();
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -211,20 +109,12 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     //                   Public Functions                     //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Returns the domain separator for the EIP712 structs.
-     */
+    /// @inheritdoc IRpRegistry
     function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
 
-    /**
-     * @dev Registers a new relying party.
-     * @param rpId The ID of the relying party. A random ID is recommended.
-     * @param manager The address of the manager (on-chain operations).
-     * @param signer The address of the signer (Proof requests).
-     * @param unverifiedWellKnownDomain The (unverified) well-known domain of the relying party.
-     */
+    /// @inheritdoc IRpRegistry
     function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain)
         external
         virtual
@@ -234,13 +124,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         _register(rpId, manager, signer, unverifiedWellKnownDomain);
     }
 
-    /**
-     * @dev Registers multiple new relying parties at once.
-     * @param rpIds the list of rpIds
-     * @param managers the list of managers
-     * @param signers the list of signers
-     * @param unverifiedWellKnownDomains the list of unverified well-known domains
-     */
+    /// @inheritdoc IRpRegistry
     function registerMany(
         uint64[] calldata rpIds,
         address[] calldata managers,
@@ -259,10 +143,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         }
     }
 
-    /**
-     * @dev Get a relying party by id. will revert if it's not a valid id or is inactive.
-     * @param rpId the id of the relying party to get
-     */
+    /// @inheritdoc IRpRegistry
     function getRp(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
@@ -271,20 +152,14 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         return _relyingParties[rpId];
     }
 
-    /**
-     * @dev Get a relying party by id. will return even if the rp is inactive.
-     * @param rpId the id of the relying party to get
-     */
+    /// @inheritdoc IRpRegistry
     function getRpUnchecked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         return _relyingParties[rpId];
     }
 
-    /**
-     * @dev Convenience method to get the oprf key id and signer of a relying party. Useful for proof generation/verification.
-     * @param rpId the id of the relying party to get
-     */
+    /// @inheritdoc IRpRegistry
     function getOprfKeyIdAndSigner(uint64 rpId)
         external
         view
@@ -300,50 +175,32 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         return (_relyingParties[rpId].oprfKeyId, _relyingParties[rpId].signer);
     }
 
-    /**
-     * @dev Returns the current nonce for a relying party. will return 0 even if the rpId does not exist.
-     * @param rpId the id of the relying party to get
-     */
+    /// @inheritdoc IRpRegistry
     function nonceOf(uint64 rpId) public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _rpIdToSignatureNonce[rpId];
     }
 
-    /**
-     * @dev Returns the current registration fee for a relying party.
-     */
+    /// @inheritdoc IRpRegistry
     function getRegistrationFee() public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _registrationFee;
     }
 
-    /**
-     * @dev Returns the current recipient for RP registration fees.
-     */
+    /// @inheritdoc IRpRegistry
     function getFeeRecipient() public view virtual onlyProxy onlyInitialized returns (address) {
         return _feeRecipient;
     }
 
-    /**
-     * @dev Returns the current token with which fees are paid.
-     */
+    /// @inheritdoc IRpRegistry
     function getFeeToken() public view virtual onlyProxy onlyInitialized returns (address) {
         return address(_feeToken);
     }
 
+    /// @inheritdoc IRpRegistry
     function getOprfKeyRegistry() public view virtual onlyProxy onlyInitialized returns (address) {
         return address(_oprfKeyRegistry);
     }
 
-    /**
-     * @dev Partially update a Relying Party record. Must be signed by the manager.
-     * @param rpId the id of the relying party to update
-     * @param oprfKeyId the new oprf key id of the relying party. set to zero to maintain current oprfKeyId.
-     * @param manager the new manager of the relying party. set to zero address to maintain current manager.
-     * @param signer the new signer of the relying party. set to zero address to maintain current signer.
-     * @param toggleActive whether to toggle the active status of the relying party
-     * @param unverifiedWellKnownDomain the new unverified well-known domain of the relying party. set to sentinel value to skip update.
-     * @param nonce the nonce used for this operation
-     * @param signature the signature of the manager
-     */
+    /// @inheritdoc IRpRegistry
     function updateRp(
         uint64 rpId,
         uint160 oprfKeyId,
@@ -412,6 +269,13 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     //                  Internal Functions                    //
     ////////////////////////////////////////////////////////////
 
+    /**
+     * @dev Internal function to register a new relying party.
+     * @param rpId The unique identifier for the relying party.
+     * @param manager The address authorized to manage the relying party.
+     * @param signer The address authorized to sign proof requests.
+     * @param unverifiedWellKnownDomain The FQDN where the well-known metadata file is published.
+     */
     function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
         if (_relyingParties[rpId].initialized) revert IdAlreadyInUse(rpId);
 
@@ -453,6 +317,7 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
      */
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
+    /// @inheritdoc IRpRegistry
     function setFeeRecipient(address newFeeRecipient) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newFeeRecipient == address(0)) revert ZeroAddress();
         address oldRecipient = _feeRecipient;
@@ -460,12 +325,14 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
     }
 
+    /// @inheritdoc IRpRegistry
     function setRegistrationFee(uint256 newFee) external virtual onlyOwner onlyProxy onlyInitialized {
         uint256 oldFee = _registrationFee;
         _registrationFee = newFee;
         emit RegistrationFeeUpdated(oldFee, newFee);
     }
 
+    /// @inheritdoc IRpRegistry
     function setFeeToken(address newFeeToken) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newFeeToken == address(0)) revert ZeroAddress();
         address oldToken = address(_feeToken);
