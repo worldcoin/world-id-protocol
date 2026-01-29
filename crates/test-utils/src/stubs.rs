@@ -1,29 +1,20 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256, address};
+use alloy::primitives::{Address, U256};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
 use taceo_oprf::service::secret_manager::aws::AwsSecretManager as OprfServiceSercretManager;
 use taceo_oprf_key_gen::secret_manager::aws::AwsSecretManager as KeyGenSecretManager;
+use taceo_oprf_test_utils::{
+    OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1, OPRF_PEER_ADDRESS_2, OPRF_PEER_ADDRESS_3,
+    OPRF_PEER_ADDRESS_4, PEER_PRIVATE_KEYS,
+};
 use tokio::{net::TcpListener, task::JoinHandle};
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 use world_id_primitives::{TREE_DEPTH, merkle::AccountInclusionProof};
 
 use std::sync::RwLock;
-
-/// anvil wallet 5
-const OPRF_PEER_PRIVATE_KEY_0: &str =
-    "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba";
-const OPRF_PEER_ADDRESS_0: Address = address!("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc");
-/// anvil wallet 6
-const OPRF_PEER_PRIVATE_KEY_1: &str =
-    "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e";
-const OPRF_PEER_ADDRESS_1: Address = address!("0x976EA74026E726554dB657fA54763abd0C3a0aa9");
-/// anvil wallet 7
-const OPRF_PEER_PRIVATE_KEY_2: &str =
-    "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356";
-const OPRF_PEER_ADDRESS_2: Address = address!("0x14dC79964da2C08b23698B3D3cc7Ca32193d9955");
 
 #[derive(Clone)]
 struct IndexerState {
@@ -209,7 +200,7 @@ pub async fn spawn_oprf_nodes(
     key_gen_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
-) -> [String; 3] {
+) -> [String; 5] {
     tokio::join!(
         spawn_orpf_node(
             0,
@@ -238,6 +229,24 @@ pub async fn spawn_oprf_nodes(
             rp_registry_contract,
             OPRF_PEER_ADDRESS_2,
         ),
+        spawn_orpf_node(
+            3,
+            chain_ws_rpc_url,
+            localstack_url,
+            key_gen_contract,
+            world_id_registry_contract,
+            rp_registry_contract,
+            OPRF_PEER_ADDRESS_3,
+        ),
+        spawn_orpf_node(
+            4,
+            chain_ws_rpc_url,
+            localstack_url,
+            key_gen_contract,
+            world_id_registry_contract,
+            rp_registry_contract,
+            OPRF_PEER_ADDRESS_4,
+        ),
     )
     .into()
 }
@@ -254,13 +263,7 @@ async fn spawn_key_gen(
     client
         .create_secret()
         .name(wallet_private_key_secret_id.clone())
-        .secret_string(
-            [
-                OPRF_PEER_PRIVATE_KEY_0,
-                OPRF_PEER_PRIVATE_KEY_1,
-                OPRF_PEER_PRIVATE_KEY_2,
-            ][id],
-        )
+        .secret_string(PEER_PRIVATE_KEYS[id])
         .send()
         .await
         .expect("can create wallet secret");
@@ -279,8 +282,8 @@ async fn spawn_key_gen(
         chain_ws_rpc_url: chain_ws_rpc_url.into(),
         rp_secret_id_prefix: oprf_secret_id_prefix,
         wallet_private_key_secret_id,
-        key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.13.arks.zkey"),
-        key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.13.bin"),
+        key_gen_zkey_path: dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
+        key_gen_witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
         max_wait_time_shutdown: Duration::from_secs(10),
         start_block: Some(0),
         max_transaction_attempts: 3,
@@ -305,11 +308,13 @@ pub async fn spawn_key_gens(
     chain_ws_rpc_url: &str,
     localstack_url: &str,
     key_gen_contract: Address,
-) -> [String; 3] {
+) -> [String; 5] {
     tokio::join!(
         spawn_key_gen(0, chain_ws_rpc_url, localstack_url, key_gen_contract),
         spawn_key_gen(1, chain_ws_rpc_url, localstack_url, key_gen_contract),
         spawn_key_gen(2, chain_ws_rpc_url, localstack_url, key_gen_contract),
+        spawn_key_gen(3, chain_ws_rpc_url, localstack_url, key_gen_contract),
+        spawn_key_gen(4, chain_ws_rpc_url, localstack_url, key_gen_contract),
     )
     .into()
 }

@@ -1,6 +1,7 @@
 #![cfg(feature = "issuer")]
 
 use eyre::Result;
+use taceo_oprf_test_utils::PEER_ADDRESSES;
 use test_utils::anvil::{CredentialSchemaIssuerRegistry, TestAnvil};
 use world_id_core::Issuer;
 use world_id_primitives::Config;
@@ -18,12 +19,11 @@ async fn test_register_issuer_schema() -> Result<()> {
         .await?;
 
     // Register OPRF nodes (required before initKeyGen can be called)
-    let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
     anvil
         .register_oprf_nodes(
             oprf_key_registry,
             issuer_signer.clone(),
-            oprf_node_signers.iter().map(|s| s.address()).collect(),
+            PEER_ADDRESSES.to_vec(),
         )
         .await?;
 
@@ -45,7 +45,7 @@ async fn test_register_issuer_schema() -> Result<()> {
             "http://127.0.0.1:0".to_string(),
             "http://127.0.0.1:0".to_string(),
             Vec::new(),
-            2,
+            3,
         )?,
     )?;
 

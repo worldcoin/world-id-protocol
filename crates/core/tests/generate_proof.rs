@@ -85,7 +85,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         "http://127.0.0.1:0".to_string(), // placeholder for future indexer stub
         format!("http://127.0.0.1:{GW_PORT}"),
         Vec::new(),
-        2,
+        3,
     )
     .unwrap();
 
@@ -190,7 +190,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         indexer_url.clone(),
         format!("http://127.0.0.1:{GW_PORT}"),
         nodes.to_vec(),
-        2,
+        3,
     )
     .unwrap();
 
