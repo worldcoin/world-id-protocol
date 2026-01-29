@@ -1,6 +1,6 @@
 #![cfg(feature = "integration-tests")]
 
-use ::common::{ProviderArgs, SignerArgs};
+use world_id_common::{ProviderArgs, SignerArgs};
 use alloy::{
     primitives::{Address, U256, address},
     signers::local::PrivateKeySigner,

@@ -6,6 +6,7 @@ use std::{fs, path::PathBuf, time::Duration};
 use alloy::primitives::{U256, address};
 use common::{TestSetup, query_count};
 use serial_test::serial;
+use world_id_common::ProviderArgs;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
@@ -70,8 +71,11 @@ async fn test_cache_creation_and_restoration() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -154,8 +158,11 @@ async fn test_incremental_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -211,8 +218,11 @@ async fn test_incremental_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -284,8 +294,11 @@ async fn test_missing_cache_creates_new() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -348,8 +361,11 @@ async fn test_http_only_cache_refresh() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -391,8 +407,11 @@ async fn test_http_only_cache_refresh() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -472,8 +491,11 @@ async fn test_authenticator_removed_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -551,8 +573,11 @@ async fn test_authenticator_removed_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -587,8 +612,11 @@ async fn test_authenticator_removed_replay() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config_fresh.clone(),
     };
@@ -665,8 +693,11 @@ async fn test_init_root_matches_contract() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -743,8 +774,11 @@ async fn test_replay_root_matches_contract() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -804,8 +838,11 @@ async fn test_replay_root_matches_contract() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -891,8 +928,11 @@ async fn test_corrupted_cache_triggers_rebuild() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -959,8 +999,11 @@ async fn test_corrupted_cache_triggers_rebuild() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
