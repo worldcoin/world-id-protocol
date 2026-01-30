@@ -120,10 +120,10 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
-        .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
-        ))))
+        )))
+        .layer(TraceLayer::new_for_http()))
 }
 
 #[utoipa::path(
