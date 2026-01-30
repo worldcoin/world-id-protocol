@@ -4,6 +4,8 @@ use alloy::{
 };
 use world_id_core::world_id_registry::WorldIdRegistry;
 
+use crate::error::{IndexerError, IndexerResult};
+
 #[derive(Debug, Clone)]
 pub struct BlockchainEvent<T: Clone> {
     pub block_number: u64,
@@ -89,20 +91,18 @@ impl RegistryEvent {
         ]
     }
 
-    pub fn decode(lg: &alloy::rpc::types::Log) -> anyhow::Result<BlockchainEvent<RegistryEvent>> {
+    pub fn decode(lg: &alloy::rpc::types::Log) -> IndexerResult<BlockchainEvent<RegistryEvent>> {
         if lg.topics().is_empty() {
-            anyhow::bail!("log has no topics");
+            return Err(IndexerError::MissingLogTopics);
         }
 
         let event_sig = lg.topics()[0];
 
-        let block_number = lg
-            .block_number
-            .ok_or(anyhow::anyhow!("missing block number"))?;
+        let block_number = lg.block_number.ok_or(IndexerError::MissingBlockNumber)?;
         let tx_hash = lg
             .transaction_hash
-            .ok_or(anyhow::anyhow!("missing transaction hash"))?;
-        let log_index = lg.log_index.ok_or(anyhow::anyhow!("missing log index"))?;
+            .ok_or(IndexerError::MissingTransactionHash)?;
+        let log_index = lg.log_index.ok_or(IndexerError::MissingLogIndex)?;
 
         let details = match event_sig {
             WorldIdRegistry::AccountCreated::SIGNATURE_HASH => {
@@ -123,7 +123,11 @@ impl RegistryEvent {
             WorldIdRegistry::RootRecorded::SIGNATURE_HASH => {
                 RegistryEvent::RootRecorded(Self::decode_root_recorded(lg)?)
             }
-            _ => anyhow::bail!("unknown event signature: {event_sig:?}"),
+            _ => {
+                return Err(IndexerError::UnknownEventSignature {
+                    signature: event_sig,
+                });
+            }
         };
 
         Ok(BlockchainEvent {
@@ -134,9 +138,9 @@ impl RegistryEvent {
         })
     }
 
-    fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountCreatedEvent> {
+    fn decode_account_created(lg: &alloy::rpc::types::Log) -> IndexerResult<AccountCreatedEvent> {
         let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+            .ok_or(IndexerError::InvalidLogForDecoding)?;
         let typed = WorldIdRegistry::AccountCreated::decode_log(&prim)?;
 
         // TODO: Validate pubkey is valid affine compressed
@@ -149,9 +153,9 @@ impl RegistryEvent {
         })
     }
 
-    fn decode_account_updated(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountUpdatedEvent> {
+    fn decode_account_updated(lg: &alloy::rpc::types::Log) -> IndexerResult<AccountUpdatedEvent> {
         let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+            .ok_or(IndexerError::InvalidLogForDecoding)?;
         let typed = WorldIdRegistry::AccountUpdated::decode_log(&prim)?;
 
         Ok(AccountUpdatedEvent {
@@ -167,9 +171,9 @@ impl RegistryEvent {
 
     fn decode_authenticator_inserted(
         lg: &alloy::rpc::types::Log,
-    ) -> anyhow::Result<AuthenticatorInsertedEvent> {
+    ) -> IndexerResult<AuthenticatorInsertedEvent> {
         let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+            .ok_or(IndexerError::InvalidLogForDecoding)?;
         let typed = WorldIdRegistry::AuthenticatorInserted::decode_log(&prim)?;
 
         Ok(AuthenticatorInsertedEvent {
@@ -184,9 +188,9 @@ impl RegistryEvent {
 
     fn decode_authenticator_removed(
         lg: &alloy::rpc::types::Log,
-    ) -> anyhow::Result<AuthenticatorRemovedEvent> {
+    ) -> IndexerResult<AuthenticatorRemovedEvent> {
         let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+            .ok_or(IndexerError::InvalidLogForDecoding)?;
         let typed = WorldIdRegistry::AuthenticatorRemoved::decode_log(&prim)?;
 
         Ok(AuthenticatorRemovedEvent {
@@ -201,9 +205,9 @@ impl RegistryEvent {
 
     fn decode_account_recovered(
         lg: &alloy::rpc::types::Log,
-    ) -> anyhow::Result<AccountRecoveredEvent> {
+    ) -> IndexerResult<AccountRecoveredEvent> {
         let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+            .ok_or(IndexerError::InvalidLogForDecoding)?;
         let typed = WorldIdRegistry::AccountRecovered::decode_log(&prim)?;
 
         Ok(AccountRecoveredEvent {
@@ -215,9 +219,9 @@ impl RegistryEvent {
         })
     }
 
-    fn decode_root_recorded(lg: &alloy::rpc::types::Log) -> anyhow::Result<RootRecordedEvent> {
+    fn decode_root_recorded(lg: &alloy::rpc::types::Log) -> IndexerResult<RootRecordedEvent> {
         let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
+            .ok_or(IndexerError::InvalidLogForDecoding)?;
         let typed = WorldIdRegistry::RootRecorded::decode_log(&prim)?;
 
         Ok(RootRecordedEvent {

@@ -1,4 +1,3 @@
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -7,7 +6,10 @@ use std::{
 };
 
 use super::{MerkleTree, PoseidonHasher};
-use crate::db::{DB, WorldTreeEventId, get_active_leaf_count, get_total_event_count};
+use crate::{
+    db::{DB, WorldTreeEventId, get_active_leaf_count, get_total_event_count},
+    error::{IndexerError, IndexerResult},
+};
 
 /// Get the metadata file path for a given cache path.
 /// Cache file: `/path/to/tree.mmap` → Metadata: `/path/to/tree.mmap.meta`
@@ -53,18 +55,24 @@ pub struct DbState {
 }
 
 /// Read metadata from .meta file
-pub fn read_metadata(cache_path: &Path) -> anyhow::Result<TreeCacheMetadata> {
+pub fn read_metadata(cache_path: &Path) -> IndexerResult<TreeCacheMetadata> {
     let meta_path = metadata_path(cache_path);
 
     if !meta_path.exists() {
-        anyhow::bail!("Metadata file does not exist: {}", meta_path.display());
+        return Err(IndexerError::MetadataFileMissing { path: meta_path });
     }
 
-    let meta_json = fs::read_to_string(&meta_path)
-        .with_context(|| format!("Failed to read metadata file: {}", meta_path.display()))?;
+    let meta_json =
+        fs::read_to_string(&meta_path).map_err(|source| IndexerError::MetadataRead {
+            path: meta_path.clone(),
+            source,
+        })?;
 
-    let metadata: TreeCacheMetadata = serde_json::from_str(&meta_json)
-        .with_context(|| format!("Failed to parse metadata file: {}", meta_path.display()))?;
+    let metadata: TreeCacheMetadata =
+        serde_json::from_str(&meta_json).map_err(|source| IndexerError::MetadataParse {
+            path: meta_path,
+            source,
+        })?;
 
     Ok(metadata)
 }
@@ -77,7 +85,7 @@ pub async fn write_metadata(
     last_event_id: WorldTreeEventId,
     tree_depth: usize,
     dense_prefix_depth: usize,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     // Get current database state
     let active_leaf_count = get_active_leaf_count(db.pool()).await?;
 
@@ -100,23 +108,19 @@ pub async fn write_metadata(
     let meta_path = metadata_path(cache_path);
     let temp_path = cache_path.with_extension("mmap.meta.tmp");
 
-    let meta_json =
-        serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
+    let meta_json = serde_json::to_string_pretty(&metadata)
+        .map_err(|source| IndexerError::MetadataSerialize { source })?;
 
-    fs::write(&temp_path, meta_json).with_context(|| {
-        format!(
-            "Failed to write temporary metadata file: {}",
-            temp_path.display()
-        )
+    fs::write(&temp_path, meta_json).map_err(|source| IndexerError::MetadataWrite {
+        path: temp_path.clone(),
+        source,
     })?;
 
     // Atomic rename
-    fs::rename(&temp_path, &meta_path).with_context(|| {
-        format!(
-            "Failed to rename {} to {}",
-            temp_path.display(),
-            meta_path.display()
-        )
+    fs::rename(&temp_path, &meta_path).map_err(|source| IndexerError::MetadataRename {
+        from: temp_path,
+        to: meta_path,
+        source,
     })?;
 
     tracing::debug!(
@@ -129,7 +133,7 @@ pub async fn write_metadata(
 }
 
 /// Get current database state (for validation)
-pub async fn get_db_state(db: &DB) -> anyhow::Result<DbState> {
+pub async fn get_db_state(db: &DB) -> IndexerResult<DbState> {
     let last_event_id = db.world_tree_events().get_latest_id().await?;
     let total_events = get_total_event_count(db.pool()).await?;
     let active_leaf_count = get_active_leaf_count(db.pool()).await?;

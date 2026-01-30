@@ -1,6 +1,8 @@
 use alloy::primitives::{Address, U256};
 use sqlx::{PgPool, Row, types::Json};
 
+use crate::error::IndexerResult;
+
 pub struct Accounts<'a> {
     pool: &'a PgPool,
     table_name: String,
@@ -17,7 +19,7 @@ impl<'a> Accounts<'a> {
     pub async fn get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
         &self,
         leaf_index: &U256,
-    ) -> anyhow::Result<Option<(U256, Vec<U256>)>> {
+    ) -> IndexerResult<Option<(U256, Vec<U256>)>> {
         let result = sqlx::query(&format!(
             r#"
                                 SELECT
@@ -52,7 +54,7 @@ impl<'a> Accounts<'a> {
         authenticator_addresses: &[Address],
         authenticator_pubkeys: &[U256],
         offchain_signer_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> IndexerResult<()> {
         sqlx::query(&format!(
             r#"
                 INSERT INTO {} (
@@ -92,7 +94,7 @@ impl<'a> Accounts<'a> {
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> IndexerResult<()> {
         // Update authenticator at specific index (pubkey_id)
         sqlx::query(&format!(
             r#"
@@ -122,7 +124,7 @@ impl<'a> Accounts<'a> {
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> IndexerResult<()> {
         // Ensure arrays are large enough and insert at specific index
         sqlx::query(&format!(
             r#"
@@ -150,7 +152,7 @@ impl<'a> Accounts<'a> {
         leaf_index: &U256,
         pubkey_id: u32,
         new_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> IndexerResult<()> {
         // Remove authenticator at specific index by setting to null
         sqlx::query(&format!(
             r#"

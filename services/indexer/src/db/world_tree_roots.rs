@@ -3,6 +3,8 @@ use core::fmt;
 use alloy::primitives::U256;
 use sqlx::{PgPool, Row, postgres::PgRow};
 
+use crate::error::{IndexerError, IndexerResult};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WorldTreeRootId {
     pub block_number: u64,
@@ -34,12 +36,14 @@ impl fmt::Display for WorldTreeRootEventType {
 }
 
 impl<'a> TryFrom<&'a str> for WorldTreeRootEventType {
-    type Error = anyhow::Error;
+    type Error = IndexerError;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         match value {
             "root_recorded" => Ok(WorldTreeRootEventType::RootRecorded),
-            _ => Err(anyhow::anyhow!("Unknown event type: {}", value)),
+            _ => Err(IndexerError::UnknownWorldTreeRootEventType {
+                value: value.to_string(),
+            }),
         }
     }
 }
@@ -57,7 +61,7 @@ impl<'a> WorldTreeRoots<'a> {
         }
     }
 
-    pub async fn get_latest_id(&self) -> anyhow::Result<Option<WorldTreeRootId>> {
+    pub async fn get_latest_id(&self) -> IndexerResult<Option<WorldTreeRootId>> {
         sqlx::query(&format!(
             r#"
                 SELECT
@@ -85,7 +89,7 @@ impl<'a> WorldTreeRoots<'a> {
         tx_hash: &U256,
         root: &U256,
         timestamp: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> IndexerResult<()> {
         sqlx::query(&format!(
             r#"
                 INSERT INTO {} (
@@ -110,7 +114,7 @@ impl<'a> WorldTreeRoots<'a> {
         Ok(())
     }
 
-    fn map_row_to_event_id(&self, row: &PgRow) -> anyhow::Result<WorldTreeRootId> {
+    fn map_row_to_event_id(&self, row: &PgRow) -> IndexerResult<WorldTreeRootId> {
         Ok(WorldTreeRootId {
             block_number: row.get::<i64, _>("block_number") as u64,
             log_index: row.get::<i64, _>("log_index") as u64,
@@ -118,7 +122,7 @@ impl<'a> WorldTreeRoots<'a> {
     }
 
     #[allow(dead_code)]
-    fn map_row_to_world_tree_event(&self, row: &PgRow) -> anyhow::Result<WorldTreeRoot> {
+    fn map_row_to_world_tree_event(&self, row: &PgRow) -> IndexerResult<WorldTreeRoot> {
         Ok(WorldTreeRoot {
             id: self.map_row_to_event_id(row)?,
             tx_hash: row.get::<U256, _>("tx_hash"),

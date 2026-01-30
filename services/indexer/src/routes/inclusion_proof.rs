@@ -1,4 +1,4 @@
-use crate::config::AppState;
+use crate::{config::AppState, error::IndexerResult};
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;
@@ -47,7 +47,7 @@ pub(crate) struct AccountInclusionProofSchema {
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerQueryRequest>,
-) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, IndexerErrorResponse> {
+) -> IndexerResult<Json<AccountInclusionProof<TREE_DEPTH>>, IndexerErrorResponse> {
     let leaf_index = req.leaf_index;
 
     if leaf_index == U256::ZERO {

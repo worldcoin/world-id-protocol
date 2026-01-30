@@ -8997,7 +8997,6 @@ name = "world-id-indexer"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "anyhow",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "axum",
@@ -9019,6 +9018,7 @@ dependencies = [
  "take_mut",
  "tempfile",
  "test-utils",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.22",

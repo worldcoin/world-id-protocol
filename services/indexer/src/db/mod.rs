@@ -1,8 +1,11 @@
 use alloy::primitives::U256;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
-use crate::db::{
-    accounts::Accounts, world_tree_events::WorldTreeEvents, world_tree_roots::WorldTreeRoots,
+use crate::{
+    db::{
+        accounts::Accounts, world_tree_events::WorldTreeEvents, world_tree_roots::WorldTreeRoots,
+    },
+    error::IndexerResult,
 };
 
 mod accounts;
@@ -18,7 +21,7 @@ pub struct DB {
 }
 
 impl DB {
-    pub async fn new(db_url: &str, max_connections: Option<u32>) -> anyhow::Result<DB> {
+    pub async fn new(db_url: &str, max_connections: Option<u32>) -> IndexerResult<DB> {
         tracing::info!("Connecting to DB...");
         let pool = PgPoolOptions::new()
             .max_connections(max_connections.unwrap_or(10))
@@ -29,7 +32,7 @@ impl DB {
         Ok(Self { pool })
     }
 
-    pub async fn run_migrations(&self) -> anyhow::Result<()> {
+    pub async fn run_migrations(&self) -> IndexerResult<()> {
         // Run sqlx migrations from ./migrations
         tracing::info!("Running migrations...");
         sqlx::migrate!("./migrations").run(&self.pool).await?;
@@ -53,7 +56,7 @@ impl DB {
         Accounts::new(&self.pool)
     }
 
-    pub async fn ping(&self) -> anyhow::Result<()> {
+    pub async fn ping(&self) -> IndexerResult<()> {
         sqlx::query("SELECT 1").fetch_one(&self.pool).await?;
         Ok(())
     }
@@ -62,7 +65,7 @@ impl DB {
 pub async fn fetch_recent_account_updates(
     pool: &PgPool,
     since: std::time::SystemTime,
-) -> anyhow::Result<Vec<(U256, U256)>> {
+) -> IndexerResult<Vec<(U256, U256)>> {
     // Convert SystemTime to timestamp
     let since_duration = since
         .duration_since(std::time::UNIX_EPOCH)
@@ -98,7 +101,7 @@ pub async fn fetch_recent_account_updates(
 // =============================================================================
 
 /// Count active (non-zero) leaves in the accounts table.
-pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
+pub async fn get_active_leaf_count(pool: &PgPool) -> IndexerResult<u64> {
     let result =
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE leaf_index != $1")
             .bind(U256::ZERO)
@@ -109,7 +112,7 @@ pub async fn get_active_leaf_count(pool: &PgPool) -> anyhow::Result<u64> {
 }
 
 /// Count total events in world_tree_events.
-pub async fn get_total_event_count(pool: &PgPool) -> anyhow::Result<u64> {
+pub async fn get_total_event_count(pool: &PgPool) -> IndexerResult<u64> {
     let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM world_tree_events")
         .fetch_one(pool)
         .await?;
@@ -121,7 +124,7 @@ pub async fn fetch_leaves_batch(
     pool: &PgPool,
     last_cursor: &U256,
     batch_size: i64,
-) -> anyhow::Result<Vec<(U256, U256)>> {
+) -> IndexerResult<Vec<(U256, U256)>> {
     let rows = sqlx::query(
         "SELECT leaf_index, offchain_signer_commitment
          FROM accounts

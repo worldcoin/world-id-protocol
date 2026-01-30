@@ -4,7 +4,10 @@ use alloy::primitives::U256;
 use tracing::{info, warn};
 
 use super::{builder::TreeBuilder, metadata};
-use crate::db::{DB, WorldTreeEventId};
+use crate::{
+    db::{DB, WorldTreeEventId},
+    error::{IndexerError, IndexerResult},
+};
 
 /// State of cache files on disk
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,7 +76,7 @@ impl TreeInitializer {
 
     /// Initialize tree: try restore + replay, fallback to full rebuild.
     /// Updates GLOBAL_TREE atomically and returns nothing.
-    pub async fn initialize(&self, db: &DB) -> anyhow::Result<()> {
+    pub async fn initialize(&self, db: &DB) -> IndexerResult<()> {
         let start = Instant::now();
 
         let cache_state = self.check_cache_files();
@@ -101,7 +104,7 @@ impl TreeInitializer {
 
     /// Try to restore from cache and replay missed events.
     /// Updates GLOBAL_TREE atomically.
-    async fn try_restore_and_replay(&self, db: &DB) -> anyhow::Result<()> {
+    async fn try_restore_and_replay(&self, db: &DB) -> IndexerResult<()> {
         use crate::tree::GLOBAL_TREE;
 
         // 1. Read metadata
@@ -143,11 +146,10 @@ impl TreeInitializer {
         // 4. Verify restored root matches metadata
         let restored_root = format!("0x{:x}", tree.root());
         if restored_root != metadata.root_hash {
-            anyhow::bail!(
-                "Root mismatch: expected {}, got {}",
-                metadata.root_hash,
-                restored_root
-            );
+            return Err(IndexerError::RootMismatch {
+                expected: metadata.root_hash,
+                actual: restored_root,
+            });
         }
 
         // 5. Replay events if needed (based on event ID, not block number)
@@ -202,7 +204,7 @@ impl TreeInitializer {
 
     /// Full rebuild from database and atomically replace GLOBAL_TREE.
     /// Used during initialization and for recovery when cache is corrupted.
-    async fn full_rebuild_and_update_global_tree(&self, db: &DB) -> anyhow::Result<()> {
+    async fn full_rebuild_and_update_global_tree(&self, db: &DB) -> IndexerResult<()> {
         use crate::tree::GLOBAL_TREE;
 
         info!("Starting full tree rebuild with cache");
@@ -252,7 +254,7 @@ impl TreeInitializer {
     /// Most pages are already in memory if the tree was recently used.
     ///
     /// Returns the number of events applied to the tree.
-    pub async fn sync_with_db(&self, db: &DB) -> anyhow::Result<(u64, u64)> {
+    pub async fn sync_with_db(&self, db: &DB) -> IndexerResult<(u64, u64)> {
         use crate::tree::GLOBAL_TREE;
 
         // 1. Read current metadata to get last_event_id

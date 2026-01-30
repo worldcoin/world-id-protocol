@@ -10,16 +10,20 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 mod blockchain;
 pub mod config;
 pub mod db;
+mod error;
 mod routes;
 mod sanity_check;
 mod tree;
 
-pub use crate::db::fetch_recent_account_updates;
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::{DB, WorldTreeEventType},
     tree::{GLOBAL_TREE, update_tree_with_commitment},
+};
+pub use crate::{
+    db::fetch_recent_account_updates,
+    error::{IndexerError, IndexerResult},
 };
 pub use config::GlobalConfig;
 
@@ -34,7 +38,7 @@ pub struct TreeCacheParams {
 async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     // Set the configured tree depth globally
     tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
 
@@ -63,7 +67,7 @@ async fn cache_refresh_loop(
     tree_cache_cfg: config::TreeCacheConfig,
     db: &DB,
     refresh_interval_secs: u64,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     let check_interval = Duration::from_secs(refresh_interval_secs);
     let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
 
@@ -101,7 +105,7 @@ async fn check_and_refresh_cache(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
     cache_path: &std::path::Path,
-) -> anyhow::Result<bool> {
+) -> IndexerResult<bool> {
     // Read current cache metadata
     let metadata = tree::metadata::read_metadata(cache_path)?;
 
@@ -141,7 +145,7 @@ async fn check_and_refresh_cache(
     Ok(blocks_synced > 0 || logs_synced > 0)
 }
 
-async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
+async fn update_tree_with_event(ev: &RegistryEvent) -> IndexerResult<()> {
     match ev {
         RegistryEvent::AccountCreated(e) => {
             update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment).await
@@ -167,7 +171,7 @@ async fn start_http_server(
     registry_address: Address,
     addr: SocketAddr,
     db: DB,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
     let registry = WorldIdRegistry::new(registry_address, provider.erased());
     let router = routes::handler(AppState::new(db, Arc::new(registry)));
@@ -176,7 +180,7 @@ async fn start_http_server(
     Ok(())
 }
 
-pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
+pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
     tracing::info!("Creating DB...");
     let db = DB::new(&cfg.db_url, None).await?;
     db.run_migrations().await?;
@@ -247,7 +251,7 @@ async fn run_indexer_only(
     blockchain: &Blockchain,
     db: DB,
     indexer_cfg: IndexerConfig,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     // Determine starting block from checkpoint or env
     let from = db
         .world_tree_events()
@@ -271,7 +275,7 @@ async fn run_http_only(
     registry_address: Address,
     http_cfg: HttpConfig,
     tree_cache_cfg: config::TreeCacheConfig,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     // Start DB poller for account updates
     let poller_pool = db.clone();
     let poll_interval = http_cfg.db_poll_interval_secs;
@@ -325,7 +329,7 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     tree_cache_params: TreeCacheParams,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     // Start HTTP server
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
@@ -374,7 +378,7 @@ async fn run_both(
 pub async fn handle_registry_event(
     db: &DB,
     event: &BlockchainEvent<RegistryEvent>,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     match &event.details {
         RegistryEvent::AccountCreated(ev) => {
             db.accounts()
@@ -496,7 +500,7 @@ pub async fn handle_registry_event(
     Ok(())
 }
 
-pub async fn poll_db_changes(db: DB, poll_interval_secs: u64) -> anyhow::Result<()> {
+pub async fn poll_db_changes(db: DB, poll_interval_secs: u64) -> IndexerResult<()> {
     tracing::info!(
         poll_interval_secs,
         "Starting DB polling for account updates..."
@@ -547,7 +551,7 @@ pub async fn stream_logs(
     db: &DB,
     start_from: u64,
     tree_cache_params: Option<&TreeCacheParams>,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     let mut stream = blockchain.stream_world_tree_events(start_from).await?;
 
     while let Some(log) = stream.next().await {

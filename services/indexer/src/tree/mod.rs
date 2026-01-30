@@ -16,6 +16,8 @@ mod tests;
 
 pub use initializer::TreeInitializer;
 
+use crate::error::{IndexerError, IndexerResult};
+
 pub struct PoseidonHasher {}
 
 impl Hasher for PoseidonHasher {
@@ -54,11 +56,14 @@ pub async fn tree_capacity() -> usize {
 pub static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
     LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));
 
-pub async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result<()> {
+pub async fn set_leaf_at_index(leaf_index: usize, value: U256) -> IndexerResult<()> {
     let capacity = tree_capacity().await;
     if leaf_index >= capacity {
         let depth = get_tree_depth().await;
-        anyhow::bail!("leaf index {leaf_index} out of range for tree depth {depth}");
+        return Err(IndexerError::LeafIndexOutOfRange {
+            leaf_index: U256::from(leaf_index),
+            depth,
+        });
     }
 
     let mut tree = GLOBAL_TREE.write().await;
@@ -71,9 +76,9 @@ pub async fn set_leaf_at_index(leaf_index: usize, value: U256) -> anyhow::Result
 pub async fn update_tree_with_commitment(
     leaf_index: U256,
     new_commitment: U256,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     if leaf_index == U256::ZERO {
-        anyhow::bail!("account index cannot be zero");
+        return Err(IndexerError::AccountIndexZero);
     }
     let leaf_index = leaf_index.as_limbs()[0] as usize;
     set_leaf_at_index(leaf_index, new_commitment).await?;

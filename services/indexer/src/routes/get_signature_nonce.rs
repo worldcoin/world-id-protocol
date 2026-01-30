@@ -4,7 +4,7 @@ use world_id_core::types::{
     IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
 
-use crate::config::AppState;
+use crate::{config::AppState, error::IndexerResult};
 
 /// Get Signature Nonce
 ///
@@ -24,7 +24,7 @@ use crate::config::AppState;
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerQueryRequest>,
-) -> Result<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
+) -> IndexerResult<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
     if req.leaf_index == U256::ZERO {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,

@@ -5,7 +5,10 @@ use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use tracing::info;
 
 use super::PoseidonHasher;
-use crate::db::{DB, WorldTreeEventId, fetch_leaves_batch};
+use crate::{
+    db::{DB, WorldTreeEventId, fetch_leaves_batch},
+    error::{IndexerError, IndexerResult},
+};
 
 pub struct TreeBuilder {
     tree_depth: usize,
@@ -26,10 +29,10 @@ impl TreeBuilder {
     pub fn restore_from_cache(
         &self,
         cache_path: &Path,
-    ) -> anyhow::Result<MerkleTree<PoseidonHasher, Canonical>> {
+    ) -> IndexerResult<MerkleTree<PoseidonHasher, Canonical>> {
         let cache_path_str = cache_path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid cache file path"))?;
+            .ok_or(IndexerError::InvalidCacheFilePath)?;
 
         let tree = MerkleTree::<PoseidonHasher, Canonical>::attempt_dense_mmap_restore(
             self.tree_depth,
@@ -37,7 +40,7 @@ impl TreeBuilder {
             &self.empty_value,
             cache_path_str,
         )
-        .map_err(|e| anyhow::anyhow!("Failed to restore tree from cache: {:?}", e))?;
+        .map_err(|source| IndexerError::MmapRestoreFailed { source })?;
 
         info!(
             cache_file = %cache_path.display(),
@@ -59,12 +62,12 @@ impl TreeBuilder {
         &self,
         db: &DB,
         cache_path: &Path,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
+    ) -> IndexerResult<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
         info!("Building tree from database with mmap cache (chunk-based processing)");
 
         let cache_path_str = cache_path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid cache file path"))?;
+            .ok_or(IndexerError::InvalidCacheFilePath)?;
 
         let dense_prefix_size = 1usize << self.dense_prefix_depth;
 
@@ -129,7 +132,7 @@ impl TreeBuilder {
                 &dense_vec,
                 cache_path_str,
             )
-            .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
+            .map_err(|source| IndexerError::MmapCreateFailed { source })?;
 
         // Step 4: Apply sparse leaves (beyond dense prefix)
         if max_leaf_index >= dense_prefix_size {
@@ -217,7 +220,7 @@ impl TreeBuilder {
         &self,
         db: &DB,
         last_cursor: usize,
-    ) -> anyhow::Result<Vec<(usize, U256)>> {
+    ) -> IndexerResult<Vec<(usize, U256)>> {
         const BATCH_SIZE: i64 = 100_000;
 
         let raw_batch = fetch_leaves_batch(db.pool(), &U256::from(last_cursor), BATCH_SIZE).await?;
@@ -234,11 +237,10 @@ impl TreeBuilder {
 
             // Validate leaf index is within tree capacity
             if leaf_index_usize >= capacity {
-                anyhow::bail!(
-                    "leaf index {} out of range for tree depth {}",
+                return Err(IndexerError::LeafIndexOutOfRange {
                     leaf_index,
-                    self.tree_depth
-                );
+                    depth: self.tree_depth,
+                });
             }
 
             parsed_batch.push((leaf_index_usize, commitment));
@@ -259,7 +261,7 @@ impl TreeBuilder {
         mut tree: MerkleTree<PoseidonHasher, Canonical>,
         db: &DB,
         from_event_id: WorldTreeEventId,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
+    ) -> IndexerResult<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
         use std::collections::HashMap;
 
         const BATCH_SIZE: u64 = 10_000;

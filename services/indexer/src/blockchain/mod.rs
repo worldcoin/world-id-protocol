@@ -9,6 +9,7 @@ use futures_util::{Stream, StreamExt, stream};
 use url::Url;
 
 pub use crate::blockchain::events::{BlockchainEvent, RegistryEvent};
+use crate::error::IndexerResult;
 
 mod events;
 
@@ -23,7 +24,7 @@ impl Blockchain {
         http_rpc_url: &str,
         ws_rpc_url: &str,
         world_id_registry: Address,
-    ) -> anyhow::Result<Self> {
+    ) -> IndexerResult<Self> {
         let http_provider =
             DynProvider::new(ProviderBuilder::new().connect_http(Url::parse(http_rpc_url)?));
 
@@ -43,7 +44,7 @@ impl Blockchain {
     pub async fn stream_world_tree_events(
         &self,
         from_block: u64,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<BlockchainEvent<RegistryEvent>>>> {
+    ) -> IndexerResult<impl Stream<Item = IndexerResult<BlockchainEvent<RegistryEvent>>>> {
         let filter = Filter::new()
             .address(self.world_id_registry)
             .event_signature(RegistryEvent::signatures());
@@ -72,7 +73,7 @@ impl Blockchain {
             .map(|log| RegistryEvent::decode(&log)))
     }
 
-    pub async fn get_block_number(&self) -> anyhow::Result<u64> {
+    pub async fn get_block_number(&self) -> IndexerResult<u64> {
         Ok(self.http_provider.get_block_number().await?)
     }
 }

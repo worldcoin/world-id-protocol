@@ -5,7 +5,7 @@ use world_id_core::types::{
     IndexerPackedAccountResponse,
 };
 
-use crate::config::AppState;
+use crate::{config::AppState, error::IndexerResult};
 
 /// Get Packed Account Data
 ///
@@ -24,7 +24,7 @@ use crate::config::AppState;
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerPackedAccountRequest>,
-) -> Result<Json<IndexerPackedAccountResponse>, IndexerErrorResponse> {
+) -> IndexerResult<Json<IndexerPackedAccountResponse>, IndexerErrorResponse> {
     let packed_account_data = state
         .registry
         .getPackedAccountData(req.authenticator_address)

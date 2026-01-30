@@ -3,6 +3,8 @@ use core::fmt;
 use alloy::primitives::U256;
 use sqlx::{PgPool, Row, postgres::PgRow};
 
+use crate::error::{IndexerError, IndexerResult};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WorldTreeEventId {
     pub block_number: u64,
@@ -41,16 +43,18 @@ impl fmt::Display for WorldTreeEventType {
 }
 
 impl<'a> TryFrom<&'a str> for WorldTreeEventType {
-    type Error = anyhow::Error;
+    type Error = IndexerError;
 
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> std::result::Result<Self, Self::Error> {
         match value {
             "account_created" => Ok(WorldTreeEventType::AccountCreated),
             "account_updated" => Ok(WorldTreeEventType::AccountUpdated),
             "account_recovered" => Ok(WorldTreeEventType::AccountRecovered),
             "authentication_inserted" => Ok(WorldTreeEventType::AuthenticationInserted),
             "authentication_removed" => Ok(WorldTreeEventType::AuthenticationRemoved),
-            _ => Err(anyhow::anyhow!("Unknown event type: {}", value)),
+            _ => Err(IndexerError::UnknownWorldTreeEventType {
+                value: value.to_string(),
+            }),
         }
     }
 }
@@ -68,7 +72,7 @@ impl<'a> WorldTreeEvents<'a> {
         }
     }
 
-    pub async fn get_latest_block(&self) -> anyhow::Result<Option<u64>> {
+    pub async fn get_latest_block(&self) -> IndexerResult<Option<u64>> {
         let rec: Option<(Option<i64>,)> = sqlx::query_as(&format!(
             "SELECT MAX(block_number) FROM {}",
             self.table_name
@@ -78,7 +82,7 @@ impl<'a> WorldTreeEvents<'a> {
         Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
     }
 
-    pub async fn get_latest_id(&self) -> anyhow::Result<Option<WorldTreeEventId>> {
+    pub async fn get_latest_id(&self) -> IndexerResult<Option<WorldTreeEventId>> {
         sqlx::query(&format!(
             r#"
                 SELECT
@@ -102,7 +106,7 @@ impl<'a> WorldTreeEvents<'a> {
         &self,
         event_id: WorldTreeEventId,
         limit: u64,
-    ) -> anyhow::Result<Vec<WorldTreeEvent>> {
+    ) -> IndexerResult<Vec<WorldTreeEvent>> {
         sqlx::query(&format!(
             r#"
                 SELECT
@@ -141,7 +145,7 @@ impl<'a> WorldTreeEvents<'a> {
         block_number: u64,
         tx_hash: &U256,
         log_index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> IndexerResult<()> {
         sqlx::query(&format!(
             r#"
                 INSERT INTO {} (
@@ -166,14 +170,14 @@ impl<'a> WorldTreeEvents<'a> {
         Ok(())
     }
 
-    fn map_row_to_event_id(&self, row: &PgRow) -> anyhow::Result<WorldTreeEventId> {
+    fn map_row_to_event_id(&self, row: &PgRow) -> IndexerResult<WorldTreeEventId> {
         Ok(WorldTreeEventId {
             block_number: row.get::<i64, _>("block_number") as u64,
             log_index: row.get::<i64, _>("log_index") as u64,
         })
     }
 
-    fn map_row_to_world_tree_event(&self, row: &PgRow) -> anyhow::Result<WorldTreeEvent> {
+    fn map_row_to_world_tree_event(&self, row: &PgRow) -> IndexerResult<WorldTreeEvent> {
         Ok(WorldTreeEvent {
             id: self.map_row_to_event_id(row)?,
             tx_hash: row.get::<U256, _>("tx_hash"),

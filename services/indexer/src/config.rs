@@ -3,7 +3,10 @@ use std::{net::SocketAddr, str::FromStr, sync::Arc};
 use alloy::{primitives::Address, providers::DynProvider};
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
-use crate::db::DB;
+use crate::{
+    db::DB,
+    error::{IndexerError, IndexerResult},
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -62,7 +65,7 @@ pub enum Environment {
 impl FromStr for Environment {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "production" => Ok(Self::Production),
             "staging" => Ok(Self::Staging),
@@ -167,9 +170,11 @@ pub struct TreeCacheConfig {
 }
 
 impl TreeCacheConfig {
-    pub fn from_env() -> anyhow::Result<Self> {
-        let cache_file_path = std::env::var("TREE_CACHE_FILE")
-            .map_err(|_| anyhow::anyhow!("TREE_CACHE_FILE environment variable is required"))?;
+    pub fn from_env() -> IndexerResult<Self> {
+        let cache_file_path =
+            std::env::var("TREE_CACHE_FILE").map_err(|_| IndexerError::MissingEnvVar {
+                var: "TREE_CACHE_FILE",
+            })?;
 
         let config = Self {
             cache_file_path,
