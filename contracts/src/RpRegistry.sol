@@ -16,7 +16,6 @@ import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract RpRegistry is WorldIDBase, IRpRegistry {
-
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////

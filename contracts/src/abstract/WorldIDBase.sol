@@ -110,7 +110,7 @@ abstract contract WorldIDBase is Initializable, Ownable2StepUpgradeable, UUPSUpg
         __UUPSUpgradeable_init();
 
         // A contract may not use the fee functionality and set the feeRecipient and feeToken to address(0)
-        if(registrationFee > 0) {
+        if (registrationFee > 0) {
             if (feeRecipient == address(0)) revert ZeroAddress();
             if (feeToken == address(0)) revert ZeroAddress();
         }

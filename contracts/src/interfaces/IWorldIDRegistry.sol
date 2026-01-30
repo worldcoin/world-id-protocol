@@ -51,7 +51,6 @@ interface IWorldIDRegistry {
      */
     error ZeroRecoveredSignatureAddress();
 
-
     /**
      * @dev Thrown when an invalid signature is provided.
      */
@@ -131,7 +130,6 @@ interface IWorldIDRegistry {
      * @dev Thrown when the recovery counter would overflow its uint32 limit.
      */
     error RecoveryCounterOverflow();
-
 
     /**
      * @dev Thrown when the fee payment is not enough to cover registration.
@@ -260,7 +258,6 @@ interface IWorldIDRegistry {
      * @param newMax The new maximum number of authenticators.
      */
     event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
-
 
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //

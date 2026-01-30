@@ -16,7 +16,6 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
  * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
  */
 contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
-
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////

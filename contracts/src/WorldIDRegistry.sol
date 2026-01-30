@@ -96,7 +96,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         initializer
     {
         __BaseUpgradeable_init(EIP712_NAME, EIP712_VERSION, feeRecipient, feeToken, registrationFee);
-        
+
         treeDepth = initialTreeDepth;
         tree.initWithDefaultZeroes(treeDepth);
 
@@ -190,7 +190,6 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return rootValidityWindow;
     }
-
 
     ////////////////////////////////////////////////////////////
     //              Internal View Helper Functions            //
