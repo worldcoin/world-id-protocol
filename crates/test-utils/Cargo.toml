@@ -22,7 +22,6 @@ serde_json = { workspace = true }
 poseidon2 = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-ff = { workspace = true }
-ark-serialize = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }

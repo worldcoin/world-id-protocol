@@ -1,35 +1,25 @@
 #![allow(clippy::option_if_let_else)]
-#[cfg(feature = "authenticator")]
 use ruint::aliases::U256;
 
-#[cfg(feature = "authenticator")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "authenticator")]
 use strum::EnumString;
 
-#[cfg(feature = "authenticator")]
 use alloy::primitives::Address;
 #[cfg(feature = "openapi")]
-use utoipa::IntoParams;
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
-#[cfg(feature = "authenticator")]
-use crate::world_id_registry::WorldIdRegistry::{
-    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
-    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
-};
-#[cfg(feature = "authenticator")]
 use axum::{http::StatusCode, response::IntoResponse};
-#[cfg(feature = "authenticator")]
 use world_id_primitives::serde_utils::{
     hex_u32, hex_u32_opt, hex_u256, hex_u256_opt, hex_u256_vec,
+};
+use world_id_registry::WorldIdRegistry::{
+    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
+    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
 
 pub use world_id_primitives::merkle::AccountInclusionProof;
 
 /// The request to create a new World ID account.
-#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateAccountRequest {
@@ -50,7 +40,6 @@ pub struct CreateAccountRequest {
 }
 
 /// The request to update an authenticator.
-#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateAuthenticatorRequest {
@@ -94,7 +83,6 @@ pub struct UpdateAuthenticatorRequest {
 }
 
 /// The request to insert an authenticator.
-#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InsertAuthenticatorRequest {
@@ -135,7 +123,6 @@ pub struct InsertAuthenticatorRequest {
 }
 
 /// The request to remove an authenticator.
-#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RemoveAuthenticatorRequest {
@@ -176,7 +163,6 @@ pub struct RemoveAuthenticatorRequest {
 }
 
 /// The request to recover an account.
-#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RecoverAccountRequest {
@@ -213,7 +199,6 @@ pub struct RecoverAccountRequest {
 }
 
 /// Response returned by the registry gateway for state-changing requests.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GatewayStatusResponse {
@@ -227,7 +212,6 @@ pub struct GatewayStatusResponse {
 
 /// Kind of request tracked by the registry gateway.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayRequestKind {
@@ -245,7 +229,6 @@ pub enum GatewayRequestKind {
 
 /// Tracking state for a registry gateway request.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum GatewayRequestState {
@@ -273,7 +256,6 @@ pub enum GatewayRequestState {
     },
 }
 
-#[cfg(feature = "authenticator")]
 impl GatewayRequestState {
     /// Creates a failed state with an error message and optional error code.
     pub fn failed(error: impl Into<String>, error_code: Option<GatewayErrorCode>) -> Self {
@@ -294,7 +276,6 @@ impl GatewayRequestState {
 }
 
 /// Request to fetch a packed account index from the indexer.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerPackedAccountRequest {
@@ -304,7 +285,6 @@ pub struct IndexerPackedAccountRequest {
 }
 
 /// Response containing the packed account index from the indexer.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerPackedAccountResponse {
@@ -317,7 +297,6 @@ pub struct IndexerPackedAccountResponse {
 /// Query for the indexer based on a leaf index.
 ///
 /// Used for getting inclusion proofs and signature nonces.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerQueryRequest {
@@ -328,7 +307,6 @@ pub struct IndexerQueryRequest {
 }
 
 /// Response containing the signature nonce from the indexer.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerSignatureNonceResponse {
@@ -339,7 +317,6 @@ pub struct IndexerSignatureNonceResponse {
 }
 
 /// Health response for an API service (gateway or indexer).
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct HealthResponse {
@@ -348,7 +325,6 @@ pub struct HealthResponse {
 }
 
 /// Query params for the `/is-valid-root` endpoint.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(IntoParams, ToSchema))]
 pub struct IsValidRootQuery {
@@ -358,7 +334,6 @@ pub struct IsValidRootQuery {
 }
 
 /// Response payload for root validity checks.
-#[cfg(feature = "authenticator")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IsValidRootResponse {
@@ -367,7 +342,6 @@ pub struct IsValidRootResponse {
 }
 
 /// Indexer error codes.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Clone, EnumString, Serialize, Deserialize, strum::Display)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
@@ -386,7 +360,6 @@ pub enum IndexerErrorCode {
 }
 
 /// Gateway error codes.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
@@ -421,7 +394,6 @@ pub enum GatewayErrorCode {
 }
 
 /// Error object returned by the services APIs (indexer, gateway).
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ServiceApiError<T>
@@ -434,7 +406,6 @@ where
     pub message: String,
 }
 
-#[cfg(feature = "authenticator")]
 impl<T> ServiceApiError<T>
 where
     T: Clone,
@@ -446,7 +417,6 @@ where
 }
 
 /// `OpenAPI` schema representation of the `AccountInclusionProof` response.
-#[cfg(feature = "authenticator")]
 #[derive(serde::Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct AccountInclusionProofSchema {
@@ -471,13 +441,11 @@ pub struct AccountInclusionProofSchema {
 }
 
 /// Helper to format a selector as a hex string for matching in error messages.
-#[cfg(feature = "authenticator")]
 fn selector_hex(selector: [u8; 4]) -> String {
     format!("0x{}", hex::encode(selector))
 }
 
 /// Parses a contract error string and returns a specific error code if recognized.
-#[cfg(feature = "authenticator")]
 #[must_use]
 pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
     use alloy::sol_types::SolError;
@@ -505,11 +473,9 @@ pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
 }
 
 /// Error response body used by the gateway APIs.
-#[cfg(feature = "authenticator")]
 pub type GatewayErrorBody = ServiceApiError<GatewayErrorCode>;
 
 /// Error response used by the gateway APIs.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Clone)]
 pub struct GatewayErrorResponse {
     /// Http status code.
@@ -518,7 +484,6 @@ pub struct GatewayErrorResponse {
     error: GatewayErrorBody,
 }
 
-#[cfg(feature = "authenticator")]
 impl GatewayErrorResponse {
     /// Create a new [`GatewayErrorResponse`] with the provided error and status.
     #[must_use]
@@ -592,7 +557,6 @@ impl GatewayErrorResponse {
     }
 }
 
-#[cfg(feature = "authenticator")]
 impl std::fmt::Display for GatewayErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -603,10 +567,8 @@ impl std::fmt::Display for GatewayErrorResponse {
     }
 }
 
-#[cfg(feature = "authenticator")]
 impl std::error::Error for GatewayErrorResponse {}
 
-#[cfg(feature = "authenticator")]
 impl IntoResponse for GatewayErrorResponse {
     fn into_response(self) -> axum::response::Response {
         (self.status, axum::Json(self.error)).into_response()
@@ -614,11 +576,9 @@ impl IntoResponse for GatewayErrorResponse {
 }
 
 /// Error response body used by the indexer APIs.
-#[cfg(feature = "authenticator")]
 pub type IndexerErrorBody = ServiceApiError<IndexerErrorCode>;
 
 /// Error response used by the indexer APIs.
-#[cfg(feature = "authenticator")]
 #[derive(Debug, Clone)]
 pub struct IndexerErrorResponse {
     /// Http status code.
@@ -627,7 +587,6 @@ pub struct IndexerErrorResponse {
     error: IndexerErrorBody,
 }
 
-#[cfg(feature = "authenticator")]
 impl IndexerErrorResponse {
     /// Create a new [`IndexerErrorCode`] with the provided error and status.
     #[must_use]
@@ -666,7 +625,6 @@ impl IndexerErrorResponse {
     }
 }
 
-#[cfg(feature = "authenticator")]
 impl std::fmt::Display for IndexerErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -677,10 +635,8 @@ impl std::fmt::Display for IndexerErrorResponse {
     }
 }
 
-#[cfg(feature = "authenticator")]
 impl std::error::Error for IndexerErrorResponse {}
 
-#[cfg(feature = "authenticator")]
 impl IntoResponse for IndexerErrorResponse {
     fn into_response(self) -> axum::response::Response {
         (self.status, axum::Json(self.error)).into_response()

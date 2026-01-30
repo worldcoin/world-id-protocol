@@ -9,6 +9,7 @@ pub struct WorldTreeRootId {
     pub log_index: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorldTreeRoot {
     pub id: WorldTreeRootId,
@@ -116,6 +117,7 @@ impl<'a> WorldTreeRoots<'a> {
         })
     }
 
+    #[allow(dead_code)]
     fn map_row_to_world_tree_event(&self, row: &PgRow) -> anyhow::Result<WorldTreeRoot> {
         Ok(WorldTreeRoot {
             id: self.map_row_to_event_id(row)?,

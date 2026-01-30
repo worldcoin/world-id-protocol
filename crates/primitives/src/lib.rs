@@ -3,6 +3,7 @@
 //! It implements basic primitives such as field elements, proofs, the format of requests and responses, etc.
 //!
 //! Importantly, this crate keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
