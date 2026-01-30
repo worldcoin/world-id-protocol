@@ -17,32 +17,6 @@ alloy = { workspace = true, features = [
     "reqwest",
     "signer-local",
 ] }
-ark-babyjubjub = { workspace = true }
-ark-bn254 = { workspace = true }
-poseidon2 = { workspace = true }
-ark-ff = { workspace = true }
-ark-serialize = { workspace = true }
-hex = { workspace = true }
-ruint = { workspace = true }
-serde = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
-serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
-circom-types = { workspace = true }
-rand = { workspace = true }
-ark-ec = { workspace = true }
-eyre = { workspace = true }
-reqwest = { workspace = true }
 secrecy = { workspace = true }
-strum = { workspace = true }
 world-id-primitives = { workspace = true }
-utoipa = { workspace = true, optional = true }
-groth16-material = { workspace = true, features = ["circom"] }
-taceo-oprf-core = { workspace = true }
-taceo-oprf-types = { workspace = true }
-k256 = { workspace = true, features = ["ecdsa", "serde"] }
-rustls = { workspace = true }
-webpki-roots = { workspace = true }

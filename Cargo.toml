@@ -3,6 +3,8 @@ members = [
     "crates/core",
     "crates/issuer",
     "crates/signer",
+    "crates/proof",
+    "crates/request",
     "crates/credential",
     "crates/primitives",
     "crates/test-utils",
@@ -89,6 +91,8 @@ secrecy = "0.10"
 world-id-core = { version = "0.3.0", default-features = false, path = "crates/core" }
 world-id-issuer = { version = "0.3.0", path = "crates/issuer" }
 world-id-signer = { version = "0.3.0", path = "crates/signer" }
+world-id-request = { version = "0.3.0", path = "crates/request" }
+world-id-proof = { version = "0.3.0", path = "crates/proof" }
 world-id-credential = { version = "0.3.0", path = "crates/credential" }
 world-id-primitives = { version = "0.3.0", path = "crates/primitives" }
 world-id-oprf-node = { version = "0.1", path = "./services/oprf-node" }

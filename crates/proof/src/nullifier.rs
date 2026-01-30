@@ -13,12 +13,10 @@ use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
     circuit_inputs::QueryProofCircuitInput, merkle::MerkleInclusionProof, oprf::OprfRequestAuthV1,
 };
+use world_id_request::ProofRequest;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::{
-    proof::{OPRF_PROOF_DS, ProofError},
-    requests::ProofRequest,
-};
+use crate::proof::{OPRF_PROOF_DS, ProofError};
 
 /// Inputs from the Authenticator to generate a nullifier.
 #[derive(Zeroize, ZeroizeOnDrop)]
@@ -56,7 +54,7 @@ impl AuthenticatorProofInput {
 /// Nullifier computed using OPRF Nodes.
 pub struct OprfNullifier {
     /// The raw inputs to the Query Proof circuit
-    pub(crate) query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
+    pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
     /// The result of the distributed OPRF protocol, including the final nullifier.
     pub verifiable_oprf_output: VerifiableOprfOutput,
 }

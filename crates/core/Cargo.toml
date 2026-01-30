@@ -9,15 +9,7 @@ authors.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-include = [
-    "src/**/*",
-    "bin/**/*",
-    "tests/**/*",
-    "../../contracts/abi/*",
-    "build.rs",
-    "Cargo.toml",
-    "README.md",
-]
+include = ["src/**/*", "bin/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
 [[bin]]
 name = "authenticator"
@@ -73,6 +65,8 @@ zeroize = { workspace = true, optional = true }
 
 # Internal
 world-id-issuer = { workspace = true, optional = true }
+world-id-proof = { workspace = true, optional = true }
+world-id-request = { workspace = true, optional = true }
 world-id-signer = { workspace = true, optional = true }
 world-id-credential = { workspace = true, optional = true }
 
@@ -94,9 +88,11 @@ authenticator = [
     "dep:webpki-roots",
     "dep:axum",
     "dep:tokio",
+    "dep:zeroize",
     "dep:world-id-credential",
     "dep:world-id-signer",
-    "dep:zeroize",
+    "dep:world-id-proof",
+    "dep:world-id-request",
 ]
 
 embed-zkeys = []
@@ -107,10 +103,9 @@ issuer = [
     "dep:world-id-issuer",
     "dep:world-id-credential",
     "dep:world-id-signer",
-    "dep:secrecy",
 ]
 
-rp = ["dep:taceo-oprf", "alloy/signers"]
+rp = ["dep:world-id-request", "dep:taceo-oprf", "alloy/signers"]
 
 cli = []
 

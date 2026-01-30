@@ -29,13 +29,13 @@ pub use world_id_issuer::Issuer;
 pub use world_id_signer::Signer;
 
 #[cfg(feature = "authenticator")]
-pub mod proof;
+pub use world_id_proof::proof;
 
 #[cfg(feature = "authenticator")]
-pub mod nullifier;
+pub use world_id_proof::nullifier;
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]
-pub mod requests;
+pub use world_id_request as requests;
 
 /// Generic re-usable types
 pub mod types;
