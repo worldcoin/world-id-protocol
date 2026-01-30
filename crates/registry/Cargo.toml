@@ -13,11 +13,7 @@ include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
 [dependencies]
 anyhow = { workspace = true }
-alloy = { workspace = true, features = ["sol-types", "signer-local"] }
-poseidon2 = { workspace = true }
-eddsa-babyjubjub = { workspace = true }
-eyre = { workspace = true }
-world-id-primitives = { workspace = true }
+alloy = { workspace = true, features = ["sol-types", "signer-local", "json", "contract"] }
 
 [dev-dependencies]
 ruint = { workspace = true }

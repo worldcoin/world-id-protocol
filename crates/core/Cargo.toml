@@ -33,9 +33,10 @@ authenticator = [
     "dep:world-id-authenticator",
 ]
 
-embed-zkeys = ["world-id-proof/embed-zkeys"]
+# Embed zkeys into binary (requires authenticator feature)
+embed-zkeys = ["authenticator", "world-id-proof/embed-zkeys"]
 # Compress the embedded zkeys to reduce binary size
-compress-zkeys = ["embed-zkeys", "world-id-proof/compress-zkeys"]
+compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/compress-zkeys"]
 
 issuer = [
     "dep:world-id-issuer",

@@ -13,7 +13,12 @@ include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
 [features]
 default = ["embed-zkeys"]
-embed-zkeys = ["world-id-proof/embed-zkeys", "dep:rustls", "dep:webpki-roots"]
+embed-zkeys = [
+  "world-id-proof/embed-zkeys",
+  "dep:rustls",
+  "dep:webpki-roots",
+  "dep:backon",
+]
 
 [dependencies]
 alloy = { workspace = true }
@@ -27,10 +32,10 @@ eyre = { workspace = true }
 world-id-primitives = { workspace = true }
 secrecy = { workspace = true }
 taceo-oprf = { workspace = true }
-backon = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 rand = { workspace = true }
+backon = { workspace = true, optional = true }
 
 # Optional
 rustls = { workspace = true, optional = true }
@@ -45,6 +50,7 @@ world-id-request = { workspace = true }
 world-id-proof = { workspace = true }
 
 [dev-dependencies]
+backon = { workspace = true }
 ruint = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }

@@ -2,6 +2,7 @@
 //!
 //! Enables an RP to create a Proof request or a Session Proof request, and provides base functionality
 //! for Authenticators to handle such requests.
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod constraints;
 use ark_ff::PrimeField;

@@ -16,11 +16,8 @@ default = []
 openapi = ["dep:utoipa"]
 
 [dependencies]
-poseidon2 = { workspace = true }
 alloy = { workspace = true }
 utoipa = { workspace = true, optional = true }
-eddsa-babyjubjub = { workspace = true }
-eyre = { workspace = true }
 world-id-primitives = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

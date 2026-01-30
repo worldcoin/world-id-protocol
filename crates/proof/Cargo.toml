@@ -23,33 +23,23 @@ default = ["embed-zkeys"]
 # Embed zkeys into binary
 embed-zkeys = []
 # Compress the embedded zkeys to reduce binary size
-compress-zkeys = ["embed-zkeys"]
+compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 
 [dependencies]
-alloy = { workspace = true, features = ["sol-types"] }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
-poseidon2 = { workspace = true }
 ark-ff = { workspace = true }
-ark-serialize = { workspace = true }
 ark-groth16 = { workspace = true }
-hex = { workspace = true }
-ruint = { workspace = true }
-serde = { workspace = true }
+ark-serialize = { workspace = true, optional = true }
+circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"], optional = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
-serde_json = { workspace = true }
 rand = { workspace = true }
-ark-ec = { workspace = true }
 groth16-material = { workspace = true }
 taceo-oprf = { workspace = true }
-circom-types = { workspace = true }
 eyre = { workspace = true }
-strum = { workspace = true }
 zeroize = { workspace = true }
-k256 = { workspace = true, features = ["ecdsa", "serde"] }
 
 # Internal
 world-id-request = { workspace = true }

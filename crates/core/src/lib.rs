@@ -2,6 +2,7 @@
 //!
 //! Read more in: <https://docs.world.org/world-id>
 
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs)]
 #![allow(clippy::option_if_let_else)]
 

@@ -22,6 +22,10 @@ alloy = { workspace = true, features = [
     "sol-types",
     "reqwest",
     "signer-local",
+    "json",
+    "network",
+    "providers",
+    "contract",
 ] }
 ark-ff = { workspace = true }
 ruint = { workspace = true }
