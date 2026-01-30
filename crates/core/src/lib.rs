@@ -26,9 +26,7 @@ pub use world_id_credential::HashableCredential;
 pub use world_id_issuer::Issuer;
 
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
-mod signer;
-#[cfg(any(feature = "authenticator", feature = "issuer"))]
-pub use signer::Signer;
+pub use world_id_signer::Signer;
 
 #[cfg(feature = "authenticator")]
 pub mod proof;

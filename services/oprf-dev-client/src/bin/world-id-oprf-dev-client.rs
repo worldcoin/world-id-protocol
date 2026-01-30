@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    path::PathBuf,
     str::FromStr,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -391,8 +392,10 @@ async fn stress_test(
         .position(|pk| pk.pk == authenticator.offchain_pubkey().pk)
         .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
-    let query_material = world_id_core::proof::load_embedded_query_material();
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material();
+    let query_material =
+        world_id_core::proof::load_embedded_query_material(Option::<PathBuf>::None)?;
+    let nullifier_material =
+        world_id_core::proof::load_embedded_nullifier_material(Option::<PathBuf>::None)?;
 
     let mut requests = HashMap::with_capacity(cmd.runs);
     let mut init_requests = HashMap::with_capacity(cmd.runs);

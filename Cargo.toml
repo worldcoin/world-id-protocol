@@ -2,6 +2,7 @@
 members = [
     "crates/core",
     "crates/issuer",
+    "crates/signer",
     "crates/credential",
     "crates/primitives",
     "crates/test-utils",
@@ -57,7 +58,7 @@ taceo-oprf-types = { version = "0.5", default-features = false }
 taceo-oprf-test-utils = "0.1"
 taceo-oprf-key-gen = "0.1"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
-poseidon2 = { package = "taceo-poseidon2", version = "0.1" }
+poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
 rand = "0.8"
 rand_chacha = "0.3"
 rustls = "0.23"
@@ -87,6 +88,7 @@ secrecy = "0.10"
 # Internal
 world-id-core = { version = "0.3.0", default-features = false, path = "crates/core" }
 world-id-issuer = { version = "0.3.0", path = "crates/issuer" }
+world-id-signer = { version = "0.3.0", path = "crates/signer" }
 world-id-credential = { version = "0.3.0", path = "crates/credential" }
 world-id-primitives = { version = "0.3.0", path = "crates/primitives" }
 world-id-oprf-node = { version = "0.1", path = "./services/oprf-node" }

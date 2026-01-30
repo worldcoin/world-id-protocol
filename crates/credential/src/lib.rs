@@ -1,6 +1,5 @@
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::bail;
-use poseidon2::{POSEIDON2_BN254_T16_PARAMS, Poseidon2};
 use world_id_primitives::{Credential, CredentialVersion, FieldElement};
 
 /// Introduces hashing and signing capabilities to the `Credential` type.
@@ -42,7 +41,6 @@ pub trait HashableCredential {
 
 impl HashableCredential for Credential {
     fn claims_hash(&self) -> Result<FieldElement, eyre::Error> {
-        let hasher = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
         if self.claims.len() > Self::MAX_CLAIMS {
             bail!("There can be at most {} claims", Self::MAX_CLAIMS);
         }
@@ -50,14 +48,13 @@ impl HashableCredential for Credential {
         for (i, claim) in self.claims.iter().enumerate() {
             input[i] = **claim;
         }
-        hasher.permutation_in_place(&mut input);
+        poseidon2::bn254::t16::permutation_in_place(&mut input);
         Ok(input[1].into())
     }
 
     fn hash(&self) -> Result<FieldElement, eyre::Error> {
         match self.version {
             CredentialVersion::V1 => {
-                let hasher = Poseidon2::<_, 8, 5>::default();
                 let mut input = [
                     *self.get_cred_ds(),
                     self.issuer_schema_id.into(),
@@ -68,7 +65,7 @@ impl HashableCredential for Credential {
                     *self.associated_data_hash,
                     self.id.into(),
                 ];
-                hasher.permutation_in_place(&mut input);
+                poseidon2::bn254::t8::permutation_in_place(&mut input);
                 Ok(input[1].into())
             }
         }
