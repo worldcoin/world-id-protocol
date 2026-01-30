@@ -31,7 +31,3 @@ world-id-primitives = { workspace = true }
 
 # Internal
 world-id-signer = { workspace = true }
-
-[package.metadata.docs.rs]
-rustdoc-args = ["--cfg", "docsrs"]
-rustc-args = ["--cfg", "docsrs"]

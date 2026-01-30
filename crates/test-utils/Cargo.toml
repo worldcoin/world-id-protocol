@@ -37,7 +37,3 @@ futures = { workspace = true }
 reqwest = { workspace = true }
 semver = { workspace = true }
 world-id-primitives = { workspace = true }
-
-[package.metadata.docs.rs]
-rustdoc-args = ["--cfg", "docsrs"]
-rustc-args = ["--cfg", "docsrs"]

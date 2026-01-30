@@ -26,6 +26,12 @@ const CIRCUIT_FILES: &[&str] = &[
 fn main() -> eyre::Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
 
+    if std::env::var_os("DOCS_RS").is_some() {
+        // Define a cfg only for THIS crate’s compilation.
+        println!("cargo:rustc-cfg=docsrs");
+        println!("cargo:rustc-check-cfg=cfg(docsrs)");
+    }
+
     // Skip for docs.rs as it doesn't have network access
     if env::var("DOCS_RS").is_ok() {
         println!("cargo:warning=Building for docs.rs, skipping circuit file downloads");
