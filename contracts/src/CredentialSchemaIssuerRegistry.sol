@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
+import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 /**
@@ -17,26 +11,7 @@ import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIss
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is
-    Initializable,
-    EIP712Upgradeable,
-    Ownable2StepUpgradeable,
-    UUPSUpgradeable,
-    ICredentialSchemaIssuerRegistry
-{
-    using SafeERC20 for IERC20;
-
-    modifier onlyInitialized() {
-        _onlyInitialized();
-        _;
-    }
-
-    function _onlyInitialized() internal view {
-        if (_getInitializedVersion() == 0) {
-            revert ImplementationNotInitialized();
-        }
-    }
-
+contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerRegistry {
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
@@ -54,15 +29,6 @@ contract CredentialSchemaIssuerRegistry is
 
     // Stores the schema URI that contains the schema definition for each issuerSchemaId.
     mapping(uint64 => string) public idToSchemaUri;
-
-    // the fee to register an issuer schema
-    uint256 private _registrationFee;
-
-    // the recipient of registration fees
-    address private _feeRecipient;
-
-    // the token used to pay registration fees
-    IERC20 private _feeToken;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -90,15 +56,6 @@ contract CredentialSchemaIssuerRegistry is
     // the OPRF key registry contract, used to init OPRF key gen for blinding factors of credentials
     IOprfKeyRegistry public _oprfKeyRegistry;
 
-    ////////////////////////////////////////////////////////////
-    //                        Constructor                     //
-    ////////////////////////////////////////////////////////////
-
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
     /**
      * @dev Initializes the contract.
      */
@@ -107,16 +64,11 @@ contract CredentialSchemaIssuerRegistry is
         virtual
         initializer
     {
-        require(feeRecipient != address(0), "initialize a fee recipient");
-        require(feeToken != address(0), "initialize a fee token");
-        require(oprfKeyRegistry != address(0), "initialize a OprfKeyRegistry");
+        if (oprfKeyRegistry == address(0)) {
+            revert ZeroAddress();
+        }
 
-        __EIP712_init(EIP712_NAME, EIP712_VERSION);
-        __Ownable_init(msg.sender);
-        __Ownable2Step_init();
-        _feeRecipient = feeRecipient;
-        _feeToken = IERC20(feeToken);
-        _registrationFee = registrationFee;
+        __BaseUpgradeable_init(EIP712_NAME, EIP712_VERSION, feeRecipient, feeToken, registrationFee);
         _oprfKeyRegistry = IOprfKeyRegistry(oprfKeyRegistry);
     }
 
@@ -149,6 +101,8 @@ contract CredentialSchemaIssuerRegistry is
             revert IdAlreadyInUse(issuerSchemaId);
         }
 
+        _collectFee();
+
         // An OPRF Key is initialized to allow authenticators to compute the blinding factor for this credential
         // NOTE that the `issuerSchemaId` must be unique across issuers and RPs (from `RpRegistry`) as the `oprfKeyId` must be unique
         // This call may revert with `AlreadySubmitted()` if the ID is taken
@@ -158,10 +112,6 @@ contract CredentialSchemaIssuerRegistry is
         _idToAddress[issuerSchemaId] = signer;
 
         emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, uint160(issuerSchemaId));
-
-        if (_registrationFee > 0) {
-            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
-        }
 
         return issuerSchemaId;
     }
@@ -355,67 +305,4 @@ contract CredentialSchemaIssuerRegistry is
     function _isEmptyPubkey(Pubkey memory pubkey) internal pure virtual returns (bool) {
         return pubkey.x == 0 || pubkey.y == 0;
     }
-
-    /// @inheritdoc ICredentialSchemaIssuerRegistry
-    function getRegistrationFee() public view onlyProxy onlyInitialized returns (uint256) {
-        return _registrationFee;
-    }
-
-    /// @inheritdoc ICredentialSchemaIssuerRegistry
-    function getFeeRecipient() public view onlyProxy onlyInitialized returns (address) {
-        return _feeRecipient;
-    }
-
-    /// @inheritdoc ICredentialSchemaIssuerRegistry
-    function getFeeToken() public view onlyProxy onlyInitialized returns (address) {
-        return address(_feeToken);
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                    Owner Functions                     //
-    ////////////////////////////////////////////////////////////
-
-    /// @inheritdoc ICredentialSchemaIssuerRegistry
-    function setFeeRecipient(address newFeeRecipient) external onlyOwner onlyProxy onlyInitialized {
-        if (newFeeRecipient == address(0)) revert ZeroAddress();
-        address oldRecipient = _feeRecipient;
-        _feeRecipient = newFeeRecipient;
-        emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
-    }
-
-    /// @inheritdoc ICredentialSchemaIssuerRegistry
-    function setRegistrationFee(uint256 newFee) external onlyOwner onlyProxy onlyInitialized {
-        uint256 oldFee = _registrationFee;
-        _registrationFee = newFee;
-        emit RegistrationFeeUpdated(oldFee, newFee);
-    }
-
-    /// @inheritdoc ICredentialSchemaIssuerRegistry
-    function setFeeToken(address newFeeToken) external onlyOwner onlyProxy onlyInitialized {
-        if (newFeeToken == address(0)) revert ZeroAddress();
-        address oldToken = address(_feeToken);
-        _feeToken = IERC20(newFeeToken);
-        emit FeeTokenUpdated(oldToken, newFeeToken);
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                    Upgrade Authorization               //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Authorize upgrade to a new implementation
-     * @param newImplementation Address of the new implementation contract
-     * @notice Only the contract owner can authorize upgrades
-     */
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
-
-    ////////////////////////////////////////////////////////////
-    //                    Storage Gap                         //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Storage gap to allow for future upgrades without storage collisions
-     * This reserves 50 storage slots for future state variables
-     */
-    uint256[50] private __gap;
 }

@@ -36,11 +36,6 @@ interface ICredentialSchemaIssuerRegistry {
     error InvalidPubkey();
 
     /**
-     * @dev Thrown when the implementation has not been initialized via proxy.
-     */
-    error ImplementationNotInitialized();
-
-    /**
      * @dev Thrown when an invalid signer is provided (e.g. zero address)
      */
     error InvalidSigner();
@@ -59,11 +54,6 @@ interface ICredentialSchemaIssuerRegistry {
      * @dev Thrown when the provided issuerSchemaId is invalid
      */
     error InvalidIssuerSchemaId();
-
-    /**
-     * @dev Thrown when trying to set an address to the zero address.
-     */
-    error ZeroAddress();
 
     /**
      * @dev Thrown when the requested id to be registered is already in use. ids must be unique and unique in the OprfKeyRegistry too.
@@ -119,27 +109,6 @@ interface ICredentialSchemaIssuerRegistry {
      * @param newSchemaUri The new schema URI.
      */
     event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
-
-    /**
-     * @dev Emitted when the fee recipient address is updated.
-     * @param oldRecipient The previous fee recipient address.
-     * @param newRecipient The new fee recipient address.
-     */
-    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
-
-    /**
-     * @dev Emitted when the registration fee amount is updated.
-     * @param oldFee The previous registration fee.
-     * @param newFee The new registration fee.
-     */
-    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
-
-    /**
-     * @dev Emitted when the fee token address is updated.
-     * @param oldToken The previous fee token address.
-     * @param newToken The new fee token address.
-     */
-    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
 
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
@@ -216,44 +185,4 @@ interface ICredentialSchemaIssuerRegistry {
      * @return The current nonce for the issuer-schema ID.
      */
     function nonceOf(uint64 issuerSchemaId) external view returns (uint256);
-
-    /**
-     * @dev Returns the current registration fee for an issuer schema.
-     * @return The registration fee amount.
-     */
-    function getRegistrationFee() external view returns (uint256);
-
-    /**
-     * @dev Returns the current recipient for issuer schema registration fees.
-     * @return The fee recipient address.
-     */
-    function getFeeRecipient() external view returns (address);
-
-    /**
-     * @dev Returns the current token with which fees are paid.
-     * @return The fee token address.
-     */
-    function getFeeToken() external view returns (address);
-
-    ////////////////////////////////////////////////////////////
-    //                   OWNER FUNCTIONS                      //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Sets the fee recipient address where registration fees are sent.
-     * @param newFeeRecipient The new address to receive registration fees.
-     */
-    function setFeeRecipient(address newFeeRecipient) external;
-
-    /**
-     * @dev Sets the registration fee amount required to register a new relying party.
-     * @param newFee The new registration fee amount.
-     */
-    function setRegistrationFee(uint256 newFee) external;
-
-    /**
-     * @dev Sets the ERC20 token address used for paying registration fees. Use address(0) for native ETH.
-     * @param newFeeToken The new token address for fee payments.
-     */
-    function setFeeToken(address newFeeToken) external;
 }
