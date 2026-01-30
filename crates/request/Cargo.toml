@@ -1,0 +1,37 @@
+[package]
+name = "world-id-request"
+description = "World ID Request crate"
+publish = true
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+include = ["src/**/*", "tests/**/*", "build.rs", "Cargo.toml", "README.md"]
+
+[dependencies]
+alloy = { workspace = true, features = ["sol-types", "signer-local"] }
+ark-babyjubjub = { workspace = true }
+ark-bn254 = { workspace = true }
+poseidon2 = { workspace = true }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+ark-groth16 = { workspace = true }
+anyhow = { workspace = true }
+hex = { workspace = true }
+ruint = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+ark-ec = { workspace = true }
+eyre = { workspace = true }
+strum = { workspace = true }
+world-id-primitives = { workspace = true }
+taceo-oprf = { workspace = true, features = ["client"] }
+k256 = { workspace = true, features = ["ecdsa", "serde"] }
