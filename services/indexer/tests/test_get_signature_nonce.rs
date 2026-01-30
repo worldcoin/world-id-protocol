@@ -8,6 +8,7 @@ use alloy::primitives::{U256, address};
 use common::{TestSetup, query_count};
 use http::StatusCode;
 use serial_test::serial;
+use world_id_common::ProviderArgs;
 use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
@@ -43,8 +44,11 @@ async fn test_signature_nonce_endpoint() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
-        ws_rpc_url: setup.ws_url(),
+        provider: ProviderArgs {
+            http: Some(vec![setup.rpc_url().parse().unwrap()]),
+            ws: Some(setup.ws_url()),
+            ..Default::default()
+        },
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use ::common::ProviderArgs;
+use ::world_id_common::ProviderArgs;
 use alloy::{
     primitives::{Address, U256, address},
     providers::Provider,

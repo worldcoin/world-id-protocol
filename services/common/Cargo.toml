@@ -1,5 +1,5 @@
 [package]
-name = "common"
+name = "world-id-common"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

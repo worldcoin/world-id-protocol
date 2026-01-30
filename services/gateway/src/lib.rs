@@ -17,7 +17,7 @@ mod routes;
 mod types;
 
 // Re-export common types
-pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};
+pub use ::world_id_common::{ProviderArgs, SignerArgs, SignerConfig};
 
 #[derive(Debug)]
 pub struct GatewayHandle {

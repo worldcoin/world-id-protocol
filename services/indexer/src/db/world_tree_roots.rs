@@ -116,7 +116,7 @@ impl<'a> WorldTreeRoots<'a> {
         })
     }
 
-    fn map_row_to_world_tree_event(&self, row: &PgRow) -> anyhow::Result<WorldTreeRoot> {
+    pub fn map_row_to_world_tree_event(&self, row: &PgRow) -> anyhow::Result<WorldTreeRoot> {
         Ok(WorldTreeRoot {
             id: self.map_row_to_event_id(row)?,
             tx_hash: row.get::<U256, _>("tx_hash"),
