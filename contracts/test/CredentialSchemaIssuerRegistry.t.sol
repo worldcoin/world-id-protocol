@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 import {ICredentialSchemaIssuerRegistry} from "../src/interfaces/ICredentialSchemaIssuerRegistry.sol";
-import {Base} from "../src/abstract/Base.sol";
+import {WorldIDBase} from "../src/abstract/WorldIDBase.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
@@ -406,7 +406,7 @@ contract CredentialIssuerRegistryTest is Test {
         address newRecipient = vm.addr(0xAAAA);
 
         vm.expectEmit(true, true, false, true);
-        emit Base.FeeRecipientUpdated(feeRecipient, newRecipient);
+        emit WorldIDBase.FeeRecipientUpdated(feeRecipient, newRecipient);
 
         registry.setFeeRecipient(newRecipient);
 
@@ -414,7 +414,7 @@ contract CredentialIssuerRegistryTest is Test {
     }
 
     function testCannotSetFeeRecipientToZeroAddress() public {
-        vm.expectRevert(abi.encodeWithSelector(Base.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
         registry.setFeeRecipient(address(0));
     }
 
@@ -432,7 +432,7 @@ contract CredentialIssuerRegistryTest is Test {
         uint256 newFee = 0.01 ether;
 
         vm.expectEmit(false, false, false, true);
-        emit Base.RegistrationFeeUpdated(0, newFee);
+        emit WorldIDBase.RegistrationFeeUpdated(0, newFee);
 
         registry.setRegistrationFee(newFee);
 
@@ -452,7 +452,7 @@ contract CredentialIssuerRegistryTest is Test {
         ERC20Mock newToken = new ERC20Mock();
 
         vm.expectEmit(true, true, false, true);
-        emit Base.FeeTokenUpdated(address(feeToken), address(newToken));
+        emit WorldIDBase.FeeTokenUpdated(address(feeToken), address(newToken));
 
         registry.setFeeToken(address(newToken));
 
@@ -460,7 +460,7 @@ contract CredentialIssuerRegistryTest is Test {
     }
 
     function testCannotSetFeeTokenToZeroAddress() public {
-        vm.expectRevert(abi.encodeWithSelector(Base.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
         registry.setFeeToken(address(0));
     }
 
