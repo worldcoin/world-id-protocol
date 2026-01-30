@@ -15,17 +15,18 @@ use ark_bn254::Bn254;
 use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
+use world_id_credential::HashableCredential as _;
 use world_id_primitives::{
     Credential, FieldElement, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
 };
+use world_id_request::RequestItem;
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
 };
 
-use crate::{HashableCredential, nullifier::OprfNullifier, requests::RequestItem};
+use crate::nullifier::OprfNullifier;
 
-pub(crate) const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
@@ -45,9 +46,15 @@ pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const QUERY_GRAPH_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQueryGraph.bin"));
 
+#[cfg(all(feature = "embed-zkeys", docsrs))]
+const QUERY_GRAPH_BYTES: &[u8] = &[];
+
 #[cfg(all(feature = "embed-zkeys", not(docsrs)))]
 const NULLIFIER_GRAPH_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/OPRFNullifierGraph.bin"));
+
+#[cfg(all(feature = "embed-zkeys", docsrs))]
+const NULLIFIER_GRAPH_BYTES: &[u8] = &[];
 
 #[cfg(all(feature = "embed-zkeys", not(feature = "compress-zkeys"), not(docsrs)))]
 const QUERY_ZKEY_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/OPRFQuery.arks.zkey"));

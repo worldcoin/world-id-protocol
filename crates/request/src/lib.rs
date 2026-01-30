@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
 
-use crate::proof::OPRF_QUERY_DS;
+pub(crate) const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]

@@ -23,7 +23,6 @@ poseidon2 = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
-world-id-primitives = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }
@@ -37,3 +36,4 @@ world-id-oprf-node = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
 semver = { workspace = true }
+world-id-primitives = { workspace = true }
