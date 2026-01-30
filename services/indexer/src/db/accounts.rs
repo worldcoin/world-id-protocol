@@ -134,7 +134,7 @@ where
         sqlx::query(&format!(
             r#"
                 UPDATE {} SET
-                    authenticator_addresses = $2
+                    authenticator_addresses = $2,
                     authenticator_pubkeys = $3,
                     offchain_signer_commitment = $4
                 WHERE
