@@ -13,8 +13,10 @@ use world_id_types::{
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
 
-use world_id_proof::nullifier::{AuthenticatorProofInput, OprfNullifier};
-use world_id_proof::proof::{ProofError, generate_nullifier_proof};
+use world_id_proof::{
+    nullifier::{AuthenticatorProofInput, OprfNullifier},
+    proof::{ProofError, generate_nullifier_proof},
+};
 use world_id_request::{ProofRequest, RequestItem, ResponseItem};
 
 use alloy::{
