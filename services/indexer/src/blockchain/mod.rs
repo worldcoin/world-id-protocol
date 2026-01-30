@@ -3,7 +3,7 @@ use std::future;
 use alloy::{
     primitives::Address,
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
-    rpc::types::{Filter, Log},
+    rpc::types::Filter,
 };
 use futures_util::{Stream, StreamExt, stream};
 use url::Url;
