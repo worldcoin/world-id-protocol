@@ -23,7 +23,7 @@ include = [
 [[bin]]
 name = "authenticator"
 path = "bin/authenticator.rs"
-required-features = ["authenticator", "cli"]
+required-features = ["authenticator", "cli", "embed-zkeys"]
 
 [[bin]]
 name = "issuer"
@@ -50,7 +50,11 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"], optional = true }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+], optional = true }
 circom-types = { workspace = true, optional = true }
 rand = { workspace = true }
 ark-ec = { workspace = true }
@@ -89,9 +93,11 @@ authenticator = [
     "dep:zeroize"
 ]
 
-embed-zkeys = ["dep:reqwest", "reqwest/blocking"]
+embed-zkeys = []
+# Compress the embedded zkeys to reduce binary size
+compress-zkeys = ["embed-zkeys"]
 
-issuer = ["alloy/signer-local", "dep:secrecy", "dep:tokio"]
+issuer = ["alloy/signer-local", "dep:secrecy", "dep:tokio", "alloy/reqwest"]
 
 rp = ["dep:taceo-oprf", "alloy/signers"]
 
@@ -101,7 +107,11 @@ cli = []
 openapi = ["dep:utoipa"]
 
 [build-dependencies]
-reqwest = { workspace = true, features = ["blocking"], optional = true }
+eyre = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
+ark-serialize = { workspace = true }
+circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
+rayon = "1.10"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
