@@ -1,6 +1,5 @@
 #![cfg(feature = "integration-tests")]
 
-use world_id_common::{ProviderArgs, SignerArgs};
 use alloy::{
     primitives::{Address, U256, address},
     signers::local::PrivateKeySigner,
@@ -8,6 +7,7 @@ use alloy::{
 use redis::{AsyncTypedCommands, IntegerReplyOrNoOp, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
+use world_id_common::{ProviderArgs, SignerArgs};
 use world_id_core::types::GatewayStatusResponse;
 use world_id_gateway::{GatewayConfig, spawn_gateway_for_tests};
 
