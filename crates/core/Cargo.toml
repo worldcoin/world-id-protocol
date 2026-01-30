@@ -13,12 +13,11 @@ include = [
     "src/**/*",
     "bin/**/*",
     "tests/**/*",
-    "contracts/**/*",
+    "../../contracts/abi/*",
     "build.rs",
     "Cargo.toml",
     "README.md",
 ]
-
 
 [[bin]]
 name = "authenticator"
@@ -72,6 +71,11 @@ webpki-roots = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 zeroize = { workspace = true, optional = true }
 
+# Internal
+world-id-issuer = { workspace = true, optional = true }
+world-id-signer = { workspace = true, optional = true }
+world-id-credential = { workspace = true, optional = true }
+
 [features]
 default = ["authenticator", "embed-zkeys"]
 
@@ -90,14 +94,21 @@ authenticator = [
     "dep:webpki-roots",
     "dep:axum",
     "dep:tokio",
-    "dep:zeroize"
+    "dep:world-id-credential",
+    "dep:world-id-signer",
+    "dep:zeroize",
 ]
 
 embed-zkeys = []
 # Compress the embedded zkeys to reduce binary size
 compress-zkeys = ["embed-zkeys"]
 
-issuer = ["alloy/signer-local", "dep:secrecy", "dep:tokio", "alloy/reqwest"]
+issuer = [
+    "dep:world-id-issuer",
+    "dep:world-id-credential",
+    "dep:world-id-signer",
+    "dep:secrecy",
+]
 
 rp = ["dep:taceo-oprf", "alloy/signers"]
 

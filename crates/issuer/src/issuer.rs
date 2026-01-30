@@ -1,16 +1,15 @@
-use crate::Signer;
-
 use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol};
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
 use world_id_primitives::{Config, PrimitiveError};
+use world_id_signer::Signer;
 
 sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     CredentialSchemaIssuerRegistry,
-    "contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
+    "../../contracts/abi/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
 );
 
 impl From<EdDSAPublicKey> for ICredentialSchemaIssuerRegistry::Pubkey {

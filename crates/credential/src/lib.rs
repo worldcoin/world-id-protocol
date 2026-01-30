@@ -1,9 +1,6 @@
-#[cfg(feature = "issuer")]
-use crate::EdDSAPrivateKey;
-use crate::EdDSAPublicKey;
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::bail;
-
-use crate::{Credential, CredentialVersion, FieldElement};
+use world_id_primitives::{Credential, CredentialVersion, FieldElement};
 
 /// Introduces hashing and signing capabilities to the `Credential` type.
 pub trait HashableCredential {
@@ -27,7 +24,6 @@ pub trait HashableCredential {
     ///
     /// # Errors
     /// Will error if the credential cannot be hashed.
-    #[cfg(feature = "issuer")]
     fn sign(self, signer: &EdDSAPrivateKey) -> Result<Self, eyre::Error>
     where
         Self: Sized;
@@ -75,7 +71,6 @@ impl HashableCredential for Credential {
         }
     }
 
-    #[cfg(feature = "issuer")]
     fn sign(self, signer: &EdDSAPrivateKey) -> Result<Self, eyre::Error> {
         let mut credential = self;
         credential.signature = Some(signer.sign(*credential.hash()?));
@@ -99,7 +94,6 @@ impl HashableCredential for Credential {
     }
 }
 
-#[cfg(feature = "issuer")]
 #[cfg(test)]
 mod tests {
     use super::*;
