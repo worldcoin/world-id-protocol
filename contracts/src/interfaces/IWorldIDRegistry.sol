@@ -52,11 +52,6 @@ interface IWorldIDRegistry {
     error ZeroRecoveredSignatureAddress();
 
     /**
-     * @dev Thrown when setting a recovery or authenticator address to the zero address.
-     */
-    error ZeroAddress();
-
-    /**
      * @dev Thrown when an invalid signature is provided.
      */
     error InvalidSignature();
@@ -135,11 +130,6 @@ interface IWorldIDRegistry {
      * @dev Thrown when the recovery counter would overflow its uint32 limit.
      */
     error RecoveryCounterOverflow();
-
-    /**
-     * @dev Thrown when the implementation has not been initialized via proxy.
-     */
-    error ImplementationNotInitialized();
 
     /**
      * @dev Thrown when the fee payment is not enough to cover registration.
@@ -268,27 +258,6 @@ interface IWorldIDRegistry {
      * @param newMax The new maximum number of authenticators.
      */
     event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
-
-    /**
-     * @dev Emitted when the fee recipient address is updated.
-     * @param oldRecipient The previous fee recipient address.
-     * @param newRecipient The new fee recipient address.
-     */
-    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
-
-    /**
-     * @dev Emitted when the registration fee amount is updated.
-     * @param oldFee The previous registration fee.
-     * @param newFee The new registration fee.
-     */
-    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
-
-    /**
-     * @dev Emitted when the fee token address is updated.
-     * @param oldToken The previous fee token address.
-     * @param newToken The new fee token address.
-     */
-    event FeeTokenUpdated(address indexed oldToken, address indexed newToken);
 
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
@@ -513,22 +482,4 @@ interface IWorldIDRegistry {
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external;
-
-    /**
-     * @dev Sets the fee recipient address where registration fees are sent.
-     * @param newFeeRecipient The new address to receive registration fees.
-     */
-    function setFeeRecipient(address newFeeRecipient) external;
-
-    /**
-     * @dev Sets the registration fee amount required to register a new relying party.
-     * @param newFee The new registration fee amount.
-     */
-    function setRegistrationFee(uint256 newFee) external;
-
-    /**
-     * @dev Sets the ERC20 token address used for paying registration fees. Use address(0) for native ETH.
-     * @param newFeeToken The new token address for fee payments.
-     */
-    function setFeeToken(address newFeeToken) external;
 }

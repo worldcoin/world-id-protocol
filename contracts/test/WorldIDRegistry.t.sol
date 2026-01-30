@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
 import {IWorldIDRegistry} from "../src/interfaces/IWorldIDRegistry.sol";
+import {WorldIDBase} from "../src/abstract/WorldIDBase.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
 import {PackedAccountData} from "../src/libraries/PackedAccountData.sol";
 
@@ -993,7 +994,7 @@ contract WorldIDRegistryTest is Test {
         address newRecipient = vm.addr(0xAAAA);
 
         vm.expectEmit();
-        emit IWorldIDRegistry.FeeRecipientUpdated(feeRecipient, newRecipient);
+        emit WorldIDBase.FeeRecipientUpdated(feeRecipient, newRecipient);
 
         registry.setFeeRecipient(newRecipient);
 
@@ -1009,7 +1010,7 @@ contract WorldIDRegistryTest is Test {
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         WorldIDRegistry registry = WorldIDRegistry(address(proxy));
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
         registry.setFeeRecipient(address(0));
     }
 
@@ -1042,7 +1043,7 @@ contract WorldIDRegistryTest is Test {
         uint256 newFee = 1 ether;
 
         vm.expectEmit();
-        emit IWorldIDRegistry.RegistrationFeeUpdated(0, newFee);
+        emit WorldIDBase.RegistrationFeeUpdated(0, newFee);
 
         registry.setRegistrationFee(newFee);
 
@@ -1077,7 +1078,7 @@ contract WorldIDRegistryTest is Test {
         ERC20Mock newToken = new ERC20Mock();
 
         vm.expectEmit();
-        emit IWorldIDRegistry.FeeTokenUpdated(address(feeToken), address(newToken));
+        emit WorldIDBase.FeeTokenUpdated(address(feeToken), address(newToken));
 
         registry.setFeeToken(address(newToken));
 
@@ -1093,7 +1094,7 @@ contract WorldIDRegistryTest is Test {
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         WorldIDRegistry registry = WorldIDRegistry(address(proxy));
 
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
         registry.setFeeToken(address(0));
     }
 
