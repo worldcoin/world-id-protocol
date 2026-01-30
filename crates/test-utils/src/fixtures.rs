@@ -33,7 +33,7 @@ pub struct RegistryTestContext {
     pub oprf_key_registry: Address,
     pub credential_registry: Address,
     pub rp_registry: Address,
-    pub verifier: Address,
+    pub world_id_verifier: Address,
     pub issuer_private_key: EdDSAPrivateKey,
     pub issuer_public_key: EdDSAPublicKey,
     pub issuer_schema_id: u64,
@@ -63,8 +63,8 @@ impl RegistryTestContext {
             .deploy_rp_registry(deployer.clone(), oprf_key_registry)
             .await
             .wrap_err("failed to deploy RpRegistry")?;
-        let verifier = anvil
-            .deploy_verifier(
+        let world_id_verifier = anvil
+            .deploy_world_id_verifier(
                 deployer.clone(),
                 credential_registry,
                 world_id_registry,
@@ -139,7 +139,7 @@ impl RegistryTestContext {
             oprf_key_registry,
             credential_registry,
             rp_registry,
-            verifier,
+            world_id_verifier,
             issuer_private_key,
             issuer_public_key,
             issuer_schema_id,

@@ -2,12 +2,12 @@
 pragma solidity ^0.8.13;
 
 /**
- * @title IVerifier
+ * @title IWorldIDVerifier
  * @author World Contributors
  * @notice Interface for verifying nullifier proofs for World ID credentials
  * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
  */
-interface IVerifier {
+interface IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
     //                        ERRORS                          //
     ////////////////////////////////////////////////////////////
@@ -70,11 +70,11 @@ interface IVerifier {
     event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
 
     /**
-     * @notice Emitted when the nullifier verifier is updated.
-     * @param oldGroth16Verifier The previous nullifier verifier address.
-     * @param newGroth16Verifier The new nullifier verifier address.
+     * @notice Emitted when the verifier is updated.
+     * @param oldVerifier The previous verifier address.
+     * @param newVerifier The new verifier address.
      */
-    event Groth16VerifierNullifierUpdated(address oldGroth16Verifier, address newGroth16Verifier);
+    event VerifierUpdated(address oldVerifier, address newVerifier);
 
     /**
      * @notice Emitted when the proof timestamp delta is updated.
@@ -96,7 +96,7 @@ interface IVerifier {
      * @param nonce The nonce used in the proof.
      * @param signalHash The hash of the signal which was committed in the proof.
      * @param proofTimestamp The timestamp when the proof was generated.
-     * @param issuerSchemaId The ID of the Credential issuer as included in the Credential used for the proof and the `CredentialSchemaIssuerRegistry`.
+     * @param issuerSchemaId The ID of the credential issuer.
      * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
      * @param zeroKnowledgeProof The encoded Zero Knowledge Proof (first 4 elements represent a compressed Groth16 proof [a, b, b, c]
      *   and the last element the Merkle Root of the tree in WorldIDRegistry.
@@ -136,10 +136,10 @@ interface IVerifier {
     function updateOprfKeyRegistry(address _oprfKeyRegistry) external;
 
     /**
-     * @notice Updates the Nullifier Verifier address.
-     * @param _verifierNullifier The new nullifier verifier address.
+     * @notice Updates the Verifier address.
+     * @param _verifier The new verifier address.
      */
-    function updateVerifierNullifier(address _verifierNullifier) external;
+    function updateVerifier(address _verifier) external;
 
     /**
      * @notice Updates the proof timestamp delta
