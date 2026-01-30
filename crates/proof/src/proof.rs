@@ -27,7 +27,6 @@ pub use groth16_material::circom::{
 
 use crate::nullifier::OprfNullifier;
 
-// pub(crate) const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
