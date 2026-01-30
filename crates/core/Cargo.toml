@@ -70,6 +70,16 @@ world-id-request = { workspace = true, optional = true }
 world-id-signer = { workspace = true, optional = true }
 world-id-credential = { workspace = true, optional = true }
 
+[dev-dependencies]
+alloy-node-bindings = "1"
+alloy = { workspace = true, features = ["rpc-types"] }
+test-utils = { path = "../test-utils" }
+world-id-gateway = { path = "../../services/gateway" }
+axum = { workspace = true, features = ["macros", "json"] }
+mockito = "1.6"
+taceo-oprf = { workspace = true, features = ["full"] }
+taceo-oprf-test-utils = { workspace = true }
+
 [features]
 default = ["authenticator", "embed-zkeys"]
 
@@ -121,13 +131,4 @@ rayon = "1.10"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
-
-[dev-dependencies]
-alloy-node-bindings = "1"
-alloy = { workspace = true, features = ["rpc-types"] }
-test-utils = { path = "../test-utils" }
-world-id-gateway = { path = "../../services/gateway" }
-axum = { workspace = true, features = ["macros", "json"] }
-mockito = "1.6"
-taceo-oprf = { workspace = true, features = ["full"] }
-taceo-oprf-test-utils = { workspace = true }
+rustc-args = ["--cfg", "docsrs"]

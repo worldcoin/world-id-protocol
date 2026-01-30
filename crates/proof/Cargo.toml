@@ -65,3 +65,4 @@ rayon = "1.10"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
+rustc-args = ["--cfg", "docsrs"]

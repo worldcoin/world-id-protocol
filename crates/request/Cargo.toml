@@ -38,3 +38,4 @@ k256 = { workspace = true, features = ["ecdsa", "serde"] }
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
+rustc-args = ["--cfg", "docsrs"]

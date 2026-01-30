@@ -51,3 +51,7 @@ getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 ciborium = "0.2.2"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+rustc-args = ["--cfg", "docsrs"]

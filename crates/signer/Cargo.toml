@@ -20,3 +20,7 @@ alloy = { workspace = true, features = [
 eddsa-babyjubjub = { workspace = true }
 secrecy = { workspace = true }
 world-id-primitives = { workspace = true }
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+rustc-args = ["--cfg", "docsrs"]
