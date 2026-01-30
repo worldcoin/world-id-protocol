@@ -87,7 +87,7 @@ pub async fn start(
 
     tracing::info!("init CredentialSchemaIssuerRegistry watcher..");
     let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
-        config.rp_registry_contract,
+        config.credential_schema_issuer_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_credential_schema_issuer_registry_store_size,
         config.cache_maintenance_interval,

@@ -6,31 +6,28 @@ use groth16_material::circom::CircomGroth16Material;
 use taceo_oprf::{
     client::{Connector, VerifiableOprfOutput},
     core::oprf::BlindingFactor,
+    types::{OprfKeyId, ShareEpoch},
 };
 
 use world_id_primitives::{
     FieldElement, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
-    oprf::{OprfModule, RpOprfRequestAuthV1},
+    oprf::{OprfModule, SchemaIssuerOprfRequestAuthV1},
 };
-use world_id_request::ProofRequest;
 
 use crate::{
     AuthenticatorProofInput,
     proof::{OPRF_PROOF_DS, ProofError},
 };
 
-/// Nullifier computed using OPRF Nodes.
-pub struct OprfNullifier {
-    /// The raw inputs to the Query Proof circuit
-    pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
-    /// The result of the distributed OPRF protocol, including the final nullifier.
+/// Blinding factor computed using OPRF Nodes.
+pub struct OprfBlindingFactor {
+    /// The result of the distributed OPRF protocol, including the final blinding factor.
     pub verifiable_oprf_output: VerifiableOprfOutput,
 }
 
-impl OprfNullifier {
-    /// Generates a nullifier through the provided OPRF nodes for
-    /// a specific proof request.
+impl OprfBlindingFactor {
+    /// Generates a blinding factor through the provided OPRF nodes.
     ///
     /// This method will handle the signature from the Authenticator authorizing the
     /// request for the OPRF nodes.
@@ -41,7 +38,10 @@ impl OprfNullifier {
     ///   source of truth for this value lives in the `OprfKeyRegistry` contract.
     /// - `query_material`: The material for the query proof circuit.
     /// - `authenticator_input`: See [`AuthenticatorProofInput`] for more details.
-    /// - `proof_request`: The proof request provided by the RP.
+    /// - `issuer_schema_id`: The schema ID of the credential issuer.
+    /// - `action`: The action for which the blinding factor is being requested.
+    /// - `oprf_key_id`: The OPRF key identifier.
+    /// - `share_epoch`: The share epoch for the OPRF key.
     ///
     /// # Errors
     ///
@@ -49,26 +49,32 @@ impl OprfNullifier {
     /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the `key_set`.
     /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
     /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
+    #[expect(clippy::too_many_arguments)]
     pub async fn generate(
         services: &[String],
         threshold: usize,
         query_material: &CircomGroth16Material,
         authenticator_input: AuthenticatorProofInput,
-        proof_request: &ProofRequest,
+        issuer_schema_id: u64,
+        action: FieldElement,
+        oprf_key_id: OprfKeyId,
+        share_epoch: ShareEpoch,
         connector: Connector,
     ) -> Result<Self, ProofError> {
         let mut rng = rand::rngs::OsRng;
+
+        // For schema issuer OPRF, the nonce is not needed.
+        let nonce = FieldElement::ZERO;
 
         let blinding_factor = BlindingFactor::rand(&mut rng);
 
         let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
             authenticator_input.inclusion_proof.siblings.map(|s| *s);
 
-        let action = *proof_request.computed_action();
         let query_hash = world_id_primitives::authenticator::digest_for_authenticator(
             authenticator_input.inclusion_proof.leaf_index,
-            action.into(),
-            proof_request.rp_id.into(),
+            action,
+            issuer_schema_id.into(),
         );
         let signature = authenticator_input.private_key.sign(*query_hash);
 
@@ -82,9 +88,9 @@ impl OprfNullifier {
             mt_index: authenticator_input.inclusion_proof.leaf_index.into(),
             siblings,
             beta: blinding_factor.beta(),
-            rp_id: *FieldElement::from(proof_request.rp_id),
-            action,
-            nonce: *proof_request.nonce,
+            rp_id: issuer_schema_id.into(),
+            action: *action,
+            nonce: *nonce,
         };
 
         tracing::debug!("generating query proof");
@@ -92,25 +98,22 @@ impl OprfNullifier {
         query_material.verify_proof(&proof, &public_inputs)?;
         tracing::debug!("generated query proof");
 
-        let auth = RpOprfRequestAuthV1 {
+        let auth = SchemaIssuerOprfRequestAuthV1 {
             proof: proof.into(),
-            action,
-            nonce: *proof_request.nonce,
+            action: *action,
+            nonce: *nonce,
             merkle_root: *authenticator_input.inclusion_proof.root,
-            current_time_stamp: proof_request.created_at,
-            expiration_timestamp: proof_request.expires_at,
-            signature: proof_request.signature,
-            rp_id: proof_request.rp_id,
+            issuer_schema_id,
         };
 
         tracing::debug!("executing distributed OPRF");
 
         let verifiable_oprf_output = taceo_oprf::client::distributed_oprf(
             services,
-            OprfModule::Rp.to_string().as_str(),
+            OprfModule::SchemaIssuer.to_string().as_str(),
             threshold,
-            proof_request.oprf_key_id,
-            proof_request.share_epoch,
+            oprf_key_id,
+            share_epoch,
             *query_hash,
             blinding_factor,
             ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
@@ -120,7 +123,6 @@ impl OprfNullifier {
         .await?;
 
         Ok(Self {
-            query_proof_input,
             verifiable_oprf_output,
         })
     }

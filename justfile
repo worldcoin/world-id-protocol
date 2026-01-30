@@ -44,13 +44,16 @@ run-setup:
     echo "starting RpRegistry contract..."
     OPRF_KEY_REGISTRY_ADDRESS=$oprf_key_registry FEE_TOKEN=$erc20_mock FEE_RECIPIENT=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 REGISTRATION_FEE=0 just deploy-rp-registry-anvil | tee logs/deploy_rp_registry.log
     rp_registry=$(grep -oP 'RpRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_rp_registry.log)
+    OPRF_KEY_REGISTRY_ADDRESS=$oprf_key_registry FEE_TOKEN=$erc20_mock FEE_RECIPIENT=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 REGISTRATION_FEE=0 just deploy-credential-schema-issuer-registry-anvil | tee logs/deploy_credential_schema_issuer_registry.log
+    credential_schema_issuer_registry=$(grep -oP 'CredentialSchemaIssuerRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_credential_schema_issuer_registry.log)
     OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$rp_registry just register-oprf-key-registry-admin-anvil
+    OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$credential_schema_issuer_registry just register-oprf-key-registry-admin-anvil
     echo "register oprf-nodes..."
     OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry just register-participants-anvil
     echo "starting OPRF key-gen instances..."
     OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     echo "starting OPRF nodes..."
-    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry OPRF_NODE_WORLD_ID_REGISTRY_CONTRACT=$world_id_registry OPRF_NODE_RP_REGISTRY_CONTRACT=$rp_registry just run-nodes
+    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry OPRF_NODE_WORLD_ID_REGISTRY_CONTRACT=$world_id_registry OPRF_NODE_RP_REGISTRY_CONTRACT=$rp_registry OPRF_NODE_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$credential_schema_issuer_registry just run-nodes
     echo "stopping containers..."
     docker compose down
     killall -9 world-id-oprf-node
@@ -71,14 +74,20 @@ run-dev-client *args:
     oprf_key_registry=$(grep -oP 'OprfKeyRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     world_id_registry=$(grep -oP 'WorldIDRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_world_id_registry.log)
     rp_registry=$(grep -oP 'RpRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_rp_registry.log)
+    credential_schema_issuer_registry=$(grep -oP 'CredentialSchemaIssuerRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_credential_schema_issuer_registry.log)
     cargo build -p world-id-oprf-dev-client --release
     # use addresses from deploy logs or use existing env vars
-    OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT:-$oprf_key_registry} OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT:-$world_id_registry} OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT:-$rp_registry} ./target/release/world-id-oprf-dev-client {{ args }}
+    OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT:-$oprf_key_registry} OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT:-$world_id_registry} OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT:-$rp_registry} OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT:-$credential_schema_issuer_registry} ./target/release/world-id-oprf-dev-client {{ args }}
 
 [private]
 [working-directory('contracts/script')]
 deploy-world-id-registry-anvil:
     forge script WorldIDRegistry.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+[private]
+[working-directory('contracts/script')]
+deploy-credential-schema-issuer-registry-anvil:
+    forge script CredentialSchemaIssuerRegistry.s.sol --broadcast --fork-url http://127.0.0.1:8545 -vvvvv --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 [private]
 [working-directory('contracts/script')]

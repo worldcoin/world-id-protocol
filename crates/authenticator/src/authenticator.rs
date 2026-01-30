@@ -14,7 +14,9 @@ use world_id_types::{
 };
 
 use world_id_proof::{
-    nullifier::{AuthenticatorProofInput, OprfNullifier},
+    AuthenticatorProofInput,
+    credential_blinding_factor::OprfBlindingFactor,
+    nullifier::OprfNullifier,
     proof::{ProofError, generate_nullifier_proof},
 };
 use world_id_request::{ProofRequest, RequestItem, ResponseItem};
@@ -30,7 +32,10 @@ use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
-use taceo_oprf::client::Connector;
+use taceo_oprf::{
+    client::Connector,
+    types::{OprfKeyId, ShareEpoch},
+};
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
@@ -464,6 +469,65 @@ impl Authenticator {
             &self.query_material,
             authenticator_input,
             proof_request,
+            self.ws_connector.clone(),
+        )
+        .await?)
+    }
+
+    /// Generates a blinding factor for a Credential sub (through OPRF Nodes).
+    ///
+    /// # Errors
+    ///
+    /// - Will raise a [`ProofError`] if there is any issue generating the blinding factor.
+    ///   For example, network issues, unexpected incorrect responses from OPRF Nodes.
+    /// - Raises an error if the OPRF Nodes configuration is not correctly set.
+    pub async fn generate_credential_blinding_factor(
+        &self,
+        issuer_schema_id: u64,
+        action: FieldElement,
+        oprf_key_id: OprfKeyId,
+        share_epoch: ShareEpoch,
+    ) -> Result<OprfBlindingFactor, AuthenticatorError> {
+        let services = self.config.nullifier_oracle_urls();
+        if services.is_empty() {
+            return Err(AuthenticatorError::Generic(
+                "No nullifier oracle URLs configured".to_string(),
+            ));
+        }
+        let requested_threshold = self.config.nullifier_oracle_threshold();
+        if requested_threshold == 0 {
+            return Err(AuthenticatorError::InvalidConfig {
+                attribute: "nullifier_oracle_threshold",
+                reason: "must be at least 1".to_string(),
+            });
+        }
+        let threshold = requested_threshold.min(services.len());
+
+        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
+        let key_index = key_set
+            .iter()
+            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+
+        let authenticator_input = AuthenticatorProofInput::new(
+            key_set,
+            inclusion_proof,
+            self.signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .clone(),
+            key_index,
+        );
+
+        Ok(OprfBlindingFactor::generate(
+            services,
+            threshold,
+            &self.query_material,
+            authenticator_input,
+            issuer_schema_id,
+            action,
+            oprf_key_id,
+            share_epoch,
             self.ws_connector.clone(),
         )
         .await?)

@@ -153,16 +153,13 @@ pub fn build_base_credential(
     leaf_index: u64,
     genesis_issued_at: u64,
     expires_at: u64,
-) -> (Credential, FieldElement) {
-    let mut rng = rand::thread_rng();
-    let credential_sub_blinding_factor = FieldElement::random(&mut rng);
-    let credential = Credential::new()
+    credential_sub_blinding_factor: FieldElement,
+) -> Credential {
+    Credential::new()
         .issuer_schema_id(issuer_schema_id)
         .sub(leaf_index, credential_sub_blinding_factor)
         .genesis_issued_at(genesis_issued_at)
-        .expires_at(expires_at);
-
-    (credential, credential_sub_blinding_factor)
+        .expires_at(expires_at)
 }
 
 pub struct MerkleFixture {

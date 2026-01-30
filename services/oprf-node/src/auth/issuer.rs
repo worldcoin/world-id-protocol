@@ -86,6 +86,8 @@ impl OprfRequestAuthenticator for SchemaIssuerOprfRequestAuthenticator {
     ) -> Result<(), Self::RequestAuthError> {
         ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
 
+        // TODO verify that action is some specific value?
+
         // check if the oprf key id matches the issuer schema id
         if OprfKeyId::new(U160::from(request.auth.issuer_schema_id))
             != request.share_identifier.oprf_key_id

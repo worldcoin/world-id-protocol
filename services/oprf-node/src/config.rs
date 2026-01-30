@@ -32,6 +32,10 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_RP_REGISTRY_CONTRACT")]
     pub rp_registry_contract: Address,
 
+    /// The address of the CredentialSchemaIssuerRegistry smart contract
+    #[clap(long, env = "OPRF_NODE_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT")]
+    pub credential_schema_issuer_registry_contract: Address,
+
     /// The maximum size of the merkle root cache.
     ///
     /// Will drop least recently used merkle roots if this capacity is reached.
