@@ -184,15 +184,4 @@ abstract contract WorldIDBase is Initializable, Ownable2StepUpgradeable, UUPSUpg
     /// @param newImplementation The address of the implementation being upgraded to.
     /// @custom:reverts string If called by any account other than the proxy owner.
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyProxy onlyOwner {}
-
-    ////////////////////////////////////////////////////////////
-    //                       STORAGE GAP                      //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev This empty reserved space is put in place to allow future versions to add new
-     * variables without shifting down storage in the inheritance chain.
-     * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-     */
-    uint256[50] private __gap;
 }
