@@ -2,7 +2,7 @@
 //!
 //! An Authenticator is the application layer with which a user interacts with the Protocol.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::{
     Credential, FieldElement, Signer,
@@ -16,21 +16,20 @@ use crate::{
         RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
     },
     world_id_registry::{
-        WorldIdRegistry::{self, WorldIdRegistryInstance},
-        domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
+        WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
+        sign_remove_authenticator, sign_update_authenticator,
     },
 };
 use alloy::{
     primitives::{Address, U256},
-    providers::{DynProvider, Provider, ProviderBuilder},
+    providers::DynProvider,
     uint,
 };
 use ark_babyjubjub::EdwardsAffine;
 use ark_serialize::CanonicalSerialize;
-use backon::{ExponentialBuilder, Retryable};
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
-use rustls::{ClientConfig, RootCertStore};
 use secrecy::ExposeSecret;
 use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
@@ -57,6 +56,8 @@ pub struct Authenticator {
     registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
     ws_connector: Connector,
+    query_material: Arc<CircomGroth16Material>,
+    nullifier_material: Arc<CircomGroth16Material>,
 }
 
 #[expect(clippy::missing_fields_in_debug)]
@@ -80,18 +81,19 @@ impl Authenticator {
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
+    #[cfg(feature = "embed-zkeys")]
     pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry = config.rpc_url().map_or_else(
             || None,
             |rpc_url| {
-                let provider = ProviderBuilder::new()
+                let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(WorldIdRegistry::new(
+                Some(crate::world_id_registry::WorldIdRegistry::new(
                     *config.registry_address(),
-                    provider.erased(),
+                    alloy::providers::Provider::erased(provider),
                 ))
             },
         );
@@ -106,12 +108,26 @@ impl Authenticator {
         )
         .await?;
 
-        let mut root_store = RootCertStore::empty();
+        let mut root_store = rustls::RootCertStore::empty();
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let rustls_config = ClientConfig::builder()
+        let rustls_config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let ws_connector = Connector::Rustls(Arc::new(rustls_config));
+
+        let cache_dir = config.zkey_cache_dir();
+        let query_material = Arc::new(
+            crate::proof::load_embedded_query_material(cache_dir).map_err(|e| {
+                AuthenticatorError::Generic(format!("Failed to load cached query material: {e}"))
+            })?,
+        );
+        let nullifier_material = Arc::new(
+            crate::proof::load_embedded_nullifier_material(cache_dir).map_err(|e| {
+                AuthenticatorError::Generic(format!(
+                    "Failed to load cached nullifier material: {e}"
+                ))
+            })?,
+        );
 
         Ok(Self {
             packed_account_data,
@@ -120,6 +136,8 @@ impl Authenticator {
             registry: registry.map(Arc::new),
             http_client,
             ws_connector,
+            query_material,
+            nullifier_material,
         })
     }
 
@@ -151,6 +169,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// - See `init` for additional error details.
+    #[cfg(feature = "embed-zkeys")]
     pub async fn init_or_register(
         seed: &[u8],
         config: Config,
@@ -169,11 +188,11 @@ impl Authenticator {
                 )
                 .await?;
 
-                let backoff = ExponentialBuilder::default()
-                    .with_min_delay(Duration::from_millis(800))
+                let backoff = backon::ExponentialBuilder::default()
+                    .with_min_delay(std::time::Duration::from_millis(800))
                     .with_factor(1.5)
                     .without_max_times()
-                    .with_total_delay(Some(Duration::from_secs(120)));
+                    .with_total_delay(Some(std::time::Duration::from_secs(120)));
 
                 let poller = || async {
                     let poll_status = initializing_authenticator.poll_status().await;
@@ -209,8 +228,7 @@ impl Authenticator {
                     }
                 };
 
-                let result = poller
-                    .retry(backoff)
+                let result = backon::Retryable::retry(poller, backoff)
                     .when(|e| matches!(e, PollResult::Retryable))
                     .await;
 
@@ -421,9 +439,6 @@ impl Authenticator {
         }
         let threshold = requested_threshold.min(services.len());
 
-        // TODO: load once and from bytes
-        let query_material = crate::proof::load_embedded_query_material();
-
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
             .iter()
@@ -443,7 +458,7 @@ impl Authenticator {
         Ok(OprfNullifier::generate(
             services,
             threshold,
-            &query_material,
+            &self.query_material,
             authenticator_input,
             proof_request,
             self.ws_connector.clone(),
@@ -482,15 +497,12 @@ impl Authenticator {
         session_id: Option<FieldElement>,
         request_timestamp: u64, // TODO: Convert into min_expiration
     ) -> Result<ResponseItem, AuthenticatorError> {
-        // TODO: load once and from bytes
-        let nullifier_material = crate::proof::load_embedded_nullifier_material();
-
         let mut rng = rand::rngs::OsRng;
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
 
         let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
-            &nullifier_material,
+            &self.nullifier_material,
             &mut rng,
             credential,
             credential_sub_blinding_factor,
@@ -976,16 +988,34 @@ pub enum AuthenticatorError {
     Generic(String),
 }
 
+#[cfg(feature = "embed-zkeys")]
 #[derive(Debug)]
 enum PollResult {
     Retryable,
     TerminalError(AuthenticatorError),
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "embed-zkeys"))]
 mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
+    use std::{path::PathBuf, sync::OnceLock};
+
+    fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
+        static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
+        static NULLIFIER: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
+
+        let query = QUERY.get_or_init(|| {
+            Arc::new(crate::proof::load_embedded_query_material(Option::<PathBuf>::None).unwrap())
+        });
+        let nullifier = NULLIFIER.get_or_init(|| {
+            Arc::new(
+                crate::proof::load_embedded_nullifier_material(Option::<PathBuf>::None).unwrap(),
+            )
+        });
+
+        (Arc::clone(query), Arc::clone(nullifier))
+    }
 
     /// Tests that `get_packed_account_data` correctly fetches the packed account data from the indexer
     /// when no RPC is configured.
@@ -1128,6 +1158,7 @@ mod tests {
         )
         .unwrap();
 
+        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config,
             packed_account_data: leaf_index, // This sets leaf_index() to 1
@@ -1135,6 +1166,8 @@ mod tests {
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
         };
 
         let nonce = authenticator.signing_nonce().await.unwrap();
@@ -1174,6 +1207,7 @@ mod tests {
         )
         .unwrap();
 
+        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config,
             packed_account_data: U256::ZERO,
@@ -1181,6 +1215,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
         };
 
         let result = authenticator.signing_nonce().await;
