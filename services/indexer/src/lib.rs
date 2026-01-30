@@ -10,6 +10,7 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 mod blockchain;
 pub mod config;
 pub mod db;
+mod events_committer;
 mod routes;
 mod sanity_check;
 mod tree;
@@ -18,7 +19,8 @@ pub use crate::db::fetch_recent_account_updates;
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
-    db::{DB, EventsCommitter, WorldTreeEventType},
+    db::DB,
+    events_committer::EventsCommitter,
     tree::{GLOBAL_TREE, update_tree_with_commitment},
 };
 pub use config::GlobalConfig;

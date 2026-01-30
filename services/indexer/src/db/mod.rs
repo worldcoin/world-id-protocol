@@ -2,12 +2,10 @@ use alloy::primitives::U256;
 use sqlx::{Acquire, PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 
 mod accounts;
-mod events_committer;
 mod world_tree_events;
 mod world_tree_roots;
 
 pub use accounts::Accounts;
-pub use events_committer::EventsCommitter;
 pub use world_tree_events::{WorldTreeEventId, WorldTreeEventType, WorldTreeEvents};
 pub use world_tree_roots::{WorldTreeRootEventType, WorldTreeRootId, WorldTreeRoots};
 
@@ -50,7 +48,7 @@ impl PostgresDB {
     pub async fn transaction(
         &self,
         isoloation_level: IsolationLevel,
-    ) -> anyhow::Result<PostgresDBTransaction> {
+    ) -> anyhow::Result<PostgresDBTransaction<'_>> {
         PostgresDBTransaction::new(&self.pool, isoloation_level).await
     }
 

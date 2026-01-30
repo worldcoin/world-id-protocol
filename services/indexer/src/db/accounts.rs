@@ -1,5 +1,15 @@
 use alloy::primitives::{Address, U256};
-use sqlx::{Postgres, Row, types::Json};
+use sqlx::{Postgres, Row, postgres::PgRow, types::Json};
+use tracing::instrument;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    pub leaf_index: U256,
+    pub recovery_address: Address,
+    pub authenticator_addresses: Vec<Address>,
+    pub authenticator_pubkeys: Vec<U256>,
+    pub offchain_signer_commitment: U256,
+}
 
 pub struct Accounts<'a, E>
 where
@@ -41,18 +51,38 @@ where
         .fetch_optional(self.executor)
         .await?;
 
-        Ok(result.map(|row| {
-            let offchain_signer_commitment = row.get::<U256, _>("offchain_signer_commitment");
-            let pubkeys: Vec<U256> = row
-                .get::<Json<Vec<String>>, _>("authenticator_pubkeys")
-                .0
-                .iter()
-                .filter_map(|s| s.parse::<U256>().ok())
-                .collect();
-            (offchain_signer_commitment, pubkeys)
-        }))
+        result
+            .map(|row| {
+                let offchain_signer_commitment = Self::map_offchain_signer_commitment(&row)?;
+                let pubkeys = Self::map_authenticator_pub_keys(&row)?;
+                Ok((offchain_signer_commitment, pubkeys))
+            })
+            .transpose()
     }
 
+    pub async fn get_account(self, leaf_index: &U256) -> anyhow::Result<Option<Account>> {
+        let result = sqlx::query(&format!(
+            r#"
+                                SELECT
+                                    leaf_index,
+                                    recovery_address,
+                                    authenticator_addresses,
+                                    authenticator_pubkeys,
+                                    offchain_signer_commitment
+                                FROM {}
+                                WHERE
+                                    leaf_index = $1
+                            "#,
+            self.table_name
+        ))
+        .bind(leaf_index)
+        .fetch_optional(self.executor)
+        .await?;
+
+        result.map(|row| Self::map_account(&row)).transpose()
+    }
+
+    #[instrument(level = "info", skip(self))]
     pub async fn insert(
         self,
         leaf_index: &U256,
@@ -215,5 +245,47 @@ where
         .execute(self.executor)
         .await?;
         Ok(())
+    }
+
+    fn map_account(row: &PgRow) -> anyhow::Result<Account> {
+        Ok(Account {
+            leaf_index: Self::map_leaf_index(row)?,
+            recovery_address: Self::map_recovery_address(row)?,
+            authenticator_addresses: Self::map_authenticator_addresses(row)?,
+            authenticator_pubkeys: Self::map_authenticator_pub_keys(row)?,
+            offchain_signer_commitment: Self::map_offchain_signer_commitment(row)?,
+        })
+    }
+
+    fn map_leaf_index(row: &PgRow) -> anyhow::Result<U256> {
+        Ok(row.get::<U256, _>("leaf_index"))
+    }
+
+    fn map_recovery_address(row: &PgRow) -> anyhow::Result<Address> {
+        Ok(row
+            .get::<String, _>("recovery_address")
+            .parse::<Address>()?)
+    }
+
+    fn map_offchain_signer_commitment(row: &PgRow) -> anyhow::Result<U256> {
+        Ok(row.get::<U256, _>("offchain_signer_commitment"))
+    }
+
+    fn map_authenticator_addresses(row: &PgRow) -> anyhow::Result<Vec<Address>> {
+        Ok(row
+            .get::<Json<Vec<String>>, _>("authenticator_addresses")
+            .0
+            .iter()
+            .filter_map(|s| s.parse::<Address>().ok())
+            .collect())
+    }
+
+    fn map_authenticator_pub_keys(row: &PgRow) -> anyhow::Result<Vec<U256>> {
+        Ok(row
+            .get::<Json<Vec<String>>, _>("authenticator_pubkeys")
+            .0
+            .iter()
+            .filter_map(|s| s.parse::<U256>().ok())
+            .collect())
     }
 }

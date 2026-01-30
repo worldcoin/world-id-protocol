@@ -1,12 +1,31 @@
 use core::fmt;
 
 use alloy::primitives::U256;
-use sqlx::{Postgres, Row};
+use sqlx::{Postgres, Row, postgres::PgRow};
+use tracing::instrument;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WorldTreeRootId {
     pub block_number: u64,
     pub log_index: u64,
+}
+
+impl From<(u64, u64)> for WorldTreeRootId {
+    fn from(value: (u64, u64)) -> Self {
+        WorldTreeRootId {
+            block_number: value.0,
+            log_index: value.1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldTreeRoot {
+    pub id: WorldTreeRootId,
+    pub tx_hash: U256,
+    pub event_type: WorldTreeRootEventType,
+    pub root: U256,
+    pub timestamp: U256,
 }
 
 /// Type of commitment update event stored in the database.
@@ -55,6 +74,35 @@ where
         }
     }
 
+    pub async fn get_root<T: Into<WorldTreeRootId>>(
+        self,
+        root_id: T,
+    ) -> anyhow::Result<Option<WorldTreeRoot>> {
+        let root_id = root_id.into();
+        let table_name = self.table_name;
+        let result = sqlx::query(&format!(
+            r#"
+                    SELECT
+                        block_number,
+                        log_index,
+                        event_type,
+                        tx_hash,
+                        root,
+                        root_timestamp
+                    FROM {}
+                    WHERE
+                        block_number = $1 AND log_index = $2
+                "#,
+            table_name
+        ))
+        .bind(root_id.block_number as i64)
+        .bind(root_id.log_index as i64)
+        .fetch_optional(self.executor)
+        .await?;
+
+        result.map(|row| Self::map_root(&row)).transpose()
+    }
+
     pub async fn get_latest_id(self) -> anyhow::Result<Option<WorldTreeRootId>> {
         let table_name = self.table_name;
         let result = sqlx::query(&format!(
@@ -73,16 +121,10 @@ where
         .fetch_optional(self.executor)
         .await?;
 
-        result
-            .map(|row| {
-                Ok(WorldTreeRootId {
-                    block_number: row.get::<i64, _>("block_number") as u64,
-                    log_index: row.get::<i64, _>("log_index") as u64,
-                })
-            })
-            .transpose()
+        result.map(|row| Self::map_root_id(&row)).transpose()
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn insert_event(
         self,
         block_number: u64,
@@ -114,5 +156,22 @@ where
         .execute(self.executor)
         .await?;
         Ok(())
+    }
+
+    fn map_root_id(row: &PgRow) -> anyhow::Result<WorldTreeRootId> {
+        Ok(WorldTreeRootId {
+            block_number: row.get::<i64, _>("block_number") as u64,
+            log_index: row.get::<i64, _>("log_index") as u64,
+        })
+    }
+
+    fn map_root(row: &PgRow) -> anyhow::Result<WorldTreeRoot> {
+        Ok(WorldTreeRoot {
+            id: Self::map_root_id(row)?,
+            tx_hash: row.get::<U256, _>("tx_hash"),
+            event_type: WorldTreeRootEventType::try_from(row.get::<&str, _>("event_type"))?,
+            root: row.get::<U256, _>("root"),
+            timestamp: row.get::<U256, _>("root_timestamp"),
+        })
     }
 }

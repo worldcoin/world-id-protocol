@@ -127,11 +127,7 @@ impl TestSetup {
         let db = DB::new(&base_url, Some(1)).await.unwrap();
         db.run_migrations().await.unwrap();
 
-        if let Some(idx) = base_url.rfind('/') {
-            format!("{}/{}", &base_url[..idx], TEST_DB_NAME)
-        } else {
-            panic!("Invalid database URL format: {base_url}");
-        }
+        base_url
     }
 
     async fn cleanup_test_database() {
