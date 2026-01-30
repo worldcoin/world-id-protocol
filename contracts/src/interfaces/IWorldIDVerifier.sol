@@ -32,16 +32,6 @@ interface IWorldIDVerifier {
      */
     error UnregisteredIssuerSchemaId();
 
-    /**
-     * @dev Thrown when setting an external contract address to the zero address.
-     */
-    error ZeroAddress();
-
-    /**
-     * @dev Thrown when the implementation has not been initialized via proxy.
-     */
-    error ImplementationNotInitialized();
-
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////

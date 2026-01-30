@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
+import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
 
 /**
@@ -20,19 +15,7 @@ import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
  * repository before making any updates.
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
-contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable, IRpRegistry {
-    using SafeERC20 for IERC20;
-
-    modifier onlyInitialized() {
-        _onlyInitialized();
-        _;
-    }
-
-    function _onlyInitialized() internal view {
-        if (_getInitializedVersion() == 0) {
-            revert ImplementationNotInitialized();
-        }
-    }
+contract RpRegistry is WorldIDBase, IRpRegistry {
 
     ////////////////////////////////////////////////////////////
     //                        Members                         //
@@ -47,15 +30,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
 
     // rpId -> nonce, used to prevent replays on management operations
     mapping(uint64 => uint256) internal _rpIdToSignatureNonce;
-
-    // the fee to register a relying party
-    uint256 internal _registrationFee;
-
-    // the recipient of registration fees
-    address internal _feeRecipient;
-
-    // the token used to pay registration fees
-    IERC20 internal _feeToken;
 
     // the OPRF key registry contract, used to init OPRF key gen for RPs
     IOprfKeyRegistry internal _oprfKeyRegistry;
@@ -91,17 +65,9 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         public
         initializer
     {
-        if (feeRecipient == address(0)) revert ZeroAddress();
-        if (feeToken == address(0)) revert ZeroAddress();
         if (oprfKeyRegistry == address(0)) revert ZeroAddress();
 
-        __EIP712_init(EIP712_NAME, EIP712_VERSION);
-        __Ownable_init(msg.sender);
-        __UUPSUpgradeable_init();
-
-        _feeRecipient = feeRecipient;
-        _feeToken = IERC20(feeToken);
-        _registrationFee = registrationFee;
+        __BaseUpgradeable_init(EIP712_NAME, EIP712_VERSION, feeRecipient, feeToken, registrationFee);
         _oprfKeyRegistry = IOprfKeyRegistry(oprfKeyRegistry);
     }
 
@@ -178,21 +144,6 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
     /// @inheritdoc IRpRegistry
     function nonceOf(uint64 rpId) public view virtual onlyProxy onlyInitialized returns (uint256) {
         return _rpIdToSignatureNonce[rpId];
-    }
-
-    /// @inheritdoc IRpRegistry
-    function getRegistrationFee() public view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _registrationFee;
-    }
-
-    /// @inheritdoc IRpRegistry
-    function getFeeRecipient() public view virtual onlyProxy onlyInitialized returns (address) {
-        return _feeRecipient;
-    }
-
-    /// @inheritdoc IRpRegistry
-    function getFeeToken() public view virtual onlyProxy onlyInitialized returns (address) {
-        return address(_feeToken);
     }
 
     /// @inheritdoc IRpRegistry
@@ -285,6 +236,8 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
 
         if (signer == address(0)) revert SignerCannotBeZeroAddress();
 
+        _collectFee();
+
         uint160 oprfKeyId = uint160(rpId);
         _oprfKeyRegistry.initKeyGen(oprfKeyId);
 
@@ -300,53 +253,5 @@ contract RpRegistry is Initializable, EIP712Upgradeable, Ownable2StepUpgradeable
         _relyingParties[rpId] = rp;
 
         emit RpRegistered(rpId, oprfKeyId, manager, unverifiedWellKnownDomain);
-
-        if (_registrationFee > 0) {
-            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
-        }
     }
-
-    ////////////////////////////////////////////////////////////
-    //                    Owner Functions               //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Authorize upgrade to a new implementation
-     * @param newImplementation Address of the new implementation contract
-     * @notice Only the contract owner can authorize upgrades
-     */
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
-
-    /// @inheritdoc IRpRegistry
-    function setFeeRecipient(address newFeeRecipient) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (newFeeRecipient == address(0)) revert ZeroAddress();
-        address oldRecipient = _feeRecipient;
-        _feeRecipient = newFeeRecipient;
-        emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
-    }
-
-    /// @inheritdoc IRpRegistry
-    function setRegistrationFee(uint256 newFee) external virtual onlyOwner onlyProxy onlyInitialized {
-        uint256 oldFee = _registrationFee;
-        _registrationFee = newFee;
-        emit RegistrationFeeUpdated(oldFee, newFee);
-    }
-
-    /// @inheritdoc IRpRegistry
-    function setFeeToken(address newFeeToken) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (newFeeToken == address(0)) revert ZeroAddress();
-        address oldToken = address(_feeToken);
-        _feeToken = IERC20(newFeeToken);
-        emit FeeTokenUpdated(oldToken, newFeeToken);
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                    Storage Gap                         //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Storage gap to allow for future upgrades without storage collisions
-     * This reserves 50 storage slots for future state variables
-     */
-    uint256[50] private __gap;
 }

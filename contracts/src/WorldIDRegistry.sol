@@ -4,41 +4,19 @@ pragma solidity ^0.8.13;
 import {BinaryIMT, BinaryIMTData} from "./libraries/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
+import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 
 /**
  * @title WorldIDRegistry
  * @author World Contributors
  * @dev The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
  */
-contract WorldIDRegistry is
-    Initializable,
-    EIP712Upgradeable,
-    Ownable2StepUpgradeable,
-    UUPSUpgradeable,
-    IWorldIDRegistry
-{
+contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     using BinaryIMT for BinaryIMTData;
-    using SafeERC20 for IERC20;
-
-    modifier onlyInitialized() {
-        _onlyInitialized();
-        _;
-    }
-
-    function _onlyInitialized() internal view {
-        if (_getInitializedVersion() == 0) {
-            revert ImplementationNotInitialized();
-        }
-    }
 
     ////////////////////////////////////////////////////////////
     //                        Members                         //
@@ -70,11 +48,6 @@ contract WorldIDRegistry is
     mapping(uint256 => uint256) private rootToTimestamp;
     uint256 private latestRoot;
     uint256 private rootValidityWindow;
-
-    // Registration fee variables
-    uint256 internal _registrationFee;
-    address internal _feeRecipient;
-    IERC20 internal _feeToken;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -122,12 +95,8 @@ contract WorldIDRegistry is
         virtual
         initializer
     {
-        if (feeRecipient == address(0)) revert ZeroAddress();
-        if (feeToken == address(0)) revert ZeroAddress();
-
-        __EIP712_init(EIP712_NAME, EIP712_VERSION);
-        __Ownable_init(msg.sender);
-        __Ownable2Step_init();
+        __BaseUpgradeable_init(EIP712_NAME, EIP712_VERSION, feeRecipient, feeToken, registrationFee);
+        
         treeDepth = initialTreeDepth;
         tree.initWithDefaultZeroes(treeDepth);
 
@@ -139,11 +108,6 @@ contract WorldIDRegistry is
 
         maxAuthenticators = 7;
         rootValidityWindow = 3600;
-
-        // Initialize fee parameters (fee may be 0)
-        _feeRecipient = feeRecipient;
-        _feeToken = IERC20(feeToken);
-        _registrationFee = registrationFee;
     }
 
     ////////////////////////////////////////////////////////////
@@ -227,26 +191,6 @@ contract WorldIDRegistry is
         return rootValidityWindow;
     }
 
-    /**
-     * @dev Returns the current registration fee for creating a World ID.
-     */
-    function getRegistrationFee() public view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _registrationFee;
-    }
-
-    /**
-     * @dev Returns the current recipient for registration fees.
-     */
-    function getFeeRecipient() public view virtual onlyProxy onlyInitialized returns (address) {
-        return _feeRecipient;
-    }
-
-    /**
-     * @dev Returns the current token with which fees are paid.
-     */
-    function getFeeToken() public view virtual onlyProxy onlyInitialized returns (address) {
-        return address(_feeToken);
-    }
 
     ////////////////////////////////////////////////////////////
     //              Internal View Helper Functions            //
@@ -396,9 +340,7 @@ contract WorldIDRegistry is
         uint256 offchainSignerCommitment
     ) internal virtual {
         // Handle fee payment if required
-        if (_registrationFee > 0) {
-            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, _registrationFee);
-        }
+        _collectFee();
 
         if (authenticatorAddresses.length > maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
@@ -832,48 +774,4 @@ contract WorldIDRegistry is
         maxAuthenticators = newMaxAuthenticators;
         emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
     }
-
-    /// @inheritdoc IWorldIDRegistry
-    function setFeeRecipient(address newFeeRecipient) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (newFeeRecipient == address(0)) revert ZeroAddress();
-        address oldRecipient = _feeRecipient;
-        _feeRecipient = newFeeRecipient;
-        emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
-    }
-
-    /// @inheritdoc IWorldIDRegistry
-    function setRegistrationFee(uint256 newFee) external virtual onlyOwner onlyProxy onlyInitialized {
-        uint256 oldFee = _registrationFee;
-        _registrationFee = newFee;
-        emit RegistrationFeeUpdated(oldFee, newFee);
-    }
-
-    /// @inheritdoc IWorldIDRegistry
-    function setFeeToken(address newFeeToken) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (newFeeToken == address(0)) revert ZeroAddress();
-        address oldToken = address(_feeToken);
-        _feeToken = IERC20(newFeeToken);
-        emit FeeTokenUpdated(oldToken, newFeeToken);
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                    Upgrade Authorization               //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Authorize upgrade to a new implementation
-     * @param newImplementation Address of the new implementation contract
-     * @notice Only the contract owner can authorize upgrades
-     */
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
-
-    ////////////////////////////////////////////////////////////
-    //                    Storage Gap                         //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Storage gap to allow for future upgrades without storage collisions
-     * This reserves 50 storage slots for future state variables
-     */
-    uint256[50] private __gap;
 }
