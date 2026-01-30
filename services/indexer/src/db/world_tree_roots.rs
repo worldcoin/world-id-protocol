@@ -9,16 +9,6 @@ pub struct WorldTreeRootId {
     pub log_index: u64,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WorldTreeRoot {
-    pub id: WorldTreeRootId,
-    pub tx_hash: U256,
-    pub event_type: WorldTreeRootEventType,
-    pub root: U256,
-    pub timestamp: U256,
-}
-
 /// Type of commitment update event stored in the database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldTreeRootEventType {
@@ -114,17 +104,6 @@ impl<'a> WorldTreeRoots<'a> {
         Ok(WorldTreeRootId {
             block_number: row.get::<i64, _>("block_number") as u64,
             log_index: row.get::<i64, _>("log_index") as u64,
-        })
-    }
-
-    #[allow(dead_code)]
-    fn map_row_to_world_tree_event(&self, row: &PgRow) -> anyhow::Result<WorldTreeRoot> {
-        Ok(WorldTreeRoot {
-            id: self.map_row_to_event_id(row)?,
-            tx_hash: row.get::<U256, _>("tx_hash"),
-            event_type: WorldTreeRootEventType::try_from(row.get::<&str, _>("event_type"))?,
-            root: row.get::<U256, _>("root"),
-            timestamp: row.get::<U256, _>("root_timestamp"),
         })
     }
 }
