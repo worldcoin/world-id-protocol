@@ -4,22 +4,19 @@
 
 use std::sync::Arc;
 
-use crate::{
-    Credential, FieldElement, Signer,
-    nullifier::{AuthenticatorProofInput, OprfNullifier},
-    proof::{ProofError, generate_nullifier_proof},
-    requests::{ProofRequest, RequestItem, ResponseItem},
-    types::{
-        AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-        IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-        IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
-        RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
-    },
-    world_id_registry::{
-        WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
-        sign_remove_authenticator, sign_update_authenticator,
-    },
+use world_id_primitives::{Credential, FieldElement};
+use world_id_signer::Signer;
+use world_id_types::{
+    AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
+    IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+    IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
+    RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
+
+use world_id_proof::nullifier::{AuthenticatorProofInput, OprfNullifier};
+use world_id_proof::proof::{ProofError, generate_nullifier_proof};
+use world_id_request::{ProofRequest, RequestItem, ResponseItem};
+
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
@@ -36,6 +33,10 @@ pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner}
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
     merkle::MerkleInclusionProof,
+};
+use world_id_registry::{
+    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
+    sign_remove_authenticator, sign_update_authenticator,
 };
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -91,7 +92,7 @@ impl Authenticator {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(crate::world_id_registry::WorldIdRegistry::new(
+                Some(world_id_registry::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
@@ -117,12 +118,12 @@ impl Authenticator {
 
         let cache_dir = config.zkey_cache_dir();
         let query_material = Arc::new(
-            crate::proof::load_embedded_query_material(cache_dir).map_err(|e| {
+            world_id_proof::proof::load_embedded_query_material(cache_dir).map_err(|e| {
                 AuthenticatorError::Generic(format!("Failed to load cached query material: {e}"))
             })?,
         );
         let nullifier_material = Arc::new(
-            crate::proof::load_embedded_nullifier_material(cache_dir).map_err(|e| {
+            world_id_proof::proof::load_embedded_nullifier_material(cache_dir).map_err(|e| {
                 AuthenticatorError::Generic(format!(
                     "Failed to load cached nullifier material: {e}"
                 ))
@@ -1006,11 +1007,15 @@ mod tests {
         static NULLIFIER: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
 
         let query = QUERY.get_or_init(|| {
-            Arc::new(crate::proof::load_embedded_query_material(Option::<PathBuf>::None).unwrap())
+            Arc::new(
+                world_id_proof::proof::load_embedded_query_material(Option::<PathBuf>::None)
+                    .unwrap(),
+            )
         });
         let nullifier = NULLIFIER.get_or_init(|| {
             Arc::new(
-                crate::proof::load_embedded_nullifier_material(Option::<PathBuf>::None).unwrap(),
+                world_id_proof::proof::load_embedded_nullifier_material(Option::<PathBuf>::None)
+                    .unwrap(),
             )
         });
 

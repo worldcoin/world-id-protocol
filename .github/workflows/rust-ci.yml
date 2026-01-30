@@ -53,12 +53,11 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features
 
   build:
-    name: Test Build
+    name: Feature Resolution (cargo-hack)
     runs-on:
       group: arc-public-large-amd64-runner
     permissions:
       contents: read
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -74,9 +73,13 @@ jobs:
         run: |
           make sol-build
 
-      - name: Build non-default features
+      - name: Install cargo-hack
         run: |
-          cargo build -p world-id-core --no-default-features
+          cargo install cargo-hack --locked
+
+      - name: Check Features
+        run: |
+          cargo hack check --each-feature --no-dev-deps
 
   test:
     name: Tests

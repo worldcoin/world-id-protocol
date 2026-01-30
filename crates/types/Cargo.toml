@@ -1,0 +1,37 @@
+[package]
+name = "world-id-types"
+description = "World ID Credential crate"
+publish = true
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
+
+[features]
+default = []
+openapi = ["dep:utoipa"]
+
+[dependencies]
+poseidon2 = { workspace = true }
+alloy = { workspace = true }
+utoipa = { workspace = true, optional = true }
+eddsa-babyjubjub = { workspace = true }
+eyre = { workspace = true }
+world-id-primitives = { workspace = true }
+ruint = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+strum = { workspace = true, features = ["derive"] }
+axum = { workspace = true }
+hex = { workspace = true }
+
+# Internal
+world-id-registry = { workspace = true }
+
+[dev-dependencies]
+ruint = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }

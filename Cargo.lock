@@ -8886,56 +8886,66 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 
 [[package]]
-name = "world-id-core"
+name = "world-id-authenticator"
 version = "0.3.0"
 dependencies = [
  "alloy",
- "alloy-node-bindings",
- "anyhow",
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-groth16 0.5.0",
  "ark-serialize 0.5.0",
- "axum",
  "backon",
- "chrono",
- "ciborium",
  "eyre",
- "hex",
- "k256",
  "mockito",
  "rand 0.8.5",
- "rayon",
  "reqwest",
  "ruint",
  "rustls 0.23.36",
  "secrecy",
- "serde",
  "serde_json",
- "strum 0.27.2",
  "taceo-ark-babyjubjub",
- "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-oprf",
- "taceo-oprf-test-utils",
  "taceo-poseidon2",
- "test-utils",
  "thiserror 1.0.69",
  "tokio",
- "tracing",
- "tracing-subscriber 0.3.22",
- "utoipa",
  "webpki-roots 1.0.5",
+ "world-id-credential",
+ "world-id-primitives",
+ "world-id-proof",
+ "world-id-registry",
+ "world-id-request",
+ "world-id-signer",
+ "world-id-types",
+]
+
+[[package]]
+name = "world-id-core"
+version = "0.3.0"
+dependencies = [
+ "alloy",
+ "backon",
+ "chrono",
+ "eyre",
+ "hex",
+ "rand 0.8.5",
+ "reqwest",
+ "rustls 0.23.36",
+ "serde_json",
+ "taceo-eddsa-babyjubjub",
+ "taceo-oprf",
+ "taceo-oprf-test-utils",
+ "test-utils",
+ "tokio",
+ "tracing-subscriber 0.3.22",
+ "world-id-authenticator",
  "world-id-credential",
  "world-id-gateway",
  "world-id-issuer",
  "world-id-primitives",
  "world-id-proof",
+ "world-id-registry",
  "world-id-request",
  "world-id-signer",
- "zeroize",
+ "world-id-types",
 ]
 
 [[package]]
@@ -9163,6 +9173,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-registry"
+version = "0.3.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "eyre",
+ "rand 0.8.5",
+ "ruint",
+ "serde_json",
+ "taceo-eddsa-babyjubjub",
+ "taceo-poseidon2",
+ "world-id-primitives",
+]
+
+[[package]]
 name = "world-id-request"
 version = "0.3.0"
 dependencies = [
@@ -9199,6 +9224,26 @@ dependencies = [
  "secrecy",
  "taceo-eddsa-babyjubjub",
  "world-id-primitives",
+]
+
+[[package]]
+name = "world-id-types"
+version = "0.3.0"
+dependencies = [
+ "alloy",
+ "axum",
+ "eyre",
+ "hex",
+ "rand 0.8.5",
+ "ruint",
+ "serde",
+ "serde_json",
+ "strum 0.27.2",
+ "taceo-eddsa-babyjubjub",
+ "taceo-poseidon2",
+ "utoipa",
+ "world-id-primitives",
+ "world-id-registry",
 ]
 
 [[package]]
