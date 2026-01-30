@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {IOprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
-import {Base} from "./abstract/Base.sol";
+import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 /**
@@ -11,7 +11,7 @@ import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIss
  * @author world
  * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
  */
-contract CredentialSchemaIssuerRegistry is Base, ICredentialSchemaIssuerRegistry {
+contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerRegistry {
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
