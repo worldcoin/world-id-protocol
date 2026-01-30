@@ -107,20 +107,20 @@ sol!(
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    Verifier,
+    WorldIDVerifier,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/Verifier.sol/Verifier.json"
+        "/../../contracts/out/WorldIDVerifier.sol/WorldIDVerifier.json"
     )
 );
 
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    VerifierNullifier,
+    Verifier,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/VerifierNullifier.sol/Verifier.json"
+        "/../../contracts/out/Verifier.sol/Verifier.json"
     )
 );
 
@@ -404,7 +404,7 @@ impl TestAnvil {
         .context("failed to deploy OprfKeyRegistry contract")
     }
 
-    pub async fn deploy_verifier(
+    pub async fn deploy_world_id_verifier(
         &self,
         signer: PrivateKeySigner,
         credential_issuer_registry: Address,
@@ -415,28 +415,30 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        let verifier_nullifier = VerifierNullifier::deploy(provider.clone())
+        // Groth16 verifier (nullifier circuit)
+        let groth16_verifier = Verifier::deploy(provider.clone())
             .await
-            .context("failed to deploy VerifierNullifier contract")?;
+            .context("failed to deploy Verifier (Groth16) contract")?;
 
-        let verifier = Verifier::deploy(provider.clone())
+        // WorldID verifier (upgradeable, delegates to Groth16 verifier)
+        let world_id_verifier = WorldIDVerifier::deploy(provider.clone())
             .await
-            .context("failed to deploy Verifier contract")?;
+            .context("failed to deploy WorldIDVerifier contract")?;
 
         let init_data = Bytes::from(
-            Verifier::initializeCall {
+            WorldIDVerifier::initializeCall {
                 _credentialIssuerRegistry: credential_issuer_registry,
                 _worldIDRegistry: world_id_registry,
                 _oprfKeyRegistry: oprf_key_registry,
-                _verifierNullifier: *verifier_nullifier.address(),
+                _verifier: *groth16_verifier.address(),
                 _proofTimestampDelta: uint!(3600_U256),
             }
             .abi_encode(),
         );
 
-        let proxy = ERC1967Proxy::deploy(provider, *verifier.address(), init_data)
+        let proxy = ERC1967Proxy::deploy(provider, *world_id_verifier.address(), init_data)
             .await
-            .context("failed to deploy Verifier proxy")?;
+            .context("failed to deploy WorldIDVerifier proxy")?;
 
         Ok(*proxy.address())
     }

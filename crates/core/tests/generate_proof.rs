@@ -10,7 +10,7 @@ use eyre::{Context as _, Result, eyre};
 use taceo_oprf::types::ShareEpoch;
 use taceo_oprf_test_utils::health_checks;
 use test_utils::{
-    anvil::Verifier,
+    anvil::WorldIDVerifier,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
@@ -41,7 +41,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         world_id_registry,
         rp_registry,
         oprf_key_registry,
-        verifier,
+        world_id_verifier,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,
@@ -241,6 +241,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
     assert_ne!(raw_nullifier, FieldElement::ZERO);
 
+    // Generate session_id_r_seed for proof generation
     let mut rng = rand::thread_rng();
     let session_id_r_seed = FieldElement::random(&mut rng); // Normally the authenticator would provide this from cache or (in the future) OPRF Nodes
 
@@ -258,10 +259,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     assert_eq!(response_item.nullifier.unwrap(), raw_nullifier);
 
-    // verify proof with the `Verifier.sol` contract
-    let verifier = Verifier::new(verifier, anvil.provider()?);
-
-    verifier
+    // verify proof with verifier contract
+    let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
+        WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
+    world_id_verifier
         .verify(
             response_item.nullifier.unwrap().into(),
             rp_fixture.action.into(),
