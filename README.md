@@ -43,10 +43,14 @@ This repo is organized into the following top-level components:
 The Rust crates are logically separated to ensure proper integration without feature flag conflicts:
 
 ```
-world-id-primitives [Foundation layer containing only raw types with no feature flags or implementation logic except for hashing mechanisms]
-└── functionality-specific crates [Providing focused use cases for authenticator, issuer, and RP operations.]
-    └── world-id-core [Top-level integration layer which exposes all functionality]
+world-id-primitives
+└── functionality-specific crates
+    └── world-id-core
 ```
+
+- `world-id-primitives`: Foundation layer containing only raw types with **no feature flags or implementation logic** except for hashing mechanisms.
+- Functionality-specific crates: Providing focused use cases for authenticator, issuer, and RP operations.
+- `world-id-core`: Top-level integration layer which exposes all functionality.
 
 
 ## 🚀 Releasing
