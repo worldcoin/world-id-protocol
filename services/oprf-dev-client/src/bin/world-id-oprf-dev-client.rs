@@ -41,7 +41,8 @@ use test_utils::{
 use uuid::Uuid;
 use world_id_core::{
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature,
-    FieldElement, proof::CircomGroth16Material,
+    FieldElement,
+    proof::CircomGroth16Material,
     requests::{ProofRequest, RequestItem, RequestVersion},
     types::AccountInclusionProof,
 };
