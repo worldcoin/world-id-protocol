@@ -4,7 +4,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use alloy::primitives::Address;
 use clap::Parser;
-use taceo_oprf_service::config::OprfNodeConfig;
+use taceo_oprf::service::config::OprfNodeConfig;
 
 /// The configuration for the OPRF node.
 ///
@@ -21,7 +21,6 @@ pub struct WorldOprfNodeConfig {
         env = "OPRF_NODE_MAX_WAIT_TIME_SHUTDOWN",
         default_value = "10s",
         value_parser = humantime::parse_duration
-
     )]
     pub max_wait_time_shutdown: Duration,
 
@@ -33,11 +32,11 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_RP_REGISTRY_CONTRACT")]
     pub rp_registry_contract: Address,
 
-    /// The maximum size of the merkle store.
+    /// The maximum size of the merkle root cache.
     ///
-    /// Will drop old merkle roots if this capacity is reached.
-    #[clap(long, env = "OPRF_NODE_MERKLE_STORE_SIZE", default_value = "100")]
-    pub max_merkle_store_size: usize,
+    /// Will drop least recently used merkle roots if this capacity is reached.
+    #[clap(long, env = "OPRF_NODE_MERKLE_CACHE_SIZE", default_value = "100")]
+    pub max_merkle_cache_size: u64,
 
     /// The maximum size of the RpRegistry store.
     ///
@@ -51,19 +50,21 @@ pub struct WorldOprfNodeConfig {
         env = "OPRF_NODE_CURRENT_TIME_STAMP_MAX_DIFFERENCE",
         default_value = "5min",
         value_parser = humantime::parse_duration
-
     )]
     pub current_time_stamp_max_difference: Duration,
 
-    /// Interval to cleanup the signature history
+    /// The interval for running maintenance tasks for caches.
+    ///
+    /// This includes removing expired entries from caches (invalidated automatically,
+    /// but not removed unless entries are added/removed or maintenance task are run)
+    /// and running potential eviction listeners to update metrics.
     #[clap(
         long,
-        env = "OPRF_NODE_SIGNATURE_HISTORY_CLEANUP_INTERVAL",
-        default_value = "10min",
+        env = "OPRF_NODE_CACHE_MAINTENANCE_INTERVAL",
+        default_value = "1min",
         value_parser = humantime::parse_duration
-
     )]
-    pub signature_history_cleanup_interval: Duration,
+    pub cache_maintenance_interval: Duration,
 
     /// The OPRF node config
     #[clap(flatten)]

@@ -1,9 +1,11 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
+    AppState,
+    batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
-    provider::{build_provider, build_wallet},
+    request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
         create_account::create_account,
@@ -16,57 +18,55 @@ use crate::{
         update_authenticator::update_authenticator,
     },
     types::RootExpiry,
-    AppState, SignerConfig,
 };
-use alloy::primitives::Address;
+use alloy::providers::DynProvider;
 use axum::{
+    Json, Router,
     extract::{Path, State},
+    middleware::from_fn,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use moka::future::Cache;
 use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
-use world_id_core::types::{
-    CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
-    GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
-    IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
-    UpdateAuthenticatorRequest,
+use world_id_core::{
+    types::{
+        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
+        GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
+        IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+        UpdateAuthenticatorRequest,
+    },
+    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
 mod create_account;
 mod health;
 mod insert_authenticator;
 mod is_valid_root;
+pub(crate) mod middleware;
 mod recover_account;
 mod remove_authenticator;
 mod request_status;
 mod update_authenticator;
-mod validation;
+pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 
 pub(crate) async fn build_app(
-    registry_addr: Address,
-    rpc_url: String,
-    signer_config: SignerConfig,
+    registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
-    let ethereum_wallet = build_wallet(signer_config, &rpc_url).await?;
-    let provider = build_provider(&rpc_url, ethereum_wallet)?;
-    tracing::info!("RPC Provider built");
-
     let tracker = RequestTracker::new(redis_url).await;
+
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
-        provider.clone(),
-        registry_addr,
+        registry.clone(),
         Duration::from_millis(batch_ms),
         max_create_batch_size,
         rx,
@@ -78,8 +78,7 @@ pub(crate) async fn build_app(
     let (otx, orx) = mpsc::channel(2048);
     let ops_batcher = OpsBatcherHandle { tx: otx };
     let ops_runner = OpsBatcherRunner::new(
-        provider.clone(),
-        registry_addr,
+        registry.clone(),
         Duration::from_millis(batch_ms),
         max_ops_batch_size,
         orx,
@@ -93,13 +92,18 @@ pub(crate) async fn build_app(
         .max_capacity(ROOT_CACHE_SIZE)
         .expire_after(RootExpiry)
         .build();
-    let state = AppState {
-        registry_addr,
-        provider,
-        batcher,
-        ops_batcher,
+
+    let batcher_handle = BatcherHandle {
+        create: batcher,
+        ops: ops_batcher,
+    };
+    let ctx = GatewayContext {
+        registry: registry.clone(),
+        tracker,
+        batcher: batcher_handle,
         root_cache,
     };
+    let state = AppState { ctx };
 
     Ok(Router::new()
         .route("/health", get(health))
@@ -115,11 +119,11 @@ pub(crate) async fn build_app(
         .route("/is-valid-root", get(is_valid_root))
         .route("/openapi.json", get(openapi))
         .with_state(state)
-        .layer(axum::Extension(tracker))
-        .layer(TraceLayer::new_for_http())
+        .layer(from_fn(middleware::request_id_middleware))
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
-        ))))
+        )))
+        .layer(TraceLayer::new_for_http()))
 }
 
 #[utoipa::path(

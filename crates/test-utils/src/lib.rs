@@ -1,4 +1,4 @@
-pub use taceo_oprf_test;
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod anvil;
 pub mod fixtures;

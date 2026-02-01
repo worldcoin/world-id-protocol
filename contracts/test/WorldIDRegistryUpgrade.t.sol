@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 /**
  * @title WorldIDRegistryV2Mock
@@ -35,8 +36,10 @@ contract WorldIDRegistryUpgradeTest is Test {
         // Deploy implementation V1
         WorldIDRegistry implementationV1 = new WorldIDRegistry();
 
-        // Deploy proxy with initialization
-        bytes memory initData = abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30);
+        // Deploy proxy with initialization (no fees)
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, address(0xAAA), feeToken, 0);
         proxy = new ERC1967Proxy(address(implementationV1), initData);
 
         worldIDRegistry = WorldIDRegistry(address(proxy));
@@ -53,7 +56,7 @@ contract WorldIDRegistryUpgradeTest is Test {
         worldIDRegistry.createAccount(address(0xABCD), authenticatorAddresses, authenticatorPubkeys, commitment);
 
         // Verify state before upgrade
-        assertEq(worldIDRegistry.nextLeafIndex(), 2);
+        assertEq(worldIDRegistry.getNextLeafIndex(), 2);
         uint256 rootBefore = worldIDRegistry.currentRoot();
 
         // Deploy V2 implementation
@@ -66,7 +69,7 @@ contract WorldIDRegistryUpgradeTest is Test {
         WorldIDRegistryV2Mock worldIDRegistryV2 = WorldIDRegistryV2Mock(address(proxy));
 
         // Verify storage was preserved
-        assertEq(worldIDRegistryV2.nextLeafIndex(), 2);
+        assertEq(worldIDRegistryV2.getNextLeafIndex(), 2);
         assertEq(worldIDRegistryV2.currentRoot(), rootBefore);
 
         // Verify new functionality works
@@ -80,7 +83,7 @@ contract WorldIDRegistryUpgradeTest is Test {
         uint256[] memory newAuthPubkeys = new uint256[](1);
         newAuthPubkeys[0] = 0;
         worldIDRegistryV2.createAccount(address(0xDEF), newAuthAddresses, newAuthPubkeys, 0x9876543210);
-        assertEq(worldIDRegistryV2.nextLeafIndex(), 3);
+        assertEq(worldIDRegistryV2.getNextLeafIndex(), 3);
     }
 
     function test_UpgradeFailsForNonOwner() public {
@@ -128,7 +131,7 @@ contract WorldIDRegistryUpgradeTest is Test {
     function test_CannotInitializeTwice() public {
         // Try to initialize again (should fail)
         vm.expectRevert();
-        worldIDRegistry.initialize(30);
+        worldIDRegistry.initialize(30, address(0), address(0), 0);
     }
 
     function test_ImplementationCannotBeInitialized() public {
@@ -137,6 +140,6 @@ contract WorldIDRegistryUpgradeTest is Test {
 
         // Try to initialize the implementation directly (should fail)
         vm.expectRevert();
-        implementation.initialize(30);
+        implementation.initialize(30, address(0), address(0), 0);
     }
 }

@@ -2,7 +2,8 @@
 
 use std::{fmt, str::FromStr};
 
-use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use ark_ff::{BigInteger as _, PrimeField as _};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 use crate::FieldElement;
 
@@ -84,6 +85,25 @@ impl<'de> Deserialize<'de> for RpId {
     }
 }
 
+/// Computes the message to be signed for the RP signature.
+///
+/// The message format is: `nonce || created_at || expires_at` (48 bytes total).
+/// - `nonce`: 32 bytes (big-endian)
+/// - `created_at`: 8 bytes (big-endian)
+/// - `expires_at`: 8 bytes (big-endian)
+#[must_use]
+pub fn compute_rp_signature_msg(
+    nonce: ark_babyjubjub::Fq,
+    created_at: u64,
+    expires_at: u64,
+) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(48);
+    msg.extend(nonce.into_bigint().to_bytes_be());
+    msg.extend(created_at.to_be_bytes());
+    msg.extend(expires_at.to_be_bytes());
+    msg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +170,23 @@ mod tests {
         let decoded: RpId = ciborium::from_reader(&buffer[..]).unwrap();
 
         assert_eq!(rp_id, decoded);
+    }
+
+    #[test]
+    fn test_compute_rp_signature_msg_fixed_length() {
+        // Test with small values that would have leading zeros in variable-length encoding
+        // to ensure we always get fixed 32-byte field elements
+        let nonce = ark_babyjubjub::Fq::from(1u64);
+        let created_at = 1000u64;
+        let expires_at = 2000u64;
+
+        let msg = compute_rp_signature_msg(nonce, created_at, expires_at);
+
+        // Message must always be exactly 80 bytes: 32 (nonce) + 8 (created_at) + 8 (expires_at)
+        assert_eq!(
+            msg.len(),
+            48,
+            "RP signature message must be exactly 48 bytes"
+        );
     }
 }

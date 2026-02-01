@@ -33,30 +33,26 @@ run-setup:
     sleep 1
     echo "preparing localstack"
     just prepare-localstack-secrets
+    just deploy-erc20-mock-anvil | tee logs/deploy_erc20_mock.log
+    erc20_mock=$(grep -oP 'ERC20Mock deployed to: \K0x[a-fA-F0-9]+' logs/deploy_erc20_mock.log)
     echo "starting WorldIDRegistry contract..."
-    just deploy-world-id-registry-anvil | tee logs/deploy_world_id_registry.log
+    FEE_TOKEN=$erc20_mock FEE_RECIPIENT=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 REGISTRATION_FEE=0 just deploy-world-id-registry-anvil | tee logs/deploy_world_id_registry.log
     world_id_registry=$(grep -oP 'WorldIDRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_world_id_registry.log)
     echo "starting OprfKeyRegistry contract.."
     just deploy-oprf-key-registry-with-deps-anvil | tee logs/deploy_oprf_key_registry.log
-    oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
+    oprf_key_registry=$(grep -oP 'OprfKeyRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     echo "starting RpRegistry contract..."
-    just deploy-erc20-mock-anvil | tee logs/deploy_erc20_mock.log
-    erc20_mock=$(grep -oP 'ERC20Mock deployed to: \K0x[a-fA-F0-9]+' logs/deploy_erc20_mock.log)
     OPRF_KEY_REGISTRY_ADDRESS=$oprf_key_registry FEE_TOKEN=$erc20_mock FEE_RECIPIENT=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 REGISTRATION_FEE=0 just deploy-rp-registry-anvil | tee logs/deploy_rp_registry.log
     rp_registry=$(grep -oP 'RpRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_rp_registry.log)
     OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$rp_registry just register-oprf-key-registry-admin-anvil
     echo "register oprf-nodes..."
     OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry just register-participants-anvil
-    echo "starting indexer..."
-    REGISTRY_ADDRESS=$world_id_registry just run-indexer-and-gateway
     echo "starting OPRF key-gen instances..."
     OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     echo "starting OPRF nodes..."
     OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry OPRF_NODE_WORLD_ID_REGISTRY_CONTRACT=$world_id_registry OPRF_NODE_RP_REGISTRY_CONTRACT=$rp_registry just run-nodes
     echo "stopping containers..."
     docker compose down
-    killall -9 world-id-indexer
-    killall -9 world-id-indexer
     killall -9 world-id-oprf-node
     killall -9 anvil
 
@@ -65,36 +61,19 @@ run-oprf-key-registry-and-nodes $OPRF_SERVICE_WORLD_ID_REGISTRY_CONTRACT:
     mkdir -p logs
     echo "starting OprfKeyRegistry contract.."
     just deploy-oprf-key-registry-with-deps-anvil | tee logs/deploy_oprf_key_registry.log
-    oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
+    oprf_key_registry=$(grep -oP 'OprfKeyRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     sleep 1
     echo "starting OPRF services..."
     OPRF_SERVICE_RP_REGISTRY_CONTRACT=$oprf_key_registry just run-nodes
 
 run-dev-client *args:
     #!/usr/bin/env bash
-    oprf_key_registry=$(grep -oP 'OprfKeyRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
+    oprf_key_registry=$(grep -oP 'OprfKeyRegistry proxy deployed to: \K0x[a-fA-F0-9]+' logs/deploy_oprf_key_registry.log)
     world_id_registry=$(grep -oP 'WorldIDRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_world_id_registry.log)
     rp_registry=$(grep -oP 'RpRegistry deployed to: \K0x[a-fA-F0-9]+' logs/deploy_rp_registry.log)
     cargo build -p world-id-oprf-dev-client --release
     # use addresses from deploy logs or use existing env vars
     OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT:-$oprf_key_registry} OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT:-$world_id_registry} OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT:-$rp_registry} ./target/release/world-id-oprf-dev-client {{ args }}
-
-[private]
-run-indexer-and-gateway:
-    #!/usr/bin/env bash
-    killall -9 world-id-indexer
-    killall -9 world-id-gateway
-    mkdir -p logs
-    RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres cargo run --release -p world-id-indexer -- --http --indexer > logs/world-id-indexer.log 2>&1 &
-    indexer_pid=$!
-    echo "started indexer with PID $indexer_pid"
-    until curl -sSf http://localhost:8080 2>&1 | grep -vq "Failed to connect"; do
-        echo "Waiting for world-id-indexer HTTP server on localhost:8080..."
-        sleep 1
-    done
-    RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres WALLET_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
-    gateway_pid=$!
-    echo "started gateway with PID $gateway_pid"
 
 [private]
 [working-directory('contracts/script')]

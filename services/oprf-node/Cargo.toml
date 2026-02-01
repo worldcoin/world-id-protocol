@@ -21,14 +21,12 @@ clap = { version = "4", features = ["derive", "env"] }
 eyre.workspace = true
 futures = { workspace = true }
 humantime = "2"
-parking_lot = "0.12"
 rustls = "0.23"
 secrecy = "0.10"
 serde_json.workspace = true
 taceo-nodes-common = "0.1"
 taceo-nodes-observability = "0.1"
-taceo-oprf-service = { workspace = true }
-taceo-oprf-types = { workspace = true }
+taceo-oprf = { workspace = true, features = ["service"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = [
   "net",
@@ -44,6 +42,7 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
 world-id-primitives = { workspace = true }
 moka.workspace = true
+metrics.workspace = true
 
 [dev-dependencies]
 test-utils = { path = "../../crates/test-utils" }

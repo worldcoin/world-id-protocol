@@ -1,9 +1,19 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
-use crate::auth::rp_registry_watcher::RpRegistry::RpUpdated;
+use crate::{
+    auth::rp_registry_watcher::RpRegistry::RpUpdated,
+    metrics::{
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+    },
+};
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
@@ -13,7 +23,7 @@ use alloy::{
 };
 use futures::StreamExt as _;
 use moka::{future::Cache, ops::compute::Op};
-use taceo_oprf_types::OprfKeyId;
+use taceo_oprf::types::OprfKeyId;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use world_id_primitives::rp::RpId;
@@ -64,9 +74,12 @@ impl RpRegistryWatcher {
         contract_address: Address,
         ws_rpc_url: &str,
         max_rp_registry_store_size: u64,
+        cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Self> {
+        ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
+
         tracing::info!("creating provider for rp-registry-watcher...");
         let ws = WsConnect::new(ws_rpc_url);
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
@@ -127,6 +140,20 @@ impl RpRegistryWatcher {
             }
         });
 
+        // periodically run maintenance tasks on the cache and update metrics
+        tokio::spawn({
+            let rp_store = rp_store.clone();
+            let mut interval = tokio::time::interval(cache_maintenance_interval);
+            async move {
+                loop {
+                    interval.tick().await;
+                    rp_store.run_pending_tasks().await;
+                    let size = rp_store.entry_count() as f64;
+                    ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(size);
+                }
+            }
+        });
+
         Ok(Self {
             rp_store,
             provider: provider.erased(),
@@ -141,6 +168,7 @@ impl RpRegistryWatcher {
         {
             if let Some(rp) = self.rp_store.get(rp_id).await {
                 tracing::debug!("rp {rp_id} found in store");
+                ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
                 return Ok(rp);
             }
         }
@@ -154,11 +182,14 @@ impl RpRegistryWatcher {
             .map_err(RpRegistryWatcherError::AlloyError)?;
 
         if rp.initialized {
+            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+
             let relying_party = RelyingParty {
                 signer: rp.signer,
                 oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
             };
             self.rp_store.insert(*rp_id, relying_party.clone()).await;
+
             tracing::debug!("rp {rp_id} loaded from chain and stored");
 
             Ok(relying_party)

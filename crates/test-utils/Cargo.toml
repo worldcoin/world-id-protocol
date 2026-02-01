@@ -22,19 +22,17 @@ serde_json = { workspace = true }
 poseidon2 = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-ff = { workspace = true }
-ark-serialize = { workspace = true }
-world-id-primitives = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }
 ark-ec = { workspace = true }
-taceo-oprf-types = { workspace = true }
-taceo-oprf-test = { workspace = true }
+taceo-oprf = { workspace = true, features = ["full"] }
+taceo-oprf-test-utils = { workspace = true }
 taceo-oprf-key-gen = { workspace = true }
 axum = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
-taceo-oprf-service = { workspace = true }
 world-id-oprf-node = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
 semver = { workspace = true }
+world-id-primitives = { workspace = true }

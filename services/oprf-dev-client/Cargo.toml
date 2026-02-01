@@ -15,15 +15,13 @@ backon.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 eyre.workspace = true
 humantime = "2"
-taceo-nodes-observability = "0.1"
-taceo-oprf-types = { workspace = true }
-taceo-oprf-client = { workspace = true }
-taceo-oprf-core = { workspace = true }
-taceo-oprf-test = { workspace = true }
 rand.workspace = true
 rand_chacha.workspace = true
 rustls.workspace = true
 secrecy = "0.10"
+taceo-nodes-observability = "0.1"
+taceo-oprf = { workspace = true, features = ["dev-client"] }
+taceo-oprf-test-utils = { workspace = true }
 test-utils = { path = "../../crates/test-utils" }
 tokio = { workspace = true, features = [
   "net",
@@ -37,4 +35,5 @@ tracing.workspace = true
 uuid = { workspace = true, features = ["serde", "v4"] }
 webpki-roots.workspace = true
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
+world-id-gateway = { path = "../gateway" }
 world-id-primitives = { workspace = true }

@@ -1,19 +1,24 @@
 use std::time::Duration;
 
-use alloy::primitives::{address, Address, U256};
-use alloy::providers::Provider;
-use alloy::signers::local::PrivateKeySigner;
+use ::common::ProviderArgs;
+use alloy::{
+    primitives::{Address, U256, address},
+    providers::Provider,
+    signers::local::PrivateKeySigner,
+};
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
-use world_id_core::types::{
-    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+use world_id_core::{
+    types::{
+        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    },
+    world_id_registry::{
+        WorldIdRegistry, domain as ag_domain, sign_insert_authenticator, sign_recover_account,
+        sign_remove_authenticator, sign_update_authenticator,
+    },
 };
-use world_id_core::world_id_registry::{
-    domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator, WorldIdRegistry,
-};
-use world_id_gateway::{spawn_gateway_for_tests, GatewayConfig, SignerArgs};
+use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
 
 use crate::common::{wait_for_finalized, wait_http_ready};
 
@@ -86,8 +91,11 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        rpc_url: rpc_url.clone(),
-        signer_args,
+        provider: ProviderArgs {
+            http: Some(vec![rpc_url.parse().unwrap()]),
+            signer: Some(signer_args),
+            ..Default::default()
+        },
         batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
         max_create_batch_size: 10,
@@ -153,7 +161,7 @@ async fn e2e_gateway_full_flow() {
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let packed_after = contract
-            .authenticatorAddressToPackedAccountData(wallet_addr)
+            .getPackedAccountData(wallet_addr)
             .call()
             .await
             .unwrap();
@@ -173,7 +181,7 @@ async fn e2e_gateway_full_flow() {
     let contract = WorldIdRegistry::new(gw.registry_addr, provider.clone());
     // The wallet address must be registered as authenticator for account 1
     let packed = contract
-        .authenticatorAddressToPackedAccountData(wallet_addr)
+        .getPackedAccountData(wallet_addr)
         .call()
         .await
         .unwrap();
@@ -245,7 +253,7 @@ async fn e2e_gateway_full_flow() {
     let deadline2 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountData(new_auth2)
+            .getPackedAccountData(new_auth2)
             .call()
             .await
             .unwrap();
@@ -310,7 +318,7 @@ async fn e2e_gateway_full_flow() {
     let deadline3 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountData(new_auth2)
+            .getPackedAccountData(new_auth2)
             .call()
             .await
             .unwrap();
@@ -379,7 +387,7 @@ async fn e2e_gateway_full_flow() {
     let deadline4 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let v = contract
-            .authenticatorAddressToPackedAccountData(wallet_addr_new)
+            .getPackedAccountData(wallet_addr_new)
             .call()
             .await
             .unwrap();
@@ -449,12 +457,12 @@ async fn e2e_gateway_full_flow() {
     let deadline5 = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let old_v = contract
-            .authenticatorAddressToPackedAccountData(wallet_addr_new)
+            .getPackedAccountData(wallet_addr_new)
             .call()
             .await
             .unwrap();
         let new_v = contract
-            .authenticatorAddressToPackedAccountData(new_auth4)
+            .getPackedAccountData(new_auth4)
             .call()
             .await
             .unwrap();
@@ -502,7 +510,7 @@ async fn test_authenticator_already_exists_error_code() {
     let deadline_ca = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let packed_after = contract
-            .authenticatorAddressToPackedAccountData(wallet_addr)
+            .getPackedAccountData(wallet_addr)
             .call()
             .await
             .unwrap();

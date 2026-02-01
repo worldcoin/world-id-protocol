@@ -8,18 +8,21 @@ use std::sync::Arc;
 
 use eyre::Context;
 use secrecy::ExposeSecret;
-use taceo_oprf_service::{secret_manager::SecretManagerService, StartedServices};
+use taceo_oprf::service::{
+    OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
+};
 
 use crate::{
     auth::{
-        merkle_watcher::MerkleWatcher, rp_registry_watcher::RpRegistryWatcher,
-        WorldOprfRequestAuthenticator,
+        WorldOprfRequestAuthenticator, merkle_watcher::MerkleWatcher,
+        rp_registry_watcher::RpRegistryWatcher, signature_history::SignatureHistory,
     },
     config::WorldOprfNodeConfig,
 };
 
 pub(crate) mod auth;
 pub mod config;
+pub mod metrics;
 
 /// Main entry point for an OPRF node.
 ///
@@ -44,7 +47,8 @@ pub async fn start(
     let merkle_watcher = MerkleWatcher::init(
         config.world_id_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
-        config.max_merkle_store_size,
+        config.max_merkle_cache_size,
+        config.cache_maintenance_interval,
         started_services.new_service(),
         cancellation_token.clone(),
     )
@@ -56,29 +60,39 @@ pub async fn start(
         config.rp_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_rp_registry_store_size,
+        config.cache_maintenance_interval,
         started_services.new_service(),
         cancellation_token.clone(),
     )
     .await
     .context("while starting merkle watcher")?;
 
+    tracing::info!("init SignatureHistory..");
+    // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
+    let signature_history = SignatureHistory::init(
+        config.current_time_stamp_max_difference * 2,
+        config.cache_maintenance_interval,
+    );
+
     tracing::info!("init oprf request auth service..");
     let oprf_req_auth_service = Arc::new(WorldOprfRequestAuthenticator::init(
         merkle_watcher,
         rp_registry_watcher,
+        signature_history,
         config.current_time_stamp_max_difference,
-        config.signature_history_cleanup_interval,
     ));
 
     tracing::info!("init oprf service..");
-    let (oprf_service_router, key_event_watcher) = taceo_oprf_service::init(
+    let (oprf_service_router, key_event_watcher) = OprfServiceBuilder::init(
         node_config,
         secret_manager,
-        oprf_req_auth_service,
         started_services,
         cancellation_token.clone(),
     )
-    .await?;
+    .await?
+    .module("/rp", oprf_req_auth_service)
+    // .module("/issuer", oprf_req_auth_service)
+    .build();
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;
     let axum_cancel_token = cancellation_token.clone();

@@ -1,21 +1,31 @@
-use crate::request_tracker::RequestTracker;
-use axum::{extract::Path, Json};
+//! Request status handler.
+
+use crate::types::AppState;
+use axum::{
+    Json,
+    extract::{Path, State},
+};
+use tracing::instrument;
 use world_id_core::types::{GatewayErrorResponse, GatewayStatusResponse};
 
+/// GET /v1/requests/:id
+///
+/// Get the current status of a submitted request.
+#[instrument(name = "request_status", skip(state), fields(request_id = %id))]
 pub(crate) async fn request_status(
-    axum::Extension(tracker): axum::Extension<RequestTracker>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
-    let record = tracker
+    let record = state
+        .ctx
+        .tracker
         .snapshot(&id)
         .await
         .ok_or_else(GatewayErrorResponse::not_found)?;
 
-    let body = GatewayStatusResponse {
+    Ok(Json(GatewayStatusResponse {
         request_id: id,
         kind: record.kind,
         status: record.status,
-    };
-
-    Ok(Json(body))
+    }))
 }

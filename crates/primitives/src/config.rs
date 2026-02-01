@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 
 use alloy_primitives::Address;
@@ -31,6 +33,9 @@ pub struct Config {
     /// Minimum number of Nullifier Oracle responses required to build a nullifier.
     #[serde(default = "default_nullifier_oracle_threshold")]
     nullifier_oracle_threshold: usize,
+    /// Optional directory to cache uncompressed circuit zkeys.
+    #[serde(default)]
+    zkey_cache_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -65,6 +70,7 @@ impl Config {
             gateway_url,
             nullifier_oracle_urls,
             nullifier_oracle_threshold,
+            zkey_cache_dir: None,
         })
     }
 
@@ -118,5 +124,18 @@ impl Config {
     #[must_use]
     pub const fn nullifier_oracle_threshold(&self) -> usize {
         self.nullifier_oracle_threshold
+    }
+
+    /// Optional directory to cache uncompressed circuit zkeys.
+    #[must_use]
+    pub fn zkey_cache_dir(&self) -> Option<&Path> {
+        self.zkey_cache_dir.as_deref()
+    }
+
+    /// Sets the directory used to cache uncompressed circuit zkeys.
+    #[must_use]
+    pub fn with_zkey_cache_dir(mut self, zkey_cache_dir: impl Into<PathBuf>) -> Self {
+        self.zkey_cache_dir = Some(zkey_cache_dir.into());
+        self
     }
 }

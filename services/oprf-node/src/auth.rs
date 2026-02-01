@@ -7,10 +7,13 @@
 //! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
 //! - [`signature_history`] – keeps track of nonce + time_stamp signatures to detect replays
 
-use crate::auth::{
-    merkle_watcher::{MerkleWatcher, MerkleWatcherError},
-    rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
-    signature_history::{DuplicateSignatureError, SignatureHistory},
+use crate::{
+    auth::{
+        merkle_watcher::{MerkleWatcher, MerkleWatcherError},
+        rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+        signature_history::{DuplicateSignatureError, SignatureHistory},
+    },
+    metrics::{METRICS_ID_NODE_REQUEST_AUTH_START, METRICS_ID_NODE_REQUEST_AUTH_VERIFIED},
 };
 use ark_bn254::Bn254;
 use async_trait::async_trait;
@@ -20,10 +23,9 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use taceo_oprf_service::OprfRequestAuthenticator;
-use taceo_oprf_types::api::v1::OprfRequest;
+use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator};
 use uuid::Uuid;
-use world_id_primitives::{oprf::OprfRequestAuthV1, TREE_DEPTH};
+use world_id_primitives::{TREE_DEPTH, oprf::OprfRequestAuthV1};
 
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
@@ -126,18 +128,15 @@ impl WorldOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
         rp_registry_watcher: RpRegistryWatcher,
+        signature_history: SignatureHistory,
         current_time_stamp_max_difference: Duration,
-        signature_history_cleanup_interval: Duration,
     ) -> Self {
         let vk: VerificationKey<Bn254> =
             serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
         Self {
-            signature_history: SignatureHistory::init(
-                current_time_stamp_max_difference * 2,
-                signature_history_cleanup_interval,
-            ),
             merkle_watcher,
             rp_registry_watcher,
+            signature_history,
             vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
             current_time_stamp_max_difference,
         }
@@ -153,6 +152,8 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<(), Self::RequestAuthError> {
+        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
+
         // check the time stamp against system time +/- difference
         let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
         let current_time = SystemTime::now()
@@ -171,9 +172,10 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         }
 
         // check the RP nonce signature
-        let msg = world_id_primitives::oprf::compute_rp_signature_msg(
+        let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
             request.auth.current_time_stamp,
+            request.auth.expiration_timestamp,
         );
 
         let recovered = request.auth.signature.recover_address_from_msg(&msg)?;
@@ -183,7 +185,8 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
 
         // add signature to history to check if the nonces where only used once
         self.signature_history
-            .add_signature(request.auth.signature.as_bytes().to_vec(), req_time_stamp)?;
+            .add_signature(request.auth.signature.as_bytes().to_vec())
+            .await?;
 
         // check if the merkle root is valid
         let valid = self
@@ -213,6 +216,7 @@ impl OprfRequestAuthenticator for WorldOprfRequestAuthenticator {
         )
         .expect("We expect that we loaded the correct key");
         if valid {
+            ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_VERIFIED).increment(1);
             tracing::debug!("proof valid");
             Ok(())
         } else {

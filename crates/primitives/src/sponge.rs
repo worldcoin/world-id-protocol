@@ -1,6 +1,5 @@
 use ark_babyjubjub::Fq;
 use ark_ff::Zero;
-use poseidon2::{Poseidon2, POSEIDON2_BN254_T16_PARAMS};
 use sha3::{Digest, Sha3_256};
 
 use crate::{FieldElement, PrimitiveError};
@@ -174,8 +173,6 @@ fn hash_bytes_with_poseidon2_t16_r15(
         reason: "data length exceeds supported range (u32::MAX)".to_string(),
     })?;
 
-    let poseidon2: Poseidon2<Fq, 16, 5> = Poseidon2::new(&POSEIDON2_BN254_T16_PARAMS);
-
     // Initialize state with zeros
     let mut state: [Fq; 16] = [Fq::zero(); 16];
 
@@ -198,7 +195,7 @@ fn hash_bytes_with_poseidon2_t16_r15(
         for (i, &elem) in batch.iter().enumerate() {
             state[i] += elem;
         }
-        poseidon2.permutation_in_place(&mut state);
+        poseidon2::bn254::t16::permutation_in_place(&mut state);
     }
 
     // Enforce squeeze step and pattern completion.
@@ -211,7 +208,7 @@ fn hash_bytes_with_poseidon2_t16_r15(
 
 #[cfg(test)]
 mod tests {
-    use crate::{sponge::hash_bytes_with_poseidon2_t16_r15, FieldElement, PrimitiveError};
+    use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_with_poseidon2_t16_r15};
 
     use super::hash_bytes_to_field_element;
 

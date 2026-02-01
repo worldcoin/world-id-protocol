@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - contracts/**/*
+      - crates/core/contracts/**/*
 
 permissions:
   contents: read
@@ -34,3 +35,24 @@ jobs:
 
       - name: Check formatting
         run: forge fmt --check
+
+  check-abis:
+    name: Check ABIs are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Regenerate ABIs
+        run: make sol-build
+
+      - name: Check for ABI changes
+        run: |
+          if ! git diff --exit-code contracts/abi/; then
+            echo "::error::ABI files are out of sync with contracts. Run 'make sol-build' and commit the changes."
+            exit 1
+          fi
