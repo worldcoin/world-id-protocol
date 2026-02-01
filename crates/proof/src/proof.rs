@@ -16,8 +16,7 @@ use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{
-    Credential, FieldElement, HashableCredential as _, TREE_DEPTH,
-    circuit_inputs::NullifierProofCircuitInput,
+    Credential, FieldElement, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
 };
 use world_id_request::RequestItem;
 

@@ -3,7 +3,7 @@ use std::env::args;
 use chrono::Utc;
 use eyre::Result;
 use serde_json::json;
-use world_id_core::{Credential, EdDSAPrivateKey, FieldElement, HashableCredential};
+use world_id_core::{Credential, EdDSAPrivateKey, FieldElement};
 
 static ISSUER_SCHEMA_ID: u64 = 1;
 static EXPIRATION_TIME: u64 = 3600;
