@@ -45,7 +45,6 @@ webpki-roots = { workspace = true, optional = true }
 world-id-registry = { workspace = true }
 world-id-signer = { workspace = true }
 world-id-types = { workspace = true }
-world-id-credential = { workspace = true }
 world-id-request = { workspace = true }
 world-id-proof = { workspace = true }
 

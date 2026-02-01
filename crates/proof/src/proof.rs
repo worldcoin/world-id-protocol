@@ -15,9 +15,9 @@ use ark_bn254::Bn254;
 use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
-use world_id_credential::HashableCredential as _;
 use world_id_primitives::{
-    Credential, FieldElement, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
+    Credential, FieldElement, HashableCredential as _, TREE_DEPTH,
+    circuit_inputs::NullifierProofCircuitInput,
 };
 use world_id_request::RequestItem;
 

@@ -1,5 +1,5 @@
 use ark_babyjubjub::EdwardsAffine;
-use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use rand::Rng;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
@@ -324,6 +324,98 @@ where
     arr.copy_from_slice(&bytes);
     let signature = EdDSASignature::from_compressed_bytes(arr).map_err(de::Error::custom)?;
     Ok(Some(signature))
+}
+
+/// Introduces hashing and signing capabilities to the `Credential` type.
+pub trait HashableCredential {
+    /// Get the claims hash of the credential.
+    ///
+    /// # Errors
+    /// Will error if there are more claims than the maximum allowed.
+    /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
+    fn claims_hash(&self) -> Result<FieldElement, eyre::Error>;
+
+    // Computes the specifically designed hash of the credential for the given version.
+    ///
+    /// The hash is signed by the issuer to provide authenticity for the credential.
+    ///
+    /// # Errors
+    /// - Will error if there are more claims than the maximum allowed.
+    /// - Will error if the claims cannot be lowered into the field. Should not occur in practice.
+    fn hash(&self) -> Result<FieldElement, eyre::Error>;
+
+    /// Sign the credential.
+    ///
+    /// # Errors
+    /// Will error if the credential cannot be hashed.
+    fn sign(self, signer: &EdDSAPrivateKey) -> Result<Self, eyre::Error>
+    where
+        Self: Sized;
+
+    /// Verify the signature of the credential against the issuer public key and expected hash.
+    ///
+    /// # Errors
+    /// Will error if the credential is not signed.
+    /// Will error if the credential cannot be hashed.
+    fn verify_signature(
+        &self,
+        expected_issuer_pubkey: &EdDSAPublicKey,
+    ) -> Result<bool, eyre::Error>;
+}
+
+impl HashableCredential for Credential {
+    fn claims_hash(&self) -> Result<FieldElement, eyre::Error> {
+        if self.claims.len() > Self::MAX_CLAIMS {
+            eyre::bail!("There can be at most {} claims", Self::MAX_CLAIMS);
+        }
+        let mut input = [*FieldElement::ZERO; Self::MAX_CLAIMS];
+        for (i, claim) in self.claims.iter().enumerate() {
+            input[i] = **claim;
+        }
+        poseidon2::bn254::t16::permutation_in_place(&mut input);
+        Ok(input[1].into())
+    }
+
+    fn hash(&self) -> Result<FieldElement, eyre::Error> {
+        match self.version {
+            CredentialVersion::V1 => {
+                let mut input = [
+                    *self.get_cred_ds(),
+                    self.issuer_schema_id.into(),
+                    *self.sub,
+                    self.genesis_issued_at.into(),
+                    self.expires_at.into(),
+                    *self.claims_hash()?,
+                    *self.associated_data_hash,
+                    self.id.into(),
+                ];
+                poseidon2::bn254::t8::permutation_in_place(&mut input);
+                Ok(input[1].into())
+            }
+        }
+    }
+
+    fn sign(self, signer: &EdDSAPrivateKey) -> Result<Self, eyre::Error> {
+        let mut credential = self;
+        credential.signature = Some(signer.sign(*credential.hash()?));
+        credential.issuer = signer.public();
+        Ok(credential)
+    }
+
+    fn verify_signature(
+        &self,
+        expected_issuer_pubkey: &EdDSAPublicKey,
+    ) -> Result<bool, eyre::Error> {
+        if &self.issuer != expected_issuer_pubkey {
+            return Err(eyre::eyre!(
+                "Issuer public key does not match expected public key"
+            ));
+        }
+        if let Some(signature) = &self.signature {
+            return Ok(self.issuer.verify(*self.hash()?, signature));
+        }
+        Err(eyre::eyre!("Credential not signed"))
+    }
 }
 
 #[cfg(test)]

@@ -41,7 +41,7 @@ pub mod sponge;
 
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
-pub use credential::{Credential, CredentialVersion};
+pub use credential::{Credential, CredentialVersion, HashableCredential};
 
 /// Contains base types for operations with Merkle trees.
 pub mod merkle;

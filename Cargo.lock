@@ -9087,7 +9087,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "webpki-roots 1.0.5",
- "world-id-credential",
  "world-id-primitives",
  "world-id-proof",
  "world-id-registry",
@@ -9116,7 +9115,6 @@ dependencies = [
  "tokio",
  "tracing-subscriber 0.3.22",
  "world-id-authenticator",
- "world-id-credential",
  "world-id-gateway",
  "world-id-issuer",
  "world-id-primitives",
@@ -9125,19 +9123,6 @@ dependencies = [
  "world-id-request",
  "world-id-signer",
  "world-id-types",
-]
-
-[[package]]
-name = "world-id-credential"
-version = "0.3.0"
-dependencies = [
- "eyre",
- "rand 0.8.5",
- "ruint",
- "serde_json",
- "taceo-eddsa-babyjubjub",
- "taceo-poseidon2",
- "world-id-primitives",
 ]
 
 [[package]]
@@ -9299,6 +9284,7 @@ dependencies = [
  "ark-serialize 0.5.0",
  "arrayvec",
  "ciborium",
+ "eyre",
  "getrandom 0.2.17",
  "hex",
  "rand 0.8.5",
@@ -9336,7 +9322,6 @@ dependencies = [
  "taceo-oprf",
  "thiserror 1.0.69",
  "tracing",
- "world-id-credential",
  "world-id-primitives",
  "world-id-request",
  "zeroize",
