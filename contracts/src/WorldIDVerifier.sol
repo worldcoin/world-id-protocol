@@ -49,6 +49,10 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     string public constant EIP712_NAME = "WorldIDVerifier";
     string public constant EIP712_VERSION = "1.0";
 
+    ////////////////////////////////////////////////////////////
+    //                        Constructor                     //
+    ////////////////////////////////////////////////////////////
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -82,6 +86,10 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         treeDepth = worldIDRegistry.getTreeDepth();
     }
 
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
     /// @inheritdoc IWorldIDVerifier
     function verify(
         uint256 nullifier,
@@ -94,8 +102,62 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual onlyProxy onlyInitialized {
-        uint256 merkleRoot = zeroKnowledgeProof[4];
-        if (!worldIDRegistry.isValidRoot(merkleRoot)) {
+        this._verifyProofAndSignals(
+            nullifier,
+            action,
+            rpId,
+            nonce,
+            signalHash,
+            proofTimestamp,
+            issuerSchemaId,
+            credentialGenesisIssuedAtMin,
+            // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
+            // To verify a Session Proof use `verifySession` instead.
+            0,
+            zeroKnowledgeProof
+        );
+    }
+
+    function verifySession(
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint256 proofTimestamp,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
+        uint256[2] calldata sessionNullifier,
+        uint256[5] calldata zeroKnowledgeProof
+    ) external view {
+        this._verifyProofAndSignals(
+            sessionNullifier[0],
+            sessionNullifier[1],
+            rpId,
+            nonce,
+            signalHash,
+            proofTimestamp,
+            issuerSchemaId,
+            credentialGenesisIssuedAtMin,
+            sessionId,
+            zeroKnowledgeProof
+        );
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function _verifyProofAndSignals(
+        uint256 nullifier,
+        uint256 action,
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint256 proofTimestamp,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
+        uint256[5] calldata zeroKnowledgeProof
+    ) external view {
+        uint256 worldIdRegistryMerkleRoot = zeroKnowledgeProof[4];
+        if (!worldIDRegistry.isValidRoot(worldIdRegistryMerkleRoot)) {
             revert InvalidMerkleRoot();
         }
 
@@ -127,7 +189,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         pubSignals[3] = credentialIssuerPubkey.y;
         pubSignals[4] = proofTimestamp;
         pubSignals[5] = credentialGenesisIssuedAtMin;
-        pubSignals[6] = merkleRoot;
+        pubSignals[6] = worldIdRegistryMerkleRoot;
         pubSignals[7] = treeDepth;
         pubSignals[8] = uint256(rpId);
         pubSignals[9] = action;
@@ -135,10 +197,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         pubSignals[11] = oprfPublicKey.y;
         pubSignals[12] = signalHash;
         pubSignals[13] = nonce;
-
-        // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
-        // To verify a Session Proof use `verifySession` instead.
-        pubSignals[14] = 0;
+        pubSignals[14] = sessionId;
 
         uint256[4] memory groth16CompressedProof;
         for (uint256 i = 0; i < 4; i++) {
@@ -147,6 +206,10 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
 
         verifier.verifyCompressedProof(groth16CompressedProof, pubSignals);
     }
+
+    ////////////////////////////////////////////////////////////
+    //                      Owner Functions                   //
+    ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IWorldIDVerifier
     function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry)
@@ -200,4 +263,3 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);
     }
 }
-
