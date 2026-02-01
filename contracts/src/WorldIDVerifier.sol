@@ -128,7 +128,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256 sessionId,
         uint256[2] calldata sessionNullifier,
         uint256[5] calldata zeroKnowledgeProof
-    ) external view {
+    ) external view virtual onlyProxy onlyInitialized {
         this._verifyProofAndSignals(
             sessionNullifier[0],
             sessionNullifier[1],
@@ -155,7 +155,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
         uint256[5] calldata zeroKnowledgeProof
-    ) external view {
+    ) external view virtual onlyProxy onlyInitialized {
         uint256 worldIdRegistryMerkleRoot = zeroKnowledgeProof[4];
         if (!worldIDRegistry.isValidRoot(worldIdRegistryMerkleRoot)) {
             revert InvalidMerkleRoot();
