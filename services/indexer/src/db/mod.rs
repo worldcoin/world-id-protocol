@@ -88,7 +88,7 @@ impl<'a> PostgresDBTransaction<'a> {
         let conn = tx.acquire().await?;
 
         match isolation_level {
-            IsolationLevel::ReadUncommited => {
+            IsolationLevel::ReadUncommitted => {
                 sqlx::query("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
                     .execute(&mut *conn)
                     .await?;
