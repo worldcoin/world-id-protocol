@@ -20,13 +20,13 @@ use crate::{
     proof::{OPRF_PROOF_DS, ProofError},
 };
 
-/// Blinding factor computed using OPRF Nodes.
-pub struct OprfBlindingFactor {
+/// Credential blinding factor computed using OPRF Nodes.
+pub struct OprfCredentialBlindingFactor {
     /// The result of the distributed OPRF protocol, including the final blinding factor.
     pub verifiable_oprf_output: VerifiableOprfOutput,
 }
 
-impl OprfBlindingFactor {
+impl OprfCredentialBlindingFactor {
     /// Generates a blinding factor through the provided OPRF nodes.
     ///
     /// This method will handle the signature from the Authenticator authorizing the
@@ -110,7 +110,7 @@ impl OprfBlindingFactor {
 
         let verifiable_oprf_output = taceo_oprf::client::distributed_oprf(
             services,
-            OprfModule::SchemaIssuer.to_string().as_str(),
+            OprfModule::CredentialBlindingFactor.to_string().as_str(),
             threshold,
             oprf_key_id,
             share_epoch,

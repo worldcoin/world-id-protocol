@@ -111,9 +111,12 @@ pub async fn start(
         cancellation_token.clone(),
     )
     .await?
-    .module(&format!("/{}", OprfModule::Rp), rp_oprf_req_auth_service)
     .module(
-        &format!("/{}", OprfModule::SchemaIssuer),
+        &format!("/{}", OprfModule::Nullifier),
+        rp_oprf_req_auth_service,
+    )
+    .module(
+        &format!("/{}", OprfModule::CredentialBlindingFactor),
         schema_issuer_oprf_req_auth_service,
     )
     .build();

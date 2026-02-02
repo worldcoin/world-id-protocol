@@ -15,7 +15,7 @@ use world_id_types::{
 
 use world_id_proof::{
     AuthenticatorProofInput,
-    credential_blinding_factor::OprfBlindingFactor,
+    credential_blinding_factor::OprfCredentialBlindingFactor,
     nullifier::OprfNullifier,
     proof::{ProofError, generate_nullifier_proof},
 };
@@ -515,7 +515,7 @@ impl Authenticator {
             key_index,
         );
 
-        let blinding_factor = OprfBlindingFactor::generate(
+        let blinding_factor = OprfCredentialBlindingFactor::generate(
             services,
             threshold,
             &self.query_material,

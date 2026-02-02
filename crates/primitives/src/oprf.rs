@@ -5,20 +5,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::rp::RpId;
 
-/// A request sent by a client to perform an OPRF evaluation.
+/// A module identifier for OPRF evaluations.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum OprfModule {
-    /// Oprf module for RPs
-    Rp,
-    /// Oprf module for credential schema issuers
-    SchemaIssuer,
+    /// Oprf module for generating nullifiers
+    Nullifier,
+    /// Oprf module for generating credential blinding factors
+    CredentialBlindingFactor,
 }
 
 impl std::fmt::Display for OprfModule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Rp => write!(f, "rp"),
-            Self::SchemaIssuer => write!(f, "issuer"),
+            Self::Nullifier => write!(f, "nullifier"),
+            Self::CredentialBlindingFactor => write!(f, "credential_blinding_factor"),
         }
     }
 }

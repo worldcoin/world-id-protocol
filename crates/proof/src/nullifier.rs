@@ -107,7 +107,7 @@ impl OprfNullifier {
 
         let verifiable_oprf_output = taceo_oprf::client::distributed_oprf(
             services,
-            OprfModule::Rp.to_string().as_str(),
+            OprfModule::Nullifier.to_string().as_str(),
             threshold,
             proof_request.oprf_key_id,
             proof_request.share_epoch,
