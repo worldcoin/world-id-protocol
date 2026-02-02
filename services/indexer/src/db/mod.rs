@@ -18,8 +18,8 @@ pub enum DbError {
     Sqlx(#[from] sqlx::Error),
     #[error("migration error: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
-    #[error("invalid event type")]
-    InvalidEventType,
+    #[error("invalid event type: {0}")]
+    InvalidEventType(String),
     #[error("invalid address")]
     InvalidAddress,
 }

@@ -55,14 +55,14 @@ impl fmt::Display for WorldTreeEventType {
 impl<'a> TryFrom<&'a str> for WorldTreeEventType {
     type Error = DbError;
 
-    fn try_from(value: &'a str) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         match value {
             "account_created" => Ok(WorldTreeEventType::AccountCreated),
             "account_updated" => Ok(WorldTreeEventType::AccountUpdated),
             "account_recovered" => Ok(WorldTreeEventType::AccountRecovered),
             "authentication_inserted" => Ok(WorldTreeEventType::AuthenticationInserted),
             "authentication_removed" => Ok(WorldTreeEventType::AuthenticationRemoved),
-            _ => Err(DbError::InvalidEventType),
+            _ => Err(DbError::InvalidEventType(value.to_string())),
         }
     }
 }

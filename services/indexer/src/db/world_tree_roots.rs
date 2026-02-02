@@ -50,7 +50,7 @@ impl<'a> TryFrom<&'a str> for WorldTreeRootEventType {
     fn try_from(value: &'a str) -> std::result::Result<Self, Self::Error> {
         match value {
             "root_recorded" => Ok(WorldTreeRootEventType::RootRecorded),
-            _ => Err(DbError::InvalidEventType),
+            _ => Err(DbError::InvalidEventType(value.to_string())),
         }
     }
 }

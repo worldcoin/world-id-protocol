@@ -1,7 +1,7 @@
 use std::future;
 
 use alloy::{
-    primitives::Address,
+    primitives::{Address, FixedBytes},
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
 };
@@ -23,6 +23,8 @@ pub enum BlockchainError {
     WsProvider(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("rpc error: {0}")]
     Rpc(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("invalid log for decoding")]
+    InvalidLog,
     #[error("log decode error: {0}")]
     LogDecode(#[source] alloy::sol_types::Error),
     #[error("log topics are empty")]
@@ -34,7 +36,7 @@ pub enum BlockchainError {
     #[error("missing log indesx in log topics")]
     MissingLogIndex,
     #[error("unknown event signature: {0:?}")]
-    UnknownEventSignature(alloy::primitives::FixedBytes<32>),
+    UnknownEventSignature(FixedBytes<32>),
 }
 
 pub struct Blockchain {
