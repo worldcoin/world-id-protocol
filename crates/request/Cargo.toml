@@ -13,9 +13,6 @@ include = ["src/**/*", "tests/**/*", "build.rs", "Cargo.toml", "README.md"]
 
 [dependencies]
 alloy = { workspace = true, features = ["sol-types", "signer-local"] }
-ark-babyjubjub = { workspace = true }
-poseidon2 = { workspace = true }
-ark-ff = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 serde_json = { workspace = true }

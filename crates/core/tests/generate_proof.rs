@@ -5,9 +5,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use alloy::{primitives::U256, signers::local::LocalSigner};
+use alloy::{
+    primitives::{U160, U256},
+    signers::local::LocalSigner,
+};
 use eyre::{Context as _, Result, eyre};
-use taceo_oprf::types::ShareEpoch;
+use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::health_checks;
 use test_utils::{
     anvil::WorldIDVerifier,
@@ -42,6 +45,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         rp_registry,
         oprf_key_registry,
         world_id_verifier,
+        credential_registry,
         issuer_private_key: issuer_sk,
         issuer_public_key: issuer_pk,
         issuer_schema_id,
@@ -151,9 +155,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         oprf_key_registry,
         world_id_registry,
         rp_registry,
+        credential_registry,
     )
     .await;
 
+    health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
     health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
 
     // Register the RP which also triggers a OPRF key-gen.
@@ -169,9 +175,18 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         )
         .await?;
 
-    // Wait for OPRF key-gen and until the public key is available from the nodes.
+    // Wait for OPRF key-gen and until the RP OPRF public key is available from the nodes.
     let _oprf_public_key = health_checks::oprf_public_key_from_services(
         rp_fixture.oprf_key_id,
+        ShareEpoch::default(),
+        &nodes,
+        Duration::from_secs(120),
+    )
+    .await?;
+    // Wait for OPRF key-gen and until the issuer OPRF public key is available from the nodes.
+    // This key-gen is started in `RegistryTestContext::new()`
+    let _oprf_public_key = health_checks::oprf_public_key_from_services(
+        OprfKeyId::new(U160::from(issuer_schema_id)),
         ShareEpoch::default(),
         &nodes,
         Duration::from_secs(120),
@@ -199,13 +214,26 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), U256::from(1u64));
 
+    let credential_sub_blinding_factor = authenticator
+        .generate_credential_blinding_factor(
+            issuer_schema_id,
+            OprfKeyId::new(U160::from(issuer_schema_id)),
+            ShareEpoch::default(),
+        )
+        .await?;
+
     // Create and sign credential.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
-    let (mut credential, credential_sub_blinding_factor) =
-        build_base_credential(issuer_schema_id, leaf_index_u64, now, now + 60);
+    let mut credential = build_base_credential(
+        issuer_schema_id,
+        leaf_index_u64,
+        now,
+        now + 60,
+        credential_sub_blinding_factor,
+    );
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()

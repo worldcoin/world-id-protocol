@@ -5,15 +5,12 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod constraints;
-use ark_ff::PrimeField;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
-
-pub(crate) const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -344,18 +341,6 @@ impl ProofRequest {
         let mut hasher = Sha256::new();
         hasher.update(&msg);
         Ok(hasher.finalize().into())
-    }
-
-    /// Computes the digest which the authenticator needs to sign in order to request a nullifier from OPRF nodes.
-    #[must_use]
-    pub fn digest_for_authenticator(&self, leaf_index: u64) -> FieldElement {
-        let input = [
-            ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
-            leaf_index.into(),
-            *FieldElement::from(self.rp_id),
-            *self.computed_action(),
-        ];
-        poseidon2::bn254::t4::permutation(&input)[1].into()
     }
 
     /// Gets the action value to use in the proof.
