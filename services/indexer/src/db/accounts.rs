@@ -1,4 +1,4 @@
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, U160, U256};
 use sqlx::{Postgres, Row, postgres::PgRow, types::Json};
 use tracing::instrument;
 
@@ -104,7 +104,7 @@ where
             self.table_name,
         ))
         .bind(leaf_index)
-        .bind(recovery_address.as_slice())
+        .bind(&Self::address_to_u160(recovery_address))
         .bind(Json(
             authenticator_addresses
                 .iter()
@@ -262,9 +262,7 @@ where
     }
 
     fn map_recovery_address(row: &PgRow) -> anyhow::Result<Address> {
-        Ok(row
-            .get::<String, _>("recovery_address")
-            .parse::<Address>()?)
+        Ok(Address::from(row.get::<U160, _>("recovery_address")))
     }
 
     fn map_offchain_signer_commitment(row: &PgRow) -> anyhow::Result<U256> {
@@ -287,5 +285,9 @@ where
             .iter()
             .filter_map(|s| s.parse::<U256>().ok())
             .collect())
+    }
+
+    fn address_to_u160(address: &Address) -> U160 {
+        (*address).into()
     }
 }
