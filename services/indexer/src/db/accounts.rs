@@ -174,13 +174,13 @@ where
         ))
         .bind(leaf_index)
         .bind(Json(
-            vec![new_address]
+            [new_address]
                 .iter()
                 .map(|a| a.to_string())
                 .collect::<Vec<_>>(),
         ))
         .bind(Json(
-            vec![new_pubkey]
+            [new_pubkey]
                 .iter()
                 .map(|p| p.to_string())
                 .collect::<Vec<_>>(),

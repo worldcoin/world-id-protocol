@@ -47,9 +47,9 @@ impl PostgresDB {
 
     pub async fn transaction(
         &self,
-        isoloation_level: IsolationLevel,
+        isolation_level: IsolationLevel,
     ) -> anyhow::Result<PostgresDBTransaction<'_>> {
-        PostgresDBTransaction::new(&self.pool, isoloation_level).await
+        PostgresDBTransaction::new(&self.pool, isolation_level).await
     }
 
     pub fn world_tree_events(&self) -> WorldTreeEvents<'_, &PgPool> {

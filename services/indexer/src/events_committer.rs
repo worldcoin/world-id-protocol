@@ -1,7 +1,5 @@
-use std::sync::Arc;
 
 use alloy::primitives::U256;
-use tokio::sync::Mutex;
 
 use crate::{
     blockchain::{BlockchainEvent, RegistryEvent},
@@ -10,14 +8,14 @@ use crate::{
 
 pub struct EventsCommitter<'a> {
     db: &'a DB,
-    buffered_events: Arc<Mutex<Vec<BlockchainEvent<RegistryEvent>>>>,
+    buffered_events: Vec<BlockchainEvent<RegistryEvent>>,
 }
 
 impl<'a> EventsCommitter<'a> {
     pub fn new(db: &'a DB) -> Self {
         Self {
             db,
-            buffered_events: Arc::new(Mutex::new(vec![])),
+            buffered_events: vec![],
         }
     }
     pub async fn handle_event(
@@ -25,34 +23,31 @@ impl<'a> EventsCommitter<'a> {
         event: BlockchainEvent<RegistryEvent>,
     ) -> anyhow::Result<()> {
         match event.details {
-            RegistryEvent::AccountCreated(_) => self.buffer_event(event).await,
-            RegistryEvent::AccountUpdated(_) => self.buffer_event(event).await,
-            RegistryEvent::AuthenticatorInserted(_) => self.buffer_event(event).await,
-            RegistryEvent::AuthenticatorRemoved(_) => self.buffer_event(event).await,
-            RegistryEvent::AccountRecovered(_) => self.buffer_event(event).await,
+            RegistryEvent::AccountCreated(_) => self.buffer_event(event),
+            RegistryEvent::AccountUpdated(_) => self.buffer_event(event),
+            RegistryEvent::AuthenticatorInserted(_) => self.buffer_event(event),
+            RegistryEvent::AuthenticatorRemoved(_) => self.buffer_event(event),
+            RegistryEvent::AccountRecovered(_) => self.buffer_event(event),
             RegistryEvent::RootRecorded(_) => {
-                self.buffer_event(event).await?;
+                self.buffer_event(event)?;
                 self.commit_events().await?;
                 Ok(())
             }
         }
     }
 
-    async fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> anyhow::Result<()> {
+    fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> anyhow::Result<()> {
         tracing::info!(?event, "buffering event");
-        let mut events = self.buffered_events.lock().await;
-        events.push(event);
+        self.buffered_events.push(event);
         Ok(())
     }
 
     async fn commit_events(&mut self) -> anyhow::Result<()> {
         tracing::info!("committing events to DB");
 
-        let mut events = self.buffered_events.lock().await;
-
         let mut transaction = self.db.transaction(IsolationLevel::Serializable).await?;
 
-        for event in events.iter() {
+        for event in self.buffered_events.iter() {
             match &event.details {
                 RegistryEvent::AccountCreated(ev) => {
                     let already_processed = Self::ensure_event_inserted(
@@ -207,7 +202,7 @@ impl<'a> EventsCommitter<'a> {
 
         transaction.commit().await?;
 
-        events.clear();
+        self.buffered_events.clear();
 
         Ok(())
     }
