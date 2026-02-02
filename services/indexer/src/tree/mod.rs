@@ -66,7 +66,7 @@ pub enum TreeError {
     #[error("root mismatch - actual: {actual}, expected: {expected}")]
     RootMismatch { actual: String, expected: String },
     #[error(transparent)]
-    Db(#[from] crate::db::DbError),
+    Db(#[from] crate::db::DBError),
 }
 
 pub struct PoseidonHasher {}

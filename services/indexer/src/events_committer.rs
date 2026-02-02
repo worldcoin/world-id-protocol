@@ -3,7 +3,7 @@ use alloy::primitives::U256;
 use crate::{
     blockchain::{BlockchainEvent, RegistryEvent},
     db::{
-        DB, DbResult, IsolationLevel, PostgresDBTransaction, WorldTreeEventType,
+        DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldTreeEventType,
         WorldTreeRootEventType,
     },
 };
@@ -20,7 +20,7 @@ impl<'a> EventsCommitter<'a> {
             buffered_events: vec![],
         }
     }
-    pub async fn handle_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DbResult<()> {
+    pub async fn handle_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DBResult<()> {
         match event.details {
             RegistryEvent::AccountCreated(_) => self.buffer_event(event),
             RegistryEvent::AccountUpdated(_) => self.buffer_event(event),
@@ -35,13 +35,13 @@ impl<'a> EventsCommitter<'a> {
         }
     }
 
-    fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DbResult<()> {
+    fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DBResult<()> {
         tracing::info!(?event, "buffering event");
         self.buffered_events.push(event);
         Ok(())
     }
 
-    async fn commit_events(&mut self) -> DbResult<()> {
+    async fn commit_events(&mut self) -> DBResult<()> {
         tracing::info!("committing events to DB");
 
         let mut transaction = self.db.transaction(IsolationLevel::Serializable).await?;
@@ -216,7 +216,7 @@ impl<'a> EventsCommitter<'a> {
         block_number: u64,
         tx_hash: &U256,
         log_index: u64,
-    ) -> DbResult<bool> {
+    ) -> DBResult<bool> {
         // Check if we have same record in database first
         let db_event = transaction
             .world_tree_events()
@@ -261,7 +261,7 @@ impl<'a> EventsCommitter<'a> {
         tx_hash: &U256,
         root: &U256,
         timestamp: &U256,
-    ) -> DbResult<bool> {
+    ) -> DBResult<bool> {
         // Check if we have same record in database first
         let db_event = transaction
             .world_tree_roots()

@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{blockchain::BlockchainError, config::ConfigError, db::DbError, tree::TreeError};
+use crate::{blockchain::BlockchainError, config::ConfigError, db::DBError, tree::TreeError};
 
 pub type IndexerResult<T> = Result<T, IndexerError>;
 
@@ -11,7 +11,7 @@ pub enum IndexerError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
-    Db(#[from] DbError),
+    Db(#[from] DBError),
     #[error(transparent)]
     Tree(#[from] TreeError),
     #[error("http server error: {0}")]

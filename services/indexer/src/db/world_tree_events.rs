@@ -4,7 +4,7 @@ use alloy::primitives::U256;
 use sqlx::{Postgres, Row, postgres::PgRow};
 use tracing::instrument;
 
-use crate::db::{DbError, DbResult};
+use crate::db::{DBError, DBResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WorldTreeEventId {
@@ -53,7 +53,7 @@ impl fmt::Display for WorldTreeEventType {
 }
 
 impl<'a> TryFrom<&'a str> for WorldTreeEventType {
-    type Error = DbError;
+    type Error = DBError;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         match value {
@@ -62,7 +62,7 @@ impl<'a> TryFrom<&'a str> for WorldTreeEventType {
             "account_recovered" => Ok(WorldTreeEventType::AccountRecovered),
             "authentication_inserted" => Ok(WorldTreeEventType::AuthenticationInserted),
             "authentication_removed" => Ok(WorldTreeEventType::AuthenticationRemoved),
-            _ => Err(DbError::InvalidEventType(value.to_string())),
+            _ => Err(DBError::InvalidEventType(value.to_string())),
         }
     }
 }
@@ -88,7 +88,7 @@ where
         }
     }
 
-    pub async fn get_latest_block(self) -> DbResult<Option<u64>> {
+    pub async fn get_latest_block(self) -> DBResult<Option<u64>> {
         let rec: Option<(Option<i64>,)> = sqlx::query_as(&format!(
             "SELECT MAX(block_number) FROM {}",
             self.table_name
@@ -98,7 +98,7 @@ where
         Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
     }
 
-    pub async fn get_latest_id(self) -> DbResult<Option<WorldTreeEventId>> {
+    pub async fn get_latest_id(self) -> DBResult<Option<WorldTreeEventId>> {
         let table_name = self.table_name;
         let result = sqlx::query(&format!(
             r#"
@@ -122,7 +122,7 @@ where
     pub async fn get_event<T: Into<WorldTreeEventId>>(
         self,
         event_id: T,
-    ) -> DbResult<Option<WorldTreeEvent>> {
+    ) -> DBResult<Option<WorldTreeEvent>> {
         let event_id = event_id.into();
         let table_name = self.table_name;
         let result = sqlx::query(&format!(
@@ -152,7 +152,7 @@ where
         self,
         event_id: WorldTreeEventId,
         limit: u64,
-    ) -> DbResult<Vec<WorldTreeEvent>> {
+    ) -> DBResult<Vec<WorldTreeEvent>> {
         let table_name = self.table_name;
         let rows = sqlx::query(&format!(
             r#"
@@ -192,7 +192,7 @@ where
         block_number: u64,
         tx_hash: &U256,
         log_index: u64,
-    ) -> DbResult<()> {
+    ) -> DBResult<()> {
         sqlx::query(&format!(
             r#"
                 INSERT INTO {} (
@@ -218,14 +218,14 @@ where
         Ok(())
     }
 
-    fn map_event_id(row: &PgRow) -> DbResult<WorldTreeEventId> {
+    fn map_event_id(row: &PgRow) -> DBResult<WorldTreeEventId> {
         Ok(WorldTreeEventId {
             block_number: row.get::<i64, _>("block_number") as u64,
             log_index: row.get::<i64, _>("log_index") as u64,
         })
     }
 
-    fn map_event(row: &PgRow) -> DbResult<WorldTreeEvent> {
+    fn map_event(row: &PgRow) -> DBResult<WorldTreeEvent> {
         Ok(WorldTreeEvent {
             id: Self::map_event_id(row)?,
             tx_hash: row.get::<U256, _>("tx_hash"),
