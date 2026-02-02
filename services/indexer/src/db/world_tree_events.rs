@@ -62,9 +62,7 @@ impl<'a> TryFrom<&'a str> for WorldTreeEventType {
             "account_recovered" => Ok(WorldTreeEventType::AccountRecovered),
             "authentication_inserted" => Ok(WorldTreeEventType::AuthenticationInserted),
             "authentication_removed" => Ok(WorldTreeEventType::AuthenticationRemoved),
-            _ => Err(DbError::InvalidEventType {
-                value: value.to_string(),
-            }),
+            _ => Err(DbError::InvalidEventType),
         }
     }
 }

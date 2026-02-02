@@ -56,14 +56,19 @@ pub fn read_metadata(cache_path: &Path) -> TreeResult<TreeCacheMetadata> {
     let meta_path = metadata_path(cache_path);
 
     if !meta_path.exists() {
-        return Err(TreeError::MetadataMissing(meta_path.display().to_string()));
+        return Err(TreeError::MetadataMissing { path: meta_path });
     }
 
-    let meta_json = fs::read_to_string(&meta_path)
-        .map_err(|err| TreeError::MetadataRead(format!("{}: {}", meta_path.display(), err)))?;
+    let meta_json = fs::read_to_string(&meta_path).map_err(|err| TreeError::MetadataRead {
+        path: meta_path.clone(),
+        source: err,
+    })?;
 
-    let metadata: TreeCacheMetadata = serde_json::from_str(&meta_json)
-        .map_err(|err| TreeError::MetadataParse(format!("{}: {}", meta_path.display(), err)))?;
+    let metadata: TreeCacheMetadata =
+        serde_json::from_str(&meta_json).map_err(|err| TreeError::MetadataParse {
+            path: meta_path.clone(),
+            source: err,
+        })?;
 
     Ok(metadata)
 }
@@ -99,20 +104,19 @@ pub async fn write_metadata(
     let meta_path = metadata_path(cache_path);
     let temp_path = cache_path.with_extension("mmap.meta.tmp");
 
-    let meta_json = serde_json::to_string_pretty(&metadata)
-        .map_err(|err| TreeError::MetadataSerialize(err.to_string()))?;
+    let meta_json =
+        serde_json::to_string_pretty(&metadata).map_err(TreeError::MetadataSerialize)?;
 
-    fs::write(&temp_path, meta_json)
-        .map_err(|err| TreeError::MetadataWrite(format!("{}: {}", temp_path.display(), err)))?;
+    fs::write(&temp_path, meta_json).map_err(|err| TreeError::MetadataWrite {
+        path: temp_path.clone(),
+        source: err,
+    })?;
 
     // Atomic rename
-    fs::rename(&temp_path, &meta_path).map_err(|err| {
-        TreeError::MetadataRename(format!(
-            "{} -> {}: {}",
-            temp_path.display(),
-            meta_path.display(),
-            err
-        ))
+    fs::rename(&temp_path, &meta_path).map_err(|err| TreeError::MetadataRename {
+        from: temp_path,
+        to: meta_path,
+        source: err,
     })?;
 
     tracing::debug!(

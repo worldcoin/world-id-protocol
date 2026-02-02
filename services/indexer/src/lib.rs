@@ -179,7 +179,7 @@ async fn start_http_server(
     tracing::info!(%addr, "HTTP server listening");
     axum::serve(tokio::net::TcpListener::bind(addr).await?, router)
         .await
-        .map_err(|err| IndexerError::HttpService(err.to_string()))?;
+        .map_err(|err| IndexerError::HttpService(Box::new(err)))?;
     Ok(())
 }
 

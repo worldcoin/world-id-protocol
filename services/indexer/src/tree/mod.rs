@@ -23,31 +23,50 @@ pub type TreeResult<T> = Result<T, TreeError>;
 pub enum TreeError {
     #[error("leaf index {leaf_index} out of range for tree depth {tree_depth}")]
     LeafIndexOutOfRange {
-        leaf_index: String,
+        leaf_index: usize,
         tree_depth: usize,
     },
+    #[error("leaf index {leaf_index} out of range for tree depth {tree_depth}")]
+    LeafIndexOutOfRangeU256 { leaf_index: U256, tree_depth: usize },
     #[error("account index cannot be zero")]
     ZeroLeafIndex,
     #[error("invalid cache file path")]
     InvalidCacheFilePath,
-    #[error("failed to restore tree from cache: {0}")]
-    CacheRestore(String),
-    #[error("failed to create mmap tree: {0}")]
-    CacheCreate(String),
-    #[error("metadata file does not exist: {0}")]
-    MetadataMissing(String),
-    #[error("failed to read metadata file: {0}")]
-    MetadataRead(String),
-    #[error("failed to parse metadata file: {0}")]
-    MetadataParse(String),
-    #[error("failed to serialize metadata: {0}")]
-    MetadataSerialize(String),
-    #[error("failed to write metadata file: {0}")]
-    MetadataWrite(String),
-    #[error("failed to rename metadata file: {0}")]
-    MetadataRename(String),
-    #[error("root mismatch: expected {expected}, got {actual}")]
-    RootMismatch { expected: String, actual: String },
+    #[error("failed to restore tree from cache")]
+    CacheRestore(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("failed to create mmap tree")]
+    CacheCreate(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("metadata file does not exist: {path}")]
+    MetadataMissing { path: std::path::PathBuf },
+    #[error("failed to read metadata file: {path}")]
+    MetadataRead {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse metadata file: {path}")]
+    MetadataParse {
+        path: std::path::PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("failed to serialize metadata")]
+    MetadataSerialize(#[source] serde_json::Error),
+    #[error("failed to write metadata file: {path}")]
+    MetadataWrite {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to rename metadata file: {from} -> {to}")]
+    MetadataRename {
+        from: std::path::PathBuf,
+        to: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("root mismatch - actual: {actual}, expected: {expected}")]
+    RootMismatch { actual: String, expected: String },
     #[error(transparent)]
     Db(#[from] crate::db::DbError),
 }
@@ -95,7 +114,7 @@ pub async fn set_leaf_at_index(leaf_index: usize, value: U256) -> TreeResult<()>
     if leaf_index >= capacity {
         let depth = get_tree_depth().await;
         return Err(TreeError::LeafIndexOutOfRange {
-            leaf_index: leaf_index.to_string(),
+            leaf_index,
             tree_depth: depth,
         });
     }

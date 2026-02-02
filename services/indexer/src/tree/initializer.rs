@@ -144,8 +144,8 @@ impl TreeInitializer {
         let restored_root = format!("0x{:x}", tree.root());
         if restored_root != metadata.root_hash {
             return Err(TreeError::RootMismatch {
-                expected: metadata.root_hash,
                 actual: restored_root,
+                expected: metadata.root_hash,
             });
         }
 

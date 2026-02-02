@@ -35,7 +35,7 @@ impl TreeBuilder {
             &self.empty_value,
             cache_path_str,
         )
-        .map_err(|err| TreeError::CacheRestore(err.to_string()))?;
+        .map_err(|err| TreeError::CacheRestore(Box::new(err)))?;
 
         info!(
             cache_file = %cache_path.display(),
@@ -125,7 +125,7 @@ impl TreeBuilder {
                 &dense_vec,
                 cache_path_str,
             )
-            .map_err(|err| TreeError::CacheCreate(err.to_string()))?;
+            .map_err(|err| TreeError::CacheCreate(Box::new(err)))?;
 
         // Step 4: Apply sparse leaves (beyond dense prefix)
         if max_leaf_index >= dense_prefix_size {
@@ -230,8 +230,8 @@ impl TreeBuilder {
 
             // Validate leaf index is within tree capacity
             if leaf_index_usize >= capacity {
-                return Err(TreeError::LeafIndexOutOfRange {
-                    leaf_index: leaf_index.to_string(),
+                return Err(TreeError::LeafIndexOutOfRangeU256 {
+                    leaf_index,
                     tree_depth: self.tree_depth,
                 });
             }

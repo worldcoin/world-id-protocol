@@ -18,21 +18,17 @@ pub type BlockchainResult<T> = Result<T, BlockchainError>;
 #[derive(Debug, Error)]
 pub enum BlockchainError {
     #[error("invalid http rpc url: {0}")]
-    InvalidHttpRpcUrl(String),
-    #[error("invalid ws rpc url: {0}")]
-    InvalidWsRpcUrl(String),
-    #[error("failed to connect http provider: {0}")]
-    HttpProvider(String),
+    InvalidHttpRpcUrl(#[from] url::ParseError),
     #[error("failed to connect ws provider: {0}")]
-    WsProvider(String),
+    WsProvider(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("rpc error: {0}")]
-    Rpc(String),
+    Rpc(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("log decode error: {0}")]
-    LogDecode(String),
+    LogDecode(#[source] alloy::sol_types::Error),
     #[error("missing log field: {0}")]
     MissingLogField(&'static str),
-    #[error("unknown event signature: {0}")]
-    UnknownEventSignature(String),
+    #[error("unknown event signature: {0:?}")]
+    UnknownEventSignature(alloy::primitives::FixedBytes<32>),
 }
 
 pub struct Blockchain {
@@ -47,15 +43,14 @@ impl Blockchain {
         ws_rpc_url: &str,
         world_id_registry: Address,
     ) -> BlockchainResult<Self> {
-        let http_url = Url::parse(http_rpc_url)
-            .map_err(|err| BlockchainError::InvalidHttpRpcUrl(err.to_string()))?;
+        let http_url = Url::parse(http_rpc_url)?;
         let http_provider = DynProvider::new(ProviderBuilder::new().connect_http(http_url));
 
         let ws_provider = DynProvider::new(
             ProviderBuilder::new()
                 .connect_ws(WsConnect::new(ws_rpc_url))
                 .await
-                .map_err(|err| BlockchainError::WsProvider(err.to_string()))?,
+                .map_err(|err| BlockchainError::WsProvider(Box::new(err)))?,
         );
 
         Ok(Self {
@@ -88,7 +83,7 @@ impl Blockchain {
             .ws_provider
             .subscribe_logs(&filter)
             .await
-            .map_err(|err| BlockchainError::Rpc(err.to_string()))?;
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
         let new_events = logs.into_stream();
 
@@ -96,7 +91,7 @@ impl Blockchain {
             .http_provider
             .get_block_number()
             .await
-            .map_err(|err| BlockchainError::Rpc(err.to_string()))?;
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
         let range_filter = filter
             .clone()
@@ -107,7 +102,7 @@ impl Blockchain {
             .http_provider
             .get_logs(&range_filter)
             .await
-            .map_err(|err| BlockchainError::Rpc(err.to_string()))?;
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
         Ok(stream::iter(backfill_events)
             .chain(new_events.filter(move |v| {
@@ -124,6 +119,6 @@ impl Blockchain {
         self.http_provider
             .get_block_number()
             .await
-            .map_err(|err| BlockchainError::Rpc(err.to_string()))
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))
     }
 }

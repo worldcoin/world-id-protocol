@@ -17,5 +17,5 @@ pub enum IndexerError {
     #[error("http server error: {0}")]
     HttpServer(#[from] std::io::Error),
     #[error("http service error: {0}")]
-    HttpService(String),
+    HttpService(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
