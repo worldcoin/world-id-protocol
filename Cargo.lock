@@ -9178,7 +9178,6 @@ name = "world-id-indexer"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "anyhow",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "axum",
@@ -9190,6 +9189,7 @@ dependencies = [
  "regex",
  "reqwest",
  "ruint",
+ "rustls 0.23.36",
  "semaphore-rs-hasher",
  "semaphore-rs-trees",
  "serde",
@@ -9201,6 +9201,7 @@ dependencies = [
  "telemetry-batteries 0.2.1",
  "tempfile",
  "test-utils",
+ "thiserror 1.0.69",
  "tokio",
  "tower-http 0.5.2",
  "tracing",

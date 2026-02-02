@@ -18,9 +18,10 @@ alloy = { workspace = true, features = ["rpc-types", "provider-ws"] }
 dotenvy = "0.15"
 url = "2"
 hex = "0.4"
-anyhow = { workspace = true }
+thiserror = { workspace = true }
 ruint = { workspace = true, features = ["sqlx"] }
 futures-util = "0.3"
+rustls = { workspace = true, features = ["aws-lc-rs"] }
 sqlx = { version = "0.8", features = [
   "runtime-tokio-rustls",
   "postgres",

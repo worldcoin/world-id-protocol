@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use alloy::{primitives::Address, providers::DynProvider};
+use thiserror::Error;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::db::DB;
@@ -31,23 +32,21 @@ pub enum RunMode {
 }
 
 impl RunMode {
-    pub fn from_env() -> Self {
+    pub fn from_env() -> Result<Self, ConfigError> {
         let str = std::env::var("RUN_MODE").unwrap_or_else(|_| "both".to_string());
 
         match str.to_lowercase().as_str() {
-            "indexer" | "indexer-only" => Self::IndexerOnly {
+            "indexer" | "indexer-only" => Ok(Self::IndexerOnly {
                 indexer_config: IndexerConfig::from_env(),
-            },
-            "http" | "http-only" => Self::HttpOnly {
-                http_config: HttpConfig::from_env(),
-            },
-            "both" | "all" => Self::Both {
+            }),
+            "http" | "http-only" => Ok(Self::HttpOnly {
+                http_config: HttpConfig::from_env()?,
+            }),
+            "both" | "all" => Ok(Self::Both {
                 indexer_config: IndexerConfig::from_env(),
-                http_config: HttpConfig::from_env(),
-            },
-            _ => panic!(
-                "Invalid run mode: '{str}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'",
-            ),
+                http_config: HttpConfig::from_env()?,
+            }),
+            _ => Err(ConfigError::InvalidRunMode(str)),
         }
     }
 }
@@ -82,7 +81,6 @@ pub struct GlobalConfig {
     pub http_rpc_url: String,
     pub ws_rpc_url: String,
     pub registry_address: Address,
-    pub tree_cache: TreeCacheConfig,
 }
 
 #[derive(Debug)]
@@ -93,25 +91,35 @@ pub struct HttpConfig {
     ///
     /// The sanity check calls the `isValidRoot` function on the `WorldIDRegistry` contract to ensure the local Merkle root is valid.
     pub sanity_check_interval_secs: Option<u64>,
+    pub tree_cache: TreeCacheConfig,
 }
 
 impl HttpConfig {
-    pub fn from_env() -> Self {
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let http_addr_str =
+            std::env::var("HTTP_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+        let http_addr = http_addr_str
+            .parse()
+            .map_err(|e| ConfigError::InvalidHttpAddr(format!("{}: {}", http_addr_str, e)))?;
+
+        let db_poll_interval_str =
+            std::env::var("DB_POLL_INTERVAL_SECS").unwrap_or_else(|_| "1".to_string());
+        let db_poll_interval_secs = db_poll_interval_str.parse().map_err(|e| {
+            ConfigError::InvalidDbPollInterval(format!("{}: {}", db_poll_interval_str, e))
+        })?;
+
+        let tree_cache = TreeCacheConfig::from_env()?;
+
         let config = Self {
-            http_addr: std::env::var("HTTP_ADDR")
-                .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
-                .parse()
-                .unwrap(),
-            db_poll_interval_secs: std::env::var("DB_POLL_INTERVAL_SECS")
-                .unwrap_or_else(|_| "1".to_string())
-                .parse()
-                .unwrap(),
+            http_addr,
+            db_poll_interval_secs,
             sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS").ok().and_then(
                 |s| {
                     let val = s.parse::<u64>().ok().unwrap_or(0);
                     if val == 0 { None } else { Some(val) }
                 },
             ),
+            tree_cache,
         };
 
         if config.http_addr.port() != 8080 {
@@ -124,7 +132,7 @@ impl HttpConfig {
             "✔️ Http config loaded from env. Running on {}",
             config.http_addr
         );
-        config
+        Ok(config)
     }
 }
 
@@ -167,9 +175,9 @@ pub struct TreeCacheConfig {
 }
 
 impl TreeCacheConfig {
-    pub fn from_env() -> anyhow::Result<Self> {
-        let cache_file_path = std::env::var("TREE_CACHE_FILE")
-            .map_err(|_| anyhow::anyhow!("TREE_CACHE_FILE environment variable is required"))?;
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let cache_file_path =
+            std::env::var("TREE_CACHE_FILE").map_err(|_| ConfigError::MissingTreeCacheFile)?;
 
         let config = Self {
             cache_file_path,
@@ -197,36 +205,62 @@ impl TreeCacheConfig {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("TREE_CACHE_FILE environment variable is required")]
+    MissingTreeCacheFile,
+    #[error("DATABASE_URL environment variable is required")]
+    MissingDatabaseUrl,
+    #[error("RPC_URL environment variable is required")]
+    MissingRpcUrl,
+    #[error("WS_URL environment variable is required")]
+    MissingWsUrl,
+    #[error("REGISTRY_ADDRESS environment variable is required")]
+    MissingRegistryAddress,
+    #[error(
+        "invalid ENVIRONMENT: '{0}'. Valid options are: 'production', 'staging', or 'development'"
+    )]
+    InvalidEnvironment(String),
+    #[error("invalid REGISTRY_ADDRESS: {0}")]
+    InvalidRegistryAddress(String),
+    #[error(
+        "invalid RUN_MODE: '{0}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'"
+    )]
+    InvalidRunMode(String),
+    #[error("invalid HTTP_ADDR: {0}")]
+    InvalidHttpAddr(String),
+    #[error("invalid DB_POLL_INTERVAL_SECS: {0}")]
+    InvalidDbPollInterval(String),
+}
+
 impl GlobalConfig {
-    pub fn from_env() -> Self {
-        let environment = std::env::var("ENVIRONMENT")
-            .unwrap_or_else(|_| "development".to_string())
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let environment_str =
+            std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
+        let environment = environment_str
             .parse()
-            .unwrap();
+            .map_err(|_| ConfigError::InvalidEnvironment(environment_str))?;
 
-        let run_mode = RunMode::from_env();
+        let run_mode = RunMode::from_env()?;
 
-        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set.");
+        let db_url = std::env::var("DATABASE_URL").map_err(|_| ConfigError::MissingDatabaseUrl)?;
 
-        let http_rpc_url = std::env::var("RPC_URL").expect("RPC_URL must be set.");
-        let ws_rpc_url = std::env::var("WS_URL").expect("WS_URL must be set.");
+        let http_rpc_url = std::env::var("RPC_URL").map_err(|_| ConfigError::MissingRpcUrl)?;
+        let ws_rpc_url = std::env::var("WS_URL").map_err(|_| ConfigError::MissingWsUrl)?;
 
-        let registry_address = std::env::var("REGISTRY_ADDRESS")
-            .expect("REGISTRY_ADDRESS must be set.")
-            .parse::<Address>()
-            .expect("REGISTRY_ADDRESS must be a valid address");
+        let registry_address_str =
+            std::env::var("REGISTRY_ADDRESS").map_err(|_| ConfigError::MissingRegistryAddress)?;
+        let registry_address = registry_address_str.parse::<Address>().map_err(|e| {
+            ConfigError::InvalidRegistryAddress(format!("{}: {}", registry_address_str, e))
+        })?;
 
-        let tree_cache =
-            TreeCacheConfig::from_env().expect("Failed to load tree cache configuration");
-
-        Self {
+        Ok(Self {
             environment,
             run_mode,
             db_url,
             http_rpc_url,
             ws_rpc_url,
             registry_address,
-            tree_cache,
-        }
+        })
     }
 }
