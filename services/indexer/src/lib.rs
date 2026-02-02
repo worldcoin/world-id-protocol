@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::{Address, U256},
+    primitives::Address,
     providers::{Provider, ProviderBuilder},
 };
 use futures_util::StreamExt;
@@ -15,23 +15,14 @@ mod routes;
 mod sanity_check;
 mod tree;
 
-pub use crate::db::fetch_recent_account_updates;
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
-    tree::{GLOBAL_TREE, update_tree_with_commitment},
+    tree::cached_tree,
 };
 pub use config::GlobalConfig;
-
-/// Tree cache parameters needed during indexing
-#[derive(Clone)]
-pub struct TreeCacheParams {
-    pub cache_file_path: String,
-    pub tree_depth: usize,
-    pub dense_prefix_depth: usize,
-}
 
 async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
@@ -40,18 +31,18 @@ async fn initialize_tree_with_config(
     // Set the configured tree depth globally
     tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
 
-    let initializer = tree::TreeInitializer::new(
-        tree_cache_cfg.cache_file_path.clone(),
+    let cache_path = std::path::Path::new(&tree_cache_cfg.cache_file_path);
+
+    cached_tree::init_tree(
+        db,
+        cache_path,
         tree_cache_cfg.tree_depth,
         tree_cache_cfg.dense_tree_prefix_depth,
-        U256::ZERO,
-    );
-
-    // initialize() now updates GLOBAL_TREE internally
-    initializer.initialize(db).await?;
+    )
+    .await?;
 
     // Log the initialized root
-    let root = GLOBAL_TREE.read().await.root();
+    let root = cached_tree::root().await;
     tracing::info!(
         root = %format!("0x{:x}", root),
         depth = tree_cache_cfg.tree_depth,
@@ -60,107 +51,24 @@ async fn initialize_tree_with_config(
     Ok(())
 }
 
-/// Background task for HttpOnly mode: periodically check for stale cache and refresh
-async fn cache_refresh_loop(
-    tree_cache_cfg: config::TreeCacheConfig,
-    db: &DB,
-    refresh_interval_secs: u64,
-) -> anyhow::Result<()> {
-    let check_interval = Duration::from_secs(refresh_interval_secs);
-    let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
-
-    // Perform initial check immediately on startup (before first sleep)
-    match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path).await {
-        Ok(refreshed) => {
-            if refreshed {
-                tracing::info!("Initial cache refresh completed with new events");
-            }
-        }
-        Err(e) => {
-            tracing::warn!(?e, "Initial cache refresh check failed, will retry");
-        }
-    }
+/// Background task: periodically sync the in-memory tree with DB events.
+/// Used in HttpOnly mode (where an external indexer writes to DB).
+async fn tree_sync_loop(db: DB, interval_secs: u64) -> anyhow::Result<()> {
+    tracing::info!(interval_secs, "Starting tree sync loop");
 
     loop {
-        tokio::time::sleep(check_interval).await;
+        tokio::time::sleep(Duration::from_secs(interval_secs)).await;
 
-        // Check if cache needs refresh
-        match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path).await {
-            Ok(refreshed) => {
-                if refreshed {
-                    tracing::info!("Cache refreshed with new events");
+        match cached_tree::sync_from_db(&db).await {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(count, "Synced events from DB to tree");
                 }
             }
             Err(e) => {
-                tracing::warn!(?e, "Cache refresh check failed, will retry");
+                tracing::error!(?e, "Failed to sync tree from DB");
             }
         }
-    }
-}
-
-/// Check if cache is stale and refresh if needed
-async fn check_and_refresh_cache(
-    tree_cache_cfg: &config::TreeCacheConfig,
-    db: &DB,
-    cache_path: &std::path::Path,
-) -> anyhow::Result<bool> {
-    // Read current cache metadata
-    let metadata = tree::metadata::read_metadata(cache_path)?;
-
-    // Get current DB state
-    let db_state = tree::metadata::get_db_state(db).await?;
-
-    let last_event_id = db_state.last_event_id.unwrap_or_default();
-
-    if metadata.last_block_number == last_event_id.block_number
-        && metadata.last_log_index == last_event_id.log_index
-    {
-        tracing::debug!("Cache is up-to-date");
-        return Ok(false);
-    }
-
-    let blocks_behind = last_event_id
-        .block_number
-        .saturating_sub(metadata.last_block_number);
-
-    tracing::info!(
-        cache_block = metadata.last_block_number,
-        current_block = last_event_id.block_number,
-        blocks_behind,
-        "Cache is stale, refreshing"
-    );
-
-    let initializer = tree::TreeInitializer::new(
-        tree_cache_cfg.cache_file_path.clone(),
-        tree_cache_cfg.tree_depth,
-        tree_cache_cfg.dense_tree_prefix_depth,
-        U256::ZERO,
-    );
-
-    let (blocks_synced, logs_synced) = initializer.sync_with_db(db).await?;
-    tracing::info!(blocks_synced, logs_synced, "Cache refresh complete");
-
-    Ok(blocks_synced > 0 || logs_synced > 0)
-}
-
-async fn update_tree_with_event(ev: &RegistryEvent) -> anyhow::Result<()> {
-    match ev {
-        RegistryEvent::AccountCreated(e) => {
-            update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment).await
-        }
-        RegistryEvent::AccountUpdated(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AuthenticatorInserted(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AuthenticatorRemoved(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::AccountRecovered(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await
-        }
-        RegistryEvent::RootRecorded(_) => Ok(()),
     }
 }
 
@@ -208,7 +116,6 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
                 &cfg.http_rpc_url,
                 cfg.registry_address,
                 http_config,
-                tree_cache_cfg.clone(),
             )
             .await
         }
@@ -234,11 +141,6 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
                 cfg.registry_address,
                 indexer_config,
                 http_config,
-                TreeCacheParams {
-                    cache_file_path: tree_cache_cfg.cache_file_path.clone(),
-                    tree_depth: tree_cache_cfg.tree_depth,
-                    dense_prefix_depth: tree_cache_cfg.dense_tree_prefix_depth,
-                },
             )
             .await
         }
@@ -260,7 +162,7 @@ async fn run_indexer_only(
     tracing::info!("switching to websocket live follow");
     stream_logs(
         blockchain, &db, from,
-        None, // Don't update in-memory tree or cache in indexer-only mode
+        false, // Don't sync in-memory tree in indexer-only mode
     )
     .await?;
 
@@ -272,14 +174,13 @@ async fn run_http_only(
     rpc_url: &str,
     registry_address: Address,
     http_cfg: HttpConfig,
-    tree_cache_cfg: config::TreeCacheConfig,
 ) -> anyhow::Result<()> {
-    // Start DB poller for account updates
-    let poller_pool = db.clone();
-    let poll_interval = http_cfg.db_poll_interval_secs;
-    let poller_handle = tokio::spawn(async move {
-        if let Err(e) = poll_db_changes(poller_pool, poll_interval).await {
-            tracing::error!(?e, "DB poller failed");
+    // Start tree sync loop (replaces both poll_db_changes and cache_refresh_loop)
+    let sync_pool = db.clone();
+    let sync_interval = http_cfg.db_poll_interval_secs;
+    let sync_handle = tokio::spawn(async move {
+        if let Err(e) = tree_sync_loop(sync_pool, sync_interval).await {
+            tracing::error!(?e, "Tree sync loop failed");
         }
     });
 
@@ -297,22 +198,10 @@ async fn run_http_only(
         }));
     }
 
-    // Start cache refresh task in the background
-    let refresh_pool = db.clone();
-    let refresh_interval = tree_cache_cfg.http_cache_refresh_interval_secs;
-    let refresh_cache_cfg = tree_cache_cfg.clone();
-    let cache_refresh_handle = tokio::spawn(async move {
-        if let Err(e) = cache_refresh_loop(refresh_cache_cfg, &refresh_pool, refresh_interval).await
-        {
-            tracing::error!(?e, "Cache refresh task failed");
-        }
-    });
-
     // Start HTTP server
     let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, db).await;
 
-    poller_handle.abort();
-    cache_refresh_handle.abort();
+    sync_handle.abort();
     if let Some(handle) = sanity_handle {
         handle.abort();
     }
@@ -326,7 +215,6 @@ async fn run_both(
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
-    tree_cache_params: TreeCacheParams,
 ) -> anyhow::Result<()> {
     // Start HTTP server
     let http_pool = db.clone();
@@ -362,7 +250,7 @@ async fn run_both(
         blockchain,
         &db,
         from,
-        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each event
+        true, // Sync in-memory tree after each DB commit
     )
     .await?;
 
@@ -377,94 +265,25 @@ pub async fn handle_registry_event<'a>(
     db: &DB,
     events_committer: &mut EventsCommitter<'a>,
     event: &BlockchainEvent<RegistryEvent>,
-    tree_cache_params: Option<&TreeCacheParams>,
+    sync_tree: bool,
 ) -> anyhow::Result<()> {
-    events_committer.handle_event(event.clone()).await?;
+    let committed = events_committer.handle_event(event.clone()).await?;
 
-    // Update cache metadata if tree was updated
-    if let Some(cache_params) = tree_cache_params {
-        if let Err(e) = update_tree_with_event(&event.details).await {
-            tracing::error!(?e, ?event, "failed to update tree for live event");
+    // After a DB commit, sync the in-memory tree from DB
+    if sync_tree && committed {
+        if let Err(e) = cached_tree::sync_from_db(db).await {
+            tracing::error!(?e, "failed to sync tree from DB after commit");
         }
-
-        let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
-        let tree = GLOBAL_TREE.read().await;
-
-        // Get the current max event ID to track replay position
-        let current_event_id = db
-            .world_tree_events()
-            .get_latest_id()
-            .await?
-            .unwrap_or_default();
-
-        tree::metadata::write_metadata(
-            &cache_path_buf,
-            &tree,
-            db,
-            current_event_id,
-            cache_params.tree_depth,
-            cache_params.dense_prefix_depth,
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(?e, "Failed to update cache metadata");
-        });
     }
 
     Ok(())
-}
-
-pub async fn poll_db_changes(db: DB, poll_interval_secs: u64) -> anyhow::Result<()> {
-    tracing::info!(
-        poll_interval_secs,
-        "Starting DB polling for account updates..."
-    );
-
-    // Track the last known max update timestamp
-    let mut last_poll_time = std::time::SystemTime::now();
-
-    loop {
-        tokio::time::sleep(Duration::from_secs(poll_interval_secs)).await;
-
-        // Query for accounts that have been updated since last poll
-        let current_time = std::time::SystemTime::now();
-
-        match fetch_recent_account_updates(db.pool(), last_poll_time).await {
-            Ok(updates) => {
-                if !updates.is_empty() {
-                    tracing::info!(count = updates.len(), "Found account updates from DB");
-
-                    for (leaf_index, commitment) in updates {
-                        tracing::debug!(
-                            leaf_index = %leaf_index,
-                            commitment = %commitment,
-                            "Updating tree from DB poll"
-                        );
-
-                        if let Err(e) = update_tree_with_commitment(leaf_index, commitment).await {
-                            tracing::error!(
-                                ?e,
-                                leaf_index = %leaf_index,
-                                "Failed to update tree from DB poll"
-                            );
-                        }
-                    }
-                }
-
-                last_poll_time = current_time;
-            }
-            Err(e) => {
-                tracing::error!(?e, "Failed to fetch account updates from DB");
-            }
-        }
-    }
 }
 
 pub async fn stream_logs(
     blockchain: &Blockchain,
     db: &DB,
     start_from: u64,
-    tree_cache_params: Option<&TreeCacheParams>,
+    sync_tree: bool,
 ) -> anyhow::Result<()> {
     let mut stream = blockchain.stream_world_tree_events(start_from).await?;
     let mut events_committer = EventsCommitter::new(db);
@@ -476,7 +295,7 @@ pub async fn stream_logs(
                 tracing::info!(?event, "decoded live registry event");
 
                 if let Err(e) =
-                    handle_registry_event(db, &mut events_committer, &event, tree_cache_params)
+                    handle_registry_event(db, &mut events_committer, &event, sync_tree)
                         .await
                 {
                     tracing::error!(?e, ?event, "failed to handle registry event");

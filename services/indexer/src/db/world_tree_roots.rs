@@ -124,6 +124,59 @@ where
         result.map(|row| Self::map_root_id(&row)).transpose()
     }
 
+    /// Look up a root by its value (for restore validation).
+    pub async fn get_root_by_value(
+        self,
+        root: &U256,
+    ) -> anyhow::Result<Option<WorldTreeRoot>> {
+        let table_name = self.table_name;
+        let result = sqlx::query(&format!(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    event_type,
+                    tx_hash,
+                    root,
+                    root_timestamp
+                FROM {}
+                WHERE root = $1
+            "#,
+            table_name
+        ))
+        .bind(root)
+        .fetch_optional(self.executor)
+        .await?;
+
+        result.map(|row| Self::map_root(&row)).transpose()
+    }
+
+    /// Get the latest root entry (for final validation after replay).
+    pub async fn get_latest_root(self) -> anyhow::Result<Option<WorldTreeRoot>> {
+        let table_name = self.table_name;
+        let result = sqlx::query(&format!(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    event_type,
+                    tx_hash,
+                    root,
+                    root_timestamp
+                FROM {}
+                ORDER BY
+                    block_number DESC,
+                    log_index DESC
+                LIMIT 1
+            "#,
+            table_name
+        ))
+        .fetch_optional(self.executor)
+        .await?;
+
+        result.map(|row| Self::map_root(&row)).transpose()
+    }
+
     #[instrument(level = "info", skip(self))]
     pub async fn insert_event(
         self,

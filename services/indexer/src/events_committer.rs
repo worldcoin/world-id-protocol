@@ -17,22 +17,21 @@ impl<'a> EventsCommitter<'a> {
             buffered_events: vec![],
         }
     }
+    /// Handle a single event: buffer it, and commit when a RootRecorded event
+    /// is seen. Returns `true` when a DB commit happened (batch flushed).
     pub async fn handle_event(
         &mut self,
         event: BlockchainEvent<RegistryEvent>,
-    ) -> anyhow::Result<()> {
-        match event.details {
-            RegistryEvent::AccountCreated(_) => self.buffer_event(event),
-            RegistryEvent::AccountUpdated(_) => self.buffer_event(event),
-            RegistryEvent::AuthenticatorInserted(_) => self.buffer_event(event),
-            RegistryEvent::AuthenticatorRemoved(_) => self.buffer_event(event),
-            RegistryEvent::AccountRecovered(_) => self.buffer_event(event),
-            RegistryEvent::RootRecorded(_) => {
-                self.buffer_event(event)?;
-                self.commit_events().await?;
-                Ok(())
-            }
+    ) -> anyhow::Result<bool> {
+        let is_root = matches!(event.details, RegistryEvent::RootRecorded(_));
+        self.buffer_event(event)?;
+
+        if is_root {
+            self.commit_events().await?;
+            return Ok(true);
         }
+
+        Ok(false)
     }
 
     fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> anyhow::Result<()> {

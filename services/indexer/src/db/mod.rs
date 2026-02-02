@@ -7,7 +7,7 @@ mod world_tree_roots;
 
 pub use accounts::Accounts;
 pub use world_tree_events::{WorldTreeEventId, WorldTreeEventType, WorldTreeEvents};
-pub use world_tree_roots::{WorldTreeRootEventType, WorldTreeRootId, WorldTreeRoots};
+pub use world_tree_roots::{WorldTreeRoot, WorldTreeRootEventType, WorldTreeRootId, WorldTreeRoots};
 
 // Type alias for convenience (for potential future generics)
 pub type DB = PostgresDB;
@@ -145,42 +145,6 @@ impl<'a> PostgresDBTransaction<'a> {
     }
 }
 
-pub async fn fetch_recent_account_updates<'a, E>(
-    executor: E,
-    since: std::time::SystemTime,
-) -> anyhow::Result<Vec<(U256, U256)>>
-where
-    E: sqlx::Executor<'a, Database = Postgres>,
-{
-    // Convert SystemTime to timestamp
-    let since_duration = since
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let since_timestamp = since_duration.as_secs() as i64;
-
-    // Query world_tree_events for recent changes
-    let rows = sqlx::query(
-        r#"
-        SELECT DISTINCT ON (leaf_index)
-            leaf_index,
-            offchain_signer_commitment
-        FROM world_tree_events
-        WHERE created_at > to_timestamp($1)
-        ORDER BY leaf_index, created_at DESC
-        "#,
-    )
-    .bind(since_timestamp)
-    .fetch_all(executor)
-    .await?;
-
-    rows.iter()
-        .map(|row| {
-            let leaf_index = row.get::<U256, _>("leaf_index");
-            let commitment = row.get::<U256, _>("offchain_signer_commitment");
-            Ok((leaf_index, commitment))
-        })
-        .collect()
-}
 
 // =============================================================================
 // Tree-related DB queries (extracted from tree module)

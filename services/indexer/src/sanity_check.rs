@@ -6,7 +6,7 @@ use alloy::{
 };
 use world_id_core::world_id_registry::WorldIdRegistry;
 
-use crate::tree::GLOBAL_TREE;
+use crate::tree::cached_tree;
 
 /// Periodically checks that the local in-memory Merkle root remains valid on-chain.
 pub async fn root_sanity_check_loop(
@@ -27,7 +27,7 @@ pub async fn root_sanity_check_loop(
         tokio::time::sleep(Duration::from_secs(interval_secs)).await;
 
         // Read local root under read lock
-        let local_root = { GLOBAL_TREE.read().await.root() };
+        let local_root = cached_tree::root().await;
 
         // Check validity window on-chain first (covers slight lag vs current root)
         let is_valid = match contract.isValidRoot(local_root).call().await {
