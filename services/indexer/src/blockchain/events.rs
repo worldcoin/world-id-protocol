@@ -4,6 +4,8 @@ use alloy::{
 };
 use world_id_core::world_id_registry::WorldIdRegistry;
 
+use super::{BlockchainError, BlockchainResult};
+
 #[derive(Debug, Clone)]
 pub struct BlockchainEvent<T: Clone> {
     pub block_number: u64,
@@ -89,20 +91,22 @@ impl RegistryEvent {
         ]
     }
 
-    pub fn decode(lg: &alloy::rpc::types::Log) -> anyhow::Result<BlockchainEvent<RegistryEvent>> {
+    pub fn decode(lg: &alloy::rpc::types::Log) -> BlockchainResult<BlockchainEvent<RegistryEvent>> {
         if lg.topics().is_empty() {
-            anyhow::bail!("log has no topics");
+            return Err(BlockchainError::MissingLogField("topics"));
         }
 
         let event_sig = lg.topics()[0];
 
         let block_number = lg
             .block_number
-            .ok_or(anyhow::anyhow!("missing block number"))?;
+            .ok_or(BlockchainError::MissingLogField("block_number"))?;
         let tx_hash = lg
             .transaction_hash
-            .ok_or(anyhow::anyhow!("missing transaction hash"))?;
-        let log_index = lg.log_index.ok_or(anyhow::anyhow!("missing log index"))?;
+            .ok_or(BlockchainError::MissingLogField("transaction_hash"))?;
+        let log_index = lg
+            .log_index
+            .ok_or(BlockchainError::MissingLogField("log_index"))?;
 
         let details = match event_sig {
             WorldIdRegistry::AccountCreated::SIGNATURE_HASH => {
@@ -123,7 +127,11 @@ impl RegistryEvent {
             WorldIdRegistry::RootRecorded::SIGNATURE_HASH => {
                 RegistryEvent::RootRecorded(Self::decode_root_recorded(lg)?)
             }
-            _ => anyhow::bail!("unknown event signature: {event_sig:?}"),
+            _ => {
+                return Err(BlockchainError::UnknownEventSignature(format!(
+                    "{event_sig:?}"
+                )));
+            }
         };
 
         Ok(BlockchainEvent {
@@ -134,10 +142,14 @@ impl RegistryEvent {
         })
     }
 
-    fn decode_account_created(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountCreatedEvent> {
-        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-        let typed = WorldIdRegistry::AccountCreated::decode_log(&prim)?;
+    fn decode_account_created(
+        lg: &alloy::rpc::types::Log,
+    ) -> BlockchainResult<AccountCreatedEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone()).ok_or(
+            BlockchainError::LogDecode("invalid log for decoding".to_string()),
+        )?;
+        let typed = WorldIdRegistry::AccountCreated::decode_log(&prim)
+            .map_err(|err| BlockchainError::LogDecode(err.to_string()))?;
 
         // TODO: Validate pubkey is valid affine compressed
         Ok(AccountCreatedEvent {
@@ -149,10 +161,14 @@ impl RegistryEvent {
         })
     }
 
-    fn decode_account_updated(lg: &alloy::rpc::types::Log) -> anyhow::Result<AccountUpdatedEvent> {
-        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-        let typed = WorldIdRegistry::AccountUpdated::decode_log(&prim)?;
+    fn decode_account_updated(
+        lg: &alloy::rpc::types::Log,
+    ) -> BlockchainResult<AccountUpdatedEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone()).ok_or(
+            BlockchainError::LogDecode("invalid log for decoding".to_string()),
+        )?;
+        let typed = WorldIdRegistry::AccountUpdated::decode_log(&prim)
+            .map_err(|err| BlockchainError::LogDecode(err.to_string()))?;
 
         Ok(AccountUpdatedEvent {
             leaf_index: typed.data.leafIndex,
@@ -167,10 +183,12 @@ impl RegistryEvent {
 
     fn decode_authenticator_inserted(
         lg: &alloy::rpc::types::Log,
-    ) -> anyhow::Result<AuthenticatorInsertedEvent> {
-        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-        let typed = WorldIdRegistry::AuthenticatorInserted::decode_log(&prim)?;
+    ) -> BlockchainResult<AuthenticatorInsertedEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone()).ok_or(
+            BlockchainError::LogDecode("invalid log for decoding".to_string()),
+        )?;
+        let typed = WorldIdRegistry::AuthenticatorInserted::decode_log(&prim)
+            .map_err(|err| BlockchainError::LogDecode(err.to_string()))?;
 
         Ok(AuthenticatorInsertedEvent {
             leaf_index: typed.data.leafIndex,
@@ -184,10 +202,12 @@ impl RegistryEvent {
 
     fn decode_authenticator_removed(
         lg: &alloy::rpc::types::Log,
-    ) -> anyhow::Result<AuthenticatorRemovedEvent> {
-        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-        let typed = WorldIdRegistry::AuthenticatorRemoved::decode_log(&prim)?;
+    ) -> BlockchainResult<AuthenticatorRemovedEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone()).ok_or(
+            BlockchainError::LogDecode("invalid log for decoding".to_string()),
+        )?;
+        let typed = WorldIdRegistry::AuthenticatorRemoved::decode_log(&prim)
+            .map_err(|err| BlockchainError::LogDecode(err.to_string()))?;
 
         Ok(AuthenticatorRemovedEvent {
             leaf_index: typed.data.leafIndex,
@@ -201,10 +221,12 @@ impl RegistryEvent {
 
     fn decode_account_recovered(
         lg: &alloy::rpc::types::Log,
-    ) -> anyhow::Result<AccountRecoveredEvent> {
-        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-        let typed = WorldIdRegistry::AccountRecovered::decode_log(&prim)?;
+    ) -> BlockchainResult<AccountRecoveredEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone()).ok_or(
+            BlockchainError::LogDecode("invalid log for decoding".to_string()),
+        )?;
+        let typed = WorldIdRegistry::AccountRecovered::decode_log(&prim)
+            .map_err(|err| BlockchainError::LogDecode(err.to_string()))?;
 
         Ok(AccountRecoveredEvent {
             leaf_index: typed.data.leafIndex,
@@ -215,10 +237,12 @@ impl RegistryEvent {
         })
     }
 
-    fn decode_root_recorded(lg: &alloy::rpc::types::Log) -> anyhow::Result<RootRecordedEvent> {
-        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
-            .ok_or_else(|| anyhow::anyhow!("invalid log for decoding"))?;
-        let typed = WorldIdRegistry::RootRecorded::decode_log(&prim)?;
+    fn decode_root_recorded(lg: &alloy::rpc::types::Log) -> BlockchainResult<RootRecordedEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone()).ok_or(
+            BlockchainError::LogDecode("invalid log for decoding".to_string()),
+        )?;
+        let typed = WorldIdRegistry::RootRecorded::decode_log(&prim)
+            .map_err(|err| BlockchainError::LogDecode(err.to_string()))?;
 
         Ok(RootRecordedEvent {
             root: typed.data.root,
