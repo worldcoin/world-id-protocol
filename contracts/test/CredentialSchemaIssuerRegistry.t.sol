@@ -591,7 +591,7 @@ contract CredentialIssuerRegistryTest is Test {
 
         // Manually register the same OPRF key ID that would be used by issuerSchemaId2
         // by directly calling the mock OprfKeyRegistry
-        MockOprfKeyRegistry oprfRegistry = MockOprfKeyRegistry(address(registry._oprfKeyRegistry()));
+        MockOprfKeyRegistry oprfRegistry = MockOprfKeyRegistry(registry.getOprfKeyRegistry());
         oprfRegistry.initKeyGen(uint160(issuerSchemaId2));
 
         // Try to register second issuer - should fail because OPRF key is already taken
