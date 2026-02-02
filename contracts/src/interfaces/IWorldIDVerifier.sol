@@ -153,33 +153,33 @@ interface IWorldIDVerifier {
 
     /**
      * @notice Updates the credential schema issuer registry address.
-     * @param _credentialSchemaIssuerRegistry The new credential schema issuer registry address.
+     * @param newCredentialSchemaIssuerRegistry The new credential schema issuer registry address.
      */
-    function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry) external;
+    function updateCredentialSchemaIssuerRegistry(address newCredentialSchemaIssuerRegistry) external;
 
     /**
      * @notice Updates the World ID registry address.
-     * @param _worldIDRegistry The new World ID registry address.
+     * @param newWorldIDRegistry The new World ID registry address.
      */
-    function updateWorldIDRegistry(address _worldIDRegistry) external;
+    function updateWorldIDRegistry(address newWorldIDRegistry) external;
 
     /**
      * @notice Updates the OPRF key registry address.
-     * @param _oprfKeyRegistry The new OPRF key registry address.
+     * @param newOprfKeyRegistry The new OPRF key registry address.
      */
-    function updateOprfKeyRegistry(address _oprfKeyRegistry) external;
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external;
 
     /**
      * @notice Updates the Verifier address.
-     * @param _verifier The new verifier address.
+     * @param newVerifier The new verifier address.
      */
-    function updateVerifier(address _verifier) external;
+    function updateVerifier(address newVerifier) external;
 
     /**
-     * @notice Updates the proof timestamp delta.
-     * @param _proofTimestampDelta The new proof timestamp delta value in seconds.
+     * @notice Updates the minimum expiration threshold.
+     * @param newMinExpirationThreshold The new minimum expiration threshold value in seconds.
      */
-    function updateProofTimestampDelta(uint256 _proofTimestampDelta) external;
+    function updateMinExpirationThreshold(uint64 newMinExpirationThreshold) external;
 
     /**
      * @notice Returns the credential schema issuer registry address.
@@ -206,10 +206,10 @@ interface IWorldIDVerifier {
     function getVerifier() external view returns (address);
 
     /**
-     * @notice Returns the proof timestamp delta.
-     * @return The allowed delta for proof timestamps (seconds).
+     * @notice Returns the minimum expiration threshold.
+     * @return The minimum expiration threshold in seconds.
      */
-    function getProofTimestampDelta() external view returns (uint256);
+    function getMinExpirationThreshold() external view returns (uint256);
 
     /**
      * @notice Returns the tree depth.

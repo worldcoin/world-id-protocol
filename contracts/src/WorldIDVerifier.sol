@@ -228,8 +228,8 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function getProofTimestampDelta() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _proofTimestampDelta;
+    function getMinExpirationThreshold() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _minExpirationThreshold;
     }
 
     /// @inheritdoc IWorldIDVerifier
