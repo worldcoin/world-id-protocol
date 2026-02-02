@@ -28,7 +28,7 @@ const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 /// * `action` - The action field element.
 /// * `query_origin_id` - The `RpId` or `issuer_schema_id`.
 #[must_use]
-pub fn digest_for_authenticator(
+pub fn oprf_query_digest(
     leaf_index: u64,
     action: FieldElement,
     query_origin_id: FieldElement,

@@ -1,4 +1,4 @@
-//! Logic to generate nullifiers using the OPRF Nodes.
+//! Logic to generate credential blinding factors using the OPRF Nodes.
 
 use ark_ff::PrimeField;
 use groth16_material::circom::CircomGroth16Material;
@@ -66,12 +66,12 @@ impl OprfBlindingFactor {
         // For schema issuer OPRF, the nonce is not needed.
         let nonce = FieldElement::ZERO;
 
-        let blinding_factor = BlindingFactor::rand(&mut rng);
+        let query_blinding_factor = BlindingFactor::rand(&mut rng);
 
         let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
             authenticator_input.inclusion_proof.siblings.map(|s| *s);
 
-        let query_hash = world_id_primitives::authenticator::digest_for_authenticator(
+        let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             authenticator_input.inclusion_proof.leaf_index,
             action,
             issuer_schema_id.into(),
@@ -87,7 +87,7 @@ impl OprfBlindingFactor {
             depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
             mt_index: authenticator_input.inclusion_proof.leaf_index.into(),
             siblings,
-            beta: blinding_factor.beta(),
+            beta: query_blinding_factor.beta(),
             rp_id: issuer_schema_id.into(),
             action: *action,
             nonce: *nonce,
@@ -115,7 +115,7 @@ impl OprfBlindingFactor {
             oprf_key_id,
             share_epoch,
             *query_hash,
-            blinding_factor,
+            query_blinding_factor,
             ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
             auth,
             connector,

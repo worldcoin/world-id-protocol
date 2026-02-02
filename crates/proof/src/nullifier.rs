@@ -59,13 +59,13 @@ impl OprfNullifier {
     ) -> Result<Self, ProofError> {
         let mut rng = rand::rngs::OsRng;
 
-        let blinding_factor = BlindingFactor::rand(&mut rng);
+        let query_blinding_factor = BlindingFactor::rand(&mut rng);
 
         let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
             authenticator_input.inclusion_proof.siblings.map(|s| *s);
 
         let action = *proof_request.computed_action();
-        let query_hash = world_id_primitives::authenticator::digest_for_authenticator(
+        let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             authenticator_input.inclusion_proof.leaf_index,
             action.into(),
             proof_request.rp_id.into(),
@@ -81,7 +81,7 @@ impl OprfNullifier {
             depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
             mt_index: authenticator_input.inclusion_proof.leaf_index.into(),
             siblings,
-            beta: blinding_factor.beta(),
+            beta: query_blinding_factor.beta(),
             rp_id: *FieldElement::from(proof_request.rp_id),
             action,
             nonce: *proof_request.nonce,
@@ -112,7 +112,7 @@ impl OprfNullifier {
             proof_request.oprf_key_id,
             proof_request.share_epoch,
             *query_hash,
-            blinding_factor,
+            query_blinding_factor,
             ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
             auth,
             connector,

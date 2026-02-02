@@ -230,13 +230,10 @@ async fn run_nullifier(
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(
             issuer_schema_id,
-            FieldElement::ZERO,
             issuer_oprf_key_id,
             issuer_share_epoch,
         )
         .await?;
-    let credential_sub_blinding_factor =
-        FieldElement::from(credential_sub_blinding_factor.verifiable_oprf_output.output);
 
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
     let issuer_pk = issuer_sk.public();
@@ -378,7 +375,7 @@ fn prepare_nullifier_stress_test_oprf_request(
             .context("while creating proof request")?;
 
     let request_id = Uuid::new_v4();
-    let query_hash = world_id_primitives::authenticator::digest_for_authenticator(
+    let query_hash = world_id_primitives::authenticator::oprf_query_digest(
         leaf_index,
         proof_request.computed_action(),
         proof_request.rp_id.into(),

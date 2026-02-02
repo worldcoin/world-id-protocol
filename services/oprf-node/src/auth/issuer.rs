@@ -8,6 +8,7 @@ use crate::{
     metrics::{METRICS_ID_NODE_REQUEST_AUTH_START, METRICS_ID_NODE_REQUEST_AUTH_VERIFIED},
 };
 use alloy::primitives::U160;
+use ark_ff::AdditiveGroup;
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
 use taceo_oprf::types::{
@@ -26,6 +27,9 @@ pub(crate) enum SchemaIssuerOprfRequestAuthError {
     /// The provided OprfKeyId does not match the issuer schema id.
     #[error("oprf key id mismatch")]
     OprfKeyIdMismatch,
+    /// The provided action is not valid (must be 0 for now, might change in the future)
+    #[error("invalid action")]
+    InvalidAction,
     /// Common OPRF request auth error
     #[error(transparent)]
     Common(#[from] crate::auth::OprfRequestAuthError),
@@ -44,6 +48,11 @@ impl IntoResponse for SchemaIssuerOprfRequestAuthError {
             SchemaIssuerOprfRequestAuthError::OprfKeyIdMismatch => {
                 (StatusCode::BAD_REQUEST, "oprf key id mismatch").into_response()
             }
+            SchemaIssuerOprfRequestAuthError::InvalidAction => (
+                StatusCode::BAD_REQUEST,
+                "invalid action (must be 0 for now)",
+            )
+                .into_response(),
             SchemaIssuerOprfRequestAuthError::Common(err) => err.into_response(),
             SchemaIssuerOprfRequestAuthError::InternalServerError(err) => {
                 let error_id = Uuid::new_v4();
@@ -86,7 +95,10 @@ impl OprfRequestAuthenticator for SchemaIssuerOprfRequestAuthenticator {
     ) -> Result<(), Self::RequestAuthError> {
         ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
 
-        // TODO verify that action is some specific value?
+        // check that the action is valid (must be 0 for now, might change in the future)
+        if request.auth.action != ark_babyjubjub::Fq::ZERO {
+            return Err(SchemaIssuerOprfRequestAuthError::InvalidAction);
+        }
 
         // check if the oprf key id matches the issuer schema id
         if OprfKeyId::new(U160::from(request.auth.issuer_schema_id))

@@ -417,6 +417,28 @@ impl Authenticator {
         }
     }
 
+    /// Checks that the OPRF Nodes configuration is valid and returns the list of URLs and the threshold to use.
+    ///
+    /// # Errors
+    /// Will return an error if there are no OPRF Nodes configured or if the threshold is invalid.
+    fn check_oprf_config(&self) -> Result<(&[String], usize), AuthenticatorError> {
+        let services = self.config.nullifier_oracle_urls();
+        if services.is_empty() {
+            return Err(AuthenticatorError::Generic(
+                "No nullifier oracle URLs configured".to_string(),
+            ));
+        }
+        let requested_threshold = self.config.nullifier_oracle_threshold();
+        if requested_threshold == 0 {
+            return Err(AuthenticatorError::InvalidConfig {
+                attribute: "nullifier_oracle_threshold",
+                reason: "must be at least 1".to_string(),
+            });
+        }
+        let threshold = requested_threshold.min(services.len());
+        Ok((services, threshold))
+    }
+
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
     /// A nullifier is a unique, one-time use, anonymous identifier for a World ID
@@ -432,20 +454,7 @@ impl Authenticator {
         &self,
         proof_request: &ProofRequest,
     ) -> Result<OprfNullifier, AuthenticatorError> {
-        let services = self.config.nullifier_oracle_urls();
-        if services.is_empty() {
-            return Err(AuthenticatorError::Generic(
-                "No nullifier oracle URLs configured".to_string(),
-            ));
-        }
-        let requested_threshold = self.config.nullifier_oracle_threshold();
-        if requested_threshold == 0 {
-            return Err(AuthenticatorError::InvalidConfig {
-                attribute: "nullifier_oracle_threshold",
-                reason: "must be at least 1".to_string(),
-            });
-        }
-        let threshold = requested_threshold.min(services.len());
+        let (services, threshold) = self.check_oprf_config()?;
 
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
@@ -474,6 +483,7 @@ impl Authenticator {
         .await?)
     }
 
+    // TODO add more docs
     /// Generates a blinding factor for a Credential sub (through OPRF Nodes).
     ///
     /// # Errors
@@ -484,24 +494,10 @@ impl Authenticator {
     pub async fn generate_credential_blinding_factor(
         &self,
         issuer_schema_id: u64,
-        action: FieldElement,
         oprf_key_id: OprfKeyId,
         share_epoch: ShareEpoch,
-    ) -> Result<OprfBlindingFactor, AuthenticatorError> {
-        let services = self.config.nullifier_oracle_urls();
-        if services.is_empty() {
-            return Err(AuthenticatorError::Generic(
-                "No nullifier oracle URLs configured".to_string(),
-            ));
-        }
-        let requested_threshold = self.config.nullifier_oracle_threshold();
-        if requested_threshold == 0 {
-            return Err(AuthenticatorError::InvalidConfig {
-                attribute: "nullifier_oracle_threshold",
-                reason: "must be at least 1".to_string(),
-            });
-        }
-        let threshold = requested_threshold.min(services.len());
+    ) -> Result<FieldElement, AuthenticatorError> {
+        let (services, threshold) = self.check_oprf_config()?;
 
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
@@ -519,18 +515,20 @@ impl Authenticator {
             key_index,
         );
 
-        Ok(OprfBlindingFactor::generate(
+        let blinding_factor = OprfBlindingFactor::generate(
             services,
             threshold,
             &self.query_material,
             authenticator_input,
             issuer_schema_id,
-            action,
+            FieldElement::ZERO, // for now action is always zero, might change in future
             oprf_key_id,
             share_epoch,
             self.ws_connector.clone(),
         )
-        .await?)
+        .await?;
+
+        Ok(blinding_factor.verifiable_oprf_output.output.into())
     }
 
     /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This

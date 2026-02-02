@@ -217,14 +217,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(
             issuer_schema_id,
-            FieldElement::ZERO, // TODO? could be some fixed value for credential blinding factor
             OprfKeyId::new(U160::from(issuer_schema_id)),
             ShareEpoch::default(),
         )
         .await?;
-    let credential_sub_blinding_factor =
-        FieldElement::from(credential_sub_blinding_factor.verifiable_oprf_output.output);
-    assert_ne!(credential_sub_blinding_factor, FieldElement::ZERO);
 
     // Create and sign credential.
     let now = SystemTime::now()
