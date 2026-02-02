@@ -1,6 +1,8 @@
-use alloy::primitives::{Address, Bytes, FixedBytes, Log, LogData, U256};
-use alloy::rpc::types::Log as RpcLog;
-use alloy::sol_types::SolEvent;
+use alloy::{
+    primitives::{Address, Bytes, FixedBytes, Log, LogData, U256},
+    rpc::types::Log as RpcLog,
+    sol_types::SolEvent,
+};
 use world_id_core::world_id_registry::WorldIdRegistry;
 use world_id_indexer::blockchain::RegistryEvent;
 

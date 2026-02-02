@@ -1,7 +1,7 @@
 use alloy::primitives::{Address, U256};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 use uuid::Uuid;
-use world_id_indexer::db::{DB, WorldTreeEventType, WorldTreeRootEventType};
+use world_id_indexer::db::{DB, DBResult, WorldTreeEventType, WorldTreeRootEventType};
 
 /// Creates a unique test database for isolation between tests
 pub async fn create_unique_test_db() -> (DB, String) {
@@ -67,7 +67,7 @@ pub async fn insert_test_account(
     leaf_index: U256,
     recovery_address: Address,
     commitment: U256,
-) -> anyhow::Result<()> {
+) -> DBResult<()> {
     db.accounts()
         .insert(
             &leaf_index,
@@ -88,7 +88,7 @@ pub async fn insert_test_world_tree_event(
     event_type: WorldTreeEventType,
     tx_hash: U256,
     commitment: U256,
-) -> anyhow::Result<()> {
+) -> DBResult<()> {
     db.world_tree_events()
         .insert_event(
             &leaf_index,
@@ -108,7 +108,7 @@ pub async fn insert_test_world_tree_root(
     log_index: u64,
     root: U256,
     timestamp: U256,
-) -> anyhow::Result<()> {
+) -> DBResult<()> {
     db.world_tree_roots()
         .insert_event(
             block_number,
@@ -122,35 +122,40 @@ pub async fn insert_test_world_tree_root(
 }
 
 /// Count accounts in the database
-pub async fn count_accounts(pool: &PgPool) -> anyhow::Result<i64> {
-    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM accounts")
-        .fetch_one(pool)
-        .await?;
+pub async fn count_accounts(pool: &PgPool) -> DBResult<i64> {
+    let (count,): (i64,) =
+        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM accounts")
+            .fetch_one(pool)
+            .await?;
     Ok(count)
 }
 
 /// Count world tree events in the database
-pub async fn count_world_tree_events(pool: &PgPool) -> anyhow::Result<i64> {
-    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM world_tree_events")
-        .fetch_one(pool)
-        .await?;
+pub async fn count_world_tree_events(pool: &PgPool) -> DBResult<i64> {
+    let (count,): (i64,) =
+        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM world_tree_events")
+            .fetch_one(pool)
+            .await?;
     Ok(count)
 }
 
 /// Count world tree roots in the database
-pub async fn count_world_tree_roots(pool: &PgPool) -> anyhow::Result<i64> {
-    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM world_tree_roots")
-        .fetch_one(pool)
-        .await?;
+pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
+    let (count,): (i64,) =
+        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM world_tree_roots")
+            .fetch_one(pool)
+            .await?;
     Ok(count)
 }
 
 /// Check if account exists by leaf index
-pub async fn account_exists(pool: &PgPool, leaf_index: U256) -> anyhow::Result<bool> {
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM accounts WHERE leaf_index = $1")
-        .bind(leaf_index)
-        .fetch_one(pool)
-        .await?;
+pub async fn account_exists(pool: &PgPool, leaf_index: U256) -> DBResult<bool> {
+    let count: (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
+        "SELECT COUNT(*) FROM accounts WHERE leaf_index = $1",
+    )
+    .bind(leaf_index)
+    .fetch_one(pool)
+    .await?;
 
     Ok(count.0 > 0)
 }

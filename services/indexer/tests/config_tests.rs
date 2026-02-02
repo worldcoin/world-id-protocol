@@ -1,6 +1,5 @@
 use serial_test::serial;
-use std::env;
-use std::sync::Mutex;
+use std::{env, sync::Mutex};
 use world_id_indexer::config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode};
 
 // Mutex to prevent parallel test execution that modifies environment variables

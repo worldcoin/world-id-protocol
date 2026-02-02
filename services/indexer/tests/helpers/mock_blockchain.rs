@@ -1,5 +1,7 @@
-use alloy::primitives::{Address, FixedBytes, Log, U256};
-use alloy::rpc::types::Log as RpcLog;
+use alloy::{
+    primitives::{Address, FixedBytes, Log, U256},
+    rpc::types::Log as RpcLog,
+};
 use world_id_indexer::blockchain::{BlockchainEvent, RegistryEvent};
 
 /// Create a mock AccountCreated event for testing

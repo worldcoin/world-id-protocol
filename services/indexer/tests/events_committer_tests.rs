@@ -1,8 +1,7 @@
 mod helpers;
 
 use alloy::primitives::{Address, U256};
-use helpers::db_helpers::*;
-use helpers::mock_blockchain::*;
+use helpers::{db_helpers::*, mock_blockchain::*};
 use serial_test::serial;
 use world_id_indexer::events_committer::EventsCommitter;
 
