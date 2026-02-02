@@ -104,7 +104,7 @@ where
             self.table_name,
         ))
         .bind(leaf_index)
-        .bind(&Self::address_to_u160(recovery_address))
+        .bind(Self::address_to_u160(recovery_address))
         .bind(Json(
             authenticator_addresses
                 .iter()
