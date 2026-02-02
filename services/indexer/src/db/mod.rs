@@ -29,10 +29,6 @@ impl PostgresDB {
         Ok(Self { pool })
     }
 
-    pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
-    }
-
     pub async fn run_migrations(&self) -> anyhow::Result<()> {
         // Run sqlx migrations from ./migrations
         tracing::info!("Running migrations...");
