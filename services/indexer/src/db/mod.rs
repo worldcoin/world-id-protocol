@@ -22,8 +22,6 @@ pub enum DbError {
     InvalidEventType,
     #[error("invalid address")]
     InvalidAddress,
-    #[error("invalid u256 value")]
-    InvalidU256,
 }
 
 // Type alias for convenience (for potential future generics)

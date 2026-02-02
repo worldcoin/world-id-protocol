@@ -32,9 +32,9 @@ pub enum TreeError {
     ZeroLeafIndex,
     #[error("invalid cache file path")]
     InvalidCacheFilePath,
-    #[error("failed to restore tree from cache")]
+    #[error("failed to restore tree from cache: {0}")]
     CacheRestore(#[source] Box<dyn std::error::Error + Send + Sync>),
-    #[error("failed to create mmap tree")]
+    #[error("failed to create mmap tree: {0}")]
     CacheCreate(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("metadata file does not exist: {path}")]
     MetadataMissing { path: std::path::PathBuf },
