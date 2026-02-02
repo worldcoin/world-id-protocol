@@ -225,4 +225,111 @@ contract ProofVerifier is Test {
             nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, proof
         );
     }
+
+    function test_SessionWrongRpId() public {
+        vm.warp(proofTimestamp + 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
+        worldIDVerifier.verifySession(
+            rpIdWrong, // NOTE incorrect rp id
+            nonce,
+            signalHash,
+            proofTimestamp,
+            credentialIssuerIdCorrect,
+            0,
+            sessionId,
+            [nullifier, action],
+            sessionProof
+        );
+    }
+
+    function test_SessionWrongCredentialIssuer() public {
+        vm.warp(proofTimestamp + 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
+        worldIDVerifier.verifySession(
+            rpIdCorrect,
+            nonce,
+            signalHash,
+            proofTimestamp,
+            credentialIssuerIdWrong, // NOTE incorrect credential issuer id
+            0,
+            sessionId,
+            [nullifier, action],
+            sessionProof
+        );
+    }
+
+    function test_SessionWrongProof() public {
+        uint256[5] memory brokenProof = [
+            0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8,
+            0x79a6dee01c030080298a09adfd0294edc84f1650b68763d0aab5d6a1c1bbd8,
+            0x850d06c33658c9d2cc0e873cb45ad5375a31a6661cd4a11d833466ffe79b8bdd,
+            0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8,
+            rootCorrect
+        ];
+        vm.warp(proofTimestamp + 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
+        worldIDVerifier.verifySession(
+            rpIdCorrect,
+            nonce,
+            signalHash,
+            proofTimestamp,
+            credentialIssuerIdCorrect,
+            0,
+            sessionId,
+            [nullifier, action],
+            brokenProof
+        );
+    }
+
+    function test_SessionInvalidRoot() public {
+        uint256[5] memory invalidRootProof = sessionProof;
+        invalidRootProof[4] = rootWrong;
+
+        vm.warp(proofTimestamp + 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.InvalidMerkleRoot.selector));
+
+        worldIDVerifier.verifySession(
+            rpIdCorrect,
+            nonce,
+            signalHash,
+            proofTimestamp,
+            credentialIssuerIdCorrect,
+            0,
+            sessionId,
+            [nullifier, action],
+            invalidRootProof
+        );
+    }
+
+    function test_SessionTimestampFuture() public {
+        vm.warp(proofTimestamp - 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.NullifierFromFuture.selector));
+        worldIDVerifier.verifySession(
+            rpIdCorrect,
+            nonce,
+            signalHash,
+            proofTimestamp,
+            credentialIssuerIdCorrect,
+            0,
+            sessionId,
+            [nullifier, action],
+            sessionProof
+        );
+    }
+
+    function test_SessionTimestampTooOld() public {
+        vm.warp(proofTimestamp + 24 hours);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.OutdatedNullifier.selector));
+        worldIDVerifier.verifySession(
+            rpIdCorrect,
+            nonce,
+            signalHash,
+            proofTimestamp,
+            credentialIssuerIdCorrect,
+            0,
+            sessionId,
+            [nullifier, action],
+            sessionProof
+        );
+    }
 }
