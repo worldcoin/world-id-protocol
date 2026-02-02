@@ -4,8 +4,9 @@ pragma solidity ^0.8.13;
 /**
  * @title IWorldIDVerifier
  * @author World Contributors
- * @notice Interface for verifying nullifier proofs for World ID credentials
- * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
+ * @notice Interface for verifying World ID proofs (Uniqueness and Session proofs).
+ * @dev In addition to verifying the Groth16 Proof, it verifies relevant public inputs to the
+ *  circuits through checks with the WorldIDRegistry, CredentialSchemaIssuerRegistry, and OprfKeyRegistry.
  */
 interface IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
@@ -81,16 +82,16 @@ interface IWorldIDVerifier {
      * @notice Verifies a Uniqueness Proof.
      * @dev Validates the World ID registration and inclusion, credential issuer registration,
      *   and delegates to the Groth16 proof verifier for proof verification.
-     * @param nullifier The nullifier hash to verify uniqueness.
-     * @param action The action identifier.
-     * @param rpId The relying party identifier.
-     * @param nonce The nonce used in the proof.
-     * @param signalHash The hash of the signal which was committed in the proof.
-     * @param proofTimestamp The timestamp when the proof was generated.
-     * @param issuerSchemaId The ID of the credential issuer.
-     * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
-     * @param zeroKnowledgeProof The encoded Zero Knowledge Proof (first 4 elements represent a compressed Groth16 proof [a, b, b, c]
-     *   and the last element the Merkle Root of the tree in WorldIDRegistry.
+     * @param nullifier <description>
+     * @param action Raw field element bound into the proof. When using strings or bytes, hash with keccak256 and reduce to field.
+     * @param rpId Registered RP identifier from the RpRegistry.
+     * @param nonce Unique nonce for this request provided by the RP.
+     * @param signalHash Hash of the optional RP-defined signal bound into the proof.
+     * @param proofTimestamp Unix timestamp (seconds) when the proof was generated.
+     * @param issuerSchemaId Unique identifier for the credential schema and issuer pair.
+     * @param credentialGenesisIssuedAtMin Minimum genesis_issued_at timestamp constraint. Set to 0 to skip.
+     * @param zeroKnowledgeProof Encoded proof: first 4 elements are compressed Groth16 proof [a, b, b, c],
+     *   last element is the Merkle root from WorldIDRegistry.
      */
     function verify(
         uint256 nullifier,
@@ -108,17 +109,16 @@ interface IWorldIDVerifier {
      * @notice Verifies a Session Proof.
      * @dev Validates the World ID registration and inclusion, credential issuer registration,
      *   and delegates to the Groth16 proof verifier for proof verification.
-     * @param rpId The relying party identifier.
-     * @param nonce The nonce used in the proof.
-     * @param signalHash The hash of the signal which was committed in the proof.
-     * @param proofTimestamp The timestamp when the proof was generated.
-     * @param issuerSchemaId The ID of the credential issuer.
-     * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
-     * @param sessionId The ID of the session.
-     * @param sessionNullifier The nullifier explicitly encoded for Session Proofs. @dev: This encodes the raw `nullifier` (index 0) and the
-     *   randomly generated `action` (index 1).
-     * @param zeroKnowledgeProof The encoded Zero Knowledge Proof (first 4 elements represent a compressed Groth16 proof [a, b, b, c]
-     *   and the last element the Merkle Root of the tree in WorldIDRegistry.
+     * @param rpId Registered RP identifier.
+     * @param nonce Unique nonce for this request.
+     * @param signalHash Hash of the optional RP-defined signal bound into the proof.
+     * @param proofTimestamp Unix timestamp (seconds) when the proof was generated.
+     * @param issuerSchemaId Unique identifier for the credential schema and issuer pair.
+     * @param credentialGenesisIssuedAtMin Minimum genesis_issued_at timestamp constraint. Set to 0 to skip.
+     * @param sessionId Session identifier that links proofs for the same user/RP pair across requests.
+     * @param sessionNullifier Session nullifier: index 0 is the nullifier, index 1 is the randomly generated action.
+     * @param zeroKnowledgeProof Encoded proof: first 4 elements are compressed Groth16 proof [a, b, b, c],
+     *   last element is the Merkle root from WorldIDRegistry.
      */
     function verifySession(
         uint64 rpId,
@@ -179,8 +179,44 @@ interface IWorldIDVerifier {
     function updateVerifier(address _verifier) external;
 
     /**
-     * @notice Updates the proof timestamp delta
+     * @notice Updates the proof timestamp delta.
      * @param _proofTimestampDelta The new proof timestamp delta value in seconds.
      */
     function updateProofTimestampDelta(uint256 _proofTimestampDelta) external;
+
+    /**
+     * @notice Returns the credential schema issuer registry address.
+     * @return The address of the CredentialSchemaIssuerRegistry contract.
+     */
+    function getCredentialSchemaIssuerRegistry() external view returns (address);
+
+    /**
+     * @notice Returns the World ID registry address.
+     * @return The address of the WorldIDRegistry contract.
+     */
+    function getWorldIDRegistry() external view returns (address);
+
+    /**
+     * @notice Returns the OPRF key registry address.
+     * @return The address of the OprfKeyRegistry contract.
+     */
+    function getOprfKeyRegistry() external view returns (address);
+
+    /**
+     * @notice Returns the verifier contract address.
+     * @return The address of the Verifier contract.
+     */
+    function getVerifier() external view returns (address);
+
+    /**
+     * @notice Returns the proof timestamp delta.
+     * @return The allowed delta for proof timestamps (seconds).
+     */
+    function getProofTimestampDelta() external view returns (uint256);
+
+    /**
+     * @notice Returns the tree depth.
+     * @return The depth of the Merkle tree in WorldIDRegistry.
+     */
+    function getTreeDepth() external view returns (uint256);
 }
