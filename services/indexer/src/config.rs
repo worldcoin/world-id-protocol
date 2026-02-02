@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use alloy::{primitives::Address, providers::DynProvider};
+use thiserror::Error;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::db::DB;
@@ -167,9 +168,9 @@ pub struct TreeCacheConfig {
 }
 
 impl TreeCacheConfig {
-    pub fn from_env() -> anyhow::Result<Self> {
-        let cache_file_path = std::env::var("TREE_CACHE_FILE")
-            .map_err(|_| anyhow::anyhow!("TREE_CACHE_FILE environment variable is required"))?;
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let cache_file_path =
+            std::env::var("TREE_CACHE_FILE").map_err(|_| ConfigError::MissingTreeCacheFile)?;
 
         let config = Self {
             cache_file_path,
@@ -195,6 +196,12 @@ impl TreeCacheConfig {
         );
         Ok(config)
     }
+}
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("TREE_CACHE_FILE environment variable is required")]
+    MissingTreeCacheFile,
 }
 
 impl GlobalConfig {

@@ -2,6 +2,8 @@ use alloy::primitives::{Address, U160, U256};
 use sqlx::{Postgres, Row, postgres::PgRow, types::Json};
 use tracing::instrument;
 
+use crate::db::DBResult;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
     pub leaf_index: U256,
@@ -35,7 +37,7 @@ where
     pub async fn get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
         self,
         leaf_index: &U256,
-    ) -> anyhow::Result<Option<(U256, Vec<U256>)>> {
+    ) -> DBResult<Option<(U256, Vec<U256>)>> {
         let result = sqlx::query(&format!(
             r#"
                                 SELECT
@@ -60,7 +62,7 @@ where
             .transpose()
     }
 
-    pub async fn get_account(self, leaf_index: &U256) -> anyhow::Result<Option<Account>> {
+    pub async fn get_account(self, leaf_index: &U256) -> DBResult<Option<Account>> {
         let result = sqlx::query(&format!(
             r#"
                                 SELECT
@@ -90,7 +92,7 @@ where
         authenticator_addresses: &[Address],
         authenticator_pubkeys: &[U256],
         offchain_signer_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> DBResult<()> {
         sqlx::query(&format!(
             r#"
                 INSERT INTO {} (
@@ -130,7 +132,7 @@ where
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> DBResult<()> {
         // Update authenticator at specific index (pubkey_id)
         sqlx::query(&format!(
             r#"
@@ -159,7 +161,7 @@ where
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> DBResult<()> {
         // Reset all authenticators to single one
         sqlx::query(&format!(
             r#"
@@ -198,7 +200,7 @@ where
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> DBResult<()> {
         // Ensure arrays are large enough and insert at specific index
         sqlx::query(&format!(
             r#"
@@ -226,7 +228,7 @@ where
         leaf_index: &U256,
         pubkey_id: u32,
         new_commitment: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> DBResult<()> {
         // Remove authenticator at specific index by setting to null
         sqlx::query(&format!(
             r#"
@@ -247,7 +249,7 @@ where
         Ok(())
     }
 
-    fn map_account(row: &PgRow) -> anyhow::Result<Account> {
+    fn map_account(row: &PgRow) -> DBResult<Account> {
         Ok(Account {
             leaf_index: Self::map_leaf_index(row)?,
             recovery_address: Self::map_recovery_address(row)?,
@@ -257,19 +259,19 @@ where
         })
     }
 
-    fn map_leaf_index(row: &PgRow) -> anyhow::Result<U256> {
+    fn map_leaf_index(row: &PgRow) -> DBResult<U256> {
         Ok(row.get::<U256, _>("leaf_index"))
     }
 
-    fn map_recovery_address(row: &PgRow) -> anyhow::Result<Address> {
+    fn map_recovery_address(row: &PgRow) -> DBResult<Address> {
         Ok(Address::from(row.get::<U160, _>("recovery_address")))
     }
 
-    fn map_offchain_signer_commitment(row: &PgRow) -> anyhow::Result<U256> {
+    fn map_offchain_signer_commitment(row: &PgRow) -> DBResult<U256> {
         Ok(row.get::<U256, _>("offchain_signer_commitment"))
     }
 
-    fn map_authenticator_addresses(row: &PgRow) -> anyhow::Result<Vec<Address>> {
+    fn map_authenticator_addresses(row: &PgRow) -> DBResult<Vec<Address>> {
         Ok(row
             .get::<Json<Vec<String>>, _>("authenticator_addresses")
             .0
@@ -278,7 +280,7 @@ where
             .collect())
     }
 
-    fn map_authenticator_pub_keys(row: &PgRow) -> anyhow::Result<Vec<U256>> {
+    fn map_authenticator_pub_keys(row: &PgRow) -> DBResult<Vec<U256>> {
         Ok(row
             .get::<Json<Vec<String>>, _>("authenticator_pubkeys")
             .0
