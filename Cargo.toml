@@ -92,19 +92,19 @@ mockito = "1"
 ciborium = "0.2"
 
 # Internal
-world-id-core = { version = "0.3.0", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.3.0", path = "crates/issuer" }
-world-id-signer = { version = "0.3.0", path = "crates/signer" }
-world-id-types = { version = "0.3.0", path = "crates/types" }
-world-id-request = { version = "0.3.0", path = "crates/request" }
-world-id-registry = { version = "0.3.0", path = "crates/registry" }
-world-id-proof = { version = "0.3.0", path = "crates/proof" }
-world-id-credential = { version = "0.3.0", path = "crates/credential" }
-world-id-authenticator = { version = "0.3.0", path = "crates/authenticator" }
-world-id-primitives = { version = "0.3.0", path = "crates/primitives" }
-world-id-oprf-node = { version = "0.1", path = "services/oprf-node" }
-world-id-gateway = { version = "0.1", path = "services/gateway" }
-test-utils = { version = "0.3.0", path = "crates/test-utils" }
+world-id-core = { default-features = false, path = "crates/core" }
+world-id-issuer = { path = "crates/issuer" }
+world-id-signer = { path = "crates/signer" }
+world-id-types = { path = "crates/types" }
+world-id-request = { path = "crates/request" }
+world-id-registry = { path = "crates/registry" }
+world-id-proof = { path = "crates/proof" }
+world-id-credential = { path = "crates/credential" }
+world-id-authenticator = { path = "crates/authenticator" }
+world-id-primitives = { path = "crates/primitives" }
+world-id-oprf-node = { path = "services/oprf-node" }
+world-id-gateway = { path = "services/gateway" }
+test-utils = { path = "crates/test-utils" }
 
 
 [patch.crates-io]
