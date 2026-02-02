@@ -78,8 +78,9 @@ interface IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @notice Verifies a Uniqueness Proof for a specific World ID.
-     * @dev Validates the authenticator root, credential issuer registration, and delegates to the nullifier verifier for proof verification.
+     * @notice Verifies a Uniqueness Proof.
+     * @dev Validates the World ID registration and inclusion, credential issuer registration,
+     *   and delegates to the Groth16 proof verifier for proof verification.
      * @param nullifier The nullifier hash to verify uniqueness.
      * @param action The action identifier.
      * @param rpId The relying party identifier.
@@ -100,6 +101,52 @@ interface IWorldIDVerifier {
         uint256 proofTimestamp,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
+        uint256[5] calldata zeroKnowledgeProof
+    ) external view;
+
+    /**
+     * @notice Verifies a Session Proof.
+     * @dev Validates the World ID registration and inclusion, credential issuer registration,
+     *   and delegates to the Groth16 proof verifier for proof verification.
+     * @param rpId The relying party identifier.
+     * @param nonce The nonce used in the proof.
+     * @param signalHash The hash of the signal which was committed in the proof.
+     * @param proofTimestamp The timestamp when the proof was generated.
+     * @param issuerSchemaId The ID of the credential issuer.
+     * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
+     * @param sessionId The ID of the session.
+     * @param sessionNullifier The nullifier explicitly encoded for Session Proofs. @dev: This encodes the raw `nullifier` (index 0) and the
+     *   randomly generated `action` (index 1).
+     * @param zeroKnowledgeProof The encoded Zero Knowledge Proof (first 4 elements represent a compressed Groth16 proof [a, b, b, c]
+     *   and the last element the Merkle Root of the tree in WorldIDRegistry.
+     */
+    function verifySession(
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint256 proofTimestamp,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
+        uint256[2] calldata sessionNullifier,
+        uint256[5] calldata zeroKnowledgeProof
+    ) external view;
+
+    /*
+    * @notice Verifies a World ID Proof and the relevant public signals. This method can be used
+    *   to verify any type of World ID Proof and requires explicit inputs. Using `verify` or `verifySession` is
+    *   recommended for most use cases.
+    */
+    function _verifyProofAndSignals(
+        uint256 nullifier,
+        uint256 action,
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint256 proofTimestamp,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
         uint256[5] calldata zeroKnowledgeProof
     ) external view;
 
