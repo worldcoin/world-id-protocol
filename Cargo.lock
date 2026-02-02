@@ -9358,13 +9358,10 @@ name = "world-id-request"
 version = "0.3.0"
 dependencies = [
  "alloy",
- "ark-ff 0.5.0",
  "k256",
  "serde",
  "serde_json",
- "taceo-ark-babyjubjub",
  "taceo-oprf",
- "taceo-poseidon2",
  "thiserror 1.0.69",
  "world-id-primitives",
 ]
