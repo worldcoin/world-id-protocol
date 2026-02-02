@@ -481,9 +481,9 @@ impl Authenticator {
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
-    /// - `session_id_r_seed`: The session ID random seed.
-    /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs.
-    /// - `request_timestamp`: The timestamp of the request.
+    /// - `session_id_r_seed`: The session ID random seed. Obtained from the RP's [`ProofRequest`].
+    /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
+    /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
     ///
     /// # Errors
     /// - Will error if the any of the provided parameters are not valid.
@@ -498,11 +498,13 @@ impl Authenticator {
         credential_sub_blinding_factor: FieldElement,
         session_id_r_seed: FieldElement,
         session_id: Option<FieldElement>,
-        request_timestamp: u64, // TODO: Convert into min_expiration
+        request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+
+        let expires_at_min = request_item.expires_at_min.unwrap_or(request_timestamp);
 
         let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
             &self.nullifier_material,
@@ -513,7 +515,7 @@ impl Authenticator {
             request_item,
             session_id,
             session_id_r_seed,
-            request_timestamp,
+            expires_at_min,
         )?;
 
         let proof = ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root);
@@ -523,6 +525,7 @@ impl Authenticator {
             request_item.issuer_schema_id,
             proof,
             nullifier.into(),
+            expires_at_min,
         );
 
         Ok(response_item)

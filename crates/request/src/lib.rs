@@ -106,11 +106,26 @@ pub struct RequestItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
 
-    /// An optional constraint on the minimum genesis issued at timestamp on the used credential.
+    /// An optional constraint on the minimum genesis issued at timestamp on the Credential used for the proof.
     ///
     /// If present, the proof will include a constraint that the credential's genesis issued at timestamp
     /// is greater than or equal to this value. This is useful for migration from previous protocol versions.
     pub genesis_issued_at_min: Option<u64>,
+
+    /// An optional constraint on the minimuim expiration timestamp on the Credential used for the proof.
+    ///
+    /// If present, the proof will include a constraint that the credential's expiration timestamp
+    /// is greater than or equal to this value.
+    ///
+    /// This is particularly useful to specify a minimum duration for a Credential proportional to the action
+    /// being performed. For example, when claiming a benefit that is once every 6 months, the minimum duration
+    /// can be set to 180 days to prevent double claiming in that period in case the Credential is set to expire earlier.
+    ///
+    /// It is an RP's responsibility to understand the issuer's policies regarding expiration to ensure the request
+    /// can be fulfilled.
+    ///
+    /// If not provided, this will default to the [`ProofRequest::created_at`] attribute.
+    pub expires_at_min: Option<u64>,
 }
 
 impl RequestItem {
@@ -121,12 +136,14 @@ impl RequestItem {
         issuer_schema_id: u64,
         signal: Option<String>,
         genesis_issued_at_min: Option<u64>,
+        expires_at_min: Option<u64>,
     ) -> Self {
         Self {
             identifier,
             issuer_schema_id,
             signal,
             genesis_issued_at_min,
+            expires_at_min,
         }
     }
 
@@ -190,6 +207,11 @@ pub struct ResponseItem {
     /// Present if credential not provided
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+
+    /// The effective minimum expiration time of the Credential constraint used for the proof.
+    ///
+    /// This precise value must be used when verifying the proof.
+    pub expires_at_min: u64,
 }
 
 impl ProofResponse {
@@ -215,6 +237,7 @@ impl ResponseItem {
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
         nullifier: FieldElement,
+        expires_at_min: u64,
     ) -> Self {
         Self {
             identifier,
@@ -222,6 +245,7 @@ impl ResponseItem {
             proof: Some(proof),
             nullifier: Some(nullifier),
             error: None,
+            expires_at_min,
         }
     }
 }
