@@ -13,22 +13,17 @@ interface IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Thrown when the proof timestamp is too old, exceeding the allowed proof timestamp delta.
+     * @dev Thrown when the credential minimum expiration constraint is too old. A new proof should be requested with a fresher expiration.
      */
-    error OutdatedNullifier();
+    error ExpirationTooOld();
 
     /**
-     * @dev Thrown when the proof timestamp is in the future (greater than the current block timestamp).
-     */
-    error NullifierFromFuture();
-
-    /**
-     * @dev Thrown when the provided authenticator root is not valid in the World ID registry.
+     * @dev Thrown when the provided Merkle root is not valid in the `WorldIDRegistry`.
      */
     error InvalidMerkleRoot();
 
     /**
-     * @dev Thrown when the credential issuer schema ID is not registered in the credential schema issuer registry.
+     * @dev Thrown when the credential issuer schema ID is not registered in the `CredentialSchemaIssuerRegistry`.
      */
     error UnregisteredIssuerSchemaId();
 
@@ -86,7 +81,8 @@ interface IWorldIDVerifier {
      * @param rpId The relying party identifier.
      * @param nonce The nonce used in the proof.
      * @param signalHash The hash of the signal which was committed in the proof.
-     * @param proofTimestamp The timestamp when the proof was generated.
+     * @param expiresAtMin The minimum expiration required for the Credential used in the proof. If the constraint is not required,
+     *   it should use the current time as the minimum expiration. The Authenticator will normally expose the effective input used in the proof.
      * @param issuerSchemaId The ID of the credential issuer.
      * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
      * @param zeroKnowledgeProof The encoded Zero Knowledge Proof (first 4 elements represent a compressed Groth16 proof [a, b, b, c]
@@ -98,7 +94,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint256 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
@@ -111,7 +107,8 @@ interface IWorldIDVerifier {
      * @param rpId The relying party identifier.
      * @param nonce The nonce used in the proof.
      * @param signalHash The hash of the signal which was committed in the proof.
-     * @param proofTimestamp The timestamp when the proof was generated.
+     * @param expiresAtMin The minimum expiration required for the Credential used in the proof. If the constraint is not required,
+     *   it should use the current time as the minimum expiration. The Authenticator will normally expose the effective input used in the proof.
      * @param issuerSchemaId The ID of the credential issuer.
      * @param credentialGenesisIssuedAtMin The minimum timestamp for when the credential was initially issued. Set to 0 to skip.
      * @param sessionId The ID of the session.
@@ -124,7 +121,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint256 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -143,7 +140,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint256 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,

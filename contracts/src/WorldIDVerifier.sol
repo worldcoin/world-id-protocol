@@ -12,8 +12,9 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 
 /**
  * @title WorldIDVerifier
- * @notice Verifies nullifier proofs for World ID credentials
- * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
+ * @notice Verifies proofs on the World ID Protocol.
+ * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry. Requires
+ *  proofs to be generated with the 4.0+ Protocol.
  */
 contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
@@ -97,7 +98,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint256 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
@@ -108,7 +109,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
             rpId,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             issuerSchemaId,
             credentialGenesisIssuedAtMin,
             // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
@@ -122,7 +123,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint256 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -135,7 +136,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
             rpId,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             issuerSchemaId,
             credentialGenesisIssuedAtMin,
             sessionId,
@@ -150,7 +151,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint256 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -171,14 +172,10 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint160 oprfKeyId = uint160(rpId);
         BabyJubJub.Affine memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
-        // do not allow proofs from the future
-        if (proofTimestamp > block.timestamp) {
-            revert NullifierFromFuture();
-        }
-
-        // do not allow proofs older than proofTimestampDelta
-        if (proofTimestamp + proofTimestampDelta < block.timestamp) {
-            revert OutdatedNullifier();
+        // do not allow proofs with expiration older than proofTimestampDelta
+        // this is a sanity check to ensure non-expired credentials are used
+        if (expiresAtMin + proofTimestampDelta < block.timestamp) {
+            revert ExpirationTooOld();
         }
 
         uint256[15] memory pubSignals;
@@ -187,7 +184,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         pubSignals[1] = issuerSchemaId;
         pubSignals[2] = credentialIssuerPubkey.x;
         pubSignals[3] = credentialIssuerPubkey.y;
-        pubSignals[4] = proofTimestamp;
+        pubSignals[4] = expiresAtMin;
         pubSignals[5] = credentialGenesisIssuedAtMin;
         pubSignals[6] = worldIdRegistryMerkleRoot;
         pubSignals[7] = treeDepth;

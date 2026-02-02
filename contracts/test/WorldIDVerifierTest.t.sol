@@ -77,7 +77,7 @@ contract ProofVerifier is Test {
     uint256 public proofTimestampDelta;
 
     uint256 nullifier = 0x104b3a1c8e29cca4c7279df4831ac6c20a4d841e069c3ccdce2c1ac88d55b5a;
-    uint256 proofTimestamp = 0x6980a43f;
+    uint256 expiresAtMin = 0x6980a43f;
     uint256 action = 0x2e22e1a5485379a647255f72583f9120788c61e9c42413b7555f20d75cd34408;
     uint256 signalHash = 0x1578ed0de47522ad0b38e87031739c6a65caecc39ce3410bf3799e756a220f;
     uint256 nonce = 0x2882e7cb420e5424bf554832447223dc43aae09b1cf5b50de8d8385e7d43d0f;
@@ -122,19 +122,19 @@ contract ProofVerifier is Test {
     }
 
     function test_Success() public {
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         worldIDVerifier.verify(
-            nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, proof
+            nullifier, action, rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, proof
         );
     }
 
     function test_SessionSuccess() public {
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         worldIDVerifier.verifySession(
             rpIdCorrect,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
@@ -144,7 +144,7 @@ contract ProofVerifier is Test {
     }
 
     function test_WrongRpId() public {
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verify(
             nullifier,
@@ -152,7 +152,7 @@ contract ProofVerifier is Test {
             rpIdWrong, // NOTE incorrect rp id
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             proof
@@ -160,7 +160,7 @@ contract ProofVerifier is Test {
     }
 
     function test_WrongCredentialIssuer() public {
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verify(
             nullifier,
@@ -168,7 +168,7 @@ contract ProofVerifier is Test {
             rpIdCorrect,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdWrong, // NOTE incorrect credential issuer id
             0,
             proof
@@ -183,10 +183,10 @@ contract ProofVerifier is Test {
             0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8,
             rootCorrect
         ];
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verify(
-            nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, brokenProof
+            nullifier, action, rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, brokenProof
         );
     }
 
@@ -194,7 +194,7 @@ contract ProofVerifier is Test {
         uint256[5] memory invalidRootProof = proof;
         invalidRootProof[4] = rootWrong;
 
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.InvalidMerkleRoot.selector));
 
         worldIDVerifier.verify(
@@ -203,37 +203,29 @@ contract ProofVerifier is Test {
             rpIdCorrect,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             invalidRootProof
         );
     }
 
-    function test_TimestampFuture() public {
-        vm.warp(proofTimestamp - 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.NullifierFromFuture.selector));
+    function test_ExpiresAtTooOld() public {
+        vm.warp(expiresAtMin + 24 hours);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.ExpirationTooOld.selector));
         worldIDVerifier.verify(
-            nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, proof
-        );
-    }
-
-    function test_TimestampTooOld() public {
-        vm.warp(proofTimestamp + 24 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.OutdatedNullifier.selector));
-        worldIDVerifier.verify(
-            nullifier, action, rpIdCorrect, nonce, signalHash, proofTimestamp, credentialIssuerIdCorrect, 0, proof
+            nullifier, action, rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, proof
         );
     }
 
     function test_SessionWrongRpId() public {
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verifySession(
             rpIdWrong, // NOTE incorrect rp id
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
@@ -243,13 +235,13 @@ contract ProofVerifier is Test {
     }
 
     function test_SessionWrongCredentialIssuer() public {
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verifySession(
             rpIdCorrect,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdWrong, // NOTE incorrect credential issuer id
             0,
             sessionId,
@@ -266,13 +258,13 @@ contract ProofVerifier is Test {
             0x3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8,
             rootCorrect
         ];
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verifySession(
             rpIdCorrect,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
@@ -285,14 +277,14 @@ contract ProofVerifier is Test {
         uint256[5] memory invalidRootProof = sessionProof;
         invalidRootProof[4] = rootWrong;
 
-        vm.warp(proofTimestamp + 1 hours);
+        vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.InvalidMerkleRoot.selector));
 
         worldIDVerifier.verifySession(
             rpIdCorrect,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
@@ -301,30 +293,14 @@ contract ProofVerifier is Test {
         );
     }
 
-    function test_SessionTimestampFuture() public {
-        vm.warp(proofTimestamp - 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.NullifierFromFuture.selector));
+    function test_SessionExpiresAtTooOld() public {
+        vm.warp(expiresAtMin + 24 hours);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.ExpirationTooOld.selector));
         worldIDVerifier.verifySession(
             rpIdCorrect,
             nonce,
             signalHash,
-            proofTimestamp,
-            credentialIssuerIdCorrect,
-            0,
-            sessionId,
-            [nullifier, action],
-            sessionProof
-        );
-    }
-
-    function test_SessionTimestampTooOld() public {
-        vm.warp(proofTimestamp + 24 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.OutdatedNullifier.selector));
-        worldIDVerifier.verifySession(
-            rpIdCorrect,
-            nonce,
-            signalHash,
-            proofTimestamp,
+            expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
