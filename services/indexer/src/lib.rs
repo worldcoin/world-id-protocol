@@ -189,8 +189,6 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
     db.run_migrations().await?;
     tracing::info!("🟢 DB successfully created .");
 
-    let tree_cache_cfg = &cfg.tree_cache;
-
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
@@ -206,14 +204,15 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
             tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
             // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
-            initialize_tree_with_config(tree_cache_cfg, &db).await?;
+            let tree_cache_cfg = http_config.tree_cache.clone();
+            initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
             run_http_only(
                 db,
                 &cfg.http_rpc_url,
                 cfg.registry_address,
                 http_config,
-                tree_cache_cfg.clone(),
+                tree_cache_cfg,
             )
             .await
         }
@@ -230,7 +229,8 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
 
             // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
-            initialize_tree_with_config(tree_cache_cfg, &db).await?;
+            let tree_cache_cfg = http_config.tree_cache.clone();
+            initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
             run_both(
                 &blockchain,
