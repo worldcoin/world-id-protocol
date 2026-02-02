@@ -14,22 +14,17 @@ interface IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Thrown when the proof timestamp is too old, exceeding the allowed proof timestamp delta.
+     * @dev Thrown when the credential minimum expiration constraint is too old. A new proof should be requested with a fresher expiration.
      */
-    error OutdatedNullifier();
+    error ExpirationTooOld();
 
     /**
-     * @dev Thrown when the proof timestamp is in the future (greater than the current block timestamp).
-     */
-    error NullifierFromFuture();
-
-    /**
-     * @dev Thrown when the provided authenticator root is not valid in the World ID registry.
+     * @dev Thrown when the provided Merkle root is not valid in the `WorldIDRegistry`.
      */
     error InvalidMerkleRoot();
 
     /**
-     * @dev Thrown when the credential issuer schema ID is not registered in the credential schema issuer registry.
+     * @dev Thrown when the credential issuer schema ID is not registered in the `CredentialSchemaIssuerRegistry`.
      */
     error UnregisteredIssuerSchemaId();
 
@@ -68,11 +63,11 @@ interface IWorldIDVerifier {
     event VerifierUpdated(address oldVerifier, address newVerifier);
 
     /**
-     * @notice Emitted when the proof timestamp delta is updated.
-     * @param oldProofTimestampDelta The previous proof timestamp delta value.
-     * @param newProofTimestampDelta The new proof timestamp delta value.
+     * @notice Emitted when the minimum expiration threshold is updated.
+     * @param oldMinExpirationThreshold The previous minimum expiration threshold value.
+     * @param newMinExpirationThreshold The new minimum expiration threshold value.
      */
-    event ProofTimestampDeltaUpdated(uint256 oldProofTimestampDelta, uint256 newProofTimestampDelta);
+    event MinExpirationThresholdUpdated(uint64 oldMinExpirationThreshold, uint64 newMinExpirationThreshold);
 
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
@@ -87,7 +82,8 @@ interface IWorldIDVerifier {
      * @param rpId Registered RP identifier from the RpRegistry.
      * @param nonce Unique nonce for this request provided by the RP.
      * @param signalHash Hash of the optional RP-defined signal bound into the proof.
-     * @param proofTimestamp Unix timestamp (seconds) when the proof was generated.
+     * @param expiresAtMin The minimum expiration required for the Credential used in the proof. If the constraint is not required,
+     *   it should use the current time as the minimum expiration. The Authenticator will normally expose the effective input used in the proof.
      * @param issuerSchemaId Unique identifier for the credential schema and issuer pair.
      * @param credentialGenesisIssuedAtMin Minimum genesis_issued_at timestamp constraint. Set to 0 to skip.
      * @param zeroKnowledgeProof Encoded proof: first 4 elements are compressed Groth16 proof [a, b, b, c],
@@ -99,7 +95,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
@@ -112,7 +108,8 @@ interface IWorldIDVerifier {
      * @param rpId Registered RP identifier.
      * @param nonce Unique nonce for this request.
      * @param signalHash Hash of the optional RP-defined signal bound into the proof.
-     * @param proofTimestamp Unix timestamp (seconds) when the proof was generated.
+     * @param expiresAtMin The minimum expiration required for the Credential used in the proof. If the constraint is not required,
+     *   it should use the current time as the minimum expiration. The Authenticator will normally expose the effective input used in the proof.
      * @param issuerSchemaId Unique identifier for the credential schema and issuer pair.
      * @param credentialGenesisIssuedAtMin Minimum genesis_issued_at timestamp constraint. Set to 0 to skip.
      * @param sessionId Session identifier that links proofs for the same user/RP pair across requests.
@@ -124,7 +121,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -143,7 +140,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,

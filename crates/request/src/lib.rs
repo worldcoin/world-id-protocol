@@ -5,15 +5,12 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod constraints;
-use ark_ff::PrimeField;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use world_id_primitives::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
-
-pub(crate) const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -106,11 +103,26 @@ pub struct RequestItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
 
-    /// An optional constraint on the minimum genesis issued at timestamp on the used credential.
+    /// An optional constraint on the minimum genesis issued at timestamp on the Credential used for the proof.
     ///
     /// If present, the proof will include a constraint that the credential's genesis issued at timestamp
     /// is greater than or equal to this value. This is useful for migration from previous protocol versions.
     pub genesis_issued_at_min: Option<u64>,
+
+    /// An optional constraint on the minimuim expiration timestamp on the Credential used for the proof.
+    ///
+    /// If present, the proof will include a constraint that the credential's expiration timestamp
+    /// is greater than or equal to this value.
+    ///
+    /// This is particularly useful to specify a minimum duration for a Credential proportional to the action
+    /// being performed. For example, when claiming a benefit that is once every 6 months, the minimum duration
+    /// can be set to 180 days to prevent double claiming in that period in case the Credential is set to expire earlier.
+    ///
+    /// It is an RP's responsibility to understand the issuer's policies regarding expiration to ensure the request
+    /// can be fulfilled.
+    ///
+    /// If not provided, this will default to the [`ProofRequest::created_at`] attribute.
+    pub expires_at_min: Option<u64>,
 }
 
 impl RequestItem {
@@ -121,12 +133,14 @@ impl RequestItem {
         issuer_schema_id: u64,
         signal: Option<String>,
         genesis_issued_at_min: Option<u64>,
+        expires_at_min: Option<u64>,
     ) -> Self {
         Self {
             identifier,
             issuer_schema_id,
             signal,
             genesis_issued_at_min,
+            expires_at_min,
         }
     }
 
@@ -137,6 +151,18 @@ impl RequestItem {
             FieldElement::from_arbitrary_raw_bytes(signal.as_bytes())
         } else {
             FieldElement::ZERO
+        }
+    }
+
+    /// Get the effective minimum expiration timestamp for this request item.
+    ///
+    /// If `expires_at_min` is `Some`, returns that value.
+    /// Otherwise, returns the `request_created_at` value (which should be the `ProofRequest::created_at` timestamp).
+    #[must_use]
+    pub const fn effective_expires_at_min(&self, request_created_at: u64) -> u64 {
+        match self.expires_at_min {
+            Some(value) => value,
+            None => request_created_at,
         }
     }
 }
@@ -190,6 +216,11 @@ pub struct ResponseItem {
     /// Present if credential not provided
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+
+    /// The effective minimum expiration time of the Credential constraint used for the proof.
+    ///
+    /// This precise value must be used when verifying the proof.
+    pub expires_at_min: u64,
 }
 
 impl ProofResponse {
@@ -215,6 +246,7 @@ impl ResponseItem {
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
         nullifier: FieldElement,
+        expires_at_min: u64,
     ) -> Self {
         Self {
             identifier,
@@ -222,6 +254,7 @@ impl ResponseItem {
             proof: Some(proof),
             nullifier: Some(nullifier),
             error: None,
+            expires_at_min,
         }
     }
 }
@@ -310,18 +343,6 @@ impl ProofRequest {
         Ok(hasher.finalize().into())
     }
 
-    /// Computes the digest which the authenticator needs to sign in order to request a nullifier from OPRF nodes.
-    #[must_use]
-    pub fn digest_for_authenticator(&self, leaf_index: u64) -> FieldElement {
-        let input = [
-            ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
-            leaf_index.into(),
-            *FieldElement::from(self.rp_id),
-            *self.computed_action(),
-        ];
-        poseidon2::bn254::t4::permutation(&input)[1].into()
-    }
-
     /// Gets the action value to use in the proof.
     #[must_use]
     pub fn computed_action(&self) -> FieldElement {
@@ -344,6 +365,26 @@ impl ProofRequest {
         }
         if self.version != response.version {
             return Err(ValidationError::VersionMismatch);
+        }
+
+        // Validate that expires_at_min matches for each response item
+        for response_item in &response.responses {
+            // Find the corresponding request item
+            if let Some(request_item) = self
+                .requests
+                .iter()
+                .find(|r| r.identifier == response_item.identifier)
+            {
+                let expected_expires_at_min =
+                    request_item.effective_expires_at_min(self.created_at);
+                if response_item.expires_at_min != expected_expires_at_min {
+                    return Err(ValidationError::ExpiresAtMinMismatch(
+                        response_item.identifier.clone(),
+                        expected_expires_at_min,
+                        response_item.expires_at_min,
+                    ));
+                }
+            }
         }
 
         // Build set of successful credentials by identifier
@@ -465,6 +506,9 @@ pub enum ValidationError {
     /// The constraints expression exceeds the maximum allowed size/complexity
     #[error("Constraints exceed maximum allowed size")]
     ConstraintTooLarge,
+    /// The `expires_at_min` value in the response does not match the expected value from the request
+    #[error("Invalid expires_at_min for credential '{0}': expected {1}, got {2}")]
+    ExpiresAtMinMismatch(String, u64, u64),
 }
 
 // Helper selection functions for constraint evaluation
@@ -538,6 +582,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_2".into(),
@@ -545,6 +590,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1002)),
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_3".into(),
@@ -552,6 +598,7 @@ mod tests {
                     proof: None,
                     nullifier: None,
                     error: Some("credential_not_available".into()),
+                    expires_at_min: 0,
                 },
             ],
         };
@@ -600,6 +647,7 @@ mod tests {
                 issuer_schema_id: 1,
                 signal: Some("test_signal".into()),
                 genesis_issued_at_min: None,
+                expires_at_min: None,
             }],
             constraints: None,
         };
@@ -641,12 +689,14 @@ mod tests {
                     issuer_schema_id: 1,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "document".into(),
                     issuer_schema_id: 2,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: None,
@@ -663,6 +713,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "document".into(),
@@ -670,6 +721,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
             ],
         };
@@ -685,6 +737,7 @@ mod tests {
                 proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
+                expires_at_min: 1_735_689_600,
             }],
         };
         let err = request.validate_response(&missing).unwrap_err();
@@ -719,6 +772,7 @@ mod tests {
                 issuer_schema_id: 1,
                 signal: None,
                 genesis_issued_at_min: None,
+                expires_at_min: None,
             }],
             constraints: Some(deep),
         };
@@ -733,6 +787,7 @@ mod tests {
                 proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
+                expires_at_min: 1_735_689_600,
             }],
         };
 
@@ -786,54 +841,63 @@ mod tests {
                     issuer_schema_id: 10,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_11".into(),
                     issuer_schema_id: 11,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_12".into(),
                     issuer_schema_id: 12,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_13".into(),
                     issuer_schema_id: 13,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_14".into(),
                     issuer_schema_id: 14,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_15".into(),
                     issuer_schema_id: 15,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_16".into(),
                     issuer_schema_id: 16,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_17".into(),
                     issuer_schema_id: 17,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_18".into(),
                     issuer_schema_id: 18,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(expr),
@@ -851,6 +915,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_11".into(),
@@ -858,6 +923,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_15".into(),
@@ -865,6 +931,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
             ],
         };
@@ -919,60 +986,70 @@ mod tests {
                     issuer_schema_id: 20,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_21".into(),
                     issuer_schema_id: 21,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_22".into(),
                     issuer_schema_id: 22,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_23".into(),
                     issuer_schema_id: 23,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_24".into(),
                     issuer_schema_id: 24,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_25".into(),
                     issuer_schema_id: 25,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_26".into(),
                     issuer_schema_id: 26,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_27".into(),
                     issuer_schema_id: 27,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_28".into(),
                     issuer_schema_id: 28,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_29".into(),
                     issuer_schema_id: 29,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(expr),
@@ -989,6 +1066,7 @@ mod tests {
                 proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
+                expires_at_min: 1_735_689_600,
             }],
         };
 
@@ -1015,6 +1093,7 @@ mod tests {
                 issuer_schema_id: 1,
                 signal: Some("abcd-efgh-ijkl".into()),
                 genesis_issued_at_min: Some(1_725_381_192),
+                expires_at_min: None,
             }],
             constraints: None,
         };
@@ -1033,6 +1112,7 @@ mod tests {
                 proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: Some(test_field_element(1001)),
                 error: None,
+                expires_at_min: 1_725_381_192,
             }],
         };
         assert!(req.validate_response(&resp).is_ok());
@@ -1058,12 +1138,14 @@ mod tests {
                     issuer_schema_id: 1,
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: Some(1_725_381_192),
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 2,
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: Some(1_725_381_192),
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1086,6 +1168,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
+                    expires_at_min: 1_725_381_192,
                 },
                 ResponseItem {
                     identifier: "test_req_1".into(),
@@ -1093,6 +1176,7 @@ mod tests {
                     proof: None,
                     nullifier: None,
                     error: Some("credential_not_available".into()),
+                    expires_at_min: 1_725_381_192,
                 },
             ],
         };
@@ -1121,18 +1205,21 @@ mod tests {
                     issuer_schema_id: 1,
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 2,
                     signal: Some("mnop-qrst-uvwx".into()),
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_3".into(),
                     issuer_schema_id: 3,
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1160,6 +1247,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
+                    expires_at_min: 1_725_381_192,
                 },
                 ResponseItem {
                     identifier: "test_req_1".into(),
@@ -1167,6 +1255,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1002)),
                     error: None,
+                    expires_at_min: 1_725_381_192,
                 },
             ],
         };
@@ -1185,7 +1274,8 @@ mod tests {
       "identifier": "orb",
       "issuer_schema_id": 100,
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
-      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9"
+      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9",
+      "expires_at_min": 1725381192
     }
   ]
 }"#;
@@ -1198,8 +1288,8 @@ mod tests {
   "id": "req_18c0f7f03e7d",
   "version": 1,
   "responses": [
-    { "identifier": "orb", "issuer_schema_id": 100, "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9" },
-    { "identifier": "gov_id", "issuer_schema_id": 101, "error": "credential_not_available" }
+    { "identifier": "orb", "issuer_schema_id": 100, "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9", "expires_at_min": 1725381192 },
+    { "identifier": "gov_id", "issuer_schema_id": 101, "error": "credential_not_available", "expires_at_min": 0 }
   ]
 }"#;
         let fail = ProofResponse::from_json(fail_json).unwrap();
@@ -1215,7 +1305,8 @@ mod tests {
       "identifier": "orb",
       "issuer_schema_id": 100,
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
-      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9"
+      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9",
+      "expires_at_min": 1725381192
     }
   ]
 }"#;
@@ -1246,12 +1337,14 @@ mod tests {
                     issuer_schema_id: 1,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 1, // Duplicate!
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: None,
@@ -1287,12 +1380,14 @@ mod tests {
                     issuer_schema_id: 100,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
                     issuer_schema_id: 101,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: None,
@@ -1335,18 +1430,21 @@ mod tests {
                     issuer_schema_id: orb_id,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
                     issuer_schema_id: passport_id,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "national_id".into(),
                     issuer_schema_id: national_id_id,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1383,5 +1481,174 @@ mod tests {
         // Missing orb → cannot satisfy "all" → None
         let available3: HashSet<String> = std::iter::once("passport".to_string()).collect();
         assert!(req.credentials_to_prove(&available3).is_none());
+    }
+
+    #[test]
+    fn request_item_effective_expires_at_min_defaults_to_created_at() {
+        let request_created_at = 1_735_689_600; // 2025-01-01 00:00:00 UTC
+        let custom_expires_at = 1_735_862_400; // 2025-01-03 00:00:00 UTC
+
+        // When expires_at_min is None, should use request_created_at
+        let item_with_none = RequestItem {
+            identifier: "test".into(),
+            issuer_schema_id: 100,
+            signal: None,
+            genesis_issued_at_min: None,
+            expires_at_min: None,
+        };
+        assert_eq!(
+            item_with_none.effective_expires_at_min(request_created_at),
+            request_created_at,
+            "When expires_at_min is None, should default to request created_at"
+        );
+
+        // When expires_at_min is Some, should use that value
+        let item_with_custom = RequestItem {
+            identifier: "test".into(),
+            issuer_schema_id: 100,
+            signal: None,
+            genesis_issued_at_min: None,
+            expires_at_min: Some(custom_expires_at),
+        };
+        assert_eq!(
+            item_with_custom.effective_expires_at_min(request_created_at),
+            custom_expires_at,
+            "When expires_at_min is Some, should use that explicit value"
+        );
+    }
+
+    #[test]
+    fn validate_response_checks_expires_at_min_matches() {
+        let request_created_at = 1_735_689_600; // 2025-01-01 00:00:00 UTC
+        let custom_expires_at = 1_735_862_400; // 2025-01-03 00:00:00 UTC
+
+        // Request with one item that has no explicit expires_at_min (defaults to created_at)
+        // and one with an explicit expires_at_min
+        let request = ProofRequest {
+            id: "req_expires_test".into(),
+            version: RequestVersion::V1,
+            created_at: request_created_at,
+            expires_at: request_created_at + 300,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
+            session_id: None,
+            action: Some(test_field_element(1)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![
+                RequestItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: 100,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None, // Should default to request_created_at
+                },
+                RequestItem {
+                    identifier: "document".into(),
+                    issuer_schema_id: 101,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: Some(custom_expires_at), // Explicit value
+                },
+            ],
+            constraints: None,
+        };
+
+        // Valid response with matching expires_at_min values
+        let valid_response = ProofResponse {
+            id: "req_expires_test".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            responses: vec![
+                ResponseItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: 100,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1001)),
+                    error: None,
+                    expires_at_min: request_created_at, // Matches default
+                },
+                ResponseItem {
+                    identifier: "document".into(),
+                    issuer_schema_id: 101,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1002)),
+                    error: None,
+                    expires_at_min: custom_expires_at, // Matches explicit value
+                },
+            ],
+        };
+        assert!(request.validate_response(&valid_response).is_ok());
+
+        // Invalid response with mismatched expires_at_min for first item
+        let invalid_response_1 = ProofResponse {
+            id: "req_expires_test".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            responses: vec![
+                ResponseItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: 100,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1001)),
+                    error: None,
+                    expires_at_min: custom_expires_at, // Wrong! Should be request_created_at
+                },
+                ResponseItem {
+                    identifier: "document".into(),
+                    issuer_schema_id: 101,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1002)),
+                    error: None,
+                    expires_at_min: custom_expires_at,
+                },
+            ],
+        };
+        let err1 = request.validate_response(&invalid_response_1).unwrap_err();
+        assert!(matches!(
+            err1,
+            ValidationError::ExpiresAtMinMismatch(_, _, _)
+        ));
+        if let ValidationError::ExpiresAtMinMismatch(identifier, expected, got) = err1 {
+            assert_eq!(identifier, "orb");
+            assert_eq!(expected, request_created_at);
+            assert_eq!(got, custom_expires_at);
+        }
+
+        // Invalid response with mismatched expires_at_min for second item
+        let invalid_response_2 = ProofResponse {
+            id: "req_expires_test".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            responses: vec![
+                ResponseItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: 100,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1001)),
+                    error: None,
+                    expires_at_min: request_created_at,
+                },
+                ResponseItem {
+                    identifier: "document".into(),
+                    issuer_schema_id: 101,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1002)),
+                    error: None,
+                    expires_at_min: request_created_at, // Wrong! Should be custom_expires_at
+                },
+            ],
+        };
+        let err2 = request.validate_response(&invalid_response_2).unwrap_err();
+        assert!(matches!(
+            err2,
+            ValidationError::ExpiresAtMinMismatch(_, _, _)
+        ));
+        if let ValidationError::ExpiresAtMinMismatch(identifier, expected, got) = err2 {
+            assert_eq!(identifier, "document");
+            assert_eq!(expected, custom_expires_at);
+            assert_eq!(got, request_created_at);
+        }
     }
 }

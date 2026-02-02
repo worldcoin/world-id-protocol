@@ -39,8 +39,8 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     /// @dev Contract for proof verification (Groth16)
     Verifier internal _verifier;
 
-    /// @dev Allowed delta for proof timestamps (seconds)
-    uint256 internal _proofTimestampDelta;
+    /// @notice Minimum threshold before credential expiration for accepting proofs (in seconds)
+    uint64 internal _minExpirationThreshold;
 
     /// @dev The depth of the Merkle tree in WorldIDRegistry
     uint256 internal _treeDepth;
@@ -67,14 +67,14 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
      * @param worldIDRegistry Address of the WorldIDRegistry contract.
      * @param oprfKeyRegistry Address of the OprfKeyRegistry contract.
      * @param verifier Address of the Verifier contract for proof verification.
-     * @param proofTimestampDelta Allowed delta for proof timestamps (seconds).
+     * @param minExpirationThreshold Minimum threshold before credential expiration for accepting proofs (in seconds).
      */
     function initialize(
         address credentialIssuerRegistry,
         address worldIDRegistry,
         address oprfKeyRegistry,
         address verifier,
-        uint256 proofTimestampDelta
+        uint64 minExpirationThreshold
     ) public virtual initializer {
         if (credentialIssuerRegistry == address(0)) revert ZeroAddress();
         if (worldIDRegistry == address(0)) revert ZeroAddress();
@@ -86,7 +86,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         _worldIDRegistry = WorldIDRegistry(worldIDRegistry);
         _verifier = Verifier(verifier);
         _oprfKeyRegistry = OprfKeyRegistry(oprfKeyRegistry);
-        _proofTimestampDelta = proofTimestampDelta;
+        _minExpirationThreshold = minExpirationThreshold;
         _treeDepth = _worldIDRegistry.getTreeDepth();
     }
 
@@ -101,7 +101,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
@@ -112,7 +112,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
             rpId,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             issuerSchemaId,
             credentialGenesisIssuedAtMin,
             // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
@@ -126,7 +126,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -139,7 +139,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
             rpId,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             issuerSchemaId,
             credentialGenesisIssuedAtMin,
             sessionId,
@@ -154,7 +154,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -175,14 +175,10 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint160 oprfKeyId = uint160(rpId);
         BabyJubJub.Affine memory oprfPublicKey = _oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
-        // do not allow proofs from the future
-        if (proofTimestamp > block.timestamp) {
-            revert NullifierFromFuture();
-        }
-
-        // do not allow proofs older than _proofTimestampDelta
-        if (proofTimestamp + _proofTimestampDelta < block.timestamp) {
-            revert OutdatedNullifier();
+        // Ensure the credential has sufficient time before expiration
+        // This prevents accepting proofs for credentials that are about to expire
+        if (uint256(expiresAtMin + _minExpirationThreshold) < block.timestamp) {
+            revert ExpirationTooOld();
         }
 
         uint256[15] memory pubSignals;
@@ -191,7 +187,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         pubSignals[1] = issuerSchemaId;
         pubSignals[2] = credentialIssuerPubkey.x;
         pubSignals[3] = credentialIssuerPubkey.y;
-        pubSignals[4] = proofTimestamp;
+        pubSignals[4] = uint256(expiresAtMin);
         pubSignals[5] = credentialGenesisIssuedAtMin;
         pubSignals[6] = worldIdRegistryMerkleRoot;
         pubSignals[7] = _treeDepth;
@@ -285,15 +281,15 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function updateProofTimestampDelta(uint256 newProofTimestampDelta)
+    function updateMinExpirationThreshold(uint64 newMinExpirationThreshold)
         external
         virtual
         onlyOwner
         onlyProxy
         onlyInitialized
     {
-        uint256 oldProofTimestampDelta = _proofTimestampDelta;
-        _proofTimestampDelta = newProofTimestampDelta;
-        emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, newProofTimestampDelta);
+        uint64 oldMinExpirationThreshold = newMinExpirationThreshold;
+        _minExpirationThreshold = newMinExpirationThreshold;
+        emit MinExpirationThresholdUpdated(oldMinExpirationThreshold, _minExpirationThreshold);
     }
 }

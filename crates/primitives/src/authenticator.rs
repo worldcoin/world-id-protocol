@@ -4,7 +4,7 @@ use std::{
 };
 
 use ark_babyjubjub::{EdwardsAffine, Fq};
-use ark_ff::AdditiveGroup;
+use ark_ff::{AdditiveGroup, PrimeField as _};
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,30 @@ use crate::{FieldElement, PrimitiveError};
 /// This constrained is introduced to maintain proof performance reasonable even
 /// in devices with limited resources.
 pub const MAX_AUTHENTICATOR_KEYS: usize = 7;
+
+/// Domain separator for the authenticator OPRF query digest.
+const OPRF_QUERY_DS: &[u8] = b"World ID Query";
+
+/// Computes the Poseidon2 digest for an authenticator OPRF query.
+///
+/// # Arguments
+/// * `leaf_index` - The leaf index of the authenticator in the World ID Registry.
+/// * `action` - The action field element.
+/// * `query_origin_id` - The `RpId` or `issuer_schema_id`.
+#[must_use]
+pub fn oprf_query_digest(
+    leaf_index: u64,
+    action: FieldElement,
+    query_origin_id: FieldElement,
+) -> FieldElement {
+    let input = [
+        ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
+        leaf_index.into(),
+        *query_origin_id,
+        *action,
+    ];
+    poseidon2::bn254::t4::permutation(&input)[1].into()
+}
 
 /// A set of **off-chain** authenticator public keys for a World ID Account.
 ///

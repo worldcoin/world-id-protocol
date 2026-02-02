@@ -14,7 +14,9 @@ use world_id_types::{
 };
 
 use world_id_proof::{
-    nullifier::{AuthenticatorProofInput, OprfNullifier},
+    AuthenticatorProofInput,
+    credential_blinding_factor::OprfCredentialBlindingFactor,
+    nullifier::OprfNullifier,
     proof::{ProofError, generate_nullifier_proof},
 };
 use world_id_request::{ProofRequest, RequestItem, ResponseItem};
@@ -30,7 +32,10 @@ use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
-use taceo_oprf::client::Connector;
+use taceo_oprf::{
+    client::Connector,
+    types::{OprfKeyId, ShareEpoch},
+};
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
@@ -412,6 +417,28 @@ impl Authenticator {
         }
     }
 
+    /// Checks that the OPRF Nodes configuration is valid and returns the list of URLs and the threshold to use.
+    ///
+    /// # Errors
+    /// Will return an error if there are no OPRF Nodes configured or if the threshold is invalid.
+    fn check_oprf_config(&self) -> Result<(&[String], usize), AuthenticatorError> {
+        let services = self.config.nullifier_oracle_urls();
+        if services.is_empty() {
+            return Err(AuthenticatorError::Generic(
+                "No nullifier oracle URLs configured".to_string(),
+            ));
+        }
+        let requested_threshold = self.config.nullifier_oracle_threshold();
+        if requested_threshold == 0 {
+            return Err(AuthenticatorError::InvalidConfig {
+                attribute: "nullifier_oracle_threshold",
+                reason: "must be at least 1".to_string(),
+            });
+        }
+        let threshold = requested_threshold.min(services.len());
+        Ok((services, threshold))
+    }
+
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
     /// A nullifier is a unique, one-time use, anonymous identifier for a World ID
@@ -427,20 +454,7 @@ impl Authenticator {
         &self,
         proof_request: &ProofRequest,
     ) -> Result<OprfNullifier, AuthenticatorError> {
-        let services = self.config.nullifier_oracle_urls();
-        if services.is_empty() {
-            return Err(AuthenticatorError::Generic(
-                "No nullifier oracle URLs configured".to_string(),
-            ));
-        }
-        let requested_threshold = self.config.nullifier_oracle_threshold();
-        if requested_threshold == 0 {
-            return Err(AuthenticatorError::InvalidConfig {
-                attribute: "nullifier_oracle_threshold",
-                reason: "must be at least 1".to_string(),
-            });
-        }
-        let threshold = requested_threshold.min(services.len());
+        let (services, threshold) = self.check_oprf_config()?;
 
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
@@ -469,6 +483,54 @@ impl Authenticator {
         .await?)
     }
 
+    // TODO add more docs
+    /// Generates a blinding factor for a Credential sub (through OPRF Nodes).
+    ///
+    /// # Errors
+    ///
+    /// - Will raise a [`ProofError`] if there is any issue generating the blinding factor.
+    ///   For example, network issues, unexpected incorrect responses from OPRF Nodes.
+    /// - Raises an error if the OPRF Nodes configuration is not correctly set.
+    pub async fn generate_credential_blinding_factor(
+        &self,
+        issuer_schema_id: u64,
+        oprf_key_id: OprfKeyId,
+        share_epoch: ShareEpoch,
+    ) -> Result<FieldElement, AuthenticatorError> {
+        let (services, threshold) = self.check_oprf_config()?;
+
+        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
+        let key_index = key_set
+            .iter()
+            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+
+        let authenticator_input = AuthenticatorProofInput::new(
+            key_set,
+            inclusion_proof,
+            self.signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .clone(),
+            key_index,
+        );
+
+        let blinding_factor = OprfCredentialBlindingFactor::generate(
+            services,
+            threshold,
+            &self.query_material,
+            authenticator_input,
+            issuer_schema_id,
+            FieldElement::ZERO, // for now action is always zero, might change in future
+            oprf_key_id,
+            share_epoch,
+            self.ws_connector.clone(),
+        )
+        .await?;
+
+        Ok(blinding_factor.verifiable_oprf_output.output.into())
+    }
+
     /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
     /// method generates the raw proof to be translated into a Uniqueness Proof or a Session Proof for the RP.
     ///
@@ -481,9 +543,9 @@ impl Authenticator {
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
-    /// - `session_id_r_seed`: The session ID random seed.
-    /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs.
-    /// - `request_timestamp`: The timestamp of the request.
+    /// - `session_id_r_seed`: The session ID random seed. Obtained from the RP's [`ProofRequest`].
+    /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
+    /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
     ///
     /// # Errors
     /// - Will error if the any of the provided parameters are not valid.
@@ -498,11 +560,13 @@ impl Authenticator {
         credential_sub_blinding_factor: FieldElement,
         session_id_r_seed: FieldElement,
         session_id: Option<FieldElement>,
-        request_timestamp: u64, // TODO: Convert into min_expiration
+        request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+
+        let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
         let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
             &self.nullifier_material,
@@ -513,7 +577,7 @@ impl Authenticator {
             request_item,
             session_id,
             session_id_r_seed,
-            request_timestamp,
+            expires_at_min,
         )?;
 
         let proof = ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root);
@@ -523,6 +587,7 @@ impl Authenticator {
             request_item.issuer_schema_id,
             proof,
             nullifier.into(),
+            expires_at_min,
         );
 
         Ok(response_item)

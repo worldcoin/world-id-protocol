@@ -138,6 +138,7 @@ impl MutableIndexerStub {
     }
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn spawn_orpf_node(
     id: usize,
     chain_ws_rpc_url: &str,
@@ -145,6 +146,7 @@ async fn spawn_orpf_node(
     oprf_key_registry_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
+    credential_schema_issuer_registry_contract: Address,
     wallet_address: Address,
 ) -> String {
     let oprf_secret_id_prefix = format!("oprf/rp/n{id}");
@@ -156,9 +158,11 @@ async fn spawn_orpf_node(
         max_wait_time_shutdown: Duration::from_secs(10),
         max_merkle_cache_size: 10,
         max_rp_registry_store_size: 1000,
+        max_credential_schema_issuer_registry_store_size: 1000,
         current_time_stamp_max_difference: Duration::from_secs(3 * 60),
         world_id_registry_contract,
         rp_registry_contract,
+        credential_schema_issuer_registry_contract,
         cache_maintenance_interval: Duration::from_secs(60),
         node_config: taceo_oprf::service::config::OprfNodeConfig {
             environment: taceo_oprf::service::config::Environment::Dev,
@@ -200,6 +204,7 @@ pub async fn spawn_oprf_nodes(
     key_gen_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
+    credential_schema_issuer_registry_contract: Address,
 ) -> [String; 5] {
     tokio::join!(
         spawn_orpf_node(
@@ -209,6 +214,7 @@ pub async fn spawn_oprf_nodes(
             key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
+            credential_schema_issuer_registry_contract,
             OPRF_PEER_ADDRESS_0,
         ),
         spawn_orpf_node(
@@ -218,6 +224,7 @@ pub async fn spawn_oprf_nodes(
             key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
+            credential_schema_issuer_registry_contract,
             OPRF_PEER_ADDRESS_1,
         ),
         spawn_orpf_node(
@@ -227,6 +234,7 @@ pub async fn spawn_oprf_nodes(
             key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
+            credential_schema_issuer_registry_contract,
             OPRF_PEER_ADDRESS_2,
         ),
         spawn_orpf_node(
@@ -236,6 +244,7 @@ pub async fn spawn_oprf_nodes(
             key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
+            credential_schema_issuer_registry_contract,
             OPRF_PEER_ADDRESS_3,
         ),
         spawn_orpf_node(
@@ -245,6 +254,7 @@ pub async fn spawn_oprf_nodes(
             key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
+            credential_schema_issuer_registry_contract,
             OPRF_PEER_ADDRESS_4,
         ),
     )

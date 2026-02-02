@@ -30,6 +30,7 @@ arrayvec = { version = "0.7", features = ["serde"] }
 circom-types = { workspace = true, features = ["groth16"], optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 eddsa-babyjubjub = { workspace = true }
+eyre = { workspace = true }
 hex = { workspace = true }
 taceo-groth16-sol = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
