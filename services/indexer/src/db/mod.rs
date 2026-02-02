@@ -71,7 +71,7 @@ impl PostgresDB {
 /// PG docs: https://www.postgresql.org/docs/current/transaction-iso.html
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IsolationLevel {
-    ReadUncommited,
+    ReadUncommitted,
     ReadCommitted,
     RepeatableRead,
     Serializable,
