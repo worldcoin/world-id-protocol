@@ -15,7 +15,7 @@ async fn test_max_u256_values() {
 
     // Insert account with max values
     db.accounts()
-        .insert(&max_u256, &Address::ZERO, &vec![], &vec![], &max_u256)
+        .insert(&max_u256, &Address::ZERO, &[], &[], &max_u256)
         .await
         .unwrap();
 
@@ -34,7 +34,7 @@ async fn test_zero_values() {
 
     // Insert account with zero values
     db.accounts()
-        .insert(&U256::ZERO, &Address::ZERO, &vec![], &vec![], &U256::ZERO)
+        .insert(&U256::ZERO, &Address::ZERO, &[], &[], &U256::ZERO)
         .await
         .unwrap();
 
@@ -54,13 +54,7 @@ async fn test_empty_authenticator_arrays() {
     // Insert account with empty authenticator arrays
     let result = db
         .accounts()
-        .insert(
-            &U256::from(1),
-            &Address::ZERO,
-            &vec![],
-            &vec![],
-            &U256::from(100),
-        )
+        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(100))
         .await;
 
     result.expect("Should handle empty authenticator arrays");
@@ -249,8 +243,8 @@ async fn test_multiple_updates_same_account() {
         .insert(
             &leaf_index,
             &Address::ZERO,
-            &vec![Address::from([1u8; 20])],
-            &vec![U256::from(100)],
+            &[Address::from([1u8; 20])],
+            &[U256::from(100)],
             &U256::from(100),
         )
         .await
@@ -290,8 +284,7 @@ async fn test_max_authenticators() {
         .collect();
     let pubkeys: Vec<U256> = (0..max_auth).map(|i| U256::from(i)).collect();
 
-    let result = db
-        .accounts()
+    db.accounts()
         .insert(
             &U256::from(1),
             &Address::ZERO,
@@ -322,8 +315,8 @@ async fn test_concurrent_different_leaf_inserts() {
                 .insert(
                     &U256::from(i),
                     &Address::ZERO,
-                    &vec![],
-                    &vec![],
+                    &[],
+                    &[],
                     &U256::from(i * 100),
                 )
                 .await
@@ -352,7 +345,7 @@ async fn test_concurrent_different_leaf_inserts() {
 async fn test_all_event_types() {
     let (db, db_name) = create_unique_test_db().await;
 
-    let event_types = vec![
+    let event_types = [
         WorldTreeEventType::AccountCreated,
         WorldTreeEventType::AccountUpdated,
         WorldTreeEventType::AuthenticationInserted,
@@ -391,8 +384,8 @@ async fn test_zero_addresses() {
         .insert(
             &U256::from(1),
             &Address::ZERO,
-            &vec![Address::ZERO],
-            &vec![U256::from(100)],
+            &[Address::ZERO],
+            &[U256::from(100)],
             &U256::from(100),
         )
         .await
@@ -411,7 +404,7 @@ async fn test_tree_depth_boundaries() {
     let (db, db_name) = create_unique_test_db().await;
 
     // Test leaf indices at various tree depth boundaries
-    let boundary_indices = vec![
+    let boundary_indices = [
         U256::from(0),
         U256::from(1),
         U256::from(1023),    // 2^10 - 1
@@ -422,13 +415,7 @@ async fn test_tree_depth_boundaries() {
 
     for (i, leaf_index) in boundary_indices.iter().enumerate() {
         db.accounts()
-            .insert(
-                leaf_index,
-                &Address::ZERO,
-                &vec![],
-                &vec![],
-                &U256::from(i * 100),
-            )
+            .insert(leaf_index, &Address::ZERO, &[], &[], &U256::from(i * 100))
             .await
             .unwrap();
     }
@@ -500,7 +487,7 @@ async fn test_data_integrity() {
     let commitment = U256::from_be_bytes([0xAA; 32]);
 
     db.accounts()
-        .insert(&leaf_index, &Address::ZERO, &vec![], &vec![], &commitment)
+        .insert(&leaf_index, &Address::ZERO, &[], &[], &commitment)
         .await
         .unwrap();
 

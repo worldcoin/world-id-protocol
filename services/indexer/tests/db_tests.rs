@@ -29,7 +29,7 @@ async fn test_insert_account() {
         .unwrap();
 
     // Verify account was inserted
-    let account = account_exists(db.pool(), leaf_index).await.unwrap();
+    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
     // Account exists - field checks removed for simplicity
     // Account exists - field checks removed for simplicity
     // Account exists - field checks removed for simplicity
@@ -101,8 +101,8 @@ async fn test_update_authenticator_at_index() {
         .insert(
             &leaf_index,
             &Address::ZERO,
-            &vec![initial_address],
-            &vec![initial_pubkey],
+            &[initial_address],
+            &[initial_pubkey],
             &initial_commitment,
         )
         .await
@@ -119,7 +119,7 @@ async fn test_update_authenticator_at_index() {
         .unwrap();
 
     // Verify update
-    let account = account_exists(db.pool(), leaf_index).await.unwrap();
+    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
     // Account exists - field checks removed for simplicity
 
     cleanup_test_db(&db_name).await;
@@ -139,8 +139,8 @@ async fn test_insert_authenticator_at_index() {
         .insert(
             &leaf_index,
             &Address::ZERO,
-            &vec![Address::from([1u8; 20])],
-            &vec![U256::from(123)],
+            &[Address::from([1u8; 20])],
+            &[U256::from(123)],
             &initial_commitment,
         )
         .await
@@ -157,7 +157,7 @@ async fn test_insert_authenticator_at_index() {
         .unwrap();
 
     // Verify update
-    let account = account_exists(db.pool(), leaf_index).await.unwrap();
+    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
     // Account exists - field checks removed for simplicity
 
     cleanup_test_db(&db_name).await;
@@ -177,8 +177,8 @@ async fn test_remove_authenticator_at_index() {
         .insert(
             &leaf_index,
             &Address::ZERO,
-            &vec![Address::from([1u8; 20]), Address::from([2u8; 20])],
-            &vec![U256::from(123), U256::from(456)],
+            &[Address::from([1u8; 20]), Address::from([2u8; 20])],
+            &[U256::from(123), U256::from(456)],
             &initial_commitment,
         )
         .await
@@ -193,7 +193,7 @@ async fn test_remove_authenticator_at_index() {
         .unwrap();
 
     // Verify update
-    let account = account_exists(db.pool(), leaf_index).await.unwrap();
+    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
     // Account exists - field checks removed for simplicity
 
     cleanup_test_db(&db_name).await;
@@ -213,8 +213,8 @@ async fn test_reset_authenticator() {
         .insert(
             &leaf_index,
             &Address::ZERO,
-            &vec![Address::from([1u8; 20])],
-            &vec![U256::from(123)],
+            &[Address::from([1u8; 20])],
+            &[U256::from(123)],
             &initial_commitment,
         )
         .await
@@ -231,7 +231,7 @@ async fn test_reset_authenticator() {
         .unwrap();
 
     // Verify update
-    let account = account_exists(db.pool(), leaf_index).await.unwrap();
+    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
     // Account exists - field checks removed for simplicity
 
     cleanup_test_db(&db_name).await;
@@ -521,13 +521,7 @@ async fn test_transaction_commit() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(
-            &U256::from(1),
-            &Address::ZERO,
-            &vec![],
-            &vec![],
-            &U256::from(123),
-        )
+        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(123))
         .await
         .unwrap();
 
@@ -557,13 +551,7 @@ async fn test_transaction_rollback() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(
-            &U256::from(1),
-            &Address::ZERO,
-            &vec![],
-            &vec![],
-            &U256::from(123),
-        )
+        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(123))
         .await
         .unwrap();
 
@@ -589,13 +577,7 @@ async fn test_multiple_operations_in_transaction() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(
-            &U256::from(1),
-            &Address::ZERO,
-            &vec![],
-            &vec![],
-            &U256::from(123),
-        )
+        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(123))
         .await
         .unwrap();
 

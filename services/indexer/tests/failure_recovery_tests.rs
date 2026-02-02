@@ -13,13 +13,7 @@ async fn test_db_reconnection_after_failure() {
 
     // Insert some data
     db.accounts()
-        .insert(
-            &U256::from(1),
-            &Address::ZERO,
-            &vec![],
-            &vec![],
-            &U256::from(123),
-        )
+        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(123))
         .await
         .unwrap();
 
@@ -55,24 +49,12 @@ async fn test_transaction_serialization_conflict() {
 
     // Pre-insert two accounts for concurrent updates
     db.accounts()
-        .insert(
-            &U256::from(1),
-            &Address::ZERO,
-            &vec![],
-            &vec![],
-            &U256::from(100),
-        )
+        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(100))
         .await
         .unwrap();
 
     db.accounts()
-        .insert(
-            &U256::from(2),
-            &Address::ZERO,
-            &vec![],
-            &vec![],
-            &U256::from(200),
-        )
+        .insert(&U256::from(2), &Address::ZERO, &[], &[], &U256::from(200))
         .await
         .unwrap();
 
@@ -138,8 +120,8 @@ async fn test_partial_batch_failure_rollback() {
         .insert(
             &U256::from(1),
             &Address::ZERO,
-            &vec![Address::ZERO],
-            &vec![U256::from(100)],
+            &[Address::ZERO],
+            &[U256::from(100)],
             &U256::from(100),
         )
         .await
@@ -163,7 +145,7 @@ async fn test_partial_batch_failure_rollback() {
         .unwrap();
 
     // Try to update an account that doesn't exist (should fail or be handled)
-    let bad_update = tx
+    let _bad_update = tx
         .accounts()
         .await
         .unwrap()
@@ -213,8 +195,8 @@ async fn test_connection_pool_exhaustion() {
                 .insert(
                     &U256::from(i),
                     &Address::ZERO,
-                    &vec![],
-                    &vec![],
+                    &[],
+                    &[],
                     &U256::from(i * 100),
                 )
                 .await
@@ -225,10 +207,10 @@ async fn test_connection_pool_exhaustion() {
     // Wait for all operations
     let mut success_count = 0;
     for handle in handles {
-        if let Ok(result) = handle.await {
-            if result.is_ok() {
-                success_count += 1;
-            }
+        if let Ok(result) = handle.await
+            && result.is_ok()
+        {
+            success_count += 1;
         }
     }
 
@@ -249,13 +231,7 @@ async fn test_db_query_timeout() {
 
     // Insert test data
     db.accounts()
-        .insert(
-            &U256::from(1),
-            &Address::ZERO,
-            &vec![],
-            &vec![],
-            &U256::from(123),
-        )
+        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(123))
         .await
         .unwrap();
 
@@ -316,8 +292,8 @@ async fn test_concurrent_transaction_commits() {
                 .insert(
                     &U256::from(i),
                     &Address::ZERO,
-                    &vec![],
-                    &vec![],
+                    &[],
+                    &[],
                     &U256::from(i * 100),
                 )
                 .await

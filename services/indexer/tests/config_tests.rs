@@ -280,7 +280,7 @@ fn test_global_config_environment_default() {
 #[should_panic(expected = "DATABASE_URL must be set")]
 #[serial]
 fn test_global_config_missing_database_url() {
-    unsafe {
+    {
         let _guard = ENV_LOCK.lock().unwrap();
 
         clear_all_config_env();
@@ -302,7 +302,7 @@ fn test_global_config_missing_database_url() {
 #[should_panic(expected = "RPC_URL must be set")]
 #[serial]
 fn test_global_config_missing_rpc_url() {
-    unsafe {
+    {
         let _guard = ENV_LOCK.lock().unwrap();
 
         clear_all_config_env();
@@ -324,7 +324,7 @@ fn test_global_config_missing_rpc_url() {
 #[should_panic(expected = "WS_URL must be set")]
 #[serial]
 fn test_global_config_missing_ws_url() {
-    unsafe {
+    {
         let _guard = ENV_LOCK.lock().unwrap();
 
         clear_all_config_env();
@@ -346,7 +346,7 @@ fn test_global_config_missing_ws_url() {
 #[should_panic(expected = "REGISTRY_ADDRESS must be set")]
 #[serial]
 fn test_global_config_missing_registry_address() {
-    unsafe {
+    {
         let _guard = ENV_LOCK.lock().unwrap();
 
         clear_all_config_env();
@@ -365,7 +365,7 @@ fn test_global_config_missing_registry_address() {
 #[should_panic(expected = "REGISTRY_ADDRESS must be a valid address")]
 #[serial]
 fn test_global_config_invalid_registry_address() {
-    unsafe {
+    {
         let _guard = ENV_LOCK.lock().unwrap();
 
         clear_all_config_env();

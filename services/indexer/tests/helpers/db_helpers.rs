@@ -1,5 +1,5 @@
 use alloy::primitives::{Address, U256};
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 use world_id_indexer::db::{DB, DBResult, WorldTreeEventType, WorldTreeRootEventType};
 
@@ -62,6 +62,7 @@ pub async fn cleanup_test_db(db_name: &str) {
 }
 
 /// Insert a test account directly into the database
+#[allow(dead_code)]
 pub async fn insert_test_account(
     db: &DB,
     leaf_index: U256,
@@ -69,17 +70,12 @@ pub async fn insert_test_account(
     commitment: U256,
 ) -> DBResult<()> {
     db.accounts()
-        .insert(
-            &leaf_index,
-            &recovery_address,
-            &vec![],
-            &vec![],
-            &commitment,
-        )
+        .insert(&leaf_index, &recovery_address, &[], &[], &commitment)
         .await
 }
 
 /// Insert a test world tree event directly into the database
+#[allow(dead_code)]
 pub async fn insert_test_world_tree_event(
     db: &DB,
     block_number: u64,
@@ -102,6 +98,7 @@ pub async fn insert_test_world_tree_event(
 }
 
 /// Insert a test world tree root event directly into the database
+#[allow(dead_code)]
 pub async fn insert_test_world_tree_root(
     db: &DB,
     block_number: u64,
@@ -122,6 +119,7 @@ pub async fn insert_test_world_tree_root(
 }
 
 /// Count accounts in the database
+#[allow(dead_code)]
 pub async fn count_accounts(pool: &PgPool) -> DBResult<i64> {
     let (count,): (i64,) =
         sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM accounts")
@@ -140,6 +138,7 @@ pub async fn count_world_tree_events(pool: &PgPool) -> DBResult<i64> {
 }
 
 /// Count world tree roots in the database
+#[allow(dead_code)]
 pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
     let (count,): (i64,) =
         sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM world_tree_roots")
@@ -149,6 +148,7 @@ pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
 }
 
 /// Check if account exists by leaf index
+#[allow(dead_code)]
 pub async fn account_exists(pool: &PgPool, leaf_index: U256) -> DBResult<bool> {
     let count: (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
         "SELECT COUNT(*) FROM accounts WHERE leaf_index = $1",
