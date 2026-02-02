@@ -25,8 +25,14 @@ pub enum BlockchainError {
     Rpc(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("log decode error: {0}")]
     LogDecode(#[source] alloy::sol_types::Error),
-    #[error("missing log field: {0}")]
-    MissingLogField(&'static str),
+    #[error("log topics are empty")]
+    EmptyTopics,
+    #[error("missing block number in log topics")]
+    MissingBlockNumber,
+    #[error("missing transaction hash in log topics")]
+    MissingTxHash,
+    #[error("missing log indesx in log topics")]
+    MissingLogIndex,
     #[error("unknown event signature: {0:?}")]
     UnknownEventSignature(alloy::primitives::FixedBytes<32>),
 }

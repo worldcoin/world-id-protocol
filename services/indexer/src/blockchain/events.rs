@@ -93,20 +93,14 @@ impl RegistryEvent {
 
     pub fn decode(lg: &alloy::rpc::types::Log) -> BlockchainResult<BlockchainEvent<RegistryEvent>> {
         if lg.topics().is_empty() {
-            return Err(BlockchainError::MissingLogField("topics"));
+            return Err(BlockchainError::EmptyTopics);
         }
 
         let event_sig = lg.topics()[0];
 
-        let block_number = lg
-            .block_number
-            .ok_or(BlockchainError::MissingLogField("block_number"))?;
-        let tx_hash = lg
-            .transaction_hash
-            .ok_or(BlockchainError::MissingLogField("transaction_hash"))?;
-        let log_index = lg
-            .log_index
-            .ok_or(BlockchainError::MissingLogField("log_index"))?;
+        let block_number = lg.block_number.ok_or(BlockchainError::MissingBlockNumber)?;
+        let tx_hash = lg.transaction_hash.ok_or(BlockchainError::MissingTxHash)?;
+        let log_index = lg.log_index.ok_or(BlockchainError::MissingLogIndex)?;
 
         let details = match event_sig {
             WorldIdRegistry::AccountCreated::SIGNATURE_HASH => {
