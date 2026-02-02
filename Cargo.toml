@@ -5,7 +5,6 @@ members = [
   "crates/signer",
   "crates/proof",
   "crates/request",
-  "crates/credential",
   "crates/primitives",
   "crates/test-utils",
   "services/indexer",
@@ -99,7 +98,6 @@ world-id-types = { version = "0.3.0", path = "crates/types" }
 world-id-request = { version = "0.3.0", path = "crates/request" }
 world-id-registry = { version = "0.3.0", path = "crates/registry" }
 world-id-proof = { version = "0.3.0", path = "crates/proof" }
-world-id-credential = { version = "0.3.0", path = "crates/credential" }
 world-id-authenticator = { version = "0.3.0", path = "crates/authenticator" }
 world-id-primitives = { version = "0.3.0", path = "crates/primitives" }
 world-id-oprf-node = { version = "0.1", path = "services/oprf-node" }

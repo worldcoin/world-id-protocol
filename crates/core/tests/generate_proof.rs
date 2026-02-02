@@ -18,7 +18,7 @@ use test_utils::{
     stubs::spawn_indexer_stub,
 };
 use world_id_core::{
-    Authenticator, AuthenticatorError, HashableCredential,
+    Authenticator, AuthenticatorError,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
 use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
