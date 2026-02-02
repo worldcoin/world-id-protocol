@@ -62,11 +62,11 @@ interface IWorldIDVerifier {
     event VerifierUpdated(address oldVerifier, address newVerifier);
 
     /**
-     * @notice Emitted when the proof timestamp delta is updated.
-     * @param oldProofTimestampDelta The previous proof timestamp delta value.
-     * @param newProofTimestampDelta The new proof timestamp delta value.
+     * @notice Emitted when the minimum expiration threshold is updated.
+     * @param oldMinExpirationThreshold The previous minimum expiration threshold value.
+     * @param newMinExpirationThreshold The new minimum expiration threshold value.
      */
-    event ProofTimestampDeltaUpdated(uint64 oldProofTimestampDelta, uint64 newProofTimestampDelta);
+    event MinExpirationThresholdUpdated(uint64 oldMinExpirationThreshold, uint64 newMinExpirationThreshold);
 
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
@@ -176,8 +176,8 @@ interface IWorldIDVerifier {
     function updateVerifier(address _verifier) external;
 
     /**
-     * @notice Updates the proof timestamp delta
-     * @param _proofTimestampDelta The new proof timestamp delta value in seconds.
+     * @notice Updates the minimum expiration threshold
+     * @param _minExpirationThreshold The new minimum expiration threshold value in seconds.
      */
-    function updateProofTimestampDelta(uint64 _proofTimestampDelta) external;
+    function updateMinExpirationThreshold(uint64 _minExpirationThreshold) external;
 }

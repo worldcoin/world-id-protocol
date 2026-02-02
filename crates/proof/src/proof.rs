@@ -363,7 +363,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         oprf_response_blinded: oprf_nullifier.verifiable_oprf_output.blinded_response,
         oprf_response: oprf_nullifier.verifiable_oprf_output.unblinded_response,
         signal_hash: *request_item.signal_hash(),
-        // The `current_timestamp` constaint in the circuit is used to specify the minimum expiration time for the credential.
+        // The `current_timestamp` constraint in the circuit is used to specify the minimum expiration time for the credential.
         // The circuit verifies that `current_timestamp < cred_expires_at`.
         current_timestamp: expires_at_min.into(),
     };

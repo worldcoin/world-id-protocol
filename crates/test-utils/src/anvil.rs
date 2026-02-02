@@ -431,7 +431,7 @@ impl TestAnvil {
                 _worldIDRegistry: world_id_registry,
                 _oprfKeyRegistry: oprf_key_registry,
                 _verifier: *groth16_verifier.address(),
-                _proofTimestampDelta: 3600,
+                _minExpirationThreshold: 3600,
             }
             .abi_encode(),
         );

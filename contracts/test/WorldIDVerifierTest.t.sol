@@ -74,7 +74,7 @@ contract ProofVerifier is Test {
 
     address public verifier;
 
-    uint256 public proofTimestampDelta;
+    uint256 public minExpirationThreshold;
 
     uint256 nullifier = 0x104b3a1c8e29cca4c7279df4831ac6c20a4d841e069c3ccdce2c1ac88d55b5a;
     uint64 expiresAtMin = 0x6980a43f;
@@ -104,7 +104,7 @@ contract ProofVerifier is Test {
         address worldIDRegistryMock = address(new WorldIDRegistryMock());
         address credentialSchemaIssuerRegistryMock = address(new CredentialSchemaIssuerRegistryMock());
         verifier = address(new Verifier());
-        proofTimestampDelta = 5 hours;
+        minExpirationThreshold = 5 hours;
 
         WorldIdVerifier implementation = new WorldIdVerifier();
         // Deploy proxy
@@ -114,7 +114,7 @@ contract ProofVerifier is Test {
             worldIDRegistryMock,
             oprfKeyRegistry,
             verifier,
-            proofTimestampDelta
+            minExpirationThreshold
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         worldIDVerifier = WorldIdVerifier(address(proxy));

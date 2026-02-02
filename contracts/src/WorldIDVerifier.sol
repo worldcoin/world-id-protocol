@@ -37,8 +37,8 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     /// @notice Contract for nullifier proof verification
     Verifier public verifier;
 
-    /// @notice Allowed delta for proof timestamps
-    uint64 public proofTimestampDelta;
+    /// @notice Minimum threshold before credential expiration for accepting proofs (in seconds)
+    uint64 public minExpirationThreshold;
 
     /// @notice The depth of the Merkle tree
     uint256 public treeDepth;
@@ -64,14 +64,14 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
      * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
      * @param _worldIDRegistry Address of the WorldIDRegistry contract
      * @param _verifier Address of the Verifier contract for the nullifier circuit.
-     * @param _proofTimestampDelta Allowed delta for proof timestamps.
+     * @param _minExpirationThreshold Minimum threshold before credential expiration for accepting proofs (in seconds).
      */
     function initialize(
         address _credentialIssuerRegistry,
         address _worldIDRegistry,
         address _oprfKeyRegistry,
         address _verifier,
-        uint64 _proofTimestampDelta
+        uint64 _minExpirationThreshold
     ) public virtual initializer {
         if (_credentialIssuerRegistry == address(0)) revert ZeroAddress();
         if (_worldIDRegistry == address(0)) revert ZeroAddress();
@@ -83,7 +83,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
         verifier = Verifier(_verifier);
         oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
-        proofTimestampDelta = _proofTimestampDelta;
+        minExpirationThreshold = _minExpirationThreshold;
         treeDepth = worldIDRegistry.getTreeDepth();
     }
 
@@ -172,9 +172,9 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint160 oprfKeyId = uint160(rpId);
         BabyJubJub.Affine memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
-        // do not allow proofs with expiration older than proofTimestampDelta
-        // this is a sanity check to ensure non-expired credentials are used
-        if (uint256(expiresAtMin + proofTimestampDelta) < block.timestamp) {
+        // Ensure the credential has sufficient time before expiration
+        // This prevents accepting proofs for credentials that are about to expire
+        if (uint256(expiresAtMin + minExpirationThreshold) < block.timestamp) {
             revert ExpirationTooOld();
         }
 
@@ -248,15 +248,15 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function updateProofTimestampDelta(uint64 _proofTimestampDelta)
+    function updateMinExpirationThreshold(uint64 _minExpirationThreshold)
         external
         virtual
         onlyOwner
         onlyProxy
         onlyInitialized
     {
-        uint64 oldProofTimestampDelta = proofTimestampDelta;
-        proofTimestampDelta = _proofTimestampDelta;
-        emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);
+        uint64 oldMinExpirationThreshold = minExpirationThreshold;
+        minExpirationThreshold = _minExpirationThreshold;
+        emit MinExpirationThresholdUpdated(oldMinExpirationThreshold, _minExpirationThreshold);
     }
 }
