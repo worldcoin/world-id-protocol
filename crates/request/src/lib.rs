@@ -562,6 +562,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_2".into(),
@@ -569,6 +570,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1002)),
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_3".into(),
@@ -576,6 +578,7 @@ mod tests {
                     proof: None,
                     nullifier: None,
                     error: Some("credential_not_available".into()),
+                    expires_at_min: 0,
                 },
             ],
         };
@@ -624,6 +627,7 @@ mod tests {
                 issuer_schema_id: 1,
                 signal: Some("test_signal".into()),
                 genesis_issued_at_min: None,
+                expires_at_min: None,
             }],
             constraints: None,
         };
@@ -665,12 +669,14 @@ mod tests {
                     issuer_schema_id: 1,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "document".into(),
                     issuer_schema_id: 2,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: None,
@@ -687,6 +693,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "document".into(),
@@ -694,6 +701,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
             ],
         };
@@ -709,6 +717,7 @@ mod tests {
                 proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
+                expires_at_min: 1_735_689_600,
             }],
         };
         let err = request.validate_response(&missing).unwrap_err();
@@ -743,6 +752,7 @@ mod tests {
                 issuer_schema_id: 1,
                 signal: None,
                 genesis_issued_at_min: None,
+                expires_at_min: None,
             }],
             constraints: Some(deep),
         };
@@ -757,6 +767,7 @@ mod tests {
                 proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
+                expires_at_min: 1_735_689_600,
             }],
         };
 
@@ -810,54 +821,63 @@ mod tests {
                     issuer_schema_id: 10,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_11".into(),
                     issuer_schema_id: 11,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_12".into(),
                     issuer_schema_id: 12,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_13".into(),
                     issuer_schema_id: 13,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_14".into(),
                     issuer_schema_id: 14,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_15".into(),
                     issuer_schema_id: 15,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_16".into(),
                     issuer_schema_id: 16,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_17".into(),
                     issuer_schema_id: 17,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_18".into(),
                     issuer_schema_id: 18,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(expr),
@@ -875,6 +895,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_11".into(),
@@ -882,6 +903,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_15".into(),
@@ -889,6 +911,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: None,
                     error: None,
+                    expires_at_min: 1_735_689_600,
                 },
             ],
         };
@@ -943,60 +966,70 @@ mod tests {
                     issuer_schema_id: 20,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_21".into(),
                     issuer_schema_id: 21,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_22".into(),
                     issuer_schema_id: 22,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_23".into(),
                     issuer_schema_id: 23,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_24".into(),
                     issuer_schema_id: 24,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_25".into(),
                     issuer_schema_id: 25,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_26".into(),
                     issuer_schema_id: 26,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_27".into(),
                     issuer_schema_id: 27,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_28".into(),
                     issuer_schema_id: 28,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_29".into(),
                     issuer_schema_id: 29,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(expr),
@@ -1013,6 +1046,7 @@ mod tests {
                 proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: None,
                 error: None,
+                expires_at_min: 1_735_689_600,
             }],
         };
 
@@ -1039,6 +1073,7 @@ mod tests {
                 issuer_schema_id: 1,
                 signal: Some("abcd-efgh-ijkl".into()),
                 genesis_issued_at_min: Some(1_725_381_192),
+                expires_at_min: None,
             }],
             constraints: None,
         };
@@ -1057,6 +1092,7 @@ mod tests {
                 proof: Some(ZeroKnowledgeProof::default()),
                 nullifier: Some(test_field_element(1001)),
                 error: None,
+                expires_at_min: 1_725_381_192,
             }],
         };
         assert!(req.validate_response(&resp).is_ok());
@@ -1082,12 +1118,14 @@ mod tests {
                     issuer_schema_id: 1,
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: Some(1_725_381_192),
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 2,
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: Some(1_725_381_192),
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1110,6 +1148,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
+                    expires_at_min: 1_725_381_192,
                 },
                 ResponseItem {
                     identifier: "test_req_1".into(),
@@ -1117,6 +1156,7 @@ mod tests {
                     proof: None,
                     nullifier: None,
                     error: Some("credential_not_available".into()),
+                    expires_at_min: 0,
                 },
             ],
         };
@@ -1145,18 +1185,21 @@ mod tests {
                     issuer_schema_id: 1,
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 2,
                     signal: Some("mnop-qrst-uvwx".into()),
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_3".into(),
                     issuer_schema_id: 3,
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1184,6 +1227,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1001)),
                     error: None,
+                    expires_at_min: 1_725_381_192,
                 },
                 ResponseItem {
                     identifier: "test_req_1".into(),
@@ -1191,6 +1235,7 @@ mod tests {
                     proof: Some(ZeroKnowledgeProof::default()),
                     nullifier: Some(test_field_element(1002)),
                     error: None,
+                    expires_at_min: 1_725_381_192,
                 },
             ],
         };
@@ -1209,7 +1254,8 @@ mod tests {
       "identifier": "orb",
       "issuer_schema_id": 100,
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
-      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9"
+      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9",
+      "expires_at_min": 1725381192
     }
   ]
 }"#;
@@ -1222,8 +1268,8 @@ mod tests {
   "id": "req_18c0f7f03e7d",
   "version": 1,
   "responses": [
-    { "identifier": "orb", "issuer_schema_id": 100, "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9" },
-    { "identifier": "gov_id", "issuer_schema_id": 101, "error": "credential_not_available" }
+    { "identifier": "orb", "issuer_schema_id": 100, "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9", "expires_at_min": 1725381192 },
+    { "identifier": "gov_id", "issuer_schema_id": 101, "error": "credential_not_available", "expires_at_min": 0 }
   ]
 }"#;
         let fail = ProofResponse::from_json(fail_json).unwrap();
@@ -1239,7 +1285,8 @@ mod tests {
       "identifier": "orb",
       "issuer_schema_id": 100,
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
-      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9"
+      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9",
+      "expires_at_min": 1725381192
     }
   ]
 }"#;
@@ -1270,12 +1317,14 @@ mod tests {
                     issuer_schema_id: 1,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 1, // Duplicate!
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: None,
@@ -1311,12 +1360,14 @@ mod tests {
                     issuer_schema_id: 100,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
                     issuer_schema_id: 101,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: None,
@@ -1359,18 +1410,21 @@ mod tests {
                     issuer_schema_id: orb_id,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
                     issuer_schema_id: passport_id,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
                 RequestItem {
                     identifier: "national_id".into(),
                     issuer_schema_id: national_id_id,
                     signal: None,
                     genesis_issued_at_min: None,
+                    expires_at_min: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
