@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
 import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
@@ -12,8 +12,11 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 
 /**
  * @title WorldIDVerifier
- * @notice Verifies nullifier proofs for World ID credentials
- * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
+ * @author World Contributors
+ * @notice Verifies World ID proofs (Uniqueness and Session proofs).
+ * @dev In addition to verifying the Groth16 Proof, it verifies relevant public inputs to the
+ *  circuits through checks with the WorldIDRegistry, CredentialSchemaIssuerRegistry, and OprfKeyRegistry.
+ * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
@@ -24,23 +27,23 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     // that no reordering of these variables takes place. If reordering happens, a storage
     // clash will occur (effectively a memory safety error).
 
-    /// @notice Registry for credential schema and issuer management
-    CredentialSchemaIssuerRegistry public credentialSchemaIssuerRegistry;
+    /// @dev Registry for credential schema and issuer management
+    CredentialSchemaIssuerRegistry internal _credentialSchemaIssuerRegistry;
 
-    /// @notice Registry for World IDs and authenticator management
-    WorldIDRegistry public worldIDRegistry;
+    /// @dev Registry for World IDs and authenticator management
+    WorldIDRegistry internal _worldIDRegistry;
 
-    /// @notice Registry for OPRF key management
-    OprfKeyRegistry public oprfKeyRegistry;
+    /// @dev Registry for OPRF key management
+    OprfKeyRegistry internal _oprfKeyRegistry;
 
-    /// @notice Contract for nullifier proof verification
-    Verifier public verifier;
+    /// @dev Contract for proof verification (Groth16)
+    Verifier internal _verifier;
 
-    /// @notice Allowed delta for proof timestamps
-    uint256 public proofTimestampDelta;
+    /// @dev Allowed delta for proof timestamps (seconds)
+    uint256 internal _proofTimestampDelta;
 
-    /// @notice The depth of the Merkle tree
-    uint256 public treeDepth;
+    /// @dev The depth of the Merkle tree in WorldIDRegistry
+    uint256 internal _treeDepth;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -59,31 +62,32 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     }
 
     /**
-     * @notice Initializes the WorldIDVerifier contract with required registries
-     * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
-     * @param _worldIDRegistry Address of the WorldIDRegistry contract
-     * @param _verifier Address of the Verifier contract for the nullifier circuit.
-     * @param _proofTimestampDelta uint256 Allowed delta for proof timestamps.
+     * @notice Initializes the WorldIDVerifier contract with required registries.
+     * @param credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract.
+     * @param worldIDRegistry Address of the WorldIDRegistry contract.
+     * @param oprfKeyRegistry Address of the OprfKeyRegistry contract.
+     * @param verifier Address of the Verifier contract for proof verification.
+     * @param proofTimestampDelta Allowed delta for proof timestamps (seconds).
      */
     function initialize(
-        address _credentialIssuerRegistry,
-        address _worldIDRegistry,
-        address _oprfKeyRegistry,
-        address _verifier,
-        uint256 _proofTimestampDelta
+        address credentialIssuerRegistry,
+        address worldIDRegistry,
+        address oprfKeyRegistry,
+        address verifier,
+        uint256 proofTimestampDelta
     ) public virtual initializer {
-        if (_credentialIssuerRegistry == address(0)) revert ZeroAddress();
-        if (_worldIDRegistry == address(0)) revert ZeroAddress();
-        if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
-        if (_verifier == address(0)) revert ZeroAddress();
+        if (credentialIssuerRegistry == address(0)) revert ZeroAddress();
+        if (worldIDRegistry == address(0)) revert ZeroAddress();
+        if (oprfKeyRegistry == address(0)) revert ZeroAddress();
+        if (verifier == address(0)) revert ZeroAddress();
 
         __BaseUpgradeable_init(EIP712_NAME, EIP712_VERSION, address(0), address(0), 0);
-        credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialIssuerRegistry);
-        worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
-        verifier = Verifier(_verifier);
-        oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
-        proofTimestampDelta = _proofTimestampDelta;
-        treeDepth = worldIDRegistry.getTreeDepth();
+        _credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(credentialIssuerRegistry);
+        _worldIDRegistry = WorldIDRegistry(worldIDRegistry);
+        _verifier = Verifier(verifier);
+        _oprfKeyRegistry = OprfKeyRegistry(oprfKeyRegistry);
+        _proofTimestampDelta = proofTimestampDelta;
+        _treeDepth = _worldIDRegistry.getTreeDepth();
     }
 
     ////////////////////////////////////////////////////////////
@@ -157,27 +161,27 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual onlyProxy onlyInitialized {
         uint256 worldIdRegistryMerkleRoot = zeroKnowledgeProof[4];
-        if (!worldIDRegistry.isValidRoot(worldIdRegistryMerkleRoot)) {
+        if (!_worldIDRegistry.isValidRoot(worldIdRegistryMerkleRoot)) {
             revert InvalidMerkleRoot();
         }
 
         ICredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =
-            credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(issuerSchemaId);
+            _credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(issuerSchemaId);
         if (credentialIssuerPubkey.x == 0 || credentialIssuerPubkey.y == 0) {
             revert UnregisteredIssuerSchemaId();
         }
 
         // NOTICE: Currently the `oprfKeyId` is the same as the `rpId`. This may change in the future in the `RpRegistry` contract
         uint160 oprfKeyId = uint160(rpId);
-        BabyJubJub.Affine memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
+        BabyJubJub.Affine memory oprfPublicKey = _oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
         // do not allow proofs from the future
         if (proofTimestamp > block.timestamp) {
             revert NullifierFromFuture();
         }
 
-        // do not allow proofs older than proofTimestampDelta
-        if (proofTimestamp + proofTimestampDelta < block.timestamp) {
+        // do not allow proofs older than _proofTimestampDelta
+        if (proofTimestamp + _proofTimestampDelta < block.timestamp) {
             revert OutdatedNullifier();
         }
 
@@ -190,7 +194,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         pubSignals[4] = proofTimestamp;
         pubSignals[5] = credentialGenesisIssuedAtMin;
         pubSignals[6] = worldIdRegistryMerkleRoot;
-        pubSignals[7] = treeDepth;
+        pubSignals[7] = _treeDepth;
         pubSignals[8] = uint256(rpId);
         pubSignals[9] = action;
         pubSignals[10] = oprfPublicKey.x;
@@ -204,62 +208,92 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
             groth16CompressedProof[i] = zeroKnowledgeProof[i];
         }
 
-        verifier.verifyCompressedProof(groth16CompressedProof, pubSignals);
+        _verifier.verifyCompressedProof(groth16CompressedProof, pubSignals);
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function getCredentialSchemaIssuerRegistry() external view virtual onlyProxy onlyInitialized returns (address) {
+        return address(_credentialSchemaIssuerRegistry);
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function getWorldIDRegistry() external view virtual onlyProxy onlyInitialized returns (address) {
+        return address(_worldIDRegistry);
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function getOprfKeyRegistry() external view virtual onlyProxy onlyInitialized returns (address) {
+        return address(_oprfKeyRegistry);
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function getVerifier() external view virtual onlyProxy onlyInitialized returns (address) {
+        return address(_verifier);
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function getProofTimestampDelta() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _proofTimestampDelta;
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function getTreeDepth() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _treeDepth;
     }
 
     ////////////////////////////////////////////////////////////
-    //                      Owner Functions                   //
+    //                    OWNER FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IWorldIDVerifier
-    function updateCredentialSchemaIssuerRegistry(address _credentialSchemaIssuerRegistry)
+    function updateCredentialSchemaIssuerRegistry(address newCredentialSchemaIssuerRegistry)
         external
         virtual
         onlyOwner
         onlyProxy
         onlyInitialized
     {
-        if (_credentialSchemaIssuerRegistry == address(0)) revert ZeroAddress();
-        address oldCredentialSchemaIssuerRegistry = address(credentialSchemaIssuerRegistry);
-        credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(_credentialSchemaIssuerRegistry);
-        emit CredentialSchemaIssuerRegistryUpdated(oldCredentialSchemaIssuerRegistry, _credentialSchemaIssuerRegistry);
+        if (newCredentialSchemaIssuerRegistry == address(0)) revert ZeroAddress();
+        address oldCredentialSchemaIssuerRegistry = address(_credentialSchemaIssuerRegistry);
+        _credentialSchemaIssuerRegistry = CredentialSchemaIssuerRegistry(newCredentialSchemaIssuerRegistry);
+        emit CredentialSchemaIssuerRegistryUpdated(oldCredentialSchemaIssuerRegistry, newCredentialSchemaIssuerRegistry);
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function updateWorldIDRegistry(address _worldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (_worldIDRegistry == address(0)) revert ZeroAddress();
-        address oldWorldIDRegistry = address(worldIDRegistry);
-        worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
-        treeDepth = worldIDRegistry.getTreeDepth();
-        emit WorldIDRegistryUpdated(oldWorldIDRegistry, _worldIDRegistry);
+    function updateWorldIDRegistry(address newWorldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newWorldIDRegistry == address(0)) revert ZeroAddress();
+        address oldWorldIDRegistry = address(_worldIDRegistry);
+        _worldIDRegistry = WorldIDRegistry(newWorldIDRegistry);
+        _treeDepth = _worldIDRegistry.getTreeDepth();
+        emit WorldIDRegistryUpdated(oldWorldIDRegistry, newWorldIDRegistry);
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function updateOprfKeyRegistry(address _oprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (_oprfKeyRegistry == address(0)) revert ZeroAddress();
-        address oldOprfKeyRegistry = address(oprfKeyRegistry);
-        oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
-        emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, _oprfKeyRegistry);
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newOprfKeyRegistry == address(0)) revert ZeroAddress();
+        address oldOprfKeyRegistry = address(_oprfKeyRegistry);
+        _oprfKeyRegistry = OprfKeyRegistry(newOprfKeyRegistry);
+        emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, newOprfKeyRegistry);
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function updateVerifier(address _verifier) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (_verifier == address(0)) revert ZeroAddress();
-        address oldVerifier = address(verifier);
-        verifier = Verifier(_verifier);
-        emit VerifierUpdated(oldVerifier, _verifier);
+    function updateVerifier(address newVerifier) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newVerifier == address(0)) revert ZeroAddress();
+        address oldVerifier = address(_verifier);
+        _verifier = Verifier(newVerifier);
+        emit VerifierUpdated(oldVerifier, newVerifier);
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function updateProofTimestampDelta(uint256 _proofTimestampDelta)
+    function updateProofTimestampDelta(uint256 newProofTimestampDelta)
         external
         virtual
         onlyOwner
         onlyProxy
         onlyInitialized
     {
-        uint256 oldProofTimestampDelta = proofTimestampDelta;
-        proofTimestampDelta = _proofTimestampDelta;
-        emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);
+        uint256 oldProofTimestampDelta = _proofTimestampDelta;
+        _proofTimestampDelta = newProofTimestampDelta;
+        emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, newProofTimestampDelta);
     }
 }
