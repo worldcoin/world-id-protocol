@@ -230,8 +230,8 @@ impl TreeBuilder {
 
             // Validate leaf index is within tree capacity
             if leaf_index_usize >= capacity {
-                return Err(TreeError::LeafIndexOutOfRangeU256 {
-                    leaf_index,
+                return Err(TreeError::LeafIndexOutOfRange {
+                    leaf_index: leaf_index_usize,
                     tree_depth: self.tree_depth,
                 });
             }

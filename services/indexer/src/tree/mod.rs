@@ -26,8 +26,6 @@ pub enum TreeError {
         leaf_index: usize,
         tree_depth: usize,
     },
-    #[error("leaf index {leaf_index} out of range for tree depth {tree_depth}")]
-    LeafIndexOutOfRangeU256 { leaf_index: U256, tree_depth: usize },
     #[error("account index cannot be zero")]
     ZeroLeafIndex,
     #[error("invalid cache file path")]
