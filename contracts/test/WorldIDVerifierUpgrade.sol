@@ -40,7 +40,7 @@ contract VerifierUpgradeTest is Test {
     address public worldIDRegistry;
     address public oprfKeyRegistry;
     address public groth16Verifier;
-    uint256 public proofTimestampDelta;
+    uint64 public proofTimestampDelta;
 
     function setUp() public {
         owner = address(this);

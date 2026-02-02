@@ -156,6 +156,18 @@ impl RequestItem {
             FieldElement::ZERO
         }
     }
+
+    /// Get the effective minimum expiration timestamp for this request item.
+    ///
+    /// If `expires_at_min` is `Some`, returns that value.
+    /// Otherwise, returns the `request_created_at` value (which should be the `ProofRequest::created_at` timestamp).
+    #[must_use]
+    pub const fn effective_expires_at_min(&self, request_created_at: u64) -> u64 {
+        match self.expires_at_min {
+            Some(value) => value,
+            None => request_created_at,
+        }
+    }
 }
 
 /// Overall response from the Authenticator to the RP
@@ -1461,5 +1473,39 @@ mod tests {
         // Missing orb → cannot satisfy "all" → None
         let available3: HashSet<String> = std::iter::once("passport".to_string()).collect();
         assert!(req.credentials_to_prove(&available3).is_none());
+    }
+
+    #[test]
+    fn request_item_effective_expires_at_min_defaults_to_created_at() {
+        let request_created_at = 1_735_689_600; // 2025-01-01 00:00:00 UTC
+        let custom_expires_at = 1_735_862_400; // 2025-01-03 00:00:00 UTC
+
+        // When expires_at_min is None, should use request_created_at
+        let item_with_none = RequestItem {
+            identifier: "test".into(),
+            issuer_schema_id: 100,
+            signal: None,
+            genesis_issued_at_min: None,
+            expires_at_min: None,
+        };
+        assert_eq!(
+            item_with_none.effective_expires_at_min(request_created_at),
+            request_created_at,
+            "When expires_at_min is None, should default to request created_at"
+        );
+
+        // When expires_at_min is Some, should use that value
+        let item_with_custom = RequestItem {
+            identifier: "test".into(),
+            issuer_schema_id: 100,
+            signal: None,
+            genesis_issued_at_min: None,
+            expires_at_min: Some(custom_expires_at),
+        };
+        assert_eq!(
+            item_with_custom.effective_expires_at_min(request_created_at),
+            custom_expires_at,
+            "When expires_at_min is Some, should use that explicit value"
+        );
     }
 }

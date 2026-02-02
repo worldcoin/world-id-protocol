@@ -504,7 +504,7 @@ impl Authenticator {
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
 
-        let expires_at_min = request_item.expires_at_min.unwrap_or(request_timestamp);
+        let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
         let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
             &self.nullifier_material,

@@ -77,7 +77,7 @@ contract ProofVerifier is Test {
     uint256 public proofTimestampDelta;
 
     uint256 nullifier = 0x104b3a1c8e29cca4c7279df4831ac6c20a4d841e069c3ccdce2c1ac88d55b5a;
-    uint256 expiresAtMin = 0x6980a43f;
+    uint64 expiresAtMin = 0x6980a43f;
     uint256 action = 0x2e22e1a5485379a647255f72583f9120788c61e9c42413b7555f20d75cd34408;
     uint256 signalHash = 0x1578ed0de47522ad0b38e87031739c6a65caecc39ce3410bf3799e756a220f;
     uint256 nonce = 0x2882e7cb420e5424bf554832447223dc43aae09b1cf5b50de8d8385e7d43d0f;

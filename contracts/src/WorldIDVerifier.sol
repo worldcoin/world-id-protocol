@@ -38,7 +38,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     Verifier public verifier;
 
     /// @notice Allowed delta for proof timestamps
-    uint256 public proofTimestampDelta;
+    uint64 public proofTimestampDelta;
 
     /// @notice The depth of the Merkle tree
     uint256 public treeDepth;
@@ -64,14 +64,14 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
      * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
      * @param _worldIDRegistry Address of the WorldIDRegistry contract
      * @param _verifier Address of the Verifier contract for the nullifier circuit.
-     * @param _proofTimestampDelta uint256 Allowed delta for proof timestamps.
+     * @param _proofTimestampDelta Allowed delta for proof timestamps.
      */
     function initialize(
         address _credentialIssuerRegistry,
         address _worldIDRegistry,
         address _oprfKeyRegistry,
         address _verifier,
-        uint256 _proofTimestampDelta
+        uint64 _proofTimestampDelta
     ) public virtual initializer {
         if (_credentialIssuerRegistry == address(0)) revert ZeroAddress();
         if (_worldIDRegistry == address(0)) revert ZeroAddress();
@@ -98,7 +98,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 expiresAtMin,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
@@ -123,7 +123,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 expiresAtMin,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -151,7 +151,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 expiresAtMin,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -174,7 +174,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
 
         // do not allow proofs with expiration older than proofTimestampDelta
         // this is a sanity check to ensure non-expired credentials are used
-        if (expiresAtMin + proofTimestampDelta < block.timestamp) {
+        if (uint256(expiresAtMin + proofTimestampDelta) < block.timestamp) {
             revert ExpirationTooOld();
         }
 
@@ -184,7 +184,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         pubSignals[1] = issuerSchemaId;
         pubSignals[2] = credentialIssuerPubkey.x;
         pubSignals[3] = credentialIssuerPubkey.y;
-        pubSignals[4] = expiresAtMin;
+        pubSignals[4] = uint256(expiresAtMin);
         pubSignals[5] = credentialGenesisIssuedAtMin;
         pubSignals[6] = worldIdRegistryMerkleRoot;
         pubSignals[7] = treeDepth;
@@ -248,14 +248,14 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function updateProofTimestampDelta(uint256 _proofTimestampDelta)
+    function updateProofTimestampDelta(uint64 _proofTimestampDelta)
         external
         virtual
         onlyOwner
         onlyProxy
         onlyInitialized
     {
-        uint256 oldProofTimestampDelta = proofTimestampDelta;
+        uint64 oldProofTimestampDelta = proofTimestampDelta;
         proofTimestampDelta = _proofTimestampDelta;
         emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);
     }

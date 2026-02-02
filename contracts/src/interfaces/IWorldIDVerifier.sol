@@ -66,7 +66,7 @@ interface IWorldIDVerifier {
      * @param oldProofTimestampDelta The previous proof timestamp delta value.
      * @param newProofTimestampDelta The new proof timestamp delta value.
      */
-    event ProofTimestampDeltaUpdated(uint256 oldProofTimestampDelta, uint256 newProofTimestampDelta);
+    event ProofTimestampDeltaUpdated(uint64 oldProofTimestampDelta, uint64 newProofTimestampDelta);
 
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
@@ -94,7 +94,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 expiresAtMin,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
@@ -121,7 +121,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 expiresAtMin,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -140,7 +140,7 @@ interface IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 expiresAtMin,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -179,5 +179,5 @@ interface IWorldIDVerifier {
      * @notice Updates the proof timestamp delta
      * @param _proofTimestampDelta The new proof timestamp delta value in seconds.
      */
-    function updateProofTimestampDelta(uint256 _proofTimestampDelta) external;
+    function updateProofTimestampDelta(uint64 _proofTimestampDelta) external;
 }
