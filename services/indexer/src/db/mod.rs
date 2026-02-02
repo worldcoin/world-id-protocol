@@ -20,8 +20,6 @@ pub enum DbError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("invalid event type: {0}")]
     InvalidEventType(String),
-    #[error("invalid address")]
-    InvalidAddress,
 }
 
 // Type alias for convenience (for potential future generics)
