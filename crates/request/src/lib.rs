@@ -382,6 +382,26 @@ impl ProofRequest {
             return Err(ValidationError::VersionMismatch);
         }
 
+        // Validate that expires_at_min matches for each response item
+        for response_item in &response.responses {
+            // Find the corresponding request item
+            if let Some(request_item) = self
+                .requests
+                .iter()
+                .find(|r| r.identifier == response_item.identifier)
+            {
+                let expected_expires_at_min =
+                    request_item.effective_expires_at_min(self.created_at);
+                if response_item.expires_at_min != expected_expires_at_min {
+                    return Err(ValidationError::ExpiresAtMinMismatch(
+                        response_item.identifier.clone(),
+                        expected_expires_at_min,
+                        response_item.expires_at_min,
+                    ));
+                }
+            }
+        }
+
         // Build set of successful credentials by identifier
         let provided: HashSet<&str> = response
             .responses
@@ -501,6 +521,9 @@ pub enum ValidationError {
     /// The constraints expression exceeds the maximum allowed size/complexity
     #[error("Constraints exceed maximum allowed size")]
     ConstraintTooLarge,
+    /// The `expires_at_min` value in the response does not match the expected value from the request
+    #[error("Invalid expires_at_min for credential '{0}': expected {1}, got {2}")]
+    ExpiresAtMinMismatch(String, u64, u64),
 }
 
 // Helper selection functions for constraint evaluation
@@ -1168,7 +1191,7 @@ mod tests {
                     proof: None,
                     nullifier: None,
                     error: Some("credential_not_available".into()),
-                    expires_at_min: 0,
+                    expires_at_min: 1_725_381_192,
                 },
             ],
         };
@@ -1507,5 +1530,140 @@ mod tests {
             custom_expires_at,
             "When expires_at_min is Some, should use that explicit value"
         );
+    }
+
+    #[test]
+    fn validate_response_checks_expires_at_min_matches() {
+        let request_created_at = 1_735_689_600; // 2025-01-01 00:00:00 UTC
+        let custom_expires_at = 1_735_862_400; // 2025-01-03 00:00:00 UTC
+
+        // Request with one item that has no explicit expires_at_min (defaults to created_at)
+        // and one with an explicit expires_at_min
+        let request = ProofRequest {
+            id: "req_expires_test".into(),
+            version: RequestVersion::V1,
+            created_at: request_created_at,
+            expires_at: request_created_at + 300,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            share_epoch: ShareEpoch::default(),
+            session_id: None,
+            action: Some(test_field_element(1)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![
+                RequestItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: 100,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None, // Should default to request_created_at
+                },
+                RequestItem {
+                    identifier: "document".into(),
+                    issuer_schema_id: 101,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: Some(custom_expires_at), // Explicit value
+                },
+            ],
+            constraints: None,
+        };
+
+        // Valid response with matching expires_at_min values
+        let valid_response = ProofResponse {
+            id: "req_expires_test".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            responses: vec![
+                ResponseItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: 100,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1001)),
+                    error: None,
+                    expires_at_min: request_created_at, // Matches default
+                },
+                ResponseItem {
+                    identifier: "document".into(),
+                    issuer_schema_id: 101,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1002)),
+                    error: None,
+                    expires_at_min: custom_expires_at, // Matches explicit value
+                },
+            ],
+        };
+        assert!(request.validate_response(&valid_response).is_ok());
+
+        // Invalid response with mismatched expires_at_min for first item
+        let invalid_response_1 = ProofResponse {
+            id: "req_expires_test".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            responses: vec![
+                ResponseItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: 100,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1001)),
+                    error: None,
+                    expires_at_min: custom_expires_at, // Wrong! Should be request_created_at
+                },
+                ResponseItem {
+                    identifier: "document".into(),
+                    issuer_schema_id: 101,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1002)),
+                    error: None,
+                    expires_at_min: custom_expires_at,
+                },
+            ],
+        };
+        let err1 = request.validate_response(&invalid_response_1).unwrap_err();
+        assert!(matches!(
+            err1,
+            ValidationError::ExpiresAtMinMismatch(_, _, _)
+        ));
+        if let ValidationError::ExpiresAtMinMismatch(identifier, expected, got) = err1 {
+            assert_eq!(identifier, "orb");
+            assert_eq!(expected, request_created_at);
+            assert_eq!(got, custom_expires_at);
+        }
+
+        // Invalid response with mismatched expires_at_min for second item
+        let invalid_response_2 = ProofResponse {
+            id: "req_expires_test".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            responses: vec![
+                ResponseItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: 100,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1001)),
+                    error: None,
+                    expires_at_min: request_created_at,
+                },
+                ResponseItem {
+                    identifier: "document".into(),
+                    issuer_schema_id: 101,
+                    proof: Some(ZeroKnowledgeProof::default()),
+                    nullifier: Some(test_field_element(1002)),
+                    error: None,
+                    expires_at_min: request_created_at, // Wrong! Should be custom_expires_at
+                },
+            ],
+        };
+        let err2 = request.validate_response(&invalid_response_2).unwrap_err();
+        assert!(matches!(
+            err2,
+            ValidationError::ExpiresAtMinMismatch(_, _, _)
+        ));
+        if let ValidationError::ExpiresAtMinMismatch(identifier, expected, got) = err2 {
+            assert_eq!(identifier, "document");
+            assert_eq!(expected, custom_expires_at);
+            assert_eq!(got, request_created_at);
+        }
     }
 }
