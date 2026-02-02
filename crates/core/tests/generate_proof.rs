@@ -230,6 +230,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             issuer_schema_id,
             signal: Some("my_signal".to_string()),
             genesis_issued_at_min: None,
+            expires_at_min: None,
         }],
         constraints: None,
     };
@@ -269,10 +270,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             rp_fixture.world_rp_id.into_inner(),
             rp_fixture.nonce.into(),
             request_item.signal_hash().into(),
-            rp_fixture
-                .current_timestamp
-                .try_into()
-                .expect("u64 fits into U256"),
+            response_item.expires_at_min,
             issuer_schema_id,
             request_item
                 .genesis_issued_at_min

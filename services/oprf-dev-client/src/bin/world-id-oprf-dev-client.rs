@@ -192,6 +192,7 @@ fn create_proof_request(
             issuer_schema_id: ISSUER_SCHEMA_ID,
             signal: Some("my_signal".to_string()),
             genesis_issued_at_min: None,
+            expires_at_min: None,
         }],
         constraints: None,
     })
@@ -476,6 +477,7 @@ async fn stress_test(
                 cred_expires_at: req.credential.expires_at.into(),
                 cred_s: cred_signature.s,
                 cred_r: cred_signature.r,
+                // no explicit expires_at_min constraint is passed, so the default is `created_at`
                 current_timestamp: req.proof_request.created_at.into(),
                 cred_genesis_issued_at_min: req.proof_request.requests[0]
                     .genesis_issued_at_min

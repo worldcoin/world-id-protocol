@@ -12,8 +12,9 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 
 /**
  * @title WorldIDVerifier
- * @notice Verifies nullifier proofs for World ID credentials
- * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry
+ * @notice Verifies proofs on the World ID Protocol.
+ * @dev Coordinates verification between the World ID registry, the credential schema issuer registry, and the OPRF key registry. Requires
+ *  proofs to be generated with the 4.0+ Protocol.
  */
 contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
@@ -36,8 +37,8 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     /// @notice Contract for nullifier proof verification
     Verifier public verifier;
 
-    /// @notice Allowed delta for proof timestamps
-    uint256 public proofTimestampDelta;
+    /// @notice Minimum threshold before credential expiration for accepting proofs (in seconds)
+    uint64 public minExpirationThreshold;
 
     /// @notice The depth of the Merkle tree
     uint256 public treeDepth;
@@ -63,14 +64,14 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
      * @param _credentialIssuerRegistry Address of the CredentialSchemaIssuerRegistry contract
      * @param _worldIDRegistry Address of the WorldIDRegistry contract
      * @param _verifier Address of the Verifier contract for the nullifier circuit.
-     * @param _proofTimestampDelta uint256 Allowed delta for proof timestamps.
+     * @param _minExpirationThreshold Minimum threshold before credential expiration for accepting proofs (in seconds).
      */
     function initialize(
         address _credentialIssuerRegistry,
         address _worldIDRegistry,
         address _oprfKeyRegistry,
         address _verifier,
-        uint256 _proofTimestampDelta
+        uint64 _minExpirationThreshold
     ) public virtual initializer {
         if (_credentialIssuerRegistry == address(0)) revert ZeroAddress();
         if (_worldIDRegistry == address(0)) revert ZeroAddress();
@@ -82,7 +83,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         worldIDRegistry = WorldIDRegistry(_worldIDRegistry);
         verifier = Verifier(_verifier);
         oprfKeyRegistry = OprfKeyRegistry(_oprfKeyRegistry);
-        proofTimestampDelta = _proofTimestampDelta;
+        minExpirationThreshold = _minExpirationThreshold;
         treeDepth = worldIDRegistry.getTreeDepth();
     }
 
@@ -97,7 +98,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
@@ -108,7 +109,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
             rpId,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             issuerSchemaId,
             credentialGenesisIssuedAtMin,
             // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
@@ -122,7 +123,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -135,7 +136,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
             rpId,
             nonce,
             signalHash,
-            proofTimestamp,
+            expiresAtMin,
             issuerSchemaId,
             credentialGenesisIssuedAtMin,
             sessionId,
@@ -150,7 +151,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint64 rpId,
         uint256 nonce,
         uint256 signalHash,
-        uint256 proofTimestamp,
+        uint64 expiresAtMin,
         uint64 issuerSchemaId,
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
@@ -171,14 +172,10 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint160 oprfKeyId = uint160(rpId);
         BabyJubJub.Affine memory oprfPublicKey = oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
-        // do not allow proofs from the future
-        if (proofTimestamp > block.timestamp) {
-            revert NullifierFromFuture();
-        }
-
-        // do not allow proofs older than proofTimestampDelta
-        if (proofTimestamp + proofTimestampDelta < block.timestamp) {
-            revert OutdatedNullifier();
+        // Ensure the credential has sufficient time before expiration
+        // This prevents accepting proofs for credentials that are about to expire
+        if (uint256(expiresAtMin + minExpirationThreshold) < block.timestamp) {
+            revert ExpirationTooOld();
         }
 
         uint256[15] memory pubSignals;
@@ -187,7 +184,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         pubSignals[1] = issuerSchemaId;
         pubSignals[2] = credentialIssuerPubkey.x;
         pubSignals[3] = credentialIssuerPubkey.y;
-        pubSignals[4] = proofTimestamp;
+        pubSignals[4] = uint256(expiresAtMin);
         pubSignals[5] = credentialGenesisIssuedAtMin;
         pubSignals[6] = worldIdRegistryMerkleRoot;
         pubSignals[7] = treeDepth;
@@ -251,15 +248,15 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function updateProofTimestampDelta(uint256 _proofTimestampDelta)
+    function updateMinExpirationThreshold(uint64 _minExpirationThreshold)
         external
         virtual
         onlyOwner
         onlyProxy
         onlyInitialized
     {
-        uint256 oldProofTimestampDelta = proofTimestampDelta;
-        proofTimestampDelta = _proofTimestampDelta;
-        emit ProofTimestampDeltaUpdated(oldProofTimestampDelta, _proofTimestampDelta);
+        uint64 oldMinExpirationThreshold = minExpirationThreshold;
+        minExpirationThreshold = _minExpirationThreshold;
+        emit MinExpirationThresholdUpdated(oldMinExpirationThreshold, _minExpirationThreshold);
     }
 }

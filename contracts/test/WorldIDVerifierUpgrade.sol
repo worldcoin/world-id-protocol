@@ -40,7 +40,7 @@ contract VerifierUpgradeTest is Test {
     address public worldIDRegistry;
     address public oprfKeyRegistry;
     address public groth16Verifier;
-    uint256 public proofTimestampDelta;
+    uint64 public minExpirationThreshold;
 
     function setUp() public {
         owner = address(this);
@@ -49,7 +49,7 @@ contract VerifierUpgradeTest is Test {
         worldIDRegistry = address(new WorldIDRegistryMock());
         oprfKeyRegistry = address(0x3333);
         groth16Verifier = address(0x4444);
-        proofTimestampDelta = 5 hours;
+        minExpirationThreshold = 5 hours;
 
         // Deploy implementation V1
         WorldIDVerifier implementationV1 = new WorldIDVerifier();
@@ -61,7 +61,7 @@ contract VerifierUpgradeTest is Test {
             worldIDRegistry,
             oprfKeyRegistry,
             groth16Verifier,
-            proofTimestampDelta
+            minExpirationThreshold
         );
         proxy = new ERC1967Proxy(address(implementationV1), initData);
 
@@ -148,7 +148,7 @@ contract VerifierUpgradeTest is Test {
         // Try to initialize again (should fail)
         vm.expectRevert();
         verifier.initialize(
-            credentialIssuerRegistry, worldIDRegistry, oprfKeyRegistry, groth16Verifier, proofTimestampDelta
+            credentialIssuerRegistry, worldIDRegistry, oprfKeyRegistry, groth16Verifier, minExpirationThreshold
         );
     }
 
@@ -159,7 +159,7 @@ contract VerifierUpgradeTest is Test {
         // Try to initialize the implementation directly (should fail)
         vm.expectRevert();
         implementation.initialize(
-            credentialIssuerRegistry, worldIDRegistry, oprfKeyRegistry, groth16Verifier, proofTimestampDelta
+            credentialIssuerRegistry, worldIDRegistry, oprfKeyRegistry, groth16Verifier, minExpirationThreshold
         );
     }
 

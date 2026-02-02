@@ -326,7 +326,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     request_item: &RequestItem,
     session_id: Option<FieldElement>,
     session_id_r_seed: FieldElement,
-    timestamp: u64,
+    expires_at_min: u64,
 ) -> Result<
     (
         ark_groth16::Proof<Bn254>,
@@ -363,7 +363,9 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         oprf_response_blinded: oprf_nullifier.verifiable_oprf_output.blinded_response,
         oprf_response: oprf_nullifier.verifiable_oprf_output.unblinded_response,
         signal_hash: *request_item.signal_hash(),
-        current_timestamp: timestamp.into(),
+        // The `current_timestamp` constraint in the circuit is used to specify the minimum expiration time for the credential.
+        // The circuit verifies that `current_timestamp < cred_expires_at`.
+        current_timestamp: expires_at_min.into(),
     };
 
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
