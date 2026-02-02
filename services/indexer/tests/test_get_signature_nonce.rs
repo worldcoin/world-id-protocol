@@ -40,18 +40,18 @@ async fn test_signature_nonce_endpoint() {
                 http_addr: "0.0.0.0:8084".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
+                tree_cache: TreeCacheConfig {
+                    cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
+                    tree_depth: 6,
+                    dense_tree_prefix_depth: 2,
+                    http_cache_refresh_interval_secs: 30,
+                },
             },
         },
         db_url: setup.db_url.clone(),
         http_rpc_url: setup.rpc_url(),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
-        tree_cache: TreeCacheConfig {
-            cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-            tree_depth: 6,
-            dense_tree_prefix_depth: 2,
-            http_cache_refresh_interval_secs: 30,
-        },
     };
 
     let indexer_task = tokio::spawn(async move {

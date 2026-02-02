@@ -81,7 +81,6 @@ pub struct GlobalConfig {
     pub http_rpc_url: String,
     pub ws_rpc_url: String,
     pub registry_address: Address,
-    pub tree_cache: TreeCacheConfig,
 }
 
 #[derive(Debug)]
@@ -92,6 +91,7 @@ pub struct HttpConfig {
     ///
     /// The sanity check calls the `isValidRoot` function on the `WorldIDRegistry` contract to ensure the local Merkle root is valid.
     pub sanity_check_interval_secs: Option<u64>,
+    pub tree_cache: TreeCacheConfig,
 }
 
 impl HttpConfig {
@@ -108,6 +108,8 @@ impl HttpConfig {
             ConfigError::InvalidDbPollInterval(format!("{}: {}", db_poll_interval_str, e))
         })?;
 
+        let tree_cache = TreeCacheConfig::from_env()?;
+
         let config = Self {
             http_addr,
             db_poll_interval_secs,
@@ -117,6 +119,7 @@ impl HttpConfig {
                     if val == 0 { None } else { Some(val) }
                 },
             ),
+            tree_cache,
         };
 
         if config.http_addr.port() != 8080 {
@@ -251,8 +254,6 @@ impl GlobalConfig {
             ConfigError::InvalidRegistryAddress(format!("{}: {}", registry_address_str, e))
         })?;
 
-        let tree_cache = TreeCacheConfig::from_env()?;
-
         Ok(Self {
             environment,
             run_mode,
@@ -260,7 +261,6 @@ impl GlobalConfig {
             http_rpc_url,
             ws_rpc_url,
             registry_address,
-            tree_cache,
         })
     }
 }
