@@ -4,7 +4,8 @@ pragma solidity ^0.8.13;
 /**
  * @title IRpRegistry
  * @author World Contributors
- * @dev Interface for the Relying Party Registry contract
+ * @notice Interface for the Relying Party Registry contract.
+ * @dev A Relying Party (RP) is an entity that requests World ID proofs from users.
  */
 interface IRpRegistry {
     ////////////////////////////////////////////////////////////

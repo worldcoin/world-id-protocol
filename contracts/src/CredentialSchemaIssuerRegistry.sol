@@ -7,7 +7,7 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 /**
- * @title CredentialSchemaIssuerRegistry
+ * @title CredentialSchemaIssuerRegistry (World ID)
  * @author World Contributors
  * @notice World ID. Registry of Issuers. Each issuer registers a specific schema for a credential.
  * @dev An `issuerSchemaId` represents the unique combination of a specific schema (e.g. ICAO 9303 Passport)
