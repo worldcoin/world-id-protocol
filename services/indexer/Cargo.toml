@@ -21,6 +21,7 @@ hex = "0.4"
 thiserror = { workspace = true }
 ruint = { workspace = true, features = ["sqlx"] }
 futures-util = "0.3"
+rustls = { workspace = true, features = ["aws-lc-rs"] }
 sqlx = { version = "0.8", features = [
   "runtime-tokio-rustls",
   "postgres",
