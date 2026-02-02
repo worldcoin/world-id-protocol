@@ -13,7 +13,9 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 /**
  * @title WorldIDRegistry
  * @author World Contributors
- * @dev The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
+ * @notice Registry of World IDs. Each World ID is represented as a leaf in a Merkle tree.
+ * @dev Manages World IDs and the authenticators which are authorized to perform operations on behalf of them.
+ * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     using BinaryIMT for BinaryIMTData;
@@ -26,28 +28,39 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     // that no reordering of these variables takes place. If reordering happens, a storage
     // clash will occur (effectively a memory safety error).
 
-    // leafIndex -> [96 bits pubkeyId bitmap][160 bits recoveryAddress]
-    // Note that while 96 bits are reserved for the pubkeyId bitmap, only `maxAuthenticators` bits are used in practice.
+    /// @dev leafIndex -> [96 bits pubkeyId bitmap][160 bits recoveryAddress]
+    /// Note that while 96 bits are reserved for the pubkeyId bitmap, only `_maxAuthenticators` bits are used in practice.
     mapping(uint256 => uint256) internal _leafIndexToRecoveryAddressPacked;
 
-    // authenticatorAddress -> `PackedAccountData`
-    mapping(address => uint256) private authenticatorAddressToPackedAccountData;
+    /// @dev authenticatorAddress -> packed account data (leafIndex, recoveryCounter, pubkeyId)
+    mapping(address => uint256) internal _authenticatorAddressToPackedAccountData;
 
-    // leafIndex -> nonce, used to prevent replays
-    mapping(uint256 => uint256) private leafIndexToSignatureNonce;
+    /// @dev leafIndex -> signature nonce for replay protection
+    mapping(uint256 => uint256) internal _leafIndexToSignatureNonce;
 
-    // leafIndex -> recoveryCounter
-    mapping(uint256 => uint256) private leafIndexToRecoveryCounter;
+    /// @dev leafIndex -> recovery counter (incremented on each recovery)
+    mapping(uint256 => uint256) internal _leafIndexToRecoveryCounter;
 
-    BinaryIMTData private tree;
-    uint256 private nextLeafIndex;
-    uint256 private treeDepth;
-    uint256 private maxAuthenticators;
+    /// @dev Binary Merkle tree storing account commitments
+    BinaryIMTData internal _tree;
 
-    // Root history tracking
-    mapping(uint256 => uint256) private rootToTimestamp;
-    uint256 private latestRoot;
-    uint256 private rootValidityWindow;
+    /// @dev Next available leaf index for new accounts
+    uint256 internal _nextLeafIndex;
+
+    /// @dev Depth of the Merkle tree
+    uint256 internal _treeDepth;
+
+    /// @dev Maximum number of authenticators per account
+    uint256 internal _maxAuthenticators;
+
+    /// @dev root -> timestamp when the root was recorded
+    mapping(uint256 => uint256) internal _rootToTimestamp;
+
+    /// @dev The most recent Merkle root
+    uint256 internal _latestRoot;
+
+    /// @dev Duration (seconds) for which historical roots remain valid
+    uint256 internal _rootValidityWindow;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -71,7 +84,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     string public constant EIP712_NAME = "WorldIDRegistry";
     string public constant EIP712_VERSION = "1.0";
 
-    /// @notice Maximum allowed value for maxAuthenticators (limited by pubkey bitmap size)
+    /// @notice Maximum allowed value for _maxAuthenticators (limited by pubkey bitmap size)
     uint256 public constant MAX_AUTHENTICATORS_HARD_LIMIT = 96;
 
     ////////////////////////////////////////////////////////////
@@ -97,17 +110,17 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     {
         __BaseUpgradeable_init(EIP712_NAME, EIP712_VERSION, feeRecipient, feeToken, registrationFee);
 
-        treeDepth = initialTreeDepth;
-        tree.initWithDefaultZeroes(treeDepth);
+        _treeDepth = initialTreeDepth;
+        _tree.initWithDefaultZeroes(_treeDepth);
 
         // Insert the initial leaf to start leaf indexes at 1
         // The 0-index of the tree is RESERVED.
-        tree.insert(uint256(0));
-        nextLeafIndex = 1;
+        _tree.insert(uint256(0));
+        _nextLeafIndex = 1;
         _recordCurrentRoot();
 
-        maxAuthenticators = 7;
-        rootValidityWindow = 3600;
+        _maxAuthenticators = 7;
+        _rootValidityWindow = 3600;
     }
 
     ////////////////////////////////////////////////////////////
@@ -121,7 +134,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     function currentRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return tree.root;
+        return _tree.root;
     }
 
     /// @inheritdoc IWorldIDRegistry
@@ -132,11 +145,11 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     /// @inheritdoc IWorldIDRegistry
     function isValidRoot(uint256 root) external view virtual onlyProxy onlyInitialized returns (bool) {
         // The latest root is always valid.
-        if (root == latestRoot) return true;
+        if (root == _latestRoot) return true;
         // Check if the root is known and not expired
-        uint256 ts = rootToTimestamp[root];
+        uint256 ts = _rootToTimestamp[root];
         if (ts == 0) return false;
-        return block.timestamp <= ts + rootValidityWindow;
+        return block.timestamp <= ts + _rootValidityWindow;
     }
 
     /// @inheritdoc IWorldIDRegistry
@@ -148,47 +161,47 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         onlyInitialized
         returns (uint256)
     {
-        return authenticatorAddressToPackedAccountData[authenticatorAddress];
+        return _authenticatorAddressToPackedAccountData[authenticatorAddress];
     }
 
     /// @inheritdoc IWorldIDRegistry
     function getSignatureNonce(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return leafIndexToSignatureNonce[leafIndex];
+        return _leafIndexToSignatureNonce[leafIndex];
     }
 
     /// @inheritdoc IWorldIDRegistry
     function getRecoveryCounter(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return leafIndexToRecoveryCounter[leafIndex];
+        return _leafIndexToRecoveryCounter[leafIndex];
     }
 
     /// @inheritdoc IWorldIDRegistry
     function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return nextLeafIndex;
+        return _nextLeafIndex;
     }
 
     /// @inheritdoc IWorldIDRegistry
     function getTreeDepth() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return treeDepth;
+        return _treeDepth;
     }
 
     /// @inheritdoc IWorldIDRegistry
     function getMaxAuthenticators() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return maxAuthenticators;
+        return _maxAuthenticators;
     }
 
     /// @inheritdoc IWorldIDRegistry
     function getRootTimestamp(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return rootToTimestamp[root];
+        return _rootToTimestamp[root];
     }
 
     /// @inheritdoc IWorldIDRegistry
     function getLatestRoot() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return latestRoot;
+        return _latestRoot;
     }
 
     /// @inheritdoc IWorldIDRegistry
     function getRootValidityWindow() external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return rootValidityWindow;
+        return _rootValidityWindow;
     }
 
     ////////////////////////////////////////////////////////////
@@ -230,13 +243,13 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (signer == address(0)) {
             revert ZeroRecoveredSignatureAddress();
         }
-        packedAccountData = authenticatorAddressToPackedAccountData[signer];
+        packedAccountData = _authenticatorAddressToPackedAccountData[signer];
         if (packedAccountData == 0) {
             revert AuthenticatorDoesNotExist(signer);
         }
         uint256 leafIndex = PackedAccountData.leafIndex(packedAccountData);
         uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
-        uint256 expectedRecoveryCounter = leafIndexToRecoveryCounter[leafIndex];
+        uint256 expectedRecoveryCounter = _leafIndexToRecoveryCounter[leafIndex];
         if (actualRecoveryCounter != expectedRecoveryCounter) {
             revert MismatchedRecoveryCounter(leafIndex, expectedRecoveryCounter, actualRecoveryCounter);
         }
@@ -251,13 +264,13 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (newAuthenticatorAddress == address(0)) {
             revert ZeroAddress();
         }
-        uint256 packedAccountData = authenticatorAddressToPackedAccountData[newAuthenticatorAddress];
+        uint256 packedAccountData = _authenticatorAddressToPackedAccountData[newAuthenticatorAddress];
         // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
         // leafIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
         if (packedAccountData != 0) {
             uint256 existingLeafIndex = PackedAccountData.leafIndex(packedAccountData);
             uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
-            if (existingRecoveryCounter >= leafIndexToRecoveryCounter[existingLeafIndex]) {
+            if (existingRecoveryCounter >= _leafIndexToRecoveryCounter[existingLeafIndex]) {
                 revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
             }
         }
@@ -302,9 +315,9 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
      * @dev Records the current tree root.
      */
     function _recordCurrentRoot() internal virtual {
-        uint256 root = tree.root;
-        rootToTimestamp[root] = block.timestamp;
-        latestRoot = root;
+        uint256 root = _tree.root;
+        _rootToTimestamp[root] = block.timestamp;
+        _latestRoot = root;
         emit RootRecorded(root, block.timestamp);
     }
 
@@ -321,7 +334,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256 newOffchainSignerCommitment,
         uint256[] calldata siblingNodes
     ) internal virtual {
-        tree.update(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _tree.update(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         _recordCurrentRoot();
     }
 
@@ -341,7 +354,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         // Handle fee payment if required
         _collectFee();
 
-        if (authenticatorAddresses.length > maxAuthenticators) {
+        if (authenticatorAddresses.length > _maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
         if (authenticatorAddresses.length == 0) {
@@ -351,7 +364,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert MismatchingArrayLengths();
         }
 
-        uint256 leafIndex = nextLeafIndex;
+        uint256 leafIndex = _nextLeafIndex;
 
         for (uint32 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
@@ -360,7 +373,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             }
 
             _validateNewAuthenticatorAddress(authenticatorAddress);
-            authenticatorAddressToPackedAccountData[authenticatorAddress] = PackedAccountData.pack(leafIndex, 0, i);
+            _authenticatorAddressToPackedAccountData[authenticatorAddress] = PackedAccountData.pack(leafIndex, 0, i);
         }
         uint256 bitmap = (1 << authenticatorAddresses.length) - 1;
         _setRecoveryAddressAndBitmap(leafIndex, recoveryAddress, bitmap);
@@ -369,7 +382,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             leafIndex, recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment
         );
 
-        nextLeafIndex = leafIndex + 1;
+        _nextLeafIndex = leafIndex + 1;
     }
 
     ////////////////////////////////////////////////////////////
@@ -387,7 +400,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert InsufficientFunds();
         }
         _registerAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment);
-        tree.insert(offchainSignerCommitment);
+        _tree.insert(offchainSignerCommitment);
         _recordCurrentRoot();
     }
 
@@ -423,7 +436,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         }
 
         // Update tree
-        tree.insertMany(offchainSignerCommitments);
+        _tree.insertMany(offchainSignerCommitments);
         _recordCurrentRoot();
     }
 
@@ -440,7 +453,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (leafIndex == 0 || nextLeafIndex <= leafIndex) {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
             revert AccountDoesNotExist(leafIndex);
         }
 
@@ -448,7 +461,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (oldAuthenticatorAddress == newAuthenticatorAddress) {
             revert ReusedAuthenticatorAddress();
         }
-        if (pubkeyId >= maxAuthenticators) {
+        if (pubkeyId >= _maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
 
@@ -476,11 +489,11 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert MismatchedAuthenticatorSigner(oldAuthenticatorAddress, signer);
         }
 
-        uint256 expectedNonce = leafIndexToSignatureNonce[leafIndex];
+        uint256 expectedNonce = _leafIndexToSignatureNonce[leafIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(leafIndex, expectedNonce, nonce);
         }
-        leafIndexToSignatureNonce[leafIndex]++;
+        _leafIndexToSignatureNonce[leafIndex]++;
 
         uint256 actualPubkeyId = PackedAccountData.pubkeyId(packedAccountData);
         if (actualPubkeyId != pubkeyId) {
@@ -492,14 +505,14 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         }
 
         // Delete the old authenticator
-        delete authenticatorAddressToPackedAccountData[oldAuthenticatorAddress];
+        delete _authenticatorAddressToPackedAccountData[oldAuthenticatorAddress];
 
         // Add the new authenticator
-        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+        if (_leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
             revert RecoveryCounterOverflow();
         }
-        authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
+        _authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
+            PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
 
         // Update the tree
         emit AccountUpdated(
@@ -528,7 +541,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     ) external virtual onlyProxy onlyInitialized {
         _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
-        if (pubkeyId >= maxAuthenticators) {
+        if (pubkeyId >= _maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
 
@@ -557,18 +570,18 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
 
-        uint256 expectedNonce = leafIndexToSignatureNonce[leafIndex];
+        uint256 expectedNonce = _leafIndexToSignatureNonce[leafIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(leafIndex, expectedNonce, nonce);
         }
-        leafIndexToSignatureNonce[leafIndex]++;
+        _leafIndexToSignatureNonce[leafIndex]++;
 
         // Add new authenticator
-        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+        if (_leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
             revert RecoveryCounterOverflow();
         }
-        authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
+        _authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
+            PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
         _setPubkeyBitmap(leafIndex, bitmap | (1 << uint256(pubkeyId)));
 
         // Update tree
@@ -595,7 +608,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (pubkeyId >= maxAuthenticators) {
+        if (pubkeyId >= _maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
         }
 
@@ -619,13 +632,13 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
 
-        uint256 expectedNonce = leafIndexToSignatureNonce[leafIndex];
+        uint256 expectedNonce = _leafIndexToSignatureNonce[leafIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(leafIndex, expectedNonce, nonce);
         }
-        leafIndexToSignatureNonce[leafIndex]++;
+        _leafIndexToSignatureNonce[leafIndex]++;
 
-        uint256 packedToRemove = authenticatorAddressToPackedAccountData[authenticatorAddress];
+        uint256 packedToRemove = _authenticatorAddressToPackedAccountData[authenticatorAddress];
         if (packedToRemove == 0) {
             revert AuthenticatorDoesNotExist(authenticatorAddress);
         }
@@ -639,7 +652,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         }
 
         // Delete authenticator
-        delete authenticatorAddressToPackedAccountData[authenticatorAddress];
+        delete _authenticatorAddressToPackedAccountData[authenticatorAddress];
         _setPubkeyBitmap(leafIndex, _getPubkeyBitmap(leafIndex) & ~(1 << pubkeyId));
 
         // Update tree
@@ -665,15 +678,15 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (leafIndex == 0 || nextLeafIndex <= leafIndex) {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
             revert AccountDoesNotExist(leafIndex);
         }
 
-        uint256 expectedNonce = leafIndexToSignatureNonce[leafIndex];
+        uint256 expectedNonce = _leafIndexToSignatureNonce[leafIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(leafIndex, expectedNonce, nonce);
         }
-        leafIndexToSignatureNonce[leafIndex]++;
+        _leafIndexToSignatureNonce[leafIndex]++;
 
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
@@ -698,13 +711,13 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
         _validateNewAuthenticatorAddress(newAuthenticatorAddress);
 
-        leafIndexToRecoveryCounter[leafIndex]++;
+        _leafIndexToRecoveryCounter[leafIndex]++;
 
-        if (leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+        if (_leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
             revert RecoveryCounterOverflow();
         }
-        authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
-            PackedAccountData.pack(leafIndex, uint32(leafIndexToRecoveryCounter[leafIndex]), uint32(0));
+        _authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
+            PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
 
         emit AccountRecovered(
@@ -724,7 +737,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         onlyProxy
         onlyInitialized
     {
-        if (leafIndex == 0 || nextLeafIndex <= leafIndex) {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
             revert AccountDoesNotExist(leafIndex);
         }
 
@@ -738,11 +751,11 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
 
-        uint256 expectedNonce = leafIndexToSignatureNonce[leafIndex];
+        uint256 expectedNonce = _leafIndexToSignatureNonce[leafIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(leafIndex, expectedNonce, nonce);
         }
-        leafIndexToSignatureNonce[leafIndex]++;
+        _leafIndexToSignatureNonce[leafIndex]++;
 
         address oldRecoveryAddress = _getRecoveryAddress(leafIndex);
 
@@ -759,8 +772,8 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     function setRootValidityWindow(uint256 newWindow) external onlyOwner onlyProxy onlyInitialized {
-        uint256 old = rootValidityWindow;
-        rootValidityWindow = newWindow;
+        uint256 old = _rootValidityWindow;
+        _rootValidityWindow = newWindow;
         emit RootValidityWindowUpdated(old, newWindow);
     }
 
@@ -769,8 +782,8 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (newMaxAuthenticators > MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
         }
-        uint256 old = maxAuthenticators;
-        maxAuthenticators = newMaxAuthenticators;
-        emit MaxAuthenticatorsUpdated(old, maxAuthenticators);
+        uint256 old = _maxAuthenticators;
+        _maxAuthenticators = newMaxAuthenticators;
+        emit MaxAuthenticatorsUpdated(old, _maxAuthenticators);
     }
 }
