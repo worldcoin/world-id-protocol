@@ -900,6 +900,112 @@ pub mod errors {
             let _ = check_query_input_validity(&inputs).unwrap();
         }
 
+        #[test]
+        fn test_invalid_query_proof_input() {
+            let inputs = get_valid_query_proof_input();
+            {
+                let mut inputs = inputs.clone();
+                inputs.depth = ark_babyjubjub::Fq::from(29u64); // invalid depth
+                assert!(matches!(
+                    check_query_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidMerkleTreeDepth { .. }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                // 1 << 30
+                inputs.mt_index = ark_bn254::Fr::from(1073741824u64);
+                assert!(matches!(
+                    check_query_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::ValueOutOfBounds {
+                        name: "Merkle tree index",
+                        ..
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.merkle_root = ark_bn254::Fr::from(12345u64);
+                assert!(matches!(
+                    check_query_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidMerkleTreeInclusionProof
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.pk_index = ark_bn254::Fr::from(7u64); // MAX_AUTHENTICATOR_KEYS is 7, so index 7 is out of bounds (0-6)
+                assert!(matches!(
+                    check_query_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::ValueOutOfBounds {
+                        name: "Authenticator PubKey index",
+                        ..
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.r = Affine {
+                    x: ark_babyjubjub::Fq::from(1u64),
+                    y: ark_babyjubjub::Fq::from(2u64),
+                };
+                assert!(matches!(
+                    check_query_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidBabyJubJubPoint {
+                        name: "Query Signature R"
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.pk[0] = Affine {
+                    x: ark_babyjubjub::Fq::from(1u64),
+                    y: ark_babyjubjub::Fq::from(2u64),
+                };
+
+                // Recompute the merkle root so the proof is valid
+                let pk_set =
+                    world_id_primitives::authenticator::AuthenticatorPublicKeySet::new(Some(
+                        inputs
+                            .pk
+                            .iter()
+                            .map(|&x| eddsa_babyjubjub::EdDSAPublicKey { pk: x })
+                            .collect(),
+                    ))
+                    .unwrap();
+                let mut current = pk_set.leaf_hash();
+                let idx = u64::try_from(world_id_primitives::FieldElement::from(inputs.mt_index))
+                    .unwrap();
+                for (i, sibling) in inputs.siblings.iter().enumerate() {
+                    let sibling_fr = *world_id_primitives::FieldElement::from(*sibling);
+                    if (idx >> i) & 1 == 0 {
+                        let mut state = poseidon2::bn254::t2::permutation(&[current, sibling_fr]);
+                        state[0] += current;
+                        current = state[0];
+                    } else {
+                        let mut state = poseidon2::bn254::t2::permutation(&[sibling_fr, current]);
+                        state[0] += sibling_fr;
+                        current = state[0];
+                    }
+                }
+                inputs.merkle_root = current;
+
+                assert!(matches!(
+                    check_query_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidBabyJubJubPoint {
+                        name: "Authenticator Public Key"
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.action = ark_bn254::Fr::from(12345u64);
+                assert!(matches!(
+                    check_query_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidQuerySignature
+                ));
+            }
+        }
+
         fn get_valid_nullifier_proof_input() -> NullifierProofCircuitInput<30> {
             NullifierProofCircuitInput {
                 query_input: get_valid_query_proof_input(),
@@ -971,6 +1077,139 @@ pub mod errors {
         fn test_valid_nullifier_proof_input() {
             let inputs = get_valid_nullifier_proof_input();
             let _ = check_nullifier_input_validity(&inputs).unwrap();
+        }
+
+        #[test]
+        fn test_invalid_nullifier_proof_input() {
+            let inputs = get_valid_nullifier_proof_input();
+            {
+                let mut inputs = inputs.clone();
+                inputs.current_timestamp =
+                    ark_babyjubjub::Fq::from_str("123465723894591324701234982134000070").unwrap(); // invalid timestamp
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::ValueOutOfBounds {
+                        name: "current timestamp",
+                        ..
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.current_timestamp = inputs.cred_expires_at;
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::CredentialExpired { .. }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                // genesis issued at 1770125923
+                inputs.cred_genesis_issued_at_min = ark_bn254::Fr::from(1770125924u64);
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::CredentialGenesisExpired { .. }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.cred_r = Affine {
+                    x: ark_babyjubjub::Fq::from(1u64),
+                    y: ark_babyjubjub::Fq::from(2u64),
+                };
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidBabyJubJubPoint {
+                        name: "Credential Signature R"
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.cred_pk = Affine {
+                    x: ark_babyjubjub::Fq::from(1u64),
+                    y: ark_babyjubjub::Fq::from(2u64),
+                };
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidBabyJubJubPoint {
+                        name: "Credential Public Key"
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.cred_s = ark_babyjubjub::Fr::from(12345u64);
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidCredentialSignature
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.oprf_pk = Affine {
+                    x: ark_babyjubjub::Fq::from(1u64),
+                    y: ark_babyjubjub::Fq::from(2u64),
+                };
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidBabyJubJubPoint {
+                        name: "OPRF Public Key"
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.oprf_response_blinded = Affine {
+                    x: ark_babyjubjub::Fq::from(1u64),
+                    y: ark_babyjubjub::Fq::from(2u64),
+                };
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidBabyJubJubPoint {
+                        name: "OPRF Blinded Response"
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.dlog_s = ark_babyjubjub::Fr::from(12345u64);
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidOprfProof
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.oprf_response = Affine {
+                    x: ark_babyjubjub::Fq::from(1u64),
+                    y: ark_babyjubjub::Fq::from(2u64),
+                };
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidBabyJubJubPoint {
+                        name: "OPRF Unblinded Response"
+                    }
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                // Valid point but incorrect for the blinded response
+                use ark_ec::AffineRepr;
+                inputs.oprf_response = ark_babyjubjub::EdwardsAffine::generator();
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidOprfResponse
+                ));
+            }
+            {
+                let mut inputs = inputs.clone();
+                inputs.id_commitment = ark_bn254::Fr::from(12345u64);
+                assert!(matches!(
+                    check_nullifier_input_validity(&inputs).unwrap_err(),
+                    super::ProofInputError::InvalidIdCommitment
+                ));
+            }
         }
     }
 }
