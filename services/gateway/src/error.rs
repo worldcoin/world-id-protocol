@@ -1,3 +1,4 @@
+use common::ProviderError;
 use thiserror::Error;
 
 pub type GatewayResult<T> = Result<T, GatewayError>;
@@ -5,7 +6,7 @@ pub type GatewayResult<T> = Result<T, GatewayError>;
 #[derive(Debug, Error)]
 pub enum GatewayError {
     #[error("provider error: {0}")]
-    Provider(String),
+    Provider(#[from] ProviderError),
     #[error("failed to bind listener: {0}")]
     Bind(#[from] std::io::Error),
     #[error("server error: {0}")]

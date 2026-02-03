@@ -23,8 +23,8 @@ alloy = { workspace = true, features = [
     "transport-http",
 ] }
 serde.workspace = true
+thiserror.workspace = true
 url.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
 
 config = "0.15.19"

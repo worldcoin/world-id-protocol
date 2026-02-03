@@ -4,4 +4,4 @@ mod provider;
 
 // TODO: FIXME: Provider Metrics
 
-pub use provider::{ProviderArgs, SignerArgs, SignerConfig};
+pub use provider::{ProviderArgs, ProviderError, ProviderResult, SignerArgs, SignerConfig};
