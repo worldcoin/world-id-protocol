@@ -1,13 +1,35 @@
+#![allow(dead_code)]
+
 use alloy::primitives::{Address, U256};
 use world_id_indexer::blockchain::{BlockchainEvent, RegistryEvent};
 
 /// Create a mock AccountCreated event for testing
-#[allow(dead_code)]
 pub fn mock_account_created_event(
     block_number: u64,
     log_index: u64,
     leaf_index: U256,
     recovery_address: Address,
+    commitment: U256,
+) -> BlockchainEvent<RegistryEvent> {
+    mock_account_created_event_with_authenticators(
+        block_number,
+        log_index,
+        leaf_index,
+        recovery_address,
+        vec![],
+        vec![],
+        commitment,
+    )
+}
+
+/// Create a mock AccountCreated event with authenticators for testing
+pub fn mock_account_created_event_with_authenticators(
+    block_number: u64,
+    log_index: u64,
+    leaf_index: U256,
+    recovery_address: Address,
+    authenticator_addresses: Vec<Address>,
+    authenticator_pubkeys: Vec<U256>,
     commitment: U256,
 ) -> BlockchainEvent<RegistryEvent> {
     BlockchainEvent {
@@ -17,8 +39,8 @@ pub fn mock_account_created_event(
         details: RegistryEvent::AccountCreated(world_id_indexer::blockchain::AccountCreatedEvent {
             leaf_index,
             recovery_address,
-            authenticator_addresses: vec![],
-            authenticator_pubkeys: vec![],
+            authenticator_addresses,
+            authenticator_pubkeys,
             offchain_signer_commitment: commitment,
         }),
     }
@@ -26,7 +48,6 @@ pub fn mock_account_created_event(
 
 /// Create a mock AccountUpdated event for testing
 #[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
 pub fn mock_account_updated_event(
     block_number: u64,
     log_index: u64,
@@ -55,7 +76,6 @@ pub fn mock_account_updated_event(
 
 /// Create a mock AuthenticatorInserted event for testing
 #[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
 pub fn mock_authenticator_inserted_event(
     block_number: u64,
     log_index: u64,
@@ -85,7 +105,6 @@ pub fn mock_authenticator_inserted_event(
 
 /// Create a mock AuthenticatorRemoved event for testing
 #[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
 pub fn mock_authenticator_removed_event(
     block_number: u64,
     log_index: u64,
@@ -114,7 +133,6 @@ pub fn mock_authenticator_removed_event(
 }
 
 /// Create a mock AccountRecovered event for testing
-#[allow(dead_code)]
 pub fn mock_account_recovered_event(
     block_number: u64,
     log_index: u64,
@@ -141,7 +159,6 @@ pub fn mock_account_recovered_event(
 }
 
 /// Create a mock RootRecorded event for testing
-#[allow(dead_code)]
 pub fn mock_root_recorded_event(
     block_number: u64,
     log_index: u64,

@@ -6,7 +6,6 @@ use std::time::Duration;
 use alloy::primitives::{U256, address};
 use common::{RECOVERY_ADDRESS, TestSetup, query_count};
 use http::StatusCode;
-use serial_test::serial;
 use sqlx::types::Json;
 use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
@@ -14,7 +13,6 @@ use world_id_indexer::config::{
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_backfill_and_live_sync() {
     let setup = TestSetup::new_with_tree_depth(6).await;
 
@@ -152,7 +150,6 @@ async fn test_backfill_and_live_sync() {
 /// so that an incorrect inclusion proof is never returned.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[cfg(feature = "integration-tests")]
-#[serial]
 async fn test_insertion_cycle_and_avoids_race_condition() {
     let setup = TestSetup::new_with_tree_depth(6).await;
 

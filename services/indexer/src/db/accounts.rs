@@ -273,19 +273,19 @@ where
 
     fn map_authenticator_addresses(row: &PgRow) -> DBResult<Vec<Address>> {
         Ok(row
-            .get::<Json<Vec<String>>, _>("authenticator_addresses")
+            .get::<Json<Vec<Option<String>>>, _>("authenticator_addresses")
             .0
             .iter()
-            .filter_map(|s| s.parse::<Address>().ok())
+            .filter_map(|opt| opt.as_ref()?.parse::<Address>().ok())
             .collect())
     }
 
     fn map_authenticator_pub_keys(row: &PgRow) -> DBResult<Vec<U256>> {
         Ok(row
-            .get::<Json<Vec<String>>, _>("authenticator_pubkeys")
+            .get::<Json<Vec<Option<String>>>, _>("authenticator_pubkeys")
             .0
             .iter()
-            .filter_map(|s| s.parse::<U256>().ok())
+            .filter_map(|opt| opt.as_ref()?.parse::<U256>().ok())
             .collect())
     }
 

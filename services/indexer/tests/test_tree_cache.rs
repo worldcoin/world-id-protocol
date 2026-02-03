@@ -5,7 +5,6 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use alloy::primitives::{U256, address};
 use common::{TestSetup, query_count};
-use serial_test::serial;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
@@ -33,7 +32,6 @@ fn cleanup_cache_files(cache_path: &PathBuf) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_cache_creation_and_restoration() {
     let setup = TestSetup::new().await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -117,7 +115,6 @@ async fn test_cache_creation_and_restoration() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_incremental_replay() {
     let setup = TestSetup::new().await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -251,7 +248,6 @@ async fn test_incremental_replay() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_missing_cache_creates_new() {
     let setup = TestSetup::new().await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -320,7 +316,6 @@ async fn test_missing_cache_creates_new() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_http_only_cache_refresh() {
     let setup = TestSetup::new().await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -447,7 +442,6 @@ async fn test_http_only_cache_refresh() {
 
 /// Test that AuthenticatorRemoved events are replayed correctly with their stored commitment values
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_authenticator_removed_replay() {
     let setup = TestSetup::new().await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -621,7 +615,6 @@ async fn test_authenticator_removed_replay() {
 
 /// Test that tree root matches on-chain contract root after fresh initialization
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_init_root_matches_contract() {
     // Use tree_depth=6 to match create_temp_cache_config()
     let setup = TestSetup::new_with_tree_depth(6).await;
@@ -710,7 +703,6 @@ async fn test_init_root_matches_contract() {
 
 /// Test that tree root matches on-chain contract root after replay
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_replay_root_matches_contract() {
     // Use tree_depth=6 to match create_temp_cache_config()
     let setup = TestSetup::new_with_tree_depth(6).await;
@@ -850,7 +842,6 @@ async fn test_replay_root_matches_contract() {
 /// Test that corrupted cache triggers full rebuild instead of failing
 /// This test simulates cache corruption by manually modifying the metadata
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_corrupted_cache_triggers_rebuild() {
     // Use tree_depth=6 to match create_temp_cache_config()
     let setup = TestSetup::new_with_tree_depth(6).await;

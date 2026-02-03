@@ -1,10 +1,102 @@
+#![allow(dead_code)]
+
 use alloy::primitives::{Address, U256};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 use world_id_indexer::db::{DB, DBResult, WorldTreeEventType, WorldTreeRootEventType};
 
+/// RAII guard that ensures test database cleanup on drop
+pub struct TestDatabase {
+    pub db: DB,
+    db_name: Option<String>,
+}
+
+impl TestDatabase {
+    /// Get a reference to the underlying DB
+    pub fn db(&self) -> &DB {
+        &self.db
+    }
+
+    /// Get the database name
+    pub fn db_name(&self) -> &str {
+        self.db_name.as_ref().expect("Database already cleaned up")
+    }
+
+    /// Explicitly cleanup the test database
+    /// This is called automatically on drop, but you can call it explicitly
+    /// if you want to handle cleanup errors
+    pub async fn cleanup(mut self) {
+        if let Some(db_name) = self.db_name.take() {
+            cleanup_test_db(&db_name).await;
+        }
+    }
+}
+
+impl Drop for TestDatabase {
+    fn drop(&mut self) {
+        if let Some(db_name) = self.db_name.take() {
+            // Best effort cleanup - spawn a thread with its own runtime
+            // This is not ideal but necessary since Drop is synchronous
+            let _ = std::thread::spawn(move || {
+                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    rt.block_on(async {
+                        cleanup_test_db(&db_name).await;
+                    });
+                }
+            })
+            .join();
+        }
+    }
+}
+
 /// Creates a unique test database for isolation between tests
-pub async fn create_unique_test_db() -> (DB, String) {
+/// Returns a TestDatabase guard that will automatically cleanup on drop
+pub async fn create_unique_test_db() -> TestDatabase {
+    let unique_name = format!("test_db_{}", Uuid::new_v4().to_string().replace('-', "_"));
+    let base_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
+
+    // Connect to postgres database to create our test database
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&base_url)
+        .await
+        .expect("Failed to connect to postgres");
+
+    sqlx::query(&format!("CREATE DATABASE {}", unique_name))
+        .execute(&pool)
+        .await
+        .expect("Failed to create test database");
+
+    // Connect to the new database
+    // Properly replace just the database name in the URL
+    let test_db_url = if let Some(pos) = base_url.rfind('/') {
+        format!("{}/{}", &base_url[..pos], unique_name)
+    } else {
+        format!("{}/{}", base_url, unique_name)
+    };
+    let db = DB::new(&test_db_url, Some(5))
+        .await
+        .expect("Failed to connect to test database");
+
+    db.run_migrations().await.expect("Failed to run migrations");
+
+    TestDatabase {
+        db,
+        db_name: Some(unique_name),
+    }
+}
+
+/// Creates a unique test database for isolation between tests (legacy version)
+/// Returns (DB, String) tuple - caller must manually call cleanup_test_db
+///
+/// DEPRECATED: Use create_unique_test_db() instead which returns TestDatabase
+/// that automatically cleans up on drop
+#[deprecated(note = "Use create_unique_test_db() instead for automatic cleanup")]
+pub async fn create_unique_test_db_legacy() -> (DB, String) {
     let unique_name = format!("test_db_{}", Uuid::new_v4().to_string().replace('-', "_"));
     let base_url = std::env::var("TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
@@ -62,7 +154,6 @@ pub async fn cleanup_test_db(db_name: &str) {
 }
 
 /// Insert a test account directly into the database
-#[allow(dead_code)]
 pub async fn insert_test_account(
     db: &DB,
     leaf_index: U256,
@@ -75,7 +166,6 @@ pub async fn insert_test_account(
 }
 
 /// Insert a test world tree event directly into the database
-#[allow(dead_code)]
 pub async fn insert_test_world_tree_event(
     db: &DB,
     block_number: u64,
@@ -98,7 +188,6 @@ pub async fn insert_test_world_tree_event(
 }
 
 /// Insert a test world tree root event directly into the database
-#[allow(dead_code)]
 pub async fn insert_test_world_tree_root(
     db: &DB,
     block_number: u64,
@@ -119,7 +208,6 @@ pub async fn insert_test_world_tree_root(
 }
 
 /// Count accounts in the database
-#[allow(dead_code)]
 pub async fn count_accounts(pool: &PgPool) -> DBResult<i64> {
     let (count,): (i64,) =
         sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM accounts")
@@ -138,7 +226,6 @@ pub async fn count_world_tree_events(pool: &PgPool) -> DBResult<i64> {
 }
 
 /// Count world tree roots in the database
-#[allow(dead_code)]
 pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
     let (count,): (i64,) =
         sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM world_tree_roots")
@@ -148,7 +235,6 @@ pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
 }
 
 /// Check if account exists by leaf index
-#[allow(dead_code)]
 pub async fn account_exists(pool: &PgPool, leaf_index: U256) -> DBResult<bool> {
     let count: (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
         "SELECT COUNT(*) FROM accounts WHERE leaf_index = $1",
@@ -158,4 +244,66 @@ pub async fn account_exists(pool: &PgPool, leaf_index: U256) -> DBResult<bool> {
     .await?;
 
     Ok(count.0 > 0)
+}
+
+// Assertion helpers to reduce test boilerplate
+
+/// Assert that the number of accounts matches expected count
+pub async fn assert_account_count(pool: &PgPool, expected: i64) {
+    let actual = count_accounts(pool)
+        .await
+        .expect("Failed to count accounts");
+    assert_eq!(
+        actual, expected,
+        "Expected {} accounts but found {}",
+        expected, actual
+    );
+}
+
+/// Assert that the number of world tree events matches expected count
+pub async fn assert_event_count(pool: &PgPool, expected: i64) {
+    let actual = count_world_tree_events(pool)
+        .await
+        .expect("Failed to count events");
+    assert_eq!(
+        actual, expected,
+        "Expected {} events but found {}",
+        expected, actual
+    );
+}
+
+/// Assert that the number of world tree roots matches expected count
+pub async fn assert_root_count(pool: &PgPool, expected: i64) {
+    let actual = count_world_tree_roots(pool)
+        .await
+        .expect("Failed to count roots");
+    assert_eq!(
+        actual, expected,
+        "Expected {} roots but found {}",
+        expected, actual
+    );
+}
+
+/// Assert that an account exists with the given leaf index
+pub async fn assert_account_exists(pool: &PgPool, leaf_index: U256) {
+    let exists = account_exists(pool, leaf_index)
+        .await
+        .expect("Failed to check account existence");
+    assert!(
+        exists,
+        "Expected account with leaf_index {} to exist",
+        leaf_index
+    );
+}
+
+/// Assert that an account does not exist with the given leaf index
+pub async fn assert_account_not_exists(pool: &PgPool, leaf_index: U256) {
+    let exists = account_exists(pool, leaf_index)
+        .await
+        .expect("Failed to check account existence");
+    assert!(
+        !exists,
+        "Expected account with leaf_index {} to not exist",
+        leaf_index
+    );
 }

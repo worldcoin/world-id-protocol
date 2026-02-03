@@ -2,14 +2,13 @@ mod helpers;
 
 use alloy::primitives::{Address, U256};
 use helpers::db_helpers::*;
-use serial_test::serial;
 use world_id_indexer::db::{IsolationLevel, WorldTreeEventType, WorldTreeRootEventType};
 
 /// Test inserting an account
 #[tokio::test]
-#[serial]
 async fn test_insert_account() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let leaf_index = U256::from(1);
     let recovery_address = Address::ZERO;
@@ -28,20 +27,24 @@ async fn test_insert_account() {
         .await
         .unwrap();
 
-    // Verify account was inserted
-    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
-    // Account exists - field checks removed for simplicity
-    // Account exists - field checks removed for simplicity
-    // Account exists - field checks removed for simplicity
+    // Verify account was inserted with correct data
+    let account = db.accounts().get_account(&leaf_index).await.unwrap();
+    assert!(account.is_some(), "Account should exist");
 
-    cleanup_test_db(&db_name).await;
+    let account = account.unwrap();
+    assert_eq!(account.leaf_index, leaf_index);
+    assert_eq!(account.recovery_address, recovery_address);
+    assert_eq!(account.authenticator_addresses, auth_addresses);
+    assert_eq!(account.authenticator_pubkeys, auth_pubkeys);
+    assert_eq!(account.offchain_signer_commitment, commitment);
+    // Cleanup happens automatically when test_db is dropped
 }
 
 /// Test duplicate insert is handled gracefully (idempotent)
 #[tokio::test]
-#[serial]
 async fn test_duplicate_insert_account() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let leaf_index = U256::from(1);
     let recovery_address = Address::ZERO;
@@ -81,15 +84,13 @@ async fn test_duplicate_insert_account() {
     // Should still have only one account
     let count = count_accounts(db.pool()).await.unwrap();
     assert_eq!(count, 1);
-
-    cleanup_test_db(&db_name).await;
 }
 
 /// Test updating authenticator at index
 #[tokio::test]
-#[serial]
 async fn test_update_authenticator_at_index() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let leaf_index = U256::from(1);
     let initial_address = Address::from([1u8; 20]);
@@ -118,18 +119,23 @@ async fn test_update_authenticator_at_index() {
         .await
         .unwrap();
 
-    // Verify update
-    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
-    // Account exists - field checks removed for simplicity
-
-    cleanup_test_db(&db_name).await;
+    // Verify update with field checks
+    let account = db
+        .accounts()
+        .get_account(&leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_addresses[0], new_address);
+    assert_eq!(account.authenticator_pubkeys[0], new_pubkey);
+    assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
 /// Test inserting authenticator at index
 #[tokio::test]
-#[serial]
 async fn test_insert_authenticator_at_index() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let leaf_index = U256::from(1);
     let initial_commitment = U256::from(456);
@@ -156,18 +162,24 @@ async fn test_insert_authenticator_at_index() {
         .await
         .unwrap();
 
-    // Verify update
-    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
-    // Account exists - field checks removed for simplicity
-
-    cleanup_test_db(&db_name).await;
+    // Verify insertion with field checks
+    let account = db
+        .accounts()
+        .get_account(&leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_addresses.len(), 2);
+    assert_eq!(account.authenticator_addresses[1], new_address);
+    assert_eq!(account.authenticator_pubkeys[1], new_pubkey);
+    assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
 /// Test removing authenticator at index
 #[tokio::test]
-#[serial]
 async fn test_remove_authenticator_at_index() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let leaf_index = U256::from(1);
     let initial_commitment = U256::from(456);
@@ -192,18 +204,24 @@ async fn test_remove_authenticator_at_index() {
         .await
         .unwrap();
 
-    // Verify update
-    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
-    // Account exists - field checks removed for simplicity
-
-    cleanup_test_db(&db_name).await;
+    // Verify removal with field checks
+    let account = db
+        .accounts()
+        .get_account(&leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_addresses.len(), 1);
+    assert_eq!(account.authenticator_addresses[0], Address::from([1u8; 20]));
+    assert_eq!(account.authenticator_pubkeys[0], U256::from(123));
+    assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
 /// Test resetting authenticator (account recovery)
 #[tokio::test]
-#[serial]
 async fn test_reset_authenticator() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let leaf_index = U256::from(1);
     let initial_commitment = U256::from(456);
@@ -230,18 +248,26 @@ async fn test_reset_authenticator() {
         .await
         .unwrap();
 
-    // Verify update
-    let _account = account_exists(db.pool(), leaf_index).await.unwrap();
-    // Account exists - field checks removed for simplicity
+    // Verify reset
+    let account = db.accounts().get_account(&leaf_index).await.unwrap();
+    assert!(account.is_some(), "Account should exist after reset");
+    let account = account.unwrap();
 
-    cleanup_test_db(&db_name).await;
+    // After reset, authenticator array should have exactly 1 element
+    assert_eq!(account.authenticator_addresses.len(), 1);
+    assert_eq!(account.authenticator_pubkeys.len(), 1);
+
+    // Verify the new authenticator values
+    assert_eq!(account.authenticator_addresses[0], new_address);
+    assert_eq!(account.authenticator_pubkeys[0], new_pubkey);
+    assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
 /// Test inserting world tree event
 #[tokio::test]
-#[serial]
 async fn test_insert_world_tree_event() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let block_number = 100;
     let log_index = 5;
@@ -261,18 +287,28 @@ async fn test_insert_world_tree_event() {
         .await
         .unwrap();
 
-    // Verify event was inserted
-    let count = count_world_tree_events(db.pool()).await.unwrap();
-    assert_eq!(count, 1);
+    // Verify event was inserted with correct data
+    let event = db
+        .world_tree_events()
+        .get_event((block_number, log_index))
+        .await
+        .unwrap();
 
-    cleanup_test_db(&db_name).await;
+    assert!(event.is_some(), "Event should exist");
+    let event = event.unwrap();
+    assert_eq!(event.id.block_number, block_number);
+    assert_eq!(event.id.log_index, log_index);
+    assert_eq!(event.leaf_index, leaf_index);
+    assert_eq!(event.event_type, WorldTreeEventType::AccountCreated);
+    assert_eq!(event.offchain_signer_commitment, commitment);
+    assert_eq!(event.tx_hash, tx_hash);
 }
 
 /// Test duplicate world tree event insert is handled
 #[tokio::test]
-#[serial]
 async fn test_duplicate_world_tree_event_insert() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let block_number = 100;
     let log_index = 5;
@@ -314,15 +350,13 @@ async fn test_duplicate_world_tree_event_insert() {
     // Should still have only one event
     let count = count_world_tree_events(db.pool()).await.unwrap();
     assert_eq!(count, 1);
-
-    cleanup_test_db(&db_name).await;
 }
 
 /// Test getting world tree event by ID
 #[tokio::test]
-#[serial]
 async fn test_get_world_tree_event() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let block_number = 100;
     let log_index = 5;
@@ -355,15 +389,13 @@ async fn test_get_world_tree_event() {
     assert_eq!(event.id.log_index, log_index);
     assert_eq!(event.leaf_index, leaf_index);
     assert_eq!(event.event_type, WorldTreeEventType::AccountCreated);
-
-    cleanup_test_db(&db_name).await;
 }
 
 /// Test getting latest world tree events
 #[tokio::test]
-#[serial]
 async fn test_get_latest_world_tree_events() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     // Insert multiple events
     for i in 0..5 {
@@ -380,18 +412,33 @@ async fn test_get_latest_world_tree_events() {
             .unwrap();
     }
 
-    // Verify all events were inserted
+    // Verify all events were inserted with correct data
     let count = count_world_tree_events(db.pool()).await.unwrap();
     assert_eq!(count, 5);
 
-    cleanup_test_db(&db_name).await;
+    // Verify we can retrieve each event with correct data
+    for i in 0..5 {
+        let event = db
+            .world_tree_events()
+            .get_event((100 + i, i))
+            .await
+            .unwrap();
+
+        assert!(event.is_some(), "Event {} should exist", i);
+        let event = event.unwrap();
+        assert_eq!(event.id.block_number, 100 + i);
+        assert_eq!(event.id.log_index, i);
+        assert_eq!(event.leaf_index, U256::from(i));
+        assert_eq!(event.offchain_signer_commitment, U256::from(i * 100));
+        assert_eq!(event.tx_hash, U256::from(999));
+    }
 }
 
 /// Test inserting world tree root
 #[tokio::test]
-#[serial]
 async fn test_insert_world_tree_root() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let block_number = 100;
     let log_index = 5;
@@ -411,18 +458,28 @@ async fn test_insert_world_tree_root() {
         .await
         .unwrap();
 
-    // Verify root was inserted
-    let count = count_world_tree_roots(db.pool()).await.unwrap();
-    assert_eq!(count, 1);
+    // Verify root was inserted with correct data
+    let root_event = db
+        .world_tree_roots()
+        .get_root((block_number, log_index))
+        .await
+        .unwrap();
 
-    cleanup_test_db(&db_name).await;
+    assert!(root_event.is_some(), "Root event should exist");
+    let root_event = root_event.unwrap();
+    assert_eq!(root_event.id.block_number, block_number);
+    assert_eq!(root_event.id.log_index, log_index);
+    assert_eq!(root_event.root, root);
+    assert_eq!(root_event.timestamp, timestamp);
+    assert_eq!(root_event.event_type, WorldTreeRootEventType::RootRecorded);
+    assert_eq!(root_event.tx_hash, tx_hash);
 }
 
 /// Test duplicate world tree root insert is handled
 #[tokio::test]
-#[serial]
 async fn test_duplicate_world_tree_root_insert() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let block_number = 100;
     let log_index = 5;
@@ -464,15 +521,13 @@ async fn test_duplicate_world_tree_root_insert() {
     // Should still have only one root
     let count = count_world_tree_roots(db.pool()).await.unwrap();
     assert_eq!(count, 1);
-
-    cleanup_test_db(&db_name).await;
 }
 
 /// Test getting world tree root by ID
 #[tokio::test]
-#[serial]
 async fn test_get_world_tree_root() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let block_number = 100;
     let log_index = 5;
@@ -505,15 +560,13 @@ async fn test_get_world_tree_root() {
     assert_eq!(root_event.id.log_index, log_index);
     assert_eq!(root_event.root, root);
     assert_eq!(root_event.timestamp, timestamp);
-
-    cleanup_test_db(&db_name).await;
 }
 
 /// Test transaction commit
 #[tokio::test]
-#[serial]
 async fn test_transaction_commit() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
 
@@ -535,15 +588,13 @@ async fn test_transaction_commit() {
     // Now should be visible
     let count = count_accounts(db.pool()).await.unwrap();
     assert_eq!(count, 1, "Transaction committed successfully");
-
-    cleanup_test_db(&db_name).await;
 }
 
 /// Test transaction rollback
 #[tokio::test]
-#[serial]
 async fn test_transaction_rollback() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
 
@@ -561,15 +612,13 @@ async fn test_transaction_rollback() {
     // Should not be visible
     let count = count_accounts(db.pool()).await.unwrap();
     assert_eq!(count, 0, "Transaction rolled back successfully");
-
-    cleanup_test_db(&db_name).await;
 }
 
 /// Test multiple operations in single transaction
 #[tokio::test]
-#[serial]
 async fn test_multiple_operations_in_transaction() {
-    let (db, db_name) = create_unique_test_db().await;
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
 
     let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
 
@@ -622,6 +671,4 @@ async fn test_multiple_operations_in_transaction() {
     assert_eq!(account_count, 1);
     assert_eq!(event_count, 1);
     assert_eq!(root_count, 1);
-
-    cleanup_test_db(&db_name).await;
 }
