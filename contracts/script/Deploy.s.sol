@@ -3,12 +3,8 @@ pragma solidity ^0.8.13;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
-import {
-    ERC1967Proxy
-} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {
-    CredentialSchemaIssuerRegistry
-} from "../src/CredentialSchemaIssuerRegistry.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 import {RpRegistry} from "../src/RpRegistry.sol";
 import {WorldIDVerifier} from "../src/WorldIDVerifier.sol";
 import {Verifier} from "../src/Verifier.sol";
@@ -40,34 +36,18 @@ contract Deploy is Script {
         _writeDeployment(env);
     }
 
-    function _run(
-        string memory config
-    ) internal virtual {
+    function _run(string memory config) internal virtual {
         deployRegistry(config);
         deployCredentialSchemaIssuerRegistry(config);
         deployRpRegistry(config);
-        deployWorldIdVerifier(
-            config
-        );
+        deployWorldIdVerifier(config);
     }
 
     function deployRegistry(string memory config) public {
-        uint256 treeDepth = vm.parseJsonUint(
-            config,
-            ".worldIDRegistry.treeDepth"
-        );
-        address feeRecipient = vm.parseJsonAddress(
-            config,
-            ".worldIDRegistry.feeRecipient"
-        );
-        address feeToken = vm.parseJsonAddress(
-            config,
-            ".worldIDRegistry.feeToken"
-        );
-        uint256 registrationFee = vm.parseJsonUint(
-            config,
-            ".worldIDRegistry.registrationFee"
-        );
+        uint256 treeDepth = vm.parseJsonUint(config, ".worldIDRegistry.treeDepth");
+        address feeRecipient = vm.parseJsonAddress(config, ".worldIDRegistry.feeRecipient");
+        address feeToken = vm.parseJsonAddress(config, ".worldIDRegistry.feeToken");
+        uint256 registrationFee = vm.parseJsonUint(config, ".worldIDRegistry.registrationFee");
         console2.log("--- Deploying WorldIDRegistry ---");
         console2.log("Deploying WorldIDRegistry with tree depth:", treeDepth);
         console2.log("Fee recipient:", feeRecipient);
@@ -77,49 +57,25 @@ contract Deploy is Script {
         bytes32 salt = vm.parseJsonBytes32(config, ".salts.worldIDRegistry");
 
         // Deploy implementation
-        WorldIDRegistry implementation = new WorldIDRegistry{
-            salt: bytes32(uint256(0))
-        }();
+        WorldIDRegistry implementation = new WorldIDRegistry{salt: bytes32(uint256(0))}();
         worldIDRegistryImplAddress = address(implementation);
 
         // Encode initializer call
         bytes memory initData = abi.encodeWithSelector(
-            WorldIDRegistry.initialize.selector,
-            treeDepth,
-            feeRecipient,
-            feeToken,
-            registrationFee
+            WorldIDRegistry.initialize.selector, treeDepth, feeRecipient, feeToken, registrationFee
         );
 
-        bytes memory initCode = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(implementation, initData)
-        );
+        bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
 
         worldIDRegistryAddress = deploy(salt, initCode);
     }
 
     function deployCredentialSchemaIssuerRegistry(string memory config) public {
-        address feeRecipient = vm.parseJsonAddress(
-            config,
-            ".credentialSchemaIssuerRegistry.feeRecipient"
-        );
-        address feeToken = vm.parseJsonAddress(
-            config,
-            ".credentialSchemaIssuerRegistry.feeToken"
-        );
-        uint256 registrationFee = vm.parseJsonUint(
-            config,
-            ".credentialSchemaIssuerRegistry.registrationFee"
-        );
-        address oprfKeyRegistryAddress = vm.parseJsonAddress(
-            config,
-            ".externalDependencies.oprfKeyRegistry"
-        );
-        bytes32 salt = vm.parseJsonBytes32(
-            config,
-            ".salts.credentialSchemaIssuerRegistry"
-        );
+        address feeRecipient = vm.parseJsonAddress(config, ".credentialSchemaIssuerRegistry.feeRecipient");
+        address feeToken = vm.parseJsonAddress(config, ".credentialSchemaIssuerRegistry.feeToken");
+        uint256 registrationFee = vm.parseJsonUint(config, ".credentialSchemaIssuerRegistry.registrationFee");
+        address oprfKeyRegistryAddress = vm.parseJsonAddress(config, ".externalDependencies.oprfKeyRegistry");
+        bytes32 salt = vm.parseJsonBytes32(config, ".salts.credentialSchemaIssuerRegistry");
 
         console2.log("--- Deploying CredentialSchemaIssuerRegistry ---");
         console2.log("Fee recipient:", feeRecipient);
@@ -129,9 +85,7 @@ contract Deploy is Script {
         console2.log("Salt:");
         console2.logBytes32(salt);
         // Deploy implementation
-        CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry{
-                salt: bytes32(uint256(0))
-            }();
+        CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry{salt: bytes32(uint256(0))}();
         credentialSchemaIssuerRegistryImplAddress = address(implementation);
 
         // Encode initializer call
@@ -143,37 +97,17 @@ contract Deploy is Script {
             oprfKeyRegistryAddress
         );
 
-        bytes memory initCode = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(implementation, initData)
-        );
+        bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
 
         credentialSchemaIssuerRegistryAddress = deploy(salt, initCode);
     }
 
-    function deployRpRegistry(
-        string memory config
-    ) public {
-        address feeRecipient = vm.parseJsonAddress(
-            config,
-            ".rpRegistry.feeRecipient"
-        );
-        address feeToken = vm.parseJsonAddress(
-            config,
-            ".rpRegistry.feeToken"
-        );
-        uint256 registrationFee = vm.parseJsonUint(
-            config,
-            ".rpRegistry.registrationFee"
-        );
-        address oprfKeyRegistryAddress = vm.parseJsonAddress(
-            config,
-            ".externalDependencies.oprfKeyRegistry"
-        );
-        bytes32 salt = vm.parseJsonBytes32(
-            config,
-            ".salts.rpRegistry"
-        );
+    function deployRpRegistry(string memory config) public {
+        address feeRecipient = vm.parseJsonAddress(config, ".rpRegistry.feeRecipient");
+        address feeToken = vm.parseJsonAddress(config, ".rpRegistry.feeToken");
+        uint256 registrationFee = vm.parseJsonUint(config, ".rpRegistry.registrationFee");
+        address oprfKeyRegistryAddress = vm.parseJsonAddress(config, ".externalDependencies.oprfKeyRegistry");
+        bytes32 salt = vm.parseJsonBytes32(config, ".salts.rpRegistry");
 
         // Deploy implementation
         RpRegistry implementation = new RpRegistry();
@@ -181,31 +115,18 @@ contract Deploy is Script {
 
         // Encode initializer call
         bytes memory initData = abi.encodeWithSelector(
-            RpRegistry.initialize.selector,
-            feeRecipient,
-            feeToken,
-            registrationFee,
-            oprfKeyRegistryAddress
+            RpRegistry.initialize.selector, feeRecipient, feeToken, registrationFee, oprfKeyRegistryAddress
         );
 
-        bytes memory initCode = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(implementation, initData)
-        );
+        bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
 
         rpRegistryAddress = deploy(salt, initCode);
     }
 
-    function deployWorldIdVerifier(
-        string memory config
-    ) public {
-        
+    function deployWorldIdVerifier(string memory config) public {
         verifierAddress = address(new Verifier());
 
-        bytes32 salt = vm.parseJsonBytes32(
-            config,
-            ".salts.worldIDVerifier"
-        );
+        bytes32 salt = vm.parseJsonBytes32(config, ".salts.worldIDVerifier");
 
         WorldIDVerifier implementation = new WorldIDVerifier();
         worldIDVerifierImplAddress = address(implementation);
@@ -215,34 +136,20 @@ contract Deploy is Script {
             WorldIDVerifier.initialize.selector,
             credentialSchemaIssuerRegistryAddress,
             worldIDRegistryAddress,
-            vm.parseJsonAddress(
-                config,
-                ".externalDependencies.oprfKeyRegistry"
-            ),
+            vm.parseJsonAddress(config, ".externalDependencies.oprfKeyRegistry"),
             verifierAddress,
-            uint64(
-                vm.parseJsonUint(
-                    config,
-                    ".worldIDVerifier.minExpirationThreshold"
-                )
-            )
+            uint64(vm.parseJsonUint(config, ".worldIDVerifier.minExpirationThreshold"))
         );
 
-        bytes memory initCode = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(implementation, initData)
-        );
+        bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
 
         worldIDVerifierAddress = deploy(salt, initCode);
     }
 
-
     /// @notice Loads a JSON config file for the given environment.
     /// @param env The environment name (e.g. "local", "staging", "production").
     /// @return json The raw JSON string contents of the config file.
-    function _loadConfig(
-        string memory env
-    ) internal view returns (string memory json) {
+    function _loadConfig(string memory env) internal view returns (string memory json) {
         string memory path = string.concat("script/config/", env, ".json");
         json = vm.readFile(path);
     }
@@ -287,10 +194,7 @@ contract Deploy is Script {
     /// @notice Deploys a contract using CREATE2.
     /// @param salt The salt to use for the CREATE2 deployment.
     /// @param initCode The init code of the contract to deploy.
-    function deploy(
-        bytes32 salt,
-        bytes memory initCode
-    ) public returns (address addr) {
+    function deploy(bytes32 salt, bytes memory initCode) public returns (address addr) {
         assembly {
             addr := create2(0, add(initCode, 0x20), mload(initCode), salt)
             if iszero(extcodesize(addr)) {
