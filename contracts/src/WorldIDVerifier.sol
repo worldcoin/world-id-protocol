@@ -288,7 +288,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         onlyProxy
         onlyInitialized
     {
-        uint64 oldMinExpirationThreshold = newMinExpirationThreshold;
+        uint64 oldMinExpirationThreshold = _minExpirationThreshold;
         _minExpirationThreshold = newMinExpirationThreshold;
         emit MinExpirationThresholdUpdated(oldMinExpirationThreshold, _minExpirationThreshold);
     }
