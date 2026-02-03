@@ -16,11 +16,11 @@ use taceo_oprf::types::{
     api::{OprfRequest, OprfRequestAuthenticator},
 };
 use uuid::Uuid;
-use world_id_primitives::oprf::SchemaIssuerOprfRequestAuthV1;
+use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
 
-/// Errors returned by the [`SchemaIssuerOprfReqAuthenticator`].
+/// Errors returned by the [`CredentialBlindingFactorOprfReqAuthenticator`].
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SchemaIssuerOprfRequestAuthError {
+pub(crate) enum CredentialBlindingFactorOprfRequestAuthError {
     /// An error returned from the CredentialSchemaIssuerRegistry watcher service.
     #[error(transparent)]
     SchemaIssuerRegistryWatcherError(#[from] SchemaIssuerRegistryWatcherError),
@@ -38,23 +38,23 @@ pub(crate) enum SchemaIssuerOprfRequestAuthError {
     InternalServerError(#[from] eyre::Report),
 }
 
-impl IntoResponse for SchemaIssuerOprfRequestAuthError {
+impl IntoResponse for CredentialBlindingFactorOprfRequestAuthError {
     fn into_response(self) -> axum::response::Response {
         match self {
-            SchemaIssuerOprfRequestAuthError::SchemaIssuerRegistryWatcherError(err) => {
+            CredentialBlindingFactorOprfRequestAuthError::SchemaIssuerRegistryWatcherError(err) => {
                 tracing::error!("CredentialSchemaIssuerRegistry watcher error: {err}");
                 (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
             }
-            SchemaIssuerOprfRequestAuthError::OprfKeyIdMismatch => {
+            CredentialBlindingFactorOprfRequestAuthError::OprfKeyIdMismatch => {
                 (StatusCode::BAD_REQUEST, "oprf key id mismatch").into_response()
             }
-            SchemaIssuerOprfRequestAuthError::InvalidAction => (
+            CredentialBlindingFactorOprfRequestAuthError::InvalidAction => (
                 StatusCode::BAD_REQUEST,
                 "invalid action (must be 0 for now)",
             )
                 .into_response(),
-            SchemaIssuerOprfRequestAuthError::Common(err) => err.into_response(),
-            SchemaIssuerOprfRequestAuthError::InternalServerError(err) => {
+            CredentialBlindingFactorOprfRequestAuthError::Common(err) => err.into_response(),
+            CredentialBlindingFactorOprfRequestAuthError::InternalServerError(err) => {
                 let error_id = Uuid::new_v4();
                 tracing::error!("{error_id} - {err:?}");
                 (
@@ -67,12 +67,12 @@ impl IntoResponse for SchemaIssuerOprfRequestAuthError {
     }
 }
 
-pub(crate) struct SchemaIssuerOprfRequestAuthenticator {
+pub(crate) struct CredentialBlindingFactorOprfRequestAuthenticator {
     schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
     common: crate::auth::OprfRequestAuthenticator,
 }
 
-impl SchemaIssuerOprfRequestAuthenticator {
+impl CredentialBlindingFactorOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
         schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
@@ -85,9 +85,9 @@ impl SchemaIssuerOprfRequestAuthenticator {
 }
 
 #[async_trait]
-impl OprfRequestAuthenticator for SchemaIssuerOprfRequestAuthenticator {
-    type RequestAuth = SchemaIssuerOprfRequestAuthV1;
-    type RequestAuthError = SchemaIssuerOprfRequestAuthError;
+impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticator {
+    type RequestAuth = CredentialBlindingFactorOprfRequestAuthV1;
+    type RequestAuthError = CredentialBlindingFactorOprfRequestAuthError;
 
     async fn verify(
         &self,
@@ -97,14 +97,14 @@ impl OprfRequestAuthenticator for SchemaIssuerOprfRequestAuthenticator {
 
         // check that the action is valid (must be 0 for now, might change in the future)
         if request.auth.action != ark_babyjubjub::Fq::ZERO {
-            return Err(SchemaIssuerOprfRequestAuthError::InvalidAction);
+            return Err(CredentialBlindingFactorOprfRequestAuthError::InvalidAction);
         }
 
         // check if the oprf key id matches the issuer schema id
         if OprfKeyId::new(U160::from(request.auth.issuer_schema_id))
             != request.share_identifier.oprf_key_id
         {
-            return Err(SchemaIssuerOprfRequestAuthError::OprfKeyIdMismatch);
+            return Err(CredentialBlindingFactorOprfRequestAuthError::OprfKeyIdMismatch);
         }
 
         // check that the issuer schema id is valid

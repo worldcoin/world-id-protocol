@@ -12,7 +12,7 @@ use taceo_oprf::{
 use world_id_primitives::{
     FieldElement, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
-    oprf::{OprfModule, SchemaIssuerOprfRequestAuthV1},
+    oprf::{CredentialBlindingFactorOprfRequestAuthV1, OprfModule},
 };
 
 use crate::{
@@ -98,7 +98,7 @@ impl OprfCredentialBlindingFactor {
         query_material.verify_proof(&proof, &public_inputs)?;
         tracing::debug!("generated query proof");
 
-        let auth = SchemaIssuerOprfRequestAuthV1 {
+        let auth = CredentialBlindingFactorOprfRequestAuthV1 {
             proof: proof.into(),
             action: *action,
             nonce: *nonce,

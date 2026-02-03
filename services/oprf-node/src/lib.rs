@@ -15,8 +15,9 @@ use world_id_primitives::oprf::OprfModule;
 
 use crate::{
     auth::{
-        issuer::SchemaIssuerOprfRequestAuthenticator, merkle_watcher::MerkleWatcher,
-        rp::RpOprfRequestAuthenticator, rp_registry_watcher::RpRegistryWatcher,
+        credential_blinding_factor::CredentialBlindingFactorOprfRequestAuthenticator,
+        merkle_watcher::MerkleWatcher, nullifier::NullifierOprfRequestAuthenticator,
+        rp_registry_watcher::RpRegistryWatcher,
         schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
         signature_history::SignatureHistory,
     },
@@ -77,8 +78,8 @@ pub async fn start(
         config.cache_maintenance_interval,
     );
 
-    tracing::info!("init rp oprf request auth service..");
-    let rp_oprf_req_auth_service = Arc::new(RpOprfRequestAuthenticator::init(
+    tracing::info!("init nullifier oprf request auth service..");
+    let nullifier_oprf_req_auth_service = Arc::new(NullifierOprfRequestAuthenticator::init(
         merkle_watcher.clone(),
         rp_registry_watcher.clone(),
         signature_history,
@@ -97,11 +98,12 @@ pub async fn start(
     .await
     .context("while starting schema issuer registry watcher")?;
 
-    tracing::info!("init schema issuer oprf request auth service..");
-    let schema_issuer_oprf_req_auth_service = Arc::new(SchemaIssuerOprfRequestAuthenticator::init(
-        merkle_watcher,
-        schema_issuer_registry_watcher,
-    ));
+    tracing::info!("init credential blinding factor oprf request auth service..");
+    let credential_blinding_factor_oprf_req_auth_service =
+        Arc::new(CredentialBlindingFactorOprfRequestAuthenticator::init(
+            merkle_watcher,
+            schema_issuer_registry_watcher,
+        ));
 
     tracing::info!("init oprf service..");
     let (oprf_service_router, key_event_watcher) = OprfServiceBuilder::init(
@@ -113,11 +115,11 @@ pub async fn start(
     .await?
     .module(
         &format!("/{}", OprfModule::Nullifier),
-        rp_oprf_req_auth_service,
+        nullifier_oprf_req_auth_service,
     )
     .module(
         &format!("/{}", OprfModule::CredentialBlindingFactor),
-        schema_issuer_oprf_req_auth_service,
+        credential_blinding_factor_oprf_req_auth_service,
     )
     .build();
 

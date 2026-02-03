@@ -52,7 +52,7 @@ use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
     merkle::MerkleInclusionProof,
-    oprf::{OprfModule, RpOprfRequestAuthV1},
+    oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,
 };
 
@@ -285,7 +285,7 @@ struct NullifierStressTestItem {
     id: Uuid,
     query_input: QueryProofCircuitInput<TREE_DEPTH>,
     oprf_blinding_factor: BlindingFactor,
-    oprf_request: OprfRequest<RpOprfRequestAuthV1>,
+    oprf_request: OprfRequest<NullifierOprfRequestAuthV1>,
     credential: Credential,
     credential_sub_blinding_factor: FieldElement,
     session_id_r_seed: FieldElement,
@@ -300,7 +300,10 @@ fn generate_oprf_auth_request(
     key_index: u64,
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     query_material: &CircomGroth16Material,
-) -> eyre::Result<(RpOprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>)> {
+) -> eyre::Result<(
+    NullifierOprfRequestAuthV1,
+    QueryProofCircuitInput<TREE_DEPTH>,
+)> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
@@ -325,7 +328,7 @@ fn generate_oprf_auth_request(
         .verify_proof(&proof, &public_inputs)
         .expect("proof verifies");
 
-    let auth = RpOprfRequestAuthV1 {
+    let auth = NullifierOprfRequestAuthV1 {
         proof: proof.into(),
         action: *proof_request.computed_action(),
         nonce: *proof_request.nonce,
