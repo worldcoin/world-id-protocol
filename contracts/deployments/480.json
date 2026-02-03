@@ -1,0 +1,23 @@
+{
+  "chainId": 480,
+  "deployer": "0x96d55bd9c8c4706fed243c1e15825ff7854920fa",
+  "timestamp": 1770158080810,
+  "blockNumber": 25410218,
+  "verifier": "0xf7134ce138832c1456f2a91d64621ee90c2bddea",
+  "worldIDRegistry": {
+    "proxy": "0xc3c5cc855845ce49ea21678cde337dd6f34c4be0",
+    "implementation": "0x9224ecd806a729d4a596b23be2047943882f5fe2"
+  },
+  "credentialSchemaIssuerRegistry": {
+    "proxy": "0x7b61a7311ca58ecdfcd604aceb09bf332c1f3590",
+    "implementation": "0x7cdeb63af84d2b3b8d5547520c575a0f4d6548c3"
+  },
+  "rpRegistry": {
+    "proxy": "0x999cd2bf72edf73a61899ff4364c87a1ca8fe48d",
+    "implementation": "0x46cd6926427a2190310eba2bf713f0ef51dfb59f"
+  },
+  "worldIDVerifier": {
+    "proxy": "0x30eff4fa7cdf1fbabb8a7c0a38d669d474d8f3d1",
+    "implementation": "0xeda5fd1c2b8ef9831f4860402259866ae61a81b1"
+  }
+}
