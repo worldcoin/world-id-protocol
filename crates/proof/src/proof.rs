@@ -811,4 +811,166 @@ pub mod errors {
         poseidon2::bn254::t8::permutation_in_place(&mut input);
         input[1].into()
     }
+
+    #[cfg(test)]
+    mod tests {
+        use ark_ec::twisted_edwards::Affine;
+        use std::str::FromStr;
+        use world_id_primitives::circuit_inputs::{
+            NullifierProofCircuitInput, QueryProofCircuitInput,
+        };
+
+        use crate::proof::errors::{check_nullifier_input_validity, check_query_input_validity};
+
+        // gotten these values by `dbg`-ing the struct in the e2e_authenticator_generate test
+        fn get_valid_query_proof_input() -> QueryProofCircuitInput<30> {
+            QueryProofCircuitInput {
+                pk: [Affine {
+                    x: ark_babyjubjub::Fq::from_str(
+                        "19037598474602150174935475944965340829216795940473064039209388058233204431288",
+                    ).unwrap(),
+                    y: ark_babyjubjub::Fq::from_str(
+                        "3549932221586364715003722955756497910920276078443163728621283280434115857197",
+                    ).unwrap(),
+                },
+                    Affine::zero(),
+                    Affine::zero(),
+                    Affine::zero(),
+                    Affine::zero(),
+                    Affine::zero(),
+                    Affine::zero(),
+                ],
+                pk_index: ark_bn254::Fr::from(0u64),
+                s: ark_babyjubjub::Fr::from_str(
+                    "2692248185200295468055279425612708965310378163906753799023551825366269352327",
+                ).unwrap(),
+                r: Affine {
+                   x: ark_babyjubjub::Fq::from_str(
+                        "14689596469778385278298478829656243946283084496217945909620117398922933730711",
+                    ).unwrap(),
+                    y: ark_babyjubjub::Fq::from_str(
+                        "4424830738973486800075394160997493242162871494907432163152597205147606706197",
+                    ).unwrap(),
+                },
+                merkle_root: ark_bn254::Fr::from_str("4959814736111706042728533661656003495359474679272202023690954858781105690707").unwrap(),
+                depth: ark_babyjubjub::Fq::from(30u64),
+                mt_index: ark_bn254::Fr::from(1u64),
+                siblings: [
+                        ark_bn254::Fr::from_str("0").unwrap(),
+                        ark_bn254::Fr::from_str("15621590199821056450610068202457788725601603091791048810523422053872049975191").unwrap(),
+                        ark_bn254::Fr::from_str("15180302612178352054084191513289999058431498575847349863917170755410077436260").unwrap(),
+                        ark_bn254::Fr::from_str("20846426933296943402289409165716903143674406371782261099735847433924593192150").unwrap(),
+                        ark_bn254::Fr::from_str("19570709311100149041770094415303300085749902031216638721752284824736726831172").unwrap(),
+                        ark_bn254::Fr::from_str("11737142173000203701607979434185548337265641794352013537668027209469132654026").unwrap(),
+                        ark_bn254::Fr::from_str("11865865012735342650993929214218361747705569437250152833912362711743119784159").unwrap(),
+                        ark_bn254::Fr::from_str("1493463551715988755902230605042557878234810673525086316376178495918903796315").unwrap(),
+                        ark_bn254::Fr::from_str("18746103596419850001763894956142528089435746267438407061601783590659355049966").unwrap(),
+                        ark_bn254::Fr::from_str("21234194473503024590374857258930930634542887619436018385581872843343250130100").unwrap(),
+                        ark_bn254::Fr::from_str("14681119568252857310414189897145410009875739166689283501408363922419813627484").unwrap(),
+                        ark_bn254::Fr::from_str("13243470632183094581890559006623686685113540193867211988709619438324105679244").unwrap(),
+                        ark_bn254::Fr::from_str("19463898140191333844443019106944343282402694318119383727674782613189581590092").unwrap(),
+                        ark_bn254::Fr::from_str("10565902370220049529800497209344287504121041033501189980624875736992201671117").unwrap(),
+                        ark_bn254::Fr::from_str("5560307625408070902174028041423028597194394554482880015024167821933869023078").unwrap(),
+                        ark_bn254::Fr::from_str("20576730574720116265513866548855226316241518026808984067485384181494744706390").unwrap(),
+                        ark_bn254::Fr::from_str("11166760821615661136366651998133963805984915741187325490784169611245269155689").unwrap(),
+                        ark_bn254::Fr::from_str("13692603500396323648417392244466291089928913430742736835590182936663435788822").unwrap(),
+                        ark_bn254::Fr::from_str("11129674755567463025028188404867541558752927519269975708924528737249823830641").unwrap(),
+                        ark_bn254::Fr::from_str("6673535049007525806710184801639542254440636510496168661971704157154828514023").unwrap(),
+                        ark_bn254::Fr::from_str("7958154589163466663626421142270206662020519181323839780192984613274682930816").unwrap(),
+                        ark_bn254::Fr::from_str("3739156991379607404516753076057250171966250101655747790592556040569841550790").unwrap(),
+                        ark_bn254::Fr::from_str("1334107297020502384420211493664486465203492095766400031330900935069700302301").unwrap(),
+                        ark_bn254::Fr::from_str("20357028769054354174264046872903423695314313082869184437966002491602414517674").unwrap(),
+                        ark_bn254::Fr::from_str("19392290367394672558538719012722289280213395590510602524366987685302929990731").unwrap(),
+                        ark_bn254::Fr::from_str("7360502715619830055199267117332475946442427205382059394111067387016428818088").unwrap(),
+                        ark_bn254::Fr::from_str("9629177338475347225553791169746168712988898028547587350296027054067573957412").unwrap(),
+                        ark_bn254::Fr::from_str("21877160135037839571797468541807904053886800340144060811298025652177410263004").unwrap(),
+                        ark_bn254::Fr::from_str("7105691694342706282901391345307729036900705570482804586768449537652208350743").unwrap(),
+                        ark_bn254::Fr::from_str("15888057581779748293164452094398990053773731478520540058125130669204703869637").unwrap(),
+                ],
+                beta: ark_babyjubjub::Fr::from_str("1277277022932719396321614946989807194659268059729440522321681213750340643042").unwrap(),
+                rp_id: ark_bn254::Fr::from_str("14631649082411674499").unwrap(),
+                action: ark_bn254::Fr::from_str("8982441576518976929447725179565370305223105654688049122733783421407497941726").unwrap(),
+                nonce: ark_bn254::Fr::from_str("8530676162050357218814694371816107906694725175836943927290214963954696613748").unwrap(),
+            }
+        }
+
+        #[test]
+        fn test_valid_query_proof_input() {
+            let inputs = get_valid_query_proof_input();
+            let _ = check_query_input_validity(&inputs).unwrap();
+        }
+
+        fn get_valid_nullifier_proof_input() -> NullifierProofCircuitInput<30> {
+            NullifierProofCircuitInput {
+                query_input: get_valid_query_proof_input(),
+                issuer_schema_id: ark_bn254::Fr::from(1u64),
+                cred_pk: Affine {
+                    x: ark_babyjubjub::Fq::from_str(
+                        "15406775215557320288232407896017344573719706795510112309920214099347968981892",
+                    ).unwrap(),
+                    y: ark_babyjubjub::Fq::from_str(
+                        "486388649729314270871358770861421181497883381447163109744630700259216042819",
+                    ).unwrap(),
+                },
+                cred_hashes: [
+                    ark_bn254::Fr::from_str(
+                        "14272087287699568472569351444185311392108883722570788958733484799744115401870",
+                    ).unwrap(),
+                    ark_bn254::Fr::from_str(
+                        "0",
+                    ).unwrap(),
+                ],
+                cred_genesis_issued_at: ark_bn254::Fr::from(1770125923u64),
+                cred_expires_at: ark_bn254::Fr::from(1770125983u64),
+                cred_s: ark_babyjubjub::Fr::from_str("1213918488111680600555111454085490191981091366153388773926786471247948539005").unwrap(),
+                cred_r: Affine {
+                    x: ark_babyjubjub::Fq::from_str(
+                        "15844586803954862856390946258558419582000810449135704981677693963391564067969",
+                    ).unwrap(),
+                    y: ark_babyjubjub::Fq::from_str(
+                        "592710378120172403096018676235519447487818389124797234601458948988041235710",
+                    ).unwrap(),
+                },
+                current_timestamp: ark_bn254::Fr::from(1770125908u64),
+                cred_genesis_issued_at_min: ark_bn254::Fr::from(0u64),
+                cred_sub_blinding_factor: ark_bn254::Fr::from_str("12170146734368267085913078854954627576787934009906407554611507307540342380837").unwrap(),
+                cred_id: ark_bn254::Fr::from(3198767490419873482u64),
+                id_commitment_r: ark_bn254::Fr::from_str("11722352184830287916674945948108962396487445899741105828127518108056503126019").unwrap(),
+                id_commitment: ark_bn254::Fr::from(0u64),
+                dlog_e: ark_bn254::Fr::from_str("20738873297635092620048980552264360096607713029337408079647701591795211132447").unwrap(),
+                dlog_s: ark_babyjubjub::Fr::from_str("409914485496464180245985942628922659137136006706846380135829705769429965654").unwrap(),
+                oprf_pk: Affine {
+                    x: ark_babyjubjub::Fq::from_str(
+                        "2124016492737602714904869498047199181102594928943726277329982080254326092458",
+                    ).unwrap(),
+                    y: ark_babyjubjub::Fq::from_str(
+                        "13296886400185574560491768605341786437896334271868835545571935419923854148448",
+                    ).unwrap(),
+                },
+                oprf_response_blinded: Affine {
+                    x: ark_babyjubjub::Fq::from_str(
+                        "186021305824089989598292966483056363224488147240980559441958002546059602483",
+                    ).unwrap()
+                    , y: ark_babyjubjub::Fq::from_str(
+                        "16813058203546508924422863380215026034284821141284206571184467783067057954778",
+                    ).unwrap(),
+                },
+                oprf_response: Affine {
+                    x: ark_babyjubjub::Fq::from_str(
+                        "10209445202057032226639052993170591937356545068582397532992536070677055126187",
+                    ).unwrap()
+                    , y: ark_babyjubjub::Fq::from_str(
+                        "21877375411477040679486668720099554257785799784699842830375906922948306109699",
+                    ).unwrap(),
+                },
+                signal_hash: ark_bn254::Fr::from_str("37938388892362834151584770384290207919364301626797345218722464515205243407").unwrap(),
+            }
+        }
+
+        #[test]
+        fn test_valid_nullifier_proof_input() {
+            let inputs = get_valid_nullifier_proof_input();
+            let _ = check_nullifier_input_validity(&inputs).unwrap();
+        }
+    }
 }
