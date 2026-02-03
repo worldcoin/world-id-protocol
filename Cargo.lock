@@ -3321,7 +3321,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4118,7 +4118,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tokio",
  "tower-service",
  "tracing",
@@ -4878,7 +4878,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5644,7 +5644,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.36",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -5681,9 +5681,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6162,7 +6162,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6864,7 +6864,6 @@ checksum = "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "chrono",
  "crc",
  "crossbeam-queue",
  "either",
@@ -6942,7 +6941,6 @@ dependencies = [
  "bitflags 2.10.0",
  "byteorder",
  "bytes",
- "chrono",
  "crc",
  "digest 0.10.7",
  "dotenvy",
@@ -6984,7 +6982,6 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.10.0",
  "byteorder",
- "chrono",
  "crc",
  "dotenvy",
  "etcetera 0.8.0",
@@ -7019,7 +7016,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2d12fe70b2c1b4401038055f90f151b78208de1f9f89a7dbfd41587a10c3eea"
 dependencies = [
  "atoi",
- "chrono",
  "flume",
  "futures-channel",
  "futures-core",
@@ -7220,22 +7216,24 @@ dependencies = [
 
 [[package]]
 name = "taceo-ark-serde-compat"
-version = "0.2.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9085f4762d38839ca1ab55c7eab2a24961b8eb1fdb639fabd1d015703a389f13"
+checksum = "51f9b64004b819c656f1c5bb439894faf7cc8abb9f315ccf50f19cba14ba12c8"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "num-bigint",
  "serde",
  "taceo-ark-babyjubjub",
 ]
 
 [[package]]
 name = "taceo-circom-types"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd2c756196776c43c258116dc21fed8ad34f7ab93f446311803aa04e7f8413db"
+checksum = "769ac948012e3a64526c1ab29e214d8cf718bc52b30411e01adacd68596f6843"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -7257,9 +7255,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-eddsa-babyjubjub"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "965bab462ca0ece0fe2616282f7f8bd5568dbf31611a88748163a99ab4ee15d6"
+checksum = "75dbec63f7a89093b4116a7164e6a92d3cda33dec248da8c8a5922a80a06e7dd"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7294,9 +7292,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-groth16-material"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07e2e97f306dc2aa157c36ce4da3812ee0310ee41686b38a6d199f3bdaeff219"
+checksum = "f7fbbcee4487ae522ac537db75dd5204e0ed58976c78477b10334adc6059ea1d"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -7318,9 +7316,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-groth16-sol"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70bc9cde94809b52a212c19afef9ea9a8a649580652424512161822a0eeaaef9"
+checksum = "457caace5c4b9ef92fa9958d100d161a9e6b798bdb9f753e1f4551538cb4b56b"
 dependencies = [
  "alloy-primitives",
  "ark-bn254 0.5.0",
@@ -7380,8 +7378,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "626b62fccd428ffe6874c57d8cea0b2ccd153c7e9c77c16b7230e1190f3deb87"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -7392,8 +7391,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.4.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cd72c7408a8ae114a96ddc939c4140abbc16b3209de942b5fc988d724d839ec"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -7412,8 +7412,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-core"
-version = "0.4.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa11a50d3f7ce049e1d498a4b00cddf4835c9b1857d838163d6f8a494a20f9cd"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7433,8 +7434,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-dev-client"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f1df73b530a0b4aeb2a6aa20f064eaefb8c6d4731c6a0846fe0514f3ade4732"
 dependencies = [
  "alloy",
  "clap",
@@ -7452,8 +7454,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-key-gen"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aace01c4c9cf89abb9fa2d48dc7b5b52b0ea7cef5c57f19c40350f0b93dbfde"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -7492,10 +7495,12 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.4.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c72a1448e0fc2329854ac1d0f5c305d348cc968f71038cc198cf25ddb296ad9e"
 dependencies = [
  "alloy",
+ "ark-serialize 0.5.0",
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
@@ -7514,6 +7519,7 @@ dependencies = [
  "semver 1.0.27",
  "serde",
  "serde_json",
+ "sqlx",
  "taceo-ark-babyjubjub",
  "taceo-nodes-common 0.2.0",
  "taceo-oprf-core",
@@ -7523,13 +7529,16 @@ dependencies = [
  "tokio-util",
  "tower-http 0.6.8",
  "tracing",
+ "tungstenite 0.28.0",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
 name = "taceo-oprf-test-utils"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92084bf8c7633cb59f3bae990baeda481cd1923d1fc0ea0f405e9d27f0f1c2ba"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -7558,8 +7567,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-types"
-version = "0.5.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91b01a7fef47bdd15cf3cfc3af4cfbb52378fd3105097d860ac2d96f08f94f2b"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7683,7 +7693,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8744,7 +8754,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

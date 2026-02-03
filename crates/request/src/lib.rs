@@ -9,7 +9,7 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
-use taceo_oprf::types::{OprfKeyId, ShareEpoch};
+use taceo_oprf::types::OprfKeyId;
 use world_id_primitives::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
 
 /// Protocol schema version for proof requests and responses.
@@ -59,8 +59,6 @@ pub struct ProofRequest {
     pub rp_id: RpId,
     /// `OprfKeyId` of the RP.
     pub oprf_key_id: OprfKeyId,
-    /// The `ShareEpoch` of the OPRF key to use for this request.
-    pub share_epoch: ShareEpoch,
     /// Session identifier that links proofs for the same user/RP pair across requests.
     ///
     /// If provided, a Session Proof will be generated instead of a Uniqueness Proof.
@@ -641,7 +639,6 @@ mod tests {
             expires_at: 1_700_100_000,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(FieldElement::ZERO),
             signature: test_signature(),
@@ -682,7 +679,6 @@ mod tests {
             expires_at: 1_735_689_600, // 2025-01-01
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(FieldElement::ZERO),
             signature: test_signature(),
@@ -766,7 +762,6 @@ mod tests {
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(1)),
             signature: test_signature(),
@@ -834,7 +829,6 @@ mod tests {
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(5)),
             signature: test_signature(),
@@ -979,7 +973,6 @@ mod tests {
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(1)),
             signature: test_signature(),
@@ -1087,7 +1080,6 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: Some(test_field_element(55)),
             action: Some(test_field_element(1)),
             signature: test_signature(),
@@ -1131,7 +1123,6 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(1)),
             signature: test_signature(),
@@ -1198,7 +1189,6 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(1)),
             signature: test_signature(),
@@ -1330,7 +1320,6 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(5)),
             signature: test_signature(),
@@ -1373,7 +1362,6 @@ mod tests {
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(5)),
             signature: test_signature(),
@@ -1423,7 +1411,6 @@ mod tests {
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(1)),
             signature: test_signature(),
@@ -1535,7 +1522,6 @@ mod tests {
             expires_at: request_created_at + 300,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            share_epoch: ShareEpoch::default(),
             session_id: None,
             action: Some(test_field_element(1)),
             signature: test_signature(),

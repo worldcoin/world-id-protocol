@@ -101,9 +101,7 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
         }
 
         // check if the oprf key id matches the issuer schema id
-        if OprfKeyId::new(U160::from(request.auth.issuer_schema_id))
-            != request.share_identifier.oprf_key_id
-        {
+        if OprfKeyId::new(U160::from(request.auth.issuer_schema_id)) != request.oprf_key_id {
             return Err(CredentialBlindingFactorOprfRequestAuthError::OprfKeyIdMismatch);
         }
 
@@ -118,7 +116,7 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
                 &request.auth.proof.clone().into(),
                 request.blinded_query,
                 request.auth.merkle_root,
-                request.share_identifier.oprf_key_id,
+                request.oprf_key_id,
                 request.auth.action,
                 request.auth.nonce,
             )

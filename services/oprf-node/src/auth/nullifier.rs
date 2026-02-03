@@ -127,7 +127,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
         let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
 
         // check if the oprf key id matches the one registered for the RP
-        if rp.oprf_key_id != request.share_identifier.oprf_key_id {
+        if rp.oprf_key_id != request.oprf_key_id {
             return Err(NullifierOprfRequestAuthError::OprfKeyIdMismatch);
         }
 
@@ -154,7 +154,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
                 &request.auth.proof.clone().into(),
                 request.blinded_query,
                 request.auth.merkle_root,
-                request.share_identifier.oprf_key_id,
+                request.oprf_key_id,
                 request.auth.action,
                 request.auth.nonce,
             )

@@ -9,7 +9,7 @@ use std::{
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, U160, U256},
-    providers::{DynProvider, Provider as _, ProviderBuilder},
+    providers::{Provider as _, ProviderBuilder},
     signers::{
         SignerSync as _,
         k256::ecdsa::SigningKey,
@@ -27,11 +27,7 @@ use taceo_oprf::{
     client::Connector,
     core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor},
     dev_client::{Command, StressTestCommand},
-    types::{
-        OprfKeyId, ShareEpoch,
-        api::{OprfRequest, ShareIdentifier},
-        crypto::OprfPublicKey,
-    },
+    types::{OprfKeyId, ShareEpoch, api::OprfRequest, crypto::OprfPublicKey},
 };
 use taceo_oprf_test_utils::health_checks;
 use test_utils::{
@@ -170,7 +166,6 @@ fn create_and_sign_credential(
 fn create_proof_request(
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
-    share_epoch: ShareEpoch,
     issuer_schema_id: u64,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<ProofRequest> {
@@ -199,7 +194,6 @@ fn create_proof_request(
         expires_at: expiration_timestamp,
         rp_id,
         oprf_key_id,
-        share_epoch,
         session_id: None,
         action: Some(FieldElement::from(action)),
         signature,
@@ -215,25 +209,18 @@ fn create_proof_request(
     })
 }
 
-#[expect(clippy::too_many_arguments)]
 async fn run_nullifier(
     authenticator: &Authenticator,
     rp_id: RpId,
     rp_oprf_key_id: OprfKeyId,
-    rp_share_epoch: ShareEpoch,
     issuer_schema_id: u64,
     issuer_oprf_key_id: OprfKeyId,
-    issuer_share_epoch: ShareEpoch,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
     let credential_sub_blinding_factor = authenticator
-        .generate_credential_blinding_factor(
-            issuer_schema_id,
-            issuer_oprf_key_id,
-            issuer_share_epoch,
-        )
+        .generate_credential_blinding_factor(issuer_schema_id, issuer_oprf_key_id)
         .await?;
 
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
@@ -249,14 +236,8 @@ async fn run_nullifier(
         credential_sub_blinding_factor,
     )?;
 
-    let proof_request = create_proof_request(
-        rp_id,
-        rp_oprf_key_id,
-        rp_share_epoch,
-        issuer_schema_id,
-        signer,
-    )
-    .context("while creating proof request")?;
+    let proof_request = create_proof_request(rp_id, rp_oprf_key_id, issuer_schema_id, signer)
+        .context("while creating proof request")?;
     let request_item = proof_request
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .ok_or_eyre("unexpectedly not found relevant request_item")?;
@@ -348,7 +329,6 @@ fn prepare_nullifier_stress_test_oprf_request(
     authenticator_private_key: &EdDSAPrivateKey,
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
-    share_epoch: ShareEpoch,
     issuer_schema_id: u64,
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
@@ -374,9 +354,8 @@ fn prepare_nullifier_stress_test_oprf_request(
         credential_sub_blinding_factor,
     )?;
 
-    let proof_request =
-        create_proof_request(rp_id, oprf_key_id, share_epoch, issuer_schema_id, signer)
-            .context("while creating proof request")?;
+    let proof_request = create_proof_request(rp_id, oprf_key_id, issuer_schema_id, signer)
+        .context("while creating proof request")?;
 
     let request_id = Uuid::new_v4();
     let query_hash = world_id_primitives::authenticator::oprf_query_digest(
@@ -403,10 +382,7 @@ fn prepare_nullifier_stress_test_oprf_request(
     let oprf_request = OprfRequest {
         request_id,
         blinded_query: blinded_request.blinded_query(),
-        share_identifier: ShareIdentifier {
-            oprf_key_id,
-            share_epoch: ShareEpoch::default(),
-        },
+        oprf_key_id,
         auth: oprf_request_auth,
     };
 
@@ -430,7 +406,6 @@ async fn stress_test(
     authenticator_private_key: EdDSAPrivateKey,
     rp_id: RpId,
     rp_oprf_key_id: OprfKeyId,
-    rp_share_epoch: ShareEpoch,
     rp_oprf_public_key: OprfPublicKey,
     issuer_schema_id: u64,
     cmd: StressTestCommand,
@@ -462,7 +437,6 @@ async fn stress_test(
             &authenticator_private_key,
             rp_id,
             rp_oprf_key_id,
-            rp_share_epoch,
             issuer_schema_id,
             inclusion_proof.clone(),
             key_set.clone(),
@@ -550,133 +524,6 @@ async fn stress_test(
     Ok(())
 }
 
-#[expect(clippy::too_many_arguments)]
-async fn reshare_test(
-    authenticator: &Authenticator,
-    rp_id: RpId,
-    rp_oprf_key_id: OprfKeyId,
-    rp_share_epoch: ShareEpoch,
-    rp_oprf_public_key: OprfPublicKey,
-    issuer_schema_id: u64,
-    issuer_oprf_key_id: OprfKeyId,
-    issuer_share_epoch: ShareEpoch,
-    signer: &LocalSigner<SigningKey>,
-    provider: DynProvider,
-    oprf_key_registry: Address,
-    max_wait_time: Duration,
-) -> eyre::Result<()> {
-    let nodes = authenticator.config.nullifier_oracle_urls().to_vec();
-
-    tracing::info!("running single nullifier");
-    run_nullifier(
-        authenticator,
-        rp_id,
-        rp_oprf_key_id,
-        rp_share_epoch,
-        issuer_schema_id,
-        issuer_oprf_key_id,
-        issuer_share_epoch,
-        signer,
-    )
-    .await?;
-    tracing::info!("nullifier successful");
-
-    let (share_epoch_1, oprf_public_key_1) = taceo_oprf::dev_client::reshare(
-        &nodes,
-        oprf_key_registry,
-        provider.clone(),
-        max_wait_time,
-        rp_oprf_key_id,
-        rp_share_epoch,
-    )
-    .await?;
-    assert_eq!(rp_oprf_public_key, oprf_public_key_1);
-
-    tracing::info!("running nullifier with epoch 0 after 1st reshare");
-    run_nullifier(
-        authenticator,
-        rp_id,
-        rp_oprf_key_id,
-        rp_share_epoch,
-        issuer_schema_id,
-        issuer_oprf_key_id,
-        issuer_share_epoch,
-        signer,
-    )
-    .await?;
-    tracing::info!("nullifier successful");
-
-    tracing::info!("running nullifier with epoch 1 after 1st reshare");
-    run_nullifier(
-        authenticator,
-        rp_id,
-        rp_oprf_key_id,
-        share_epoch_1,
-        issuer_schema_id,
-        issuer_oprf_key_id,
-        issuer_share_epoch,
-        signer,
-    )
-    .await?;
-    tracing::info!("nullifier successful");
-
-    let (share_epoch_2, oprf_public_key_2) = taceo_oprf::dev_client::reshare(
-        &nodes,
-        oprf_key_registry,
-        provider,
-        max_wait_time,
-        rp_oprf_key_id,
-        share_epoch_1,
-    )
-    .await?;
-    assert_eq!(rp_oprf_public_key, oprf_public_key_2);
-
-    tracing::info!("running nullifier with epoch 1 after 2nd reshare");
-    run_nullifier(
-        authenticator,
-        rp_id,
-        rp_oprf_key_id,
-        share_epoch_1,
-        issuer_schema_id,
-        issuer_oprf_key_id,
-        issuer_share_epoch,
-        signer,
-    )
-    .await?;
-    tracing::info!("nullifier successful");
-
-    tracing::info!("running nullifier with epoch 2 after 2nd reshare");
-    run_nullifier(
-        authenticator,
-        rp_id,
-        rp_oprf_key_id,
-        share_epoch_2,
-        issuer_schema_id,
-        issuer_oprf_key_id,
-        issuer_share_epoch,
-        signer,
-    )
-    .await?;
-    tracing::info!("nullifier successful");
-
-    tracing::info!("running nullifier with epoch 0 after 2nd reshare - should fail");
-    let _ = run_nullifier(
-        authenticator,
-        rp_id,
-        rp_oprf_key_id,
-        rp_share_epoch,
-        issuer_schema_id,
-        issuer_oprf_key_id,
-        issuer_share_epoch,
-        signer,
-    )
-    .await
-    .expect_err("should fail");
-    tracing::info!("nullifier failed as expected");
-
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     taceo_nodes_observability::install_tracing(
@@ -706,52 +553,51 @@ async fn main() -> eyre::Result<()> {
         .context("while connecting to RPC")?
         .erased();
 
-    let (rp_id, rp_oprf_key_id, rp_share_epoch, rp_oprf_public_key) =
-        if let Some(rp_id) = config.rp_id {
-            // TODO should maybe check if the oprf key id matches the registered one in case it was changed
-            // in case they are not the same, we return them both
-            let oprf_key_id = OprfKeyId::new(U160::from(rp_id));
-            let share_epoch = ShareEpoch::new(config.share_epoch);
-            let oprf_public_key = health_checks::oprf_public_key_from_services(
-                oprf_key_id,
-                share_epoch,
-                &config.nodes,
-                Duration::from_secs(10), // should already be there
+    let (rp_id, rp_oprf_key_id, rp_oprf_public_key) = if let Some(rp_id) = config.rp_id {
+        // TODO should maybe check if the oprf key id matches the registered one in case it was changed
+        // in case they are not the same, we return them both
+        let oprf_key_id = OprfKeyId::new(U160::from(rp_id));
+        let share_epoch = ShareEpoch::new(config.share_epoch);
+        let oprf_public_key = health_checks::oprf_public_key_from_services(
+            oprf_key_id,
+            share_epoch,
+            &config.nodes,
+            Duration::from_secs(10), // should already be there
+        )
+        .await?;
+        (RpId::new(rp_id), oprf_key_id, oprf_public_key)
+    } else {
+        let rp_registry = RpRegistry::new(config.rp_registry_contract, provider.clone());
+        let rp_id = RpId::new(rand::random());
+        let oprf_key_id = OprfKeyId::new(U160::from(rp_id.into_inner()));
+        tracing::info!("registering new RP");
+        let receipt = rp_registry
+            .register(
+                rp_id.into_inner(),
+                address,
+                address,
+                "taceo.oprf.dev.client".to_string(),
             )
+            .gas(10000000)
+            .send()
+            .await?
+            .get_receipt()
             .await?;
-            (RpId::new(rp_id), oprf_key_id, share_epoch, oprf_public_key)
-        } else {
-            let rp_registry = RpRegistry::new(config.rp_registry_contract, provider.clone());
-            let rp_id = RpId::new(rand::random());
-            let oprf_key_id = OprfKeyId::new(U160::from(rp_id.into_inner()));
-            tracing::info!("registering new RP");
-            let receipt = rp_registry
-                .register(
-                    rp_id.into_inner(),
-                    address,
-                    address,
-                    "taceo.oprf.dev.client".to_string(),
-                )
-                .gas(10000000)
-                .send()
-                .await?
-                .get_receipt()
-                .await?;
-            if !receipt.status() {
-                eyre::bail!("failed to register RP");
-            }
-            tracing::info!("registered RP with OPRF key: {oprf_key_id}");
-            let oprf_public_key = health_checks::oprf_public_key_from_services(
-                oprf_key_id,
-                ShareEpoch::default(),
-                &config.nodes,
-                config.max_wait_time,
-            )
-            .await?;
-            (rp_id, oprf_key_id, ShareEpoch::default(), oprf_public_key)
-        };
+        if !receipt.status() {
+            eyre::bail!("failed to register RP");
+        }
+        tracing::info!("registered RP with OPRF key: {oprf_key_id}");
+        let oprf_public_key = health_checks::oprf_public_key_from_services(
+            oprf_key_id,
+            ShareEpoch::default(),
+            &config.nodes,
+            config.max_wait_time,
+        )
+        .await?;
+        (rp_id, oprf_key_id, oprf_public_key)
+    };
 
-    let (issuer_schema_id, issuer_oprf_key_id, issuer_share_epoch, _issuer_oprf_public_key) =
+    let (issuer_schema_id, issuer_oprf_key_id, _issuer_oprf_public_key) =
         if let Some(issuer_schema_id) = config.issuer_schema_id {
             // TODO should maybe check if the oprf key id matches the registered one in case it was changed
             // in case they are not the same, we return them both
@@ -764,7 +610,7 @@ async fn main() -> eyre::Result<()> {
                 Duration::from_secs(10), // should already be there
             )
             .await?;
-            (issuer_schema_id, oprf_key_id, share_epoch, oprf_public_key)
+            (issuer_schema_id, oprf_key_id, oprf_public_key)
         } else {
             tracing::info!("registering new credential schema issuer");
             let credential_schema_issuer_registry = CredentialSchemaIssuerRegistry::new(
@@ -797,12 +643,7 @@ async fn main() -> eyre::Result<()> {
                 config.max_wait_time,
             )
             .await?;
-            (
-                issuer_schema_id,
-                oprf_key_id,
-                ShareEpoch::default(),
-                oprf_public_key,
-            )
+            (issuer_schema_id, oprf_key_id, oprf_public_key)
         };
 
     let (gateway_url, _gateway_handle) = if let Some(gateway_url) = &config.gateway_url {
@@ -907,10 +748,8 @@ async fn main() -> eyre::Result<()> {
                 &authenticator,
                 rp_id,
                 rp_oprf_key_id,
-                rp_share_epoch,
                 issuer_schema_id,
                 issuer_oprf_key_id,
-                issuer_share_epoch,
                 &private_key,
             )
             .await?;
@@ -923,7 +762,6 @@ async fn main() -> eyre::Result<()> {
                 authenticator_private_key,
                 rp_id,
                 rp_oprf_key_id,
-                rp_share_epoch,
                 rp_oprf_public_key,
                 issuer_schema_id,
                 cmd,
@@ -933,24 +771,10 @@ async fn main() -> eyre::Result<()> {
             .await?;
             tracing::info!("stress-test successful");
         }
-        Command::ReshareTest => {
-            tracing::info!("running reshare test");
-            reshare_test(
-                &authenticator,
-                rp_id,
-                rp_oprf_key_id,
-                rp_share_epoch,
-                rp_oprf_public_key,
-                issuer_schema_id,
-                issuer_oprf_key_id,
-                issuer_share_epoch,
-                &private_key,
-                provider,
-                config.oprf_key_registry_contract,
-                config.max_wait_time,
-            )
-            .await?;
-            tracing::info!("reshare test successful");
+        Command::ReshareTest(_) => {
+            todo!()
+            // tracing::info!("running reshare test");
+            // tracing::info!("reshare test successful");
         }
     }
 

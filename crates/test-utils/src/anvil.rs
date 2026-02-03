@@ -5,10 +5,12 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
     sol,
-    sol_types::SolCall,
+    sol_types::{SolCall, SolEvent as _},
     uint,
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
+use ark_ff::PrimeField as _;
+use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
 use taceo_oprf_test_utils::TestOprfKeyRegistry;
 use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
@@ -489,7 +491,7 @@ impl TestAnvil {
         Ok(())
     }
 
-    /// Register a new `RP` at the `OprfKeyRegistry` contract using the supplied signer.
+    /// Register a new `RP` at the `RpRegistry` contract using the supplied signer.
     pub async fn register_rp(
         &self,
         rp_registry_contract: Address,
@@ -513,6 +515,53 @@ impl TestAnvil {
         if !receipt.status() {
             eyre::bail!("failed to register RP");
         }
+        Ok(())
+    }
+
+    /// Register a new issuer at the `CredentialSchemaIssuerRegistry` contract using the supplied signer.
+    pub async fn register_issuer(
+        &self,
+        schema_issuer_registry_contract: Address,
+        signer: PrivateKeySigner,
+        issuer_schema_id: u64,
+        issuer_public_key: EdDSAPublicKey,
+    ) -> Result<()> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let issuer_registry =
+            CredentialSchemaIssuerRegistry::new(schema_issuer_registry_contract, provider);
+
+        let issuer_pubkey_repr = ICredentialSchemaIssuerRegistry::Pubkey {
+            x: U256::from_limbs(issuer_public_key.pk.x.into_bigint().0),
+            y: U256::from_limbs(issuer_public_key.pk.y.into_bigint().0),
+        };
+
+        let receipt = issuer_registry
+            .register(issuer_schema_id, issuer_pubkey_repr, signer.address())
+            .send()
+            .await
+            .wrap_err("failed to submit issuer registration")?
+            .get_receipt()
+            .await
+            .wrap_err("failed to fetch issuer registration receipt")?;
+
+        let registered_id = receipt
+            .logs()
+            .iter()
+            .find_map(|log| {
+                CredentialSchemaIssuerRegistry::IssuerSchemaRegistered::decode_log(
+                    log.inner.as_ref(),
+                )
+                .ok()
+            })
+            .map(|event| event.issuerSchemaId)
+            .ok_or_else(|| eyre::eyre!("IssuerSchemaRegistered event not emitted"))?;
+
+        assert_eq!(
+            registered_id, issuer_schema_id,
+            "registered ID should match requested ID"
+        );
         Ok(())
     }
 
