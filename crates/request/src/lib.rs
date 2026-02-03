@@ -183,7 +183,11 @@ pub struct ProofResponse {
     /// emitted by the session circuit; otherwise it is omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<FieldElement>,
-    /// Per-credential results
+    /// Error message if the entire proof request failed.
+    /// When present, the responses array will be empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Per-credential results (empty if error is present)
     pub responses: Vec<ResponseItem>,
 }
 
@@ -220,8 +224,14 @@ pub struct ResponseItem {
 
 impl ProofResponse {
     /// Determine if constraints are satisfied given a constraint expression.
+    /// Returns false if the response has an error.
     #[must_use]
     pub fn constraints_satisfied(&self, constraints: &ConstraintExpr<'_>) -> bool {
+        // If there's an error, constraints cannot be satisfied
+        if self.error.is_some() {
+            return false;
+        }
+
         let provided: HashSet<&str> = self
             .responses
             .iter()
@@ -360,6 +370,11 @@ impl ProofRequest {
             return Err(ValidationError::VersionMismatch);
         }
 
+        // If response has an error, it failed to satisfy constraints
+        if let Some(error) = &response.error {
+            return Err(ValidationError::ProofGenerationFailed(error.clone()));
+        }
+
         // Validate that expires_at_min matches for each response item
         for response_item in &response.responses {
             // Find the corresponding request item
@@ -466,9 +481,13 @@ impl ProofResponse {
         serde_json::to_string_pretty(self)
     }
 
-    /// Return the list of `issuer_schema_id`s in the response.
+    /// Return the list of successful `issuer_schema_id`s in the response.
+    /// Returns an empty vec if the response has an error.
     #[must_use]
-    pub fn credentials(&self) -> Vec<u64> {
+    pub fn successful_credentials(&self) -> Vec<u64> {
+        if self.error.is_some() {
+            return vec![];
+        }
         self.responses.iter().map(|r| r.issuer_schema_id).collect()
     }
 }
@@ -482,6 +501,9 @@ pub enum ValidationError {
     /// The response `version` does not match the request `version`
     #[error("Version mismatch")]
     VersionMismatch,
+    /// The proof generation failed (response contains an error)
+    #[error("Proof generation failed: {0}")]
+    ProofGenerationFailed(String),
     /// A required credential was not provided
     #[error("Missing required credential: {0}")]
     MissingCredential(String),
@@ -563,6 +585,7 @@ mod tests {
             id: "req_123".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![
                 ResponseItem {
                     identifier: "test_req_1".into(),
@@ -682,6 +705,7 @@ mod tests {
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![
                 ResponseItem {
                     identifier: "orb".into(),
@@ -705,6 +729,7 @@ mod tests {
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![ResponseItem {
                 identifier: "orb".into(),
                 issuer_schema_id: 1,
@@ -753,6 +778,7 @@ mod tests {
             id: "req_2".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![ResponseItem {
                 identifier: "orb".into(),
                 issuer_schema_id: 1,
@@ -878,6 +904,7 @@ mod tests {
             id: "req_nodes_ok".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![
                 ResponseItem {
                     identifier: "test_req_10".into(),
@@ -1026,6 +1053,7 @@ mod tests {
             id: "req_nodes_too_many".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![ResponseItem {
                 identifier: "test_req_20".into(),
                 issuer_schema_id: 20,
@@ -1070,6 +1098,7 @@ mod tests {
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![ResponseItem {
                 identifier: "test_req_1".into(),
                 issuer_schema_id: 1,
@@ -1123,6 +1152,7 @@ mod tests {
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![ResponseItem {
                 identifier: "test_req_2".into(),
                 issuer_schema_id: 2,
@@ -1190,6 +1220,7 @@ mod tests {
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![
                 ResponseItem {
                     identifier: "test_req_3".into(),
@@ -1229,7 +1260,7 @@ mod tests {
 }"#;
 
         let ok = ProofResponse::from_json(ok_json).unwrap();
-        assert_eq!(ok.credentials(), vec![100]);
+        assert_eq!(ok.successful_credentials(), vec![100]);
 
         // Success with Session
         let sess_json = r#"{
@@ -1247,7 +1278,7 @@ mod tests {
   ]
 }"#;
         let sess = ProofResponse::from_json(sess_json).unwrap();
-        assert_eq!(sess.credentials(), vec![100]);
+        assert_eq!(sess.successful_credentials(), vec![100]);
         assert!(sess.session_id.is_some());
     }
 
@@ -1293,6 +1324,71 @@ mod tests {
             msg.contains("duplicate issuer schema id"),
             "Expected error message to contain 'duplicate issuer schema id', got: {msg}"
         );
+    }
+
+    #[test]
+    fn response_with_error_has_empty_responses_and_fails_validation() {
+        let request = ProofRequest {
+            id: "req_error".into(),
+            version: RequestVersion::V1,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None,
+            action: Some(FieldElement::ZERO),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        // Response with error should have empty responses array
+        let error_response = ProofResponse {
+            id: "req_error".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: Some("credential_not_available".into()),
+            responses: vec![], // Empty when error is present
+        };
+
+        // Validation should fail with ProofGenerationFailed
+        let err = request.validate_response(&error_response).unwrap_err();
+        assert!(matches!(err, ValidationError::ProofGenerationFailed(_)));
+        if let ValidationError::ProofGenerationFailed(msg) = err {
+            assert_eq!(msg, "credential_not_available");
+        }
+
+        // successful_credentials should return empty vec when error is present
+        assert_eq!(error_response.successful_credentials(), Vec::<u64>::new());
+
+        // constraints_satisfied should return false when error is present
+        let expr = ConstraintExpr::All {
+            all: vec![ConstraintNode::Type("orb".into())],
+        };
+        assert!(!error_response.constraints_satisfied(&expr));
+    }
+
+    #[test]
+    fn response_error_json_parse() {
+        // Error response JSON
+        let error_json = r#"{
+  "id": "req_error",
+  "version": 1,
+  "error": "credential_not_available",
+  "responses": []
+}"#;
+
+        let error_resp = ProofResponse::from_json(error_json).unwrap();
+        assert_eq!(error_resp.error, Some("credential_not_available".into()));
+        assert_eq!(error_resp.responses.len(), 0);
+        assert_eq!(error_resp.successful_credentials(), Vec::<u64>::new());
     }
 
     #[test]
@@ -1492,6 +1588,7 @@ mod tests {
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![
                 ResponseItem {
                     identifier: "orb".into(),
@@ -1516,6 +1613,7 @@ mod tests {
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![
                 ResponseItem {
                     identifier: "orb".into(),
@@ -1549,6 +1647,7 @@ mod tests {
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
+            error: None,
             responses: vec![
                 ResponseItem {
                     identifier: "orb".into(),
