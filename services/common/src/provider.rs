@@ -39,7 +39,7 @@ pub enum ProviderError {
     #[error("invalid private key: {0}")]
     InvalidPrivateKey(#[from] LocalSignerError),
     #[error("failed to initialize AWS KMS signer: {0}")]
-    AwsKmsSigner(#[from] AwsSignerError),
+    AwsKmsSigner(#[from] Box<AwsSignerError>),
     #[error("exactly one of wallet_private_key or aws_kms_key_id must be provided")]
     SignerConfigMissing,
     #[error("no HTTP URLs provided")]
@@ -119,8 +119,9 @@ impl SignerArgs {
 
                 let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
                 let kms_client = aws_sdk_kms::Client::new(&config);
-                let aws_signer =
-                    AwsSigner::new(kms_client, key_id.to_string(), Some(chain_id)).await?;
+                let aws_signer = AwsSigner::new(kms_client, key_id.to_string(), Some(chain_id))
+                    .await
+                    .map_err(|err| ProviderError::AwsKmsSigner(Box::new(err)))?;
                 tracing::info!(
                     "AWS KMS signer initialized with address: {}",
                     aws_signer.address()
