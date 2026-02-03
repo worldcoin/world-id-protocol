@@ -20,7 +20,7 @@ env:
 
 jobs:
   lint:
-    name: Format, Clippy & Build
+    name: Format and Clippy
     runs-on:
       group: arc-public-4xlarge-amd64-runner
     permissions:
@@ -50,15 +50,39 @@ jobs:
         run: cargo +nightly fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-  build:
-    name: Test Build
+  msrv:
+    name: MSRV
     runs-on:
       group: arc-public-large-amd64-runner
     permissions:
       contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
 
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.87
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build contracts
+        run: |
+          make sol-build
+
+      - name: Check Features
+        run: |
+          cargo check --all-features
+
+  feature:
+    name: Feature Resolution (cargo-hack)
+    runs-on:
+      group: arc-public-large-amd64-runner
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -74,9 +98,13 @@ jobs:
         run: |
           make sol-build
 
-      - name: Build non-default features
+      - name: Install cargo-hack
         run: |
-          cargo build -p world-id-core --no-default-features
+          cargo install cargo-hack --locked
+
+      - name: Check Features
+        run: |
+          cargo hack check --each-feature --no-dev-deps
 
   test:
     name: Tests
@@ -88,13 +116,6 @@ jobs:
     # Log in to Docker Hub if a token is provided to avoid public rate limiting
     env:
       IS_DOCKER_TOKEN_SET: ${{ (secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN != '' && secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME != '') && 'true' || 'false' }}
-
-    strategy:
-      matrix:
-        rust:
-          - stable
-          - nightly
-          - 1.87 # MSRV (see rust-version.workspace in Cargo.toml)
 
     steps:
       - name: Log in to Docker Hub

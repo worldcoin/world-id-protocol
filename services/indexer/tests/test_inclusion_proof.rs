@@ -53,18 +53,18 @@ async fn test_backfill_and_live_sync() {
                 http_addr: "0.0.0.0:8080".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
+                tree_cache: TreeCacheConfig {
+                    cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
+                    tree_depth: 6,
+                    dense_tree_prefix_depth: 2,
+                    http_cache_refresh_interval_secs: 30,
+                },
             },
         },
         db_url: setup.db_url.clone(),
         http_rpc_url: setup.rpc_url(),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
-        tree_cache: TreeCacheConfig {
-            cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-            tree_depth: 6,
-            dense_tree_prefix_depth: 2,
-            http_cache_refresh_interval_secs: 30,
-        },
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -154,8 +154,6 @@ async fn test_backfill_and_live_sync() {
 #[cfg(feature = "integration-tests")]
 #[serial]
 async fn test_insertion_cycle_and_avoids_race_condition() {
-    use tracing::info;
-
     let setup = TestSetup::new_with_tree_depth(6).await;
 
     let temp_cache_path =
@@ -167,18 +165,18 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                 http_addr: "0.0.0.0:8082".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
+                tree_cache: TreeCacheConfig {
+                    cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
+                    tree_depth: 6,
+                    dense_tree_prefix_depth: 2,
+                    http_cache_refresh_interval_secs: 30,
+                },
             },
         },
         db_url: setup.db_url.clone(),
         http_rpc_url: setup.rpc_url(),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
-        tree_cache: TreeCacheConfig {
-            cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-            tree_depth: 6,
-            dense_tree_prefix_depth: 2,
-            http_cache_refresh_interval_secs: 30,
-        },
     };
 
     let http_task = tokio::spawn(async move {
@@ -209,8 +207,8 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     .unwrap();
 
     sqlx::query(
-        r#"insert into world_id_events
-        (leaf_index, event_type, new_commitment, block_number, tx_hash, log_index)
+        r#"insert into world_tree_events
+        (leaf_index, event_type, offchain_signer_commitment, block_number, tx_hash, log_index)
         values ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind(U256::from(1))

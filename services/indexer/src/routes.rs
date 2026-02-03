@@ -1,4 +1,5 @@
 use axum::{Json, Router, response::IntoResponse};
+use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::types::{
     AccountInclusionProofSchema, IndexerErrorBody, IndexerPackedAccountRequest,
@@ -53,4 +54,5 @@ pub(crate) fn handler(state: AppState) -> Router {
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
         .with_state(state)
+        .layer(TraceLayer::new_for_http())
 }

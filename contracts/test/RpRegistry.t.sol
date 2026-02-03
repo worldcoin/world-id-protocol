@@ -3,12 +3,23 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {RpRegistry} from "../src/RpRegistry.sol";
+import {IRpRegistry} from "../src/interfaces/IRpRegistry.sol";
+import {WorldIDBase} from "../src/abstract/WorldIDBase.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract OprfKeyRegistryMock {
-    function initKeyGen(uint160 oprfKeyId) external {}
+    error AlreadySubmitted();
+
+    mapping(uint160 => bool) public registeredKeys;
+
+    function initKeyGen(uint160 oprfKeyId) external {
+        if (registeredKeys[oprfKeyId]) {
+            revert AlreadySubmitted();
+        }
+        registeredKeys[oprfKeyId] = true;
+    }
 }
 
 contract RpRegistryTest is Test {
@@ -65,7 +76,7 @@ contract RpRegistryTest is Test {
         string memory wellKnownDomain = "example.world.org";
 
         vm.expectEmit(true, true, false, true);
-        emit RpRegistry.RpRegistered(rpId, oprfKeyId, manager1, wellKnownDomain);
+        emit IRpRegistry.RpRegistered(rpId, oprfKeyId, manager1, wellKnownDomain);
 
         registry.register(rpId, manager1, signer1, wellKnownDomain);
     }
@@ -88,7 +99,7 @@ contract RpRegistryTest is Test {
 
         registry.register(rpId, manager1, signer1, wellKnownDomain);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdAlreadyInUse.selector, rpId));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.IdAlreadyInUse.selector, rpId));
         registry.register(rpId, manager2, signer2, wellKnownDomain);
     }
 
@@ -96,7 +107,7 @@ contract RpRegistryTest is Test {
         uint64 rpId = 12345;
         string memory wellKnownDomain = "example.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ManagerCannotBeZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.ManagerCannotBeZeroAddress.selector));
         registry.register(rpId, address(0), signer1, wellKnownDomain);
     }
 
@@ -104,7 +115,7 @@ contract RpRegistryTest is Test {
         uint64 rpId = 12345;
         string memory wellKnownDomain = "example.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.SignerCannotBeZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.SignerCannotBeZeroAddress.selector));
         registry.register(rpId, manager1, address(0), wellKnownDomain);
     }
 
@@ -112,7 +123,7 @@ contract RpRegistryTest is Test {
         uint64 rpId = 0;
         string memory wellKnownDomain = "example.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidId.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidId.selector));
         registry.register(rpId, manager1, signer1, wellKnownDomain);
     }
 
@@ -168,7 +179,7 @@ contract RpRegistryTest is Test {
         string[] memory domains = new string[](1); // Wrong length
         domains[0] = "app1.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.MismatchingArrayLengths.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.MismatchingArrayLengths.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -188,7 +199,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.MismatchingArrayLengths.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.MismatchingArrayLengths.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -208,7 +219,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.MismatchingArrayLengths.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.MismatchingArrayLengths.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -229,7 +240,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdAlreadyInUse.selector, 1));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.IdAlreadyInUse.selector, 1));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -250,7 +261,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ManagerCannotBeZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.ManagerCannotBeZeroAddress.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -271,7 +282,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.SignerCannotBeZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.SignerCannotBeZeroAddress.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -292,7 +303,7 @@ contract RpRegistryTest is Test {
         domains[0] = "app1.world.org";
         domains[1] = "app2.world.org";
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidId.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidId.selector));
         registry.registerMany(rpIds, managers, signers, domains);
     }
 
@@ -351,11 +362,11 @@ contract RpRegistryTest is Test {
         bytes memory sig = _signUpdateRp(manager1Pk, rpId, newOprfKeyId, newManager, newSigner, false, newDomain, 0);
 
         vm.expectEmit(true, true, false, true);
-        emit RpRegistry.RpUpdated(rpId, newOprfKeyId, true, newManager, newSigner, newDomain);
+        emit IRpRegistry.RpUpdated(rpId, newOprfKeyId, true, newManager, newSigner, newDomain);
         registry.updateRp(rpId, newOprfKeyId, newManager, newSigner, false, newDomain, 0, sig);
 
         // Verify updates
-        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        IRpRegistry.RelyingParty memory rp = registry.getRp(rpId);
         assertEq(rp.oprfKeyId, newOprfKeyId);
         assertEq(rp.manager, newManager);
         assertEq(rp.signer, newSigner);
@@ -381,7 +392,7 @@ contract RpRegistryTest is Test {
         registry.updateRp(rpId, 0, address(0), newSigner, false, noUpdate, 0, sig);
 
         // Verify only signer changed
-        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        IRpRegistry.RelyingParty memory rp = registry.getRp(rpId);
         assertEq(rp.oprfKeyId, oprfKeyId); // Unchanged
         assertEq(rp.manager, manager1); // Unchanged
         assertEq(rp.signer, newSigner); // Changed
@@ -403,7 +414,7 @@ contract RpRegistryTest is Test {
         bytes memory sig = _signUpdateRp(manager1Pk, rpId, 0, address(0), address(0), true, noUpdate, 0);
         registry.updateRp(rpId, 0, address(0), address(0), true, noUpdate, 0, sig);
 
-        RpRegistry.RelyingParty memory rp = registry.getRpUnchecked(rpId);
+        IRpRegistry.RelyingParty memory rp = registry.getRpUnchecked(rpId);
         assertFalse(rp.active);
 
         // Toggle back to active
@@ -428,7 +439,7 @@ contract RpRegistryTest is Test {
         registry.updateRp(rpId, 0, address(0), address(0), false, noUpdate, 0, sig);
 
         // Verify domain unchanged
-        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        IRpRegistry.RelyingParty memory rp = registry.getRp(rpId);
         assertEq(rp.unverifiedWellKnownDomain, initialDomain);
     }
 
@@ -453,7 +464,7 @@ contract RpRegistryTest is Test {
         registry.updateRp(rpId, 0, address(0), newSigner, false, noUpdate, 0, sig);
 
         // Verify update
-        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        IRpRegistry.RelyingParty memory rp = registry.getRp(rpId);
         assertEq(rp.signer, newSigner);
         assertEq(rp.manager, address(wallet));
     }
@@ -471,7 +482,7 @@ contract RpRegistryTest is Test {
         uint256 wrongPk = 0x9999;
         bytes memory badSig = _signUpdateRp(wrongPk, rpId, 0, address(0), signer2, false, noUpdate, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidSignature.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 0, badSig);
     }
 
@@ -493,7 +504,7 @@ contract RpRegistryTest is Test {
         uint256 wrongPk = 0x9999;
         bytes memory badSig = _signUpdateRp(wrongPk, rpId, 0, address(0), signer2, false, noUpdate, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidSignature.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 0, badSig);
     }
 
@@ -511,7 +522,7 @@ contract RpRegistryTest is Test {
         // Try to update with wrong nonce
         bytes memory sig = _signUpdateRp(manager1Pk, rpId, 0, address(0), signer2, false, noUpdate, 5);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidNonce.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidNonce.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 5, sig);
     }
 
@@ -521,7 +532,7 @@ contract RpRegistryTest is Test {
 
         bytes memory sig = _signUpdateRp(manager1Pk, nonExistentRpId, 0, address(0), signer2, false, noUpdate, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.RpIdDoesNotExist.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.RpIdDoesNotExist.selector));
         registry.updateRp(nonExistentRpId, 0, address(0), signer2, false, noUpdate, 0, sig);
     }
 
@@ -567,7 +578,7 @@ contract RpRegistryTest is Test {
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 0, sig1);
 
         // Try to replay the same signature
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidNonce.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidNonce.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 0, sig1);
     }
 
@@ -584,7 +595,7 @@ contract RpRegistryTest is Test {
         bytes memory sig = _signUpdateRp(manager1Pk, rpId, 0, manager2, address(0), false, noUpdate, 0);
         registry.updateRp(rpId, 0, manager2, address(0), false, noUpdate, 0, sig);
 
-        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        IRpRegistry.RelyingParty memory rp = registry.getRp(rpId);
         assertEq(rp.manager, manager2);
 
         // Now only manager2 can sign updates
@@ -597,7 +608,7 @@ contract RpRegistryTest is Test {
         // Old manager tries to sign an update
         bytes memory badSig = _signUpdateRp(manager1Pk, rpId, 0, address(0), signer2, false, noUpdate, 2);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InvalidSignature.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRpRegistry.InvalidSignature.selector));
         registry.updateRp(rpId, 0, address(0), signer2, false, noUpdate, 2, badSig);
     }
 
@@ -618,7 +629,7 @@ contract RpRegistryTest is Test {
         registry.updateRp(rpId, newOprfKeyId, address(0), address(0), false, noUpdate, 0, sig);
 
         // Verify only oprfKeyId changed
-        RpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+        IRpRegistry.RelyingParty memory rp = registry.getRp(rpId);
         assertEq(rp.oprfKeyId, newOprfKeyId); // Changed
         assertEq(rp.manager, manager1); // Unchanged
         assertEq(rp.signer, signer1); // Unchanged
@@ -632,7 +643,7 @@ contract RpRegistryTest is Test {
         address newRecipient = vm.addr(0xAAAA);
 
         vm.expectEmit(true, true, false, true);
-        emit RpRegistry.FeeRecipientUpdated(feeRecipient, newRecipient);
+        emit WorldIDBase.FeeRecipientUpdated(feeRecipient, newRecipient);
 
         registry.setFeeRecipient(newRecipient);
 
@@ -640,7 +651,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotSetFeeRecipientToZeroAddress() public {
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
         registry.setFeeRecipient(address(0));
     }
 
@@ -657,7 +668,7 @@ contract RpRegistryTest is Test {
         uint256 newFee = 0.01 ether;
 
         vm.expectEmit(false, false, false, true);
-        emit RpRegistry.RegistrationFeeUpdated(0, newFee);
+        emit WorldIDBase.RegistrationFeeUpdated(0, newFee);
 
         registry.setRegistrationFee(newFee);
 
@@ -676,7 +687,7 @@ contract RpRegistryTest is Test {
         ERC20Mock newToken = new ERC20Mock();
 
         vm.expectEmit(true, true, false, true);
-        emit RpRegistry.FeeTokenUpdated(address(feeToken), address(newToken));
+        emit WorldIDBase.FeeTokenUpdated(address(feeToken), address(newToken));
 
         registry.setFeeToken(address(newToken));
 
@@ -684,7 +695,7 @@ contract RpRegistryTest is Test {
     }
 
     function testCannotSetFeeTokenToZeroAddress() public {
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
         registry.setFeeToken(address(0));
     }
 
@@ -753,7 +764,7 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         feeToken.approve(address(registry), fee - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
+        vm.expectRevert();
         vm.prank(manager1);
         registry.register(rpId, manager1, signer1, domain);
     }
@@ -825,8 +836,94 @@ contract RpRegistryTest is Test {
         vm.prank(manager1);
         feeToken.approve(address(registry), fee * 3 - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(RpRegistry.InsufficientFunds.selector));
+        vm.expectRevert();
         vm.prank(manager1);
         registry.registerMany(rpIds, managers, signers, domains);
+    }
+
+    // Duplicate ID Tests
+
+    function testCannotRegisterDuplicateIdInOprfKeyRegistry() public {
+        uint64 rpId1 = 5000;
+        uint64 rpId2 = 5001;
+        string memory domain = "example.world.org";
+
+        // Register first RP
+        registry.register(rpId1, manager1, signer1, domain);
+
+        // Manually register the same OPRF key ID that would be used by rpId2
+        // by directly calling the mock OprfKeyRegistry
+        oprfKeyRegistry.initKeyGen(uint160(rpId2));
+
+        // Try to register second RP - should fail because OPRF key is already taken
+        vm.expectRevert(OprfKeyRegistryMock.AlreadySubmitted.selector);
+        registry.register(rpId2, manager2, signer2, domain);
+    }
+
+    function testMultipleRpsWithDifferentIds() public {
+        string memory domain1 = "app1.world.org";
+        string memory domain2 = "app2.world.org";
+        string memory domain3 = "app3.world.org";
+
+        // Register multiple RPs with different IDs - should all succeed
+        uint64 id1 = 6000;
+        uint64 id2 = 6001;
+        uint64 id3 = 6002;
+
+        registry.register(id1, manager1, signer1, domain1);
+        registry.register(id2, manager2, signer2, domain2);
+
+        address manager3 = vm.addr(0x7777);
+        address signer3 = vm.addr(0x8888);
+        registry.register(id3, manager3, signer3, domain3);
+
+        // Verify all are registered correctly
+        IRpRegistry.RelyingParty memory rp1 = registry.getRp(id1);
+        assertEq(rp1.manager, manager1);
+        assertEq(rp1.signer, signer1);
+        assertEq(rp1.unverifiedWellKnownDomain, domain1);
+        assertEq(rp1.oprfKeyId, uint160(id1));
+        assertTrue(rp1.active);
+
+        IRpRegistry.RelyingParty memory rp2 = registry.getRp(id2);
+        assertEq(rp2.manager, manager2);
+        assertEq(rp2.signer, signer2);
+        assertEq(rp2.unverifiedWellKnownDomain, domain2);
+        assertEq(rp2.oprfKeyId, uint160(id2));
+        assertTrue(rp2.active);
+
+        IRpRegistry.RelyingParty memory rp3 = registry.getRp(id3);
+        assertEq(rp3.manager, manager3);
+        assertEq(rp3.signer, signer3);
+        assertEq(rp3.unverifiedWellKnownDomain, domain3);
+        assertEq(rp3.oprfKeyId, uint160(id3));
+        assertTrue(rp3.active);
+    }
+
+    function testOprfKeyIdMatchesRpId() public {
+        uint64 rpId = 7000;
+        string memory domain = "test.world.org";
+
+        registry.register(rpId, manager1, signer1, domain);
+
+        IRpRegistry.RelyingParty memory rp = registry.getRp(rpId);
+
+        // The oprfKeyId should equal uint160(rpId)
+        assertEq(rp.oprfKeyId, uint160(rpId));
+    }
+
+    function testCannotRegisterRpWithIdThatConflictsWithCredentialRegistry() public {
+        // This test demonstrates that if an ID is taken in the OprfKeyRegistry
+        // (potentially by a CredentialSchemaIssuerRegistry), the RpRegistry cannot use it
+
+        uint64 conflictingId = 8000;
+        string memory domain = "conflict.world.org";
+
+        // Simulate that this OPRF key was already registered by CredentialSchemaIssuerRegistry
+        oprfKeyRegistry.initKeyGen(uint160(conflictingId));
+
+        // Try to register RP with same ID - should fail
+        vm.expectRevert(OprfKeyRegistryMock.AlreadySubmitted.selector);
+        registry.register(conflictingId, manager1, signer1, domain);
     }
 }

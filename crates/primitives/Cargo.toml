@@ -11,11 +11,9 @@ rust-version.workspace = true
 repository.workspace = true
 
 [features]
-default = ["circuits", "oprf"]
+default = ["circuits"]
 # Enable circuit-related types (requires C++ toolchain, not WASM compatible)
-circuits = ["dep:circom-types", "dep:groth16-material"]
-# Enable OPRF types (not WASM compatible due to uuid dependency)
-oprf = ["dep:taceo-oprf-types"]
+circuits = ["dep:circom-types", "dep:groth16-material", "dep:ark-serde-compat"]
 
 [dependencies]
 alloy-primitives = { version = "1", default-features = false, features = [
@@ -26,20 +24,20 @@ ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
-ark-serde-compat = { workspace = true }
+ark-serde-compat = { workspace = true, optional = true }
 ark-serialize = { workspace = true }
 arrayvec = { version = "0.7", features = ["serde"] }
 circom-types = { workspace = true, features = ["groth16"], optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 eddsa-babyjubjub = { workspace = true }
+eyre = { workspace = true }
 hex = { workspace = true }
-taceo-oprf-types = { workspace = true, optional = true }
+taceo-groth16-sol = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
-k256 = { workspace = true, features = ["ecdsa", "serde"] }
 poseidon2 = { workspace = true }
 sha3 = { version = "0.10", default-features = false }
 rand.workspace = true

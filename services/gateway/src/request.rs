@@ -124,15 +124,28 @@ impl Request<CreateAccountRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        // Atomically check and insert all authenticator addresses to prevent duplicates
+        let auth_addresses = self.payload.authenticator_addresses.clone();
+
+        ctx.tracker.try_insert_inflight(&auth_addresses).await?;
+
         // Register in tracker
-        ctx.tracker
+        if let Err(err) = ctx
+            .tracker
             .new_request_with_id(self.id().to_string(), self.kind().clone())
-            .await?;
+            .await
+        {
+            // Remove from inflight tracker if an error appears
+            ctx.tracker.remove_inflight(&auth_addresses).await;
+            return Err(err);
+        };
 
         // Queue to batcher with typed request for createManyAccounts batching
         let cmd = Command::create_account(self.id, self.payload, DEFAULT_CREATE_ACCOUNT_GAS);
 
         if !ctx.batcher.submit(cmd).await {
+            // Remove from inflight tracker if batcher submission fails
+            ctx.tracker.remove_inflight(&auth_addresses).await;
             ctx.tracker
                 .set_status(
                     &self.id.to_string(),

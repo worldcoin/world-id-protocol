@@ -62,6 +62,7 @@ pub(crate) async fn build_app(
     redis_url: Option<String>,
 ) -> anyhow::Result<Router> {
     let tracker = RequestTracker::new(redis_url).await;
+
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
@@ -119,10 +120,10 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
-        .layer(TraceLayer::new_for_http())
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
-        ))))
+        )))
+        .layer(TraceLayer::new_for_http()))
 }
 
 #[utoipa::path(

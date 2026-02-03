@@ -1,41 +1,33 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    network::EthereumWallet,
-    primitives::{Address, U160, U256},
-    providers::ProviderBuilder,
+    primitives::{Address, U160},
     signers::{Signature, SignerSync, local::PrivateKeySigner},
-    sol_types::SolEvent,
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{PrimeField, UniformRand};
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
-use eyre::{Context as _, Result, eyre};
+use ark_ff::UniformRand;
+use eddsa_babyjubjub::EdDSAPublicKey;
+use eyre::{Context as _, Result};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
-use taceo_oprf_types::{OprfKeyId, ShareEpoch};
+use taceo_oprf::types::{OprfKeyId, ShareEpoch};
+use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
 
-use crate::{
-    anvil::{CredentialSchemaIssuerRegistry, TestAnvil},
-    merkle::first_leaf_merkle_path,
-};
+use crate::{anvil::TestAnvil, merkle::first_leaf_merkle_path};
 
 /// Holds the default on-chain environment used by the E2E tests
 pub struct RegistryTestContext {
     pub anvil: TestAnvil,
     pub world_id_registry: Address,
+    pub oprf_key_registry: Address,
     pub credential_registry: Address,
     pub rp_registry: Address,
-    pub oprf_key_registry: Address,
-    pub verifier: Address,
-    pub issuer_private_key: EdDSAPrivateKey,
-    pub issuer_public_key: EdDSAPublicKey,
-    pub issuer_schema_id: U256,
+    pub world_id_verifier: Address,
 }
 
 impl RegistryTestContext {
@@ -50,20 +42,20 @@ impl RegistryTestContext {
             .deploy_world_id_registry(deployer.clone())
             .await
             .wrap_err("failed to deploy WorldIDRegistry")?;
-        let credential_registry = anvil
-            .deploy_credential_schema_issuer_registry(deployer.clone())
-            .await
-            .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
         let oprf_key_registry = anvil
             .deploy_oprf_key_registry(deployer.clone())
             .await
             .wrap_err("failed to deploy OprfKeyRegistry")?;
+        let credential_registry = anvil
+            .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
+            .await
+            .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
         let rp_registry = anvil
             .deploy_rp_registry(deployer.clone(), oprf_key_registry)
             .await
             .wrap_err("failed to deploy RpRegistry")?;
-        let verifier = anvil
-            .deploy_verifier(
+        let world_id_verifier = anvil
+            .deploy_world_id_verifier(
                 deployer.clone(),
                 credential_registry,
                 world_id_registry,
@@ -72,14 +64,8 @@ impl RegistryTestContext {
             .await
             .wrap_err("failed to deploy Verifier")?;
 
-        // signers must match the ones used in the TestSecretManager
-        let oprf_node_signers = [anvil.signer(5)?, anvil.signer(6)?, anvil.signer(7)?];
         anvil
-            .register_oprf_nodes(
-                oprf_key_registry,
-                deployer.clone(),
-                oprf_node_signers.iter().map(|s| s.address()).collect(),
-            )
+            .register_oprf_nodes(oprf_key_registry, deployer.clone(), PEER_ADDRESSES.to_vec())
             .await?;
 
         // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens
@@ -87,61 +73,20 @@ impl RegistryTestContext {
             .add_oprf_key_registry_admin(oprf_key_registry, deployer.clone(), rp_registry)
             .await?;
 
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(deployer.clone()))
-            .connect_http(
-                anvil
-                    .endpoint()
-                    .parse()
-                    .wrap_err("invalid anvil endpoint URL")?,
-            );
-        let registry_contract = CredentialSchemaIssuerRegistry::new(credential_registry, provider);
-
-        let issuer_private_key = EdDSAPrivateKey::random(&mut thread_rng());
-        let issuer_public_key = issuer_private_key.public();
-        let issuer_pubkey_repr = CredentialSchemaIssuerRegistry::Pubkey {
-            x: U256::from_limbs(issuer_public_key.pk.x.into_bigint().0),
-            y: U256::from_limbs(issuer_public_key.pk.y.into_bigint().0),
-        };
-
-        let receipt = registry_contract
-            .register(issuer_pubkey_repr, deployer.address())
-            .send()
+        // Add CredentialSchemaIssuerRegistry as OprfKeyRegistry admin so it can call initKeyGen
+        anvil
+            .add_oprf_key_registry_admin(oprf_key_registry, deployer.clone(), credential_registry)
             .await
-            .wrap_err("failed to submit issuer registration")?
-            .get_receipt()
-            .await
-            .wrap_err("failed to fetch issuer registration receipt")?;
-
-        let issuer_schema_id = receipt
-            .logs()
-            .iter()
-            .find_map(|log| {
-                CredentialSchemaIssuerRegistry::IssuerSchemaRegistered::decode_log(
-                    log.inner.as_ref(),
-                )
-                .ok()
-            })
-            .map(|event| event.issuerSchemaId)
-            .ok_or_else(|| eyre!("IssuerSchemaRegistered event not emitted"))?;
+            .wrap_err("failed to add CredentialSchemaIssuerRegistry as OprfKeyRegistry admin")?;
 
         Ok(Self {
             anvil,
             world_id_registry,
-            credential_registry,
             oprf_key_registry,
+            credential_registry,
             rp_registry,
-            verifier,
-            issuer_private_key,
-            issuer_public_key,
-            issuer_schema_id,
+            world_id_verifier,
         })
-    }
-
-    pub fn issuer_schema_id_u64(&self) -> Result<u64> {
-        self.issuer_schema_id
-            .try_into()
-            .map_err(|_| eyre!("issuer schema id exceeded u64 range"))
     }
 }
 
@@ -151,16 +96,13 @@ pub fn build_base_credential(
     leaf_index: u64,
     genesis_issued_at: u64,
     expires_at: u64,
-) -> (Credential, FieldElement) {
-    let mut rng = rand::thread_rng();
-    let credential_sub_blinding_factor = FieldElement::random(&mut rng);
-    let credential = Credential::new()
+    credential_sub_blinding_factor: FieldElement,
+) -> Credential {
+    Credential::new()
         .issuer_schema_id(issuer_schema_id)
         .sub(leaf_index, credential_sub_blinding_factor)
         .genesis_issued_at(genesis_issued_at)
-        .expires_at(expires_at);
-
-    (credential, credential_sub_blinding_factor)
+        .expires_at(expires_at)
 }
 
 pub struct MerkleFixture {
@@ -224,7 +166,6 @@ pub fn generate_rp_fixture() -> RpFixture {
 
     let msg = world_id_primitives::rp::compute_rp_signature_msg(
         nonce,
-        action,
         current_timestamp,
         expiration_timestamp,
     );

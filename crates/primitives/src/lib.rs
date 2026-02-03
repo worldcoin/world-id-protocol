@@ -3,13 +3,8 @@
 //! It implements basic primitives such as field elements, proofs, the format of requests and responses, etc.
 //!
 //! Importantly, this crate keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
-#![deny(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    missing_docs,
-    dead_code
-)]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
 use alloy_primitives::Keccak256;
@@ -56,9 +51,9 @@ pub mod merkle;
 #[cfg(feature = "circuits")]
 pub mod oprf;
 
-/// Contains the quintessential proof type.
+/// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
-pub use proof::WorldIdProof;
+pub use proof::ZeroKnowledgeProof;
 
 /// Contains types specifically related to relying parties.
 pub mod rp;

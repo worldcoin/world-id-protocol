@@ -5,12 +5,15 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
     sol,
-    sol_types::SolCall,
+    sol_types::{SolCall, SolEvent as _},
     uint,
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
+use ark_ff::PrimeField as _;
+use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
-use world_id_primitives::{TREE_DEPTH, rp::RpId};
+use taceo_oprf_test_utils::TestOprfKeyRegistry;
+use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
 /// Canonical Multicall3 address (same on all EVM chains).
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
@@ -75,16 +78,6 @@ sol!(
 );
 
 sol!(
-    #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
-    OprfKeyRegistry,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/OprfKeyRegistry.sol/OprfKeyRegistry.json"
-    )
-);
-
-sol!(
     #[sol(rpc)]
     ERC1967Proxy,
     concat!(
@@ -116,20 +109,20 @@ sol!(
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    Verifier,
+    WorldIDVerifier,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/Verifier.sol/Verifier.json"
+        "/../../contracts/out/WorldIDVerifier.sol/WorldIDVerifier.json"
     )
 );
 
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
-    VerifierNullifier,
+    Verifier,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/VerifierNullifier.sol/Verifier.json"
+        "/../../contracts/out/Verifier.sol/Verifier.json"
     )
 );
 
@@ -228,10 +221,15 @@ impl TestAnvil {
     pub async fn deploy_credential_schema_issuer_registry(
         &self,
         signer: PrivateKeySigner,
+        oprf_key_registry_address: Address,
     ) -> Result<Address> {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+
+        let erc20_mock = ERC20Mock::deploy(provider.clone())
+            .await
+            .context("failed to deploy ERC20Mock contract")?;
 
         let implementation = CredentialSchemaIssuerRegistry::deploy(provider.clone())
             .await
@@ -239,7 +237,15 @@ impl TestAnvil {
 
         let implementation_address = *implementation.address();
 
-        let init_data = Bytes::from(CredentialSchemaIssuerRegistry::initializeCall {}.abi_encode());
+        let init_data = Bytes::from(
+            CredentialSchemaIssuerRegistry::initializeCall {
+                feeRecipient: signer.address(),
+                feeToken: *erc20_mock.address(),
+                registrationFee: uint!(0_U256),
+                oprfKeyRegistry: oprf_key_registry_address,
+            }
+            .abi_encode(),
+        );
 
         let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await
@@ -328,6 +334,9 @@ impl TestAnvil {
         let init_data = Bytes::from(
             WorldIDRegistry::initializeCall {
                 initialTreeDepth: U256::from(tree_depth),
+                feeRecipient: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
+                feeToken: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
+                registrationFee: U256::from(0),
             }
             .abi_encode(),
         );
@@ -389,85 +398,15 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        // Step 1: Deploy VerifierKeyGen13 contract (no dependencies)
-        let key_gen_verifier = VerifierKeyGen13::deploy(provider.clone())
-            .await
-            .context("failed to deploy Groth16VerifierKeyGen13 contract")?;
-
-        // Step 2: Deploy BabyJubJub library (no dependencies)
-        let baby_jub_jub_json = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
-        ));
-        let json_value: serde_json::Value = serde_json::from_str(baby_jub_jub_json)?;
-        let bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            })
-            .to_string();
-        let baby_jub_jub_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-
-        let baby_jub_jub_address =
-            Self::deploy_contract(provider.clone(), baby_jub_jub_bytecode, Bytes::new())
-                .await
-                .context("failed to deploy BabyJubJub library")?;
-
-        // Step 3: Link BabyJubJub to OprfKeyRegistry
-        let oprf_key_registry_json = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/OprfKeyRegistry.sol/OprfKeyRegistry.json"
-        ));
-        let json_value: serde_json::Value = serde_json::from_str(oprf_key_registry_json)?;
-        let mut bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            })
-            .to_string();
-
-        bytecode_str = Self::link_bytecode_hex(
-            oprf_key_registry_json,
-            &bytecode_str,
-            "lib/oprf-key-registry/src/BabyJubJub.sol:BabyJubJub",
-            baby_jub_jub_address,
-        )?;
-
-        // Decode the fully-linked bytecode
-        let oprf_key_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-
-        let implementation_address =
-            Self::deploy_contract(provider.clone(), oprf_key_registry_bytecode, Bytes::new())
-                .await
-                .context("failed to deploy OprfKeyRegistry implementation")?;
-
-        let init_data = Bytes::from(
-            OprfKeyRegistry::initializeCall {
-                _owner: signer.address(),
-                _keygenAdmin: signer.address(),
-                _keyGenVerifierAddress: *key_gen_verifier.address(),
-                _threshold: 2,
-                _numPeers: 3,
-            }
-            .abi_encode(),
-        );
-
-        let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
-            .await
-            .context("failed to deploy OprfKeyRegistry proxy")?;
-
-        Ok(*proxy.address())
+        taceo_oprf_test_utils::deploy_anvil::deploy_oprf_key_registry_25(
+            provider.erased(),
+            signer.address(),
+        )
+        .await
+        .context("failed to deploy OprfKeyRegistry contract")
     }
 
-    pub async fn deploy_verifier(
+    pub async fn deploy_world_id_verifier(
         &self,
         signer: PrivateKeySigner,
         credential_issuer_registry: Address,
@@ -478,28 +417,30 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        let verifier_nullifier = VerifierNullifier::deploy(provider.clone())
+        // Groth16 verifier (nullifier circuit)
+        let groth16_verifier = Verifier::deploy(provider.clone())
             .await
-            .context("failed to deploy VerifierNullifier contract")?;
+            .context("failed to deploy Verifier (Groth16) contract")?;
 
-        let verifier = Verifier::deploy(provider.clone())
+        // WorldID verifier (upgradeable, delegates to Groth16 verifier)
+        let world_id_verifier = WorldIDVerifier::deploy(provider.clone())
             .await
-            .context("failed to deploy Verifier contract")?;
+            .context("failed to deploy WorldIDVerifier contract")?;
 
         let init_data = Bytes::from(
-            Verifier::initializeCall {
-                _credentialIssuerRegistry: credential_issuer_registry,
-                _worldIDRegistry: world_id_registry,
-                _oprfKeyRegistry: oprf_key_registry,
-                _verifierNullifier: *verifier_nullifier.address(),
-                _proofTimestampDelta: uint!(3600_U256),
+            WorldIDVerifier::initializeCall {
+                credentialIssuerRegistry: credential_issuer_registry,
+                worldIDRegistry: world_id_registry,
+                oprfKeyRegistry: oprf_key_registry,
+                verifier: *groth16_verifier.address(),
+                minExpirationThreshold: 3600,
             }
             .abi_encode(),
         );
 
-        let proxy = ERC1967Proxy::deploy(provider, *verifier.address(), init_data)
+        let proxy = ERC1967Proxy::deploy(provider, *world_id_verifier.address(), init_data)
             .await
-            .context("failed to deploy Verifier proxy")?;
+            .context("failed to deploy WorldIDVerifier proxy")?;
 
         Ok(*proxy.address())
     }
@@ -514,7 +455,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .registerOprfPeers(node_addresses)
             .send()
@@ -537,7 +478,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .addKeyGenAdmin(admin)
             .send()
@@ -550,7 +491,7 @@ impl TestAnvil {
         Ok(())
     }
 
-    /// Register a new `RP` at the `OprfKeyRegistry` contract using the supplied signer.
+    /// Register a new `RP` at the `RpRegistry` contract using the supplied signer.
     pub async fn register_rp(
         &self,
         rp_registry_contract: Address,
@@ -575,6 +516,116 @@ impl TestAnvil {
             eyre::bail!("failed to register RP");
         }
         Ok(())
+    }
+
+    /// Register a new issuer at the `CredentialSchemaIssuerRegistry` contract using the supplied signer.
+    pub async fn register_issuer(
+        &self,
+        schema_issuer_registry_contract: Address,
+        signer: PrivateKeySigner,
+        issuer_schema_id: u64,
+        issuer_public_key: EdDSAPublicKey,
+    ) -> Result<()> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let issuer_registry =
+            CredentialSchemaIssuerRegistry::new(schema_issuer_registry_contract, provider);
+
+        let issuer_pubkey_repr = ICredentialSchemaIssuerRegistry::Pubkey {
+            x: U256::from_limbs(issuer_public_key.pk.x.into_bigint().0),
+            y: U256::from_limbs(issuer_public_key.pk.y.into_bigint().0),
+        };
+
+        let receipt = issuer_registry
+            .register(issuer_schema_id, issuer_pubkey_repr, signer.address())
+            .send()
+            .await
+            .wrap_err("failed to submit issuer registration")?
+            .get_receipt()
+            .await
+            .wrap_err("failed to fetch issuer registration receipt")?;
+
+        let registered_id = receipt
+            .logs()
+            .iter()
+            .find_map(|log| {
+                CredentialSchemaIssuerRegistry::IssuerSchemaRegistered::decode_log(
+                    log.inner.as_ref(),
+                )
+                .ok()
+            })
+            .map(|event| event.issuerSchemaId)
+            .ok_or_else(|| eyre::eyre!("IssuerSchemaRegistered event not emitted"))?;
+
+        assert_eq!(
+            registered_id, issuer_schema_id,
+            "registered ID should match requested ID"
+        );
+        Ok(())
+    }
+
+    pub async fn create_account(
+        &self,
+        world_id_registry: Address,
+        signer: PrivateKeySigner,
+        auth_addr: Address,
+        pubkey: U256,
+        commitment: u64,
+    ) -> FieldElement {
+        let registry = WorldIDRegistry::new(
+            world_id_registry,
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(signer))
+                .connect(&self.instance.endpoint())
+                .await
+                .unwrap(),
+        );
+        registry
+            .createAccount(
+                Address::ZERO,
+                vec![auth_addr],
+                vec![pubkey],
+                U256::from(commitment),
+            )
+            .send()
+            .await
+            .expect("failed to submit createAccount transaction")
+            .get_receipt()
+            .await
+            .expect("createAccount transaction failed");
+
+        let root = registry
+            .getLatestRoot()
+            .call()
+            .await
+            .expect("failed to fetch root");
+
+        FieldElement::try_from(root).expect("root is in field")
+    }
+
+    pub async fn set_root_validity_window(
+        &self,
+        world_id_registry: Address,
+        signer: PrivateKeySigner,
+        root_validity_window: u64,
+    ) {
+        let registry = WorldIDRegistry::new(
+            world_id_registry,
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(signer))
+                .connect(&self.instance.endpoint())
+                .await
+                .unwrap(),
+        );
+        registry
+            .setRootValidityWindow(root_validity_window.try_into().unwrap())
+            .send()
+            .await
+            .expect("failed to submit setRootValidityWindow transaction")
+            .get_receipt()
+            .await
+            .expect("setRootValidityWindow transaction failed");
     }
 
     /// Links a library address into contract bytecode by replacing all placeholder references.

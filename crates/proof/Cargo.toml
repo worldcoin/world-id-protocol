@@ -1,0 +1,55 @@
+[package]
+name = "world-id-proof"
+description = "World ID Proof crate"
+publish = true
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+include = [
+    "src/**/*",
+    "tests/**/*",
+    "../../contracts/abi/*",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+]
+
+[features]
+default = ["embed-zkeys"]
+# Embed zkeys into binary
+embed-zkeys = []
+# Compress the embedded zkeys to reduce binary size
+compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
+
+[dependencies]
+ark-babyjubjub = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
+ark-ec = { workspace = true }
+ark-groth16 = { workspace = true }
+ark-serialize = { workspace = true, optional = true }
+circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"], optional = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+rand = { workspace = true }
+groth16-material = { workspace = true }
+poseidon2 = { workspace = true }
+taceo-oprf = { workspace = true }
+eyre = { workspace = true }
+zeroize = { workspace = true }
+
+# Internal
+world-id-request = { workspace = true }
+world-id-primitives = { workspace = true }
+
+[build-dependencies]
+eyre = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
+ark-serialize = { workspace = true }
+circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
+rayon = "1.10"

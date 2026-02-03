@@ -4,8 +4,8 @@ use alloy::primitives::U256;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
 use tracing::info;
 
-use super::PoseidonHasher;
-use crate::db::{DB, EventId, fetch_leaves_batch};
+use super::{PoseidonHasher, TreeError, TreeResult};
+use crate::db::{DB, WorldTreeEventId, fetch_leaves_batch};
 
 pub struct TreeBuilder {
     tree_depth: usize,
@@ -26,10 +26,8 @@ impl TreeBuilder {
     pub fn restore_from_cache(
         &self,
         cache_path: &Path,
-    ) -> anyhow::Result<MerkleTree<PoseidonHasher, Canonical>> {
-        let cache_path_str = cache_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid cache file path"))?;
+    ) -> TreeResult<MerkleTree<PoseidonHasher, Canonical>> {
+        let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
 
         let tree = MerkleTree::<PoseidonHasher, Canonical>::attempt_dense_mmap_restore(
             self.tree_depth,
@@ -37,7 +35,7 @@ impl TreeBuilder {
             &self.empty_value,
             cache_path_str,
         )
-        .map_err(|e| anyhow::anyhow!("Failed to restore tree from cache: {:?}", e))?;
+        .map_err(|err| TreeError::CacheRestore(Box::new(err)))?;
 
         info!(
             cache_file = %cache_path.display(),
@@ -59,12 +57,10 @@ impl TreeBuilder {
         &self,
         db: &DB,
         cache_path: &Path,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, EventId)> {
+    ) -> TreeResult<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
         info!("Building tree from database with mmap cache (chunk-based processing)");
 
-        let cache_path_str = cache_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid cache file path"))?;
+        let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
 
         let dense_prefix_size = 1usize << self.dense_prefix_depth;
 
@@ -129,7 +125,7 @@ impl TreeBuilder {
                 &dense_vec,
                 cache_path_str,
             )
-            .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
+            .map_err(|err| TreeError::CacheCreate(Box::new(err)))?;
 
         // Step 4: Apply sparse leaves (beyond dense prefix)
         if max_leaf_index >= dense_prefix_size {
@@ -195,7 +191,7 @@ impl TreeBuilder {
 
         // Get the last block number and event ID from DB
         let last_event_id = db
-            .world_id_events()
+            .world_tree_events()
             .get_latest_id()
             .await?
             .unwrap_or_default();
@@ -217,7 +213,7 @@ impl TreeBuilder {
         &self,
         db: &DB,
         last_cursor: usize,
-    ) -> anyhow::Result<Vec<(usize, U256)>> {
+    ) -> TreeResult<Vec<(usize, U256)>> {
         const BATCH_SIZE: i64 = 100_000;
 
         let raw_batch = fetch_leaves_batch(db.pool(), &U256::from(last_cursor), BATCH_SIZE).await?;
@@ -234,11 +230,10 @@ impl TreeBuilder {
 
             // Validate leaf index is within tree capacity
             if leaf_index_usize >= capacity {
-                anyhow::bail!(
-                    "leaf index {} out of range for tree depth {}",
-                    leaf_index,
-                    self.tree_depth
-                );
+                return Err(TreeError::LeafIndexOutOfRange {
+                    leaf_index: leaf_index_usize,
+                    tree_depth: self.tree_depth,
+                });
             }
 
             parsed_batch.push((leaf_index_usize, commitment));
@@ -258,8 +253,8 @@ impl TreeBuilder {
         &self,
         mut tree: MerkleTree<PoseidonHasher, Canonical>,
         db: &DB,
-        from_event_id: EventId,
-    ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, EventId)> {
+        from_event_id: WorldTreeEventId,
+    ) -> TreeResult<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
         use std::collections::HashMap;
 
         const BATCH_SIZE: u64 = 10_000;
@@ -279,7 +274,7 @@ impl TreeBuilder {
         loop {
             // Event ID-based pagination
             let events = db
-                .world_id_events()
+                .world_tree_events()
                 .get_after(last_event_id, BATCH_SIZE)
                 .await?;
 
@@ -293,7 +288,7 @@ impl TreeBuilder {
             // Process events into final states (in memory, deduplicated)
             for event in &events {
                 // Store final state (overwrites previous updates to same leaf)
-                leaf_final_states.insert(event.leaf_index, event.new_commitment);
+                leaf_final_states.insert(event.leaf_index, event.offchain_signer_commitment);
             }
 
             // Update cursor to last event ID in this batch

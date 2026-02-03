@@ -12,12 +12,12 @@ path = "src/lib.rs"
 common = { path = "../common" }
 
 alloy = { workspace = true, features = [
-    "json-rpc",
-    "node-bindings",
-    "rpc-client",
-    "rpc-types-debug",
-    "rpc-types-trace",
-    "signer-aws",
+  "json-rpc",
+  "node-bindings",
+  "rpc-client",
+  "rpc-types-debug",
+  "rpc-types-trace",
+  "signer-aws",
 ] }
 
 anyhow = { workspace = true }
@@ -26,9 +26,9 @@ aws-sdk-kms = "1"
 axum = { workspace = true, features = ["macros", "json"] }
 clap = { version = "4", features = ["derive", "env"] }
 world-id-core = { workspace = true, features = [
-    "authenticator",
-    "openapi",
-    "embed-zkeys",
+  "authenticator",
+  "openapi",
+  "embed-zkeys",
 ] }
 dotenvy = "0.15"
 hex = "0.4"
@@ -40,9 +40,11 @@ serde_json = { workspace = true }
 strum = { version = "0.26", features = ["derive"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
-tower-http = { version = "0.5", features = ["trace", "timeout"] }
+tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
+telemetry-batteries = { workspace = true }
+metrics = { workspace = true }
 utoipa = { workspace = true }
 uuid = { version = "1.11", features = ["v4"] }
 

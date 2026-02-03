@@ -49,8 +49,8 @@ run-gateway:
 # forge install requires git; skip in Docker where .git is excluded but lib/ contents are copied
 sol-build:
 	cd contracts && if git rev-parse --git-dir > /dev/null 2>&1; then forge install; fi && forge build && \
-	forge inspect WorldIDRegistry abi --json > ../crates/core/contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json && \
-	forge inspect CredentialSchemaIssuerRegistry abi --json > ../crates/core/contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
+	forge inspect WorldIDRegistry abi --json > ../contracts/abi/WorldIDRegistry.sol/WorldIDRegistryAbi.json && \
+	forge inspect CredentialSchemaIssuerRegistry abi --json > ../contracts/abi/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
 
 sol-test:
 	cd contracts && if git rev-parse --git-dir > /dev/null 2>&1; then forge install; fi && forge test -vvv

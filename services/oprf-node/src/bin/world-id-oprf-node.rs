@@ -7,7 +7,8 @@
 use std::{process::ExitCode, sync::Arc};
 
 use clap::Parser;
-use taceo_oprf_service::{config::Environment, secret_manager::aws::AwsSecretManager};
+use eyre::Context;
+use taceo_oprf::service::secret_manager::postgres::PostgresSecretManager;
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 
 #[tokio::main]
@@ -17,21 +18,23 @@ async fn main() -> eyre::Result<ExitCode> {
         .expect("can install");
     let tracing_config = taceo_nodes_observability::TracingConfig::try_from_env()?;
     let _tracing_handle = taceo_nodes_observability::initialize_tracing(&tracing_config)?;
-    taceo_oprf_service::metrics::describe_metrics();
+    taceo_oprf::service::metrics::describe_metrics();
     world_id_oprf_node::metrics::describe_metrics();
 
     tracing::info!("{}", taceo_nodes_common::version_info!());
 
     let config = WorldOprfNodeConfig::parse();
 
-    let aws_config = match config.node_config.environment {
-        Environment::Prod => aws_config::load_from_env().await,
-        Environment::Dev => taceo_nodes_common::localstack_aws_config().await,
-    };
-
     // Load the AWS secret manager.
-    let secret_manager =
-        Arc::new(AwsSecretManager::init(aws_config, &config.node_config.rp_secret_id_prefix).await);
+    let secret_manager = Arc::new(
+        PostgresSecretManager::init(
+            &config.node_config.db_connection_string,
+            &config.node_config.db_schema,
+            config.node_config.db_max_connections,
+        )
+        .await
+        .context("while initializing Postgres secret manager")?,
+    );
 
     let result = world_id_oprf_node::start(
         config,

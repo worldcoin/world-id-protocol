@@ -4,10 +4,9 @@ use std::{
 };
 
 use ark_babyjubjub::{EdwardsAffine, Fq};
-use ark_ff::AdditiveGroup;
+use ark_ff::{AdditiveGroup, PrimeField as _};
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use poseidon2::Poseidon2;
 use serde::{Deserialize, Serialize};
 
 use crate::{FieldElement, PrimitiveError};
@@ -18,6 +17,30 @@ use crate::{FieldElement, PrimitiveError};
 /// This constrained is introduced to maintain proof performance reasonable even
 /// in devices with limited resources.
 pub const MAX_AUTHENTICATOR_KEYS: usize = 7;
+
+/// Domain separator for the authenticator OPRF query digest.
+const OPRF_QUERY_DS: &[u8] = b"World ID Query";
+
+/// Computes the Poseidon2 digest for an authenticator OPRF query.
+///
+/// # Arguments
+/// * `leaf_index` - The leaf index of the authenticator in the World ID Registry.
+/// * `action` - The action field element.
+/// * `query_origin_id` - The `RpId` or `issuer_schema_id`.
+#[must_use]
+pub fn oprf_query_digest(
+    leaf_index: u64,
+    action: FieldElement,
+    query_origin_id: FieldElement,
+) -> FieldElement {
+    let input = [
+        ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
+        leaf_index.into(),
+        *query_origin_id,
+        *action,
+    ];
+    poseidon2::bn254::t4::permutation(&input)[1].into()
+}
 
 /// A set of **off-chain** authenticator public keys for a World ID Account.
 ///
@@ -111,7 +134,6 @@ impl AuthenticatorPublicKeySet {
     /// Panics if the domain separator constant cannot be converted into an `Fq`.
     #[must_use]
     pub fn leaf_hash(&self) -> Fq {
-        let poseidon2_16: Poseidon2<Fq, 16, 5> = Poseidon2::default();
         let mut input = [Fq::ZERO; 16];
 
         input[0] =
@@ -123,7 +145,7 @@ impl AuthenticatorPublicKeySet {
             input[i * 2 + 2] = pk_array[i].y;
         }
 
-        poseidon2_16.permutation(&input)[1]
+        poseidon2::bn254::t16::permutation(&input)[1]
     }
 }
 

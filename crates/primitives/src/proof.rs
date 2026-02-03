@@ -1,262 +1,187 @@
-use std::io::Cursor;
+use ark_bn254::Bn254;
+use ark_groth16::Proof;
+use ruint::aliases::U256;
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-use ark_bn254::{Bn254, G1Affine, G2Affine};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
-#[cfg(feature = "oprf")]
-use taceo_oprf_types::OprfKeyId;
+use crate::FieldElement;
 
-#[cfg(feature = "oprf")]
-use crate::{
-    Credential, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof, rp::RpId,
-};
-use crate::{FieldElement, PrimitiveError};
-
-/// Represents a base World ID proof.
+/// Encoded World ID Proof.
 ///
-/// Both the Query Proof (π1) and the Nullifier Proof (π2) are World ID Proofs.
+/// Internally, the first 4 elements are a compressed Groth16 proof
+/// [a (G1), b (G2), b (G2), c (G1)]. Proofs also require the root hash of the Merkle tree
+/// in the `WorldIDRegistry` as a public input. To simplify transmission, that root is encoded as the last element
+/// with the proof.
 ///
-/// Internally, the World ID Proofs are Groth16 ZKPs. In the World ID Protocol,
-/// the Merkle Root that proves inclusion into the set of World ID accounts (`WorldIDRegistry`)
-/// is also encoded as part of the proof.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct WorldIdProof {
-    /// The Groth16 ZKP
-    pub zkp: ark_groth16::Proof<Bn254>,
-    /// The hash of the root of the Merkle tree that proves inclusion into the set of World ID accounts (`WorldIDRegistry`).
-    pub merkle_root: FieldElement,
+/// The `WorldIDVerifier.sol` contract handles the decoding and verification.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ZeroKnowledgeProof {
+    /// Array of 5 U256 values: first 4 are compressed Groth16 proof, last is Merkle root.
+    inner: [U256; 5],
 }
 
-impl WorldIdProof {
-    /// Initialize a new proof.
+impl ZeroKnowledgeProof {
+    /// Initialize a new proof from a Groth16 proof and Merkle root.
     #[must_use]
-    pub const fn new(zkp: ark_groth16::Proof<Bn254>, merkle_root: FieldElement) -> Self {
-        Self { zkp, merkle_root }
+    pub fn from_groth16_proof(groth16_proof: &Proof<Bn254>, merkle_root: FieldElement) -> Self {
+        let compressed_proof = taceo_groth16_sol::prepare_compressed_proof(groth16_proof);
+        Self {
+            inner: [
+                compressed_proof[0],
+                compressed_proof[1],
+                compressed_proof[2],
+                compressed_proof[3],
+                merkle_root.into(),
+            ],
+        }
     }
 
-    /// Serializes the proof into a compressed and packed byte vector.
-    ///
-    /// Uses `ark-serialize` to compress affine points as it guarantees correct formatting (elements are padded).
-    ///
-    /// # Errors
-    /// Will return an error if the serialization unexpectedly fails.
-    pub fn to_compressed_bytes(&self) -> Result<Vec<u8>, PrimitiveError> {
-        let mut bytes = Vec::with_capacity(160);
-
-        // A = G1 (32 bytes compressed)
-        self.zkp
-            .a
-            .serialize_compressed(&mut bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-
-        // B = G2 (64 bytes compressed)
-        self.zkp
-            .b
-            .serialize_compressed(&mut bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-
-        // C = G1 (32 bytes compressed)
-        self.zkp
-            .c
-            .serialize_compressed(&mut bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-
-        // Merkle root = Field element (32 bytes compressed)
-        self.merkle_root
-            .0
-            .serialize_compressed(&mut bytes)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-
-        debug_assert!(bytes.len() == 160);
-
-        Ok(bytes)
+    /// Outputs the proof as a Solidity-friendly representation.
+    #[must_use]
+    pub const fn as_ethereum_representation(&self) -> [U256; 5] {
+        self.inner
     }
-    /// Deserializes a proof from a compressed byte vector.
+
+    /// Initializes a proof from an encoded Solidity-friendly representation.
+    #[must_use]
+    pub const fn from_ethereum_representation(value: [U256; 5]) -> Self {
+        Self { inner: value }
+    }
+
+    /// Converts the proof to compressed bytes (160 bytes total: 5 × 32 bytes).
+    #[must_use]
+    pub fn to_compressed_bytes(&self) -> Vec<u8> {
+        self.inner
+            .iter()
+            .flat_map(U256::to_be_bytes::<32>)
+            .collect()
+    }
+
+    /// Constructs a proof from compressed bytes (must be exactly 160 bytes).
     ///
     /// # Errors
-    /// Will return an error if the provided input is not a valid compressed proof. For example, invalid field points.
-    pub fn from_compressed_bytes(bytes: &[u8]) -> Result<Self, PrimitiveError> {
+    /// Returns an error if the input is not exactly 160 bytes or if bytes cannot be parsed.
+    pub fn from_compressed_bytes(bytes: &[u8]) -> Result<Self, String> {
         if bytes.len() != 160 {
-            return Err(PrimitiveError::Deserialization(
-                "Invalid proof length. Expected 160 bytes.".to_string(),
+            return Err(format!(
+                "Invalid length: expected 160 bytes, got {}",
+                bytes.len()
             ));
         }
 
-        let mut reader = Cursor::new(bytes);
-        let a = G1Affine::deserialize_compressed(&mut reader)
-            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
-        let b = G2Affine::deserialize_compressed(&mut reader)
-            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
-        let c = G1Affine::deserialize_compressed(&mut reader)
-            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
+        let mut inner = [U256::ZERO; 5];
+        for (i, chunk) in bytes.chunks_exact(32).enumerate() {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(chunk);
+            inner[i] = U256::from_be_bytes(arr);
+        }
 
-        let merkle_root: FieldElement = FieldElement::deserialize_from_bytes(&mut reader)
-            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
-
-        Ok(Self {
-            zkp: ark_groth16::Proof { a, b, c },
-            merkle_root,
-        })
+        Ok(Self { inner })
     }
 }
 
-impl Serialize for WorldIdProof {
+impl Serialize for ZeroKnowledgeProof {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let compressed_bytes = self.to_compressed_bytes().map_err(S::Error::custom)?;
-        serializer.serialize_str(&hex::encode(compressed_bytes))
+        let bytes = self.to_compressed_bytes();
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&hex::encode(bytes))
+        } else {
+            serializer.serialize_bytes(&bytes)
+        }
     }
 }
 
-impl<'de> Deserialize<'de> for WorldIdProof {
+impl<'de> Deserialize<'de> for ZeroKnowledgeProof {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let compressed_bytes =
-            hex::decode(String::deserialize(deserializer)?).map_err(D::Error::custom)?;
-        Self::from_compressed_bytes(&compressed_bytes).map_err(D::Error::custom)
+        let bytes = if deserializer.is_human_readable() {
+            let hex_str = String::deserialize(deserializer)?;
+            hex::decode(hex_str).map_err(D::Error::custom)?
+        } else {
+            Vec::deserialize(deserializer)?
+        };
+
+        Self::from_compressed_bytes(&bytes).map_err(D::Error::custom)
     }
 }
 
-/// The arguments required to generate a World ID Uniqueness Proof.
-///
-/// This request results in a final Uniqueness Proof (π2), but a Query Proof (π1) must be
-/// generated in the process.
-///
-/// Requires the `oprf` feature (not available in WASM builds).
-#[cfg(feature = "oprf")]
-pub struct SingleProofInput<const TREE_DEPTH: usize> {
-    // SECTION: User Inputs
-    /// The credential of the user which will be proven in the World ID Proof.
-    pub credential: Credential,
-    /// The Merkle inclusion proof which proves ownership of the user's account in the `WorldIDRegistry` contract.
-    pub inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
-    /// The complete set of authenticator public keys for the World ID Account.
-    pub key_set: AuthenticatorPublicKeySet,
-    /// The index of the public key which will be used to sign from the set of public keys.
-    pub key_index: u64,
-    /// The `r_seed` is a random seed used to generate the `session_id`.
-    pub session_id_r_seed: FieldElement,
-    /// The `session_id` is a unique identifier
-    /// for the RP+User+Action, and it lets prove the same World ID is being used
-    /// in future proofs if the RP provides the valid `session_id`.
-    pub session_id: FieldElement,
-    /// The factor used to blind the subject of the credential to avoid issuer correlation.
-    ///
-    /// This factor is hashed with the `leaf_index` to get the credential's `sub`.
-    pub credential_sub_blinding_factor: FieldElement,
-
-    /// SECTION: RP Inputs
-
-    /// The ID of the RP requesting the proof.
-    pub rp_id: RpId,
-    /// The `OprfKeyId` for the RP requesting the proof.
-    pub oprf_key_id: OprfKeyId,
-    /// The epoch of the `DLog` share (currently always `0`).
-    pub share_epoch: u128,
-    /// The specific hashed action for which the user is generating the proof. The output nullifier will
-    /// be unique for the combination of this action, the `rp_id` and the user.
-    pub action: FieldElement,
-    /// The unique identifier for this proof request. Provided by the RP.
-    pub nonce: FieldElement,
-    /// The timestamp from the RP's request.
-    /// TODO: Document why this is required.
-    pub current_timestamp: u64,
-    /// The expiration timestamp for the RP's request (unix seconds).
-    pub expiration_timestamp: u64,
-    /// The RP's signature over the request. This is used to ensure the RP is legitimately requesting the proof
-    /// from the user and reduce phishing surface area.
-    ///
-    /// The signature is computed over `nonce || action || created_at || expires_at`, ECDSA on the `secp256k1` curve.
-    pub rp_signature: alloy_primitives::Signature,
-    /// The signal hashed into the field. The signal is a commitment to arbitrary data that can be used
-    /// to ensure the integrity of the proof. For example, in a voting application, the signal could
-    /// be used to encode the user's vote.
-    pub signal_hash: FieldElement,
-
-    /// The minimum genesis issued at (unix seconds) of the credential.
-    ///
-    /// This minimum allows RPs to require that the credential was first issued
-    /// after a certain time (`genesis_issued_at` in the `Credential` must be >= `genesis_issued_at_min`)
-    pub genesis_issued_at_min: u64,
+impl From<ZeroKnowledgeProof> for [U256; 5] {
+    fn from(value: ZeroKnowledgeProof) -> Self {
+        value.inner
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use ark_bn254::Fq2;
     use ruint::uint;
 
     use super::*;
 
     #[test]
     fn test_encoding_round_trip() {
-        let proof = WorldIdProof::default();
-        let compressed_bytes = proof.to_compressed_bytes().unwrap();
+        let proof = ZeroKnowledgeProof::default();
+        let compressed_bytes = proof.to_compressed_bytes();
 
         assert_eq!(compressed_bytes.len(), 160);
 
         let encoded = serde_json::to_string(&proof).unwrap();
         assert_eq!(
             encoded,
-            "\"00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000\""
+            "\"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\""
         );
 
-        let proof_from = WorldIdProof::from_compressed_bytes(&compressed_bytes).unwrap();
+        let proof_from = ZeroKnowledgeProof::from_compressed_bytes(&compressed_bytes).unwrap();
 
-        assert_eq!(proof.merkle_root, proof_from.merkle_root);
-        assert_eq!(proof.zkp.a, proof_from.zkp.a);
-        assert_eq!(proof.zkp.b, proof_from.zkp.b);
-        assert_eq!(proof.zkp.c, proof_from.zkp.c);
+        assert_eq!(proof.inner, proof_from.inner);
     }
 
-    /// This proof is taken from the `semaphore-rs` crate as a test case.
     #[test]
-    #[allow(clippy::similar_names)]
-    fn test_real_proof() {
-        // Point A (G1)
-        let a_x = uint!(0x15c1fc6907219676890dfe147ee6f10b580c7881dddacb1567b3bcbfc513a54d_U256);
-        let a_y = uint!(0x233afda3efff43a7631990d2e79470abcbae3ccad4b920476e64745bfe97bb0a_U256);
-        let a = G1Affine::new(a_x.try_into().unwrap(), a_y.try_into().unwrap());
-
-        // Point B (G2) - Swapping c0/c1 to match Ethereum convention
-        let b_x_c1 = uint!(0xc8c7d7434c382d590d601d951c29c8463d555867db70f9e84f7741c81c2e1e6_U256);
-        let b_x_c0 = uint!(0x241d2ddf1c9e6670a24109a0e9c915cd6e07d0248a384dd38d3c91e9b0419f5f_U256);
-        let b_y_c1 = uint!(0xb23c5467a06eff56cc2c246ada1e7d5705afc4dc8b43fd5a6972c679a2019c5_U256);
-        let b_y_c0 = uint!(0x91ed6522f7924d3674d08966a008f947f9aa016a4100bb12f911326f3e1befd_U256);
-        let b_x = Fq2::new(b_x_c0.try_into().unwrap(), b_x_c1.try_into().unwrap());
-        let b_y = Fq2::new(b_y_c0.try_into().unwrap(), b_y_c1.try_into().unwrap());
-        let b = G2Affine::new(b_x, b_y);
-
-        // Point C (G1)
-        let c_x = uint!(0xacdf5a5996e00933206cbec48f3bbdcee2a4ca75f8db911c00001e5a0547487_U256);
-        let c_y = uint!(0x2446d6f1c1506837392a30fdc73d66fd89f4e1b1a5d14b93e2ad0c5f7b777520_U256);
-        let c = G1Affine::new(c_x.try_into().unwrap(), c_y.try_into().unwrap());
-
-        let zkp = ark_groth16::Proof { a, b, c };
-        let merkle_root = FieldElement::try_from(uint!(
-            0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
-        ))
-        .unwrap();
-        let proof = WorldIdProof::new(zkp, merkle_root);
+    fn test_json_deserialization() {
+        let proof = ZeroKnowledgeProof::default();
 
         // Test roundtrip serialization
         let json_str = serde_json::to_string(&proof).unwrap();
-        assert_eq!(json_str[306..], *"1ac917bce23d211\""); // assert hex encoding of merkle root
-        let deserialized_proof: WorldIdProof = serde_json::from_str(&json_str).unwrap();
+        let deserialized_proof: ZeroKnowledgeProof = serde_json::from_str(&json_str).unwrap();
 
         // Verify the roundtrip preserved all values
-        assert_eq!(proof.zkp.a, deserialized_proof.zkp.a);
-        assert_eq!(proof.zkp.b, deserialized_proof.zkp.b);
-        assert_eq!(proof.zkp.c, deserialized_proof.zkp.c);
-        assert_eq!(
-            FieldElement::try_from(uint!(
-                8060603437403478431405594370235290687560488504242369439470699636878115808450_U256
-            ))
-            .unwrap(),
-            deserialized_proof.merkle_root
-        );
+        assert_eq!(proof.inner, deserialized_proof.inner);
+    }
+
+    #[test]
+    fn test_from_ethereum_representation() {
+        let values = [
+            uint!(0x0000000000000000000000000000000000000000000000000000000000000001_U256),
+            uint!(0x0000000000000000000000000000000000000000000000000000000000000002_U256),
+            uint!(0x0000000000000000000000000000000000000000000000000000000000000003_U256),
+            uint!(0x0000000000000000000000000000000000000000000000000000000000000004_U256),
+            uint!(0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256),
+        ];
+
+        let proof = ZeroKnowledgeProof::from_ethereum_representation(values);
+        assert_eq!(proof.as_ethereum_representation(), values);
+
+        // Test serialization roundtrip
+        let bytes = proof.to_compressed_bytes();
+        assert_eq!(bytes.len(), 160);
+
+        let proof_from_bytes = ZeroKnowledgeProof::from_compressed_bytes(&bytes).unwrap();
+        assert_eq!(proof.inner, proof_from_bytes.inner);
+    }
+
+    #[test]
+    fn test_invalid_bytes_length() {
+        let too_short = vec![0u8; 159];
+        let result = ZeroKnowledgeProof::from_compressed_bytes(&too_short);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid length"));
+
+        let too_long = vec![0u8; 161];
+        let result = ZeroKnowledgeProof::from_compressed_bytes(&too_long);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid length"));
     }
 }

@@ -1,0 +1,37 @@
+[package]
+name = "world-id-issuer"
+description = "World ID Issuer crate"
+publish = true
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+include = [
+    "src/**/*",
+    "tests/**/*",
+    "../../contracts/abi/*",
+    "Cargo.toml",
+    "README.md",
+]
+
+[dependencies]
+alloy = { workspace = true, features = [
+    "sol-types",
+    "reqwest",
+    "signer-local",
+    "json",
+    "network",
+    "providers",
+    "contract",
+] }
+ark-ff = { workspace = true }
+ruint = { workspace = true }
+thiserror = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+world-id-primitives = { workspace = true }
+
+# Internal
+world-id-signer = { workspace = true }

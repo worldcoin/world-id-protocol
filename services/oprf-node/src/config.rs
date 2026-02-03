@@ -4,7 +4,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use alloy::primitives::Address;
 use clap::Parser;
-use taceo_oprf_service::config::OprfNodeConfig;
+use taceo_oprf::service::config::OprfNodeConfig;
 
 /// The configuration for the OPRF node.
 ///
@@ -32,28 +32,31 @@ pub struct WorldOprfNodeConfig {
     #[clap(long, env = "OPRF_NODE_RP_REGISTRY_CONTRACT")]
     pub rp_registry_contract: Address,
 
+    /// The address of the CredentialSchemaIssuerRegistry smart contract
+    #[clap(long, env = "OPRF_NODE_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT")]
+    pub credential_schema_issuer_registry_contract: Address,
+
     /// The maximum size of the merkle root cache.
     ///
     /// Will drop least recently used merkle roots if this capacity is reached.
     #[clap(long, env = "OPRF_NODE_MERKLE_CACHE_SIZE", default_value = "100")]
     pub max_merkle_cache_size: u64,
 
-    /// The time to live of a merkle root in the cache.
-    ///
-    /// Will drop merkle roots if this duration elapsed after they were added.
-    #[clap(
-        long,
-        env = "OPRF_NODE_ROOT_VALIDITY_WINDOW",
-        default_value = "1hour",
-        value_parser = humantime::parse_duration
-    )]
-    pub root_validity_window: Duration,
-
     /// The maximum size of the RpRegistry store.
     ///
     /// Will drop old Rps if this capacity is reached.
     #[clap(long, env = "OPRF_NODE_RP_REGISTRY_STORE_SIZE", default_value = "1000")]
     pub max_rp_registry_store_size: u64,
+
+    /// The maximum size of the CredentialSchemaIssuerRegistry store.
+    ///
+    /// Will drop old issuers if this capacity is reached.
+    #[clap(
+        long,
+        env = "OPRF_NODE_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_STORE_SIZE",
+        default_value = "1000"
+    )]
+    pub max_credential_schema_issuer_registry_store_size: u64,
 
     /// The maximum delta between the received current_time_stamp the node current_time_stamp
     #[clap(

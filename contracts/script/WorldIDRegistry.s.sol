@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
@@ -15,12 +15,17 @@ contract DeployScript is Script {
         vm.startBroadcast();
 
         uint256 treeDepth = uint256(vm.envOr("TREE_DEPTH", uint256(30)));
+        address feeToken = vm.envAddress("FEE_TOKEN");
+        address feeRecipient = vm.envAddress("FEE_RECIPIENT");
+        uint256 registrationFee = vm.envUint("REGISTRATION_FEE");
 
         // Deploy implementation
         WorldIDRegistry implementation = new WorldIDRegistry{salt: bytes32(uint256(0))}();
 
         // Encode initializer call
-        bytes memory initData = abi.encodeWithSelector(WorldIDRegistry.initialize.selector, treeDepth);
+        bytes memory initData = abi.encodeWithSelector(
+            WorldIDRegistry.initialize.selector, treeDepth, feeRecipient, feeToken, registrationFee
+        );
 
         // Deploy proxy
         proxy = new ERC1967Proxy{salt: bytes32(uint256(0))}(address(implementation), initData);

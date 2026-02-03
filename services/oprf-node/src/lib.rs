@@ -8,14 +8,18 @@ use std::sync::Arc;
 
 use eyre::Context;
 use secrecy::ExposeSecret;
-use taceo_oprf_service::{
+use taceo_oprf::service::{
     OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
 };
+use world_id_primitives::oprf::OprfModule;
 
 use crate::{
     auth::{
-        WorldOprfRequestAuthenticator, merkle_watcher::MerkleWatcher,
-        rp_registry_watcher::RpRegistryWatcher, signature_history::SignatureHistory,
+        credential_blinding_factor::CredentialBlindingFactorOprfRequestAuthenticator,
+        merkle_watcher::MerkleWatcher, nullifier::NullifierOprfRequestAuthenticator,
+        rp_registry_watcher::RpRegistryWatcher,
+        schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
+        signature_history::SignatureHistory,
     },
     config::WorldOprfNodeConfig,
 };
@@ -48,7 +52,6 @@ pub async fn start(
         config.world_id_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_merkle_cache_size,
-        config.root_validity_window,
         config.cache_maintenance_interval,
         started_services.new_service(),
         cancellation_token.clone(),
@@ -75,13 +78,32 @@ pub async fn start(
         config.cache_maintenance_interval,
     );
 
-    tracing::info!("init oprf request auth service..");
-    let oprf_req_auth_service = Arc::new(WorldOprfRequestAuthenticator::init(
-        merkle_watcher,
-        rp_registry_watcher,
+    tracing::info!("init nullifier oprf request auth service..");
+    let nullifier_oprf_req_auth_service = Arc::new(NullifierOprfRequestAuthenticator::init(
+        merkle_watcher.clone(),
+        rp_registry_watcher.clone(),
         signature_history,
         config.current_time_stamp_max_difference,
     ));
+
+    tracing::info!("init CredentialSchemaIssuerRegistry watcher..");
+    let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
+        config.credential_schema_issuer_registry_contract,
+        node_config.chain_ws_rpc_url.expose_secret(),
+        config.max_credential_schema_issuer_registry_store_size,
+        config.cache_maintenance_interval,
+        started_services.new_service(),
+        cancellation_token.clone(),
+    )
+    .await
+    .context("while starting schema issuer registry watcher")?;
+
+    tracing::info!("init credential blinding factor oprf request auth service..");
+    let credential_blinding_factor_oprf_req_auth_service =
+        Arc::new(CredentialBlindingFactorOprfRequestAuthenticator::init(
+            merkle_watcher,
+            schema_issuer_registry_watcher,
+        ));
 
     tracing::info!("init oprf service..");
     let (oprf_service_router, key_event_watcher) = OprfServiceBuilder::init(
@@ -91,8 +113,14 @@ pub async fn start(
         cancellation_token.clone(),
     )
     .await?
-    .module("/rp", oprf_req_auth_service)
-    // .module("/issuer", oprf_req_auth_service)
+    .module(
+        &format!("/{}", OprfModule::Nullifier),
+        nullifier_oprf_req_auth_service,
+    )
+    .module(
+        &format!("/{}", OprfModule::CredentialBlindingFactor),
+        credential_blinding_factor_oprf_req_auth_service,
+    )
     .build();
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;
