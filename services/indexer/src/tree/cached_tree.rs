@@ -33,23 +33,42 @@ pub async fn init_tree(
     tree_depth: usize,
     dense_prefix_depth: usize,
 ) -> anyhow::Result<()> {
-    if cache_path.exists() {
+    let (tree, last_event_id, source) = if cache_path.exists() {
         match try_restore(db, cache_path, tree_depth, dense_prefix_depth).await {
-            Ok(()) => return Ok(()),
+            Ok((tree, last_event_id)) => (tree, last_event_id, "cache"),
             Err(e) => {
                 tracing::warn!(?e, "restore failed, falling back to full rebuild");
+                let (tree, last_event_id) =
+                    build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth)
+                        .await?;
+                (tree, last_event_id, "database")
             }
         }
-    }
-
-    // Full rebuild from accounts table
-    info!("init_tree: building tree from database");
-
-    let (tree, last_event_id) =
-        build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth).await?;
+    } else {
+        info!("init_tree: no cache file, building from database");
+        let (tree, last_event_id) =
+            build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth).await?;
+        (tree, last_event_id, "database")
+    };
 
     let root = tree.root();
+    set_global_tree(tree, last_event_id).await;
 
+    info!(
+        root = %format!("0x{:x}", root),
+        ?last_event_id,
+        source,
+        "init_tree: complete"
+    );
+
+    Ok(())
+}
+
+/// Set the global tree and last synced event ID.
+async fn set_global_tree(
+    tree: MerkleTree<PoseidonHasher, Canonical>,
+    last_event_id: WorldTreeEventId,
+) {
     {
         let mut g = GLOBAL_TREE.write().await;
         *g = tree;
@@ -58,14 +77,6 @@ pub async fn init_tree(
         let mut cursor = LAST_SYNCED_EVENT_ID.write().await;
         *cursor = last_event_id;
     }
-
-    info!(
-        root = %format!("0x{:x}", root),
-        ?last_event_id,
-        "init_tree: tree built from scratch"
-    );
-
-    Ok(())
 }
 
 /// Incrementally sync the in-memory tree with events committed to DB
@@ -166,13 +177,13 @@ pub async fn leaf_proof_and_root(
 // =============================================================================
 
 /// Try to restore from mmap cache + replay missed events.
-/// Sets GLOBAL_TREE and LAST_SYNCED_EVENT_ID on success.
+/// Returns the tree and last event ID on success.
 async fn try_restore(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
     dense_prefix_depth: usize,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
     // 1. Load mmap
     let tree = restore_from_cache(cache_path, tree_depth, dense_prefix_depth)?;
     let restored_root = tree.root();
@@ -206,29 +217,15 @@ async fn try_restore(
         log_index: root_entry.id.log_index,
     };
 
-    let (updated_tree, last_event_id) =
-        replay_events(tree, db, tree_depth, replay_cursor).await?;
-
-    let final_root = updated_tree.root();
+    let (tree, last_event_id) = replay_events(tree, db, replay_cursor).await?;
 
     info!(
-        root = %format!("0x{:x}", final_root),
+        root = %format!("0x{:x}", tree.root()),
         ?last_event_id,
         "try_restore: replay complete"
     );
 
-    // 4. Replace GLOBAL_TREE and set cursor
-    {
-        let mut g = GLOBAL_TREE.write().await;
-        *g = updated_tree;
-    }
-    {
-        let mut cursor = LAST_SYNCED_EVENT_ID.write().await;
-        *cursor = last_event_id;
-    }
-
-    info!("try_restore: GLOBAL_TREE replaced");
-    Ok(())
+    Ok((tree, last_event_id))
 }
 
 /// Restore tree from mmap file (no validation).
@@ -414,12 +411,9 @@ async fn build_from_db_with_cache(
 async fn replay_events(
     mut tree: MerkleTree<PoseidonHasher, Canonical>,
     db: &DB,
-    tree_depth: usize,
     from_event_id: WorldTreeEventId,
 ) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
     const BATCH_SIZE: u64 = 10_000;
-
-    let _ = tree_depth; // reserved for future bounds checking
 
     let mut last_event_id = from_event_id;
     let mut total_events = 0;
