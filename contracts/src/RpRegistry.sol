@@ -226,6 +226,18 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     }
 
     ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
+
+    /// @inheritdoc IRpRegistry
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newOprfKeyRegistry == address(0)) revert ZeroAddress();
+        address oldOprfKeyRegistry = address(_oprfKeyRegistry);
+        _oprfKeyRegistry = IOprfKeyRegistry(newOprfKeyRegistry);
+        emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, newOprfKeyRegistry);
+    }
+
+    ////////////////////////////////////////////////////////////
     //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
 

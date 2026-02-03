@@ -112,6 +112,13 @@ interface ICredentialSchemaIssuerRegistry {
      */
     event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
+    /**
+     * @notice Emitted when the OPRF key registry is updated.
+     * @param oldOprfKeyRegistry The previous registry address.
+     * @param newOprfKeyRegistry The new registry address.
+     */
+    event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
+
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
@@ -193,4 +200,14 @@ interface ICredentialSchemaIssuerRegistry {
      * @return The address of the OPRF key registry contract.
      */
     function getOprfKeyRegistry() external view returns (address);
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @notice Updates the OPRF key registry address.
+     * @param newOprfKeyRegistry The new OPRF key registry address.
+     */
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external;
 }
