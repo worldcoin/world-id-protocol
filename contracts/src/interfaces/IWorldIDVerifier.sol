@@ -77,17 +77,21 @@ interface IWorldIDVerifier {
      * @notice Verifies a Uniqueness Proof.
      * @dev Validates the World ID registration and inclusion, credential issuer registration,
      *   and delegates to the Groth16 proof verifier for proof verification.
-     * @param nullifier <description>
-     * @param action Raw field element bound into the proof. When using strings or bytes, hash with keccak256 and reduce to field.
-     * @param rpId Registered RP identifier from the RpRegistry.
-     * @param nonce Unique nonce for this request provided by the RP.
-     * @param signalHash Hash of the optional RP-defined signal bound into the proof.
-     * @param expiresAtMin The minimum expiration required for the Credential used in the proof. If the constraint is not required,
+     * @dev Public inputs refer to the ZK-circuit public inputs.
+     * @param nullifier Public output. A unique, one-time identifier derived from (user, rpId, action) that
+     *   lets RPs detect duplicate actions without learning who the user is.
+     * @param action Public input. An RP-defined context that scopes what the user is proving uniqueness on.
+     *  This parameter generally expects a hashed version reduced to the field.
+     * @param rpId Public input. Registered RP identifier from the `RpRegistry`.
+     * @param nonce Public input. Unique nonce for this request provided by the RP.
+     * @param signalHash Public input. Hash of the optional RP-defined signal bound into the proof.
+     * @param expiresAtMin Public input. The minimum expiration required for the Credential used in the proof. If the constraint is not required,
      *   it should use the current time as the minimum expiration. The Authenticator will normally expose the effective input used in the proof.
-     * @param issuerSchemaId Unique identifier for the credential schema and issuer pair.
-     * @param credentialGenesisIssuedAtMin Minimum genesis_issued_at timestamp constraint. Set to 0 to skip.
-     * @param zeroKnowledgeProof Encoded proof: first 4 elements are compressed Groth16 proof [a, b, b, c],
-     *   last element is the Merkle root from WorldIDRegistry.
+     * @param issuerSchemaId Public input. Unique identifier for the credential schema and issuer pair.
+     * @param credentialGenesisIssuedAtMin Public input. Minimum genesis_issued_at timestamp that the used credential
+     *   must meet. Can be set to 0 to skip.
+     * @param zeroKnowledgeProof Encoded World ID Proof. Internally, the first 4 elements are a
+     *   compressed Groth16 proof [a, b, b, c], and the last element is the Merkle root from the `WorldIDRegistry`.
      */
     function verify(
         uint256 nullifier,
