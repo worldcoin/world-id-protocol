@@ -18,5 +18,6 @@
   "worldIDVerifier": {
     "implementation": "0xe5cFa9432E21D5A941737DB61249d4C4d96E0CCA",
     "proxy": "0xC1BF296fdf56Eec522eFCcb7655F158F3D108560"
-  }
+  },
+  "oprfKeyRegistry": "0xb2C02253ee7bFEDF50F5D015658857099980E91F"
 }

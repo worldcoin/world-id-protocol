@@ -39,11 +39,11 @@ contract Deploy is Script {
     function _run(string memory config) internal virtual {
         deployRegistry(config);
         deployCredentialSchemaIssuerRegistry(config);
-        deployRpRegistry(config);
+        deployWorldIdRegistry(config);
         deployWorldIdVerifier(config);
     }
 
-    function deployRegistry(string memory config) public {
+    function deployWorldIdRegistry(string memory config) public {
         uint256 treeDepth = vm.parseJsonUint(config, ".worldIDRegistry.treeDepth");
         address feeRecipient = vm.parseJsonAddress(config, ".worldIDRegistry.feeRecipient");
         address feeToken = vm.parseJsonAddress(config, ".worldIDRegistry.feeToken");
