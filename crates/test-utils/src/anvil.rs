@@ -427,11 +427,11 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             WorldIDVerifier::initializeCall {
-                _credentialIssuerRegistry: credential_issuer_registry,
-                _worldIDRegistry: world_id_registry,
-                _oprfKeyRegistry: oprf_key_registry,
-                _verifier: *groth16_verifier.address(),
-                _minExpirationThreshold: 3600,
+                credentialIssuerRegistry: credential_issuer_registry,
+                worldIDRegistry: world_id_registry,
+                oprfKeyRegistry: oprf_key_registry,
+                verifier: *groth16_verifier.address(),
+                minExpirationThreshold: 3600,
             }
             .abi_encode(),
         );

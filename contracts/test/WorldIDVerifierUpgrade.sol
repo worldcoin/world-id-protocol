@@ -73,9 +73,9 @@ contract VerifierUpgradeTest is Test {
         verifier.updateOprfKeyRegistry(oprfKeyRegistry);
 
         // Verify state before upgrade
-        assertEq(address(verifier.credentialSchemaIssuerRegistry()), credentialIssuerRegistry);
-        assertEq(address(verifier.worldIDRegistry()), worldIDRegistry);
-        assertEq(address(verifier.oprfKeyRegistry()), oprfKeyRegistry);
+        assertEq(verifier.getCredentialSchemaIssuerRegistry(), credentialIssuerRegistry);
+        assertEq(verifier.getWorldIDRegistry(), worldIDRegistry);
+        assertEq(verifier.getOprfKeyRegistry(), oprfKeyRegistry);
 
         // Deploy V2 implementation
         VerifierV2Mock implementationV2 = new VerifierV2Mock();
@@ -87,9 +87,9 @@ contract VerifierUpgradeTest is Test {
         VerifierV2Mock verifierV2 = VerifierV2Mock(address(proxy));
 
         // Verify storage was preserved
-        assertEq(address(verifierV2.credentialSchemaIssuerRegistry()), credentialIssuerRegistry);
-        assertEq(address(verifierV2.worldIDRegistry()), worldIDRegistry);
-        assertEq(address(verifierV2.oprfKeyRegistry()), oprfKeyRegistry);
+        assertEq(verifierV2.getCredentialSchemaIssuerRegistry(), credentialIssuerRegistry);
+        assertEq(verifierV2.getWorldIDRegistry(), worldIDRegistry);
+        assertEq(verifierV2.getOprfKeyRegistry(), oprfKeyRegistry);
 
         // Verify new functionality works
         assertEq(verifierV2.version(), "V2");
@@ -99,7 +99,7 @@ contract VerifierUpgradeTest is Test {
         // Verify old functionality still works
         address newOprfKeyRegistry = address(0x4444);
         verifierV2.updateOprfKeyRegistry(newOprfKeyRegistry);
-        assertEq(address(verifierV2.oprfKeyRegistry()), newOprfKeyRegistry);
+        assertEq(verifierV2.getOprfKeyRegistry(), newOprfKeyRegistry);
     }
 
     function test_UpgradeFailsForNonOwner() public {
@@ -170,7 +170,7 @@ contract VerifierUpgradeTest is Test {
         emit IWorldIDVerifier.CredentialSchemaIssuerRegistryUpdated(credentialIssuerRegistry, newRegistry);
 
         verifier.updateCredentialSchemaIssuerRegistry(newRegistry);
-        assertEq(address(verifier.credentialSchemaIssuerRegistry()), newRegistry);
+        assertEq(verifier.getCredentialSchemaIssuerRegistry(), newRegistry);
     }
 
     function test_UpdateWorldIDRegistry() public {
@@ -180,7 +180,7 @@ contract VerifierUpgradeTest is Test {
         emit IWorldIDVerifier.WorldIDRegistryUpdated(worldIDRegistry, newRegistry);
 
         verifier.updateWorldIDRegistry(newRegistry);
-        assertEq(address(verifier.worldIDRegistry()), newRegistry);
+        assertEq(verifier.getWorldIDRegistry(), newRegistry);
     }
 
     function test_UpdateOprfKeyRegistry() public {
@@ -190,7 +190,7 @@ contract VerifierUpgradeTest is Test {
         emit IWorldIDVerifier.OprfKeyRegistryUpdated(oprfKeyRegistry, newOprfKeyRegistry);
 
         verifier.updateOprfKeyRegistry(newOprfKeyRegistry);
-        assertEq(address(verifier.oprfKeyRegistry()), newOprfKeyRegistry);
+        assertEq(verifier.getOprfKeyRegistry(), newOprfKeyRegistry);
     }
 
     function test_OnlyOwnerCanUpdate() public {

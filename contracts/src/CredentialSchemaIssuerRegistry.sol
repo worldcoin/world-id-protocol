@@ -7,9 +7,12 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 import {ICredentialSchemaIssuerRegistry} from "./interfaces/ICredentialSchemaIssuerRegistry.sol";
 
 /**
- * @title CredentialSchemaIssuerRegistry
- * @author world
- * @notice A registry of schema+issuer for credentials. Each pair has an ID which is included in each issued Credential as issuerSchemaId.
+ * @title CredentialSchemaIssuerRegistry (World ID)
+ * @author World Contributors
+ * @notice World ID. Registry of Issuers. Each issuer registers a specific schema for a credential.
+ * @dev An `issuerSchemaId` represents the unique combination of a specific schema (e.g. ICAO 9303 Passport)
+ *   from a specific issuer (e.g. VerifiCo). This ID is included in each issued Credential.
+ * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerRegistry {
     ////////////////////////////////////////////////////////////
@@ -20,15 +23,20 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
     // that no reordering of these variables takes place. If reordering happens, a storage
     // clash will occur (effectively a memory safety error).
 
-    mapping(uint64 => Pubkey) private _idToPubkey;
+    /// @dev issuerSchemaId -> off-chain public key that signs credentials
+    mapping(uint64 => Pubkey) internal _idToPubkey;
 
-    // Stores the on-chain signer address for each issuerSchemaId, i.e. who is authorized to perform updates on the issuerSchemaId.
-    mapping(uint64 => address) private _idToAddress;
+    /// @dev issuerSchemaId -> on-chain signer address authorized to perform updates in this registry
+    mapping(uint64 => address) internal _idToSigner;
 
-    mapping(uint64 => uint256) private _idToSignatureNonce;
+    /// @dev issuerSchemaId -> signature nonce for replay protection
+    mapping(uint64 => uint256) internal _idToSignatureNonce;
 
-    // Stores the schema URI that contains the schema definition for each issuerSchemaId.
-    mapping(uint64 => string) public idToSchemaUri;
+    /// @dev issuerSchemaId -> schema URI containing the schema definition
+    mapping(uint64 => string) internal _idToSchemaUri;
+
+    /// @dev OPRF key registry contract, used to init OPRF key gen for blinding factors of credentials
+    IOprfKeyRegistry internal _oprfKeyRegistry;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -53,11 +61,21 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
         keccak256(abi.encodePacked(UPDATE_ISSUER_SCHEMA_URI_TYPEDEF));
     bytes32 public constant PUBKEY_TYPEHASH = keccak256(abi.encodePacked(PUBKEY_TYPEDEF));
 
-    // the OPRF key registry contract, used to init OPRF key gen for blinding factors of credentials
-    IOprfKeyRegistry public _oprfKeyRegistry;
+    ////////////////////////////////////////////////////////////
+    //                        Constructor                     //
+    ////////////////////////////////////////////////////////////
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
 
     /**
-     * @dev Initializes the contract.
+     * @notice Initializes the contract.
+     * @param feeRecipient The recipient of registration fees (can be address(0) if no fees).
+     * @param feeToken The token used to pay registration fees (can be address(0) if no fees).
+     * @param registrationFee The fee to register an issuer schema (default: 0).
+     * @param oprfKeyRegistry The address of the OPRF key registry contract.
      */
     function initialize(address feeRecipient, address feeToken, uint256 registrationFee, address oprfKeyRegistry)
         public
@@ -73,7 +91,7 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
     }
 
     ////////////////////////////////////////////////////////////
-    //                        Functions                       //
+    //                    PUBLIC FUNCTIONS                    //
     ////////////////////////////////////////////////////////////
 
     /// @inheritdoc ICredentialSchemaIssuerRegistry
@@ -109,7 +127,7 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
         _oprfKeyRegistry.initKeyGen(uint160(issuerSchemaId));
 
         _idToPubkey[issuerSchemaId] = pubkey;
-        _idToAddress[issuerSchemaId] = signer;
+        _idToSigner[issuerSchemaId] = signer;
 
         emit IssuerSchemaRegistered(issuerSchemaId, pubkey, signer, uint160(issuerSchemaId));
 
@@ -126,16 +144,16 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
             keccak256(abi.encode(REMOVE_ISSUER_SCHEMA_TYPEHASH, issuerSchemaId, _idToSignatureNonce[issuerSchemaId]))
         );
 
-        if (!SignatureChecker.isValidSignatureNow(_idToAddress[issuerSchemaId], messageHash, signature)) {
+        if (!SignatureChecker.isValidSignatureNow(_idToSigner[issuerSchemaId], messageHash, signature)) {
             revert InvalidSignature();
         }
 
-        address signer = _idToAddress[issuerSchemaId];
+        address signer = _idToSigner[issuerSchemaId];
 
         _idToSignatureNonce[issuerSchemaId]++;
         delete _idToPubkey[issuerSchemaId];
-        delete _idToAddress[issuerSchemaId];
-        delete idToSchemaUri[issuerSchemaId];
+        delete _idToSigner[issuerSchemaId];
+        delete _idToSchemaUri[issuerSchemaId];
 
         _oprfKeyRegistry.deleteOprfPublicKey(uint160(issuerSchemaId));
 
@@ -173,7 +191,7 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
             )
         );
 
-        if (!SignatureChecker.isValidSignatureNow(_idToAddress[issuerSchemaId], messageHash, signature)) {
+        if (!SignatureChecker.isValidSignatureNow(_idToSigner[issuerSchemaId], messageHash, signature)) {
             revert InvalidSignature();
         }
 
@@ -196,7 +214,7 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
         if (newSigner == address(0)) {
             revert InvalidSigner();
         }
-        if (_idToAddress[issuerSchemaId] == newSigner) {
+        if (_idToSigner[issuerSchemaId] == newSigner) {
             revert SignerAlreadyAssigned();
         }
 
@@ -206,28 +224,16 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
             )
         );
 
-        address oldSigner = _idToAddress[issuerSchemaId];
+        address oldSigner = _idToSigner[issuerSchemaId];
 
         if (!SignatureChecker.isValidSignatureNow(oldSigner, messageHash, signature)) {
             revert InvalidSignature();
         }
 
-        _idToAddress[issuerSchemaId] = newSigner;
+        _idToSigner[issuerSchemaId] = newSigner;
         emit IssuerSchemaSignerUpdated(issuerSchemaId, oldSigner, newSigner);
 
         _idToSignatureNonce[issuerSchemaId]++;
-    }
-
-    /// @inheritdoc ICredentialSchemaIssuerRegistry
-    function getIssuerSchemaUri(uint64 issuerSchemaId)
-        public
-        view
-        virtual
-        onlyProxy
-        onlyInitialized
-        returns (string memory)
-    {
-        return idToSchemaUri[issuerSchemaId];
     }
 
     /// @inheritdoc ICredentialSchemaIssuerRegistry
@@ -240,7 +246,7 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
         if (issuerSchemaId == 0) {
             revert InvalidIssuerSchemaId();
         }
-        if (keccak256(bytes(schemaUri)) == keccak256(bytes(idToSchemaUri[issuerSchemaId]))) {
+        if (keccak256(bytes(schemaUri)) == keccak256(bytes(_idToSchemaUri[issuerSchemaId]))) {
             revert SchemaUriIsTheSameAsCurrentOne();
         }
 
@@ -256,16 +262,32 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
             )
         );
 
-        if (!SignatureChecker.isValidSignatureNow(_idToAddress[issuerSchemaId], messageHash, signature)) {
+        if (!SignatureChecker.isValidSignatureNow(_idToSigner[issuerSchemaId], messageHash, signature)) {
             revert InvalidSignature();
         }
 
-        string memory oldSchemaUri = idToSchemaUri[issuerSchemaId];
-        idToSchemaUri[issuerSchemaId] = schemaUri;
+        string memory oldSchemaUri = _idToSchemaUri[issuerSchemaId];
+        _idToSchemaUri[issuerSchemaId] = schemaUri;
 
         emit IssuerSchemaUpdated(issuerSchemaId, oldSchemaUri, schemaUri);
 
         _idToSignatureNonce[issuerSchemaId]++;
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
+    function getIssuerSchemaUri(uint64 issuerSchemaId)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (string memory)
+    {
+        return _idToSchemaUri[issuerSchemaId];
     }
 
     /// @inheritdoc ICredentialSchemaIssuerRegistry
@@ -289,13 +311,22 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
         onlyInitialized
         returns (address)
     {
-        return _idToAddress[issuerSchemaId];
+        return _idToSigner[issuerSchemaId];
     }
 
     /// @inheritdoc ICredentialSchemaIssuerRegistry
     function nonceOf(uint64 issuerSchemaId) public view virtual override onlyProxy onlyInitialized returns (uint256) {
         return _idToSignatureNonce[issuerSchemaId];
     }
+
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
+    function getOprfKeyRegistry() public view virtual onlyProxy onlyInitialized returns (address) {
+        return address(_oprfKeyRegistry);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                   INTERNAL FUNCTIONS                   //
+    ////////////////////////////////////////////////////////////
 
     /**
      * @dev Checks if a pubkey is empty (has zero coordinates).

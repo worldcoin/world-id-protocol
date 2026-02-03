@@ -43,76 +43,79 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
     }
 }
 
-/// A proof request from a relying party for an authenticator
+/// A proof request from a Relying Party (RP) for an Authenticator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProofRequest {
-    /// Unique identifier for this request
+    /// Unique identifier for this request.
     pub id: String,
-    /// Version of the request
+    /// Version of the request.
     pub version: RequestVersion,
-    /// Unix timestamp (seconds since epoch) when the request was created
+    /// Unix timestamp (seconds) when the request was created.
     pub created_at: u64,
-    /// Unix timestamp (seconds since epoch) when request expires
+    /// Unix timestamp (seconds) when the request expires.
     pub expires_at: u64,
-    /// Registered RP ID
+    /// Registered RP identifier from the `RpRegistry`.
     pub rp_id: RpId,
-    /// `OprfKeyId` of the RP
+    /// `OprfKeyId` of the RP.
     pub oprf_key_id: OprfKeyId,
-    /// The `ShareEpoch` of the OPRF key to use for this request
+    /// The `ShareEpoch` of the OPRF key to use for this request.
     pub share_epoch: ShareEpoch,
-    /// If provided, a Session Proof(s) will be generated instead of a Uniqueness Proof(s).
+    /// Session identifier that links proofs for the same user/RP pair across requests.
     ///
+    /// If provided, a Session Proof will be generated instead of a Uniqueness Proof.
     /// The proof will only be valid if the session ID is meant for this context and this
     /// particular World ID holder.
     pub session_id: Option<FieldElement>,
-    /// The raw representation of the action. This must be already a field element.
+    /// An RP-defined context that scopes what the user is proving uniqueness on.
     ///
-    /// When dealing with strings or bytes, such value can be hashed e.g. with a byte-friendly
-    /// hash function like keccak256 or SHA256 and then reduced to a field element.
+    /// This parameter expects a field element. When dealing with strings or bytes,
+    /// hash with a byte-friendly hash function like keccak256 or SHA256 and reduce to the field.
     pub action: Option<FieldElement>,
-    /// The RP's ECDSA signature over the request
+    /// The RP's ECDSA signature over the request.
     pub signature: alloy::signers::Signature,
-    /// Unique nonce for this request (serialized as hex string)
+    /// Unique nonce for this request provided by the RP.
     pub nonce: FieldElement,
     /// Specific credential requests. This defines which credentials to ask for.
     #[serde(rename = "proof_requests")]
     pub requests: Vec<RequestItem>,
-    /// Constraint expression (all/any) optional
+    /// Constraint expression (all/any) optional.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constraints: Option<ConstraintExpr<'static>>,
 }
 
-/// Per-credential request payload
+/// Per-credential request payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RequestItem {
-    /// An RP-defined identifier for this request item which can be used to match against constraints and responses.
+    /// An RP-defined identifier for this request item used to match against constraints and responses.
     ///
     /// Example: `orb`, `document`.
     pub identifier: String,
 
-    /// The specific credential being requested as registered in the `CredentialIssuerSchemaRegistry`.
-    /// Serialized as hex string in JSON.
-    pub issuer_schema_id: u64,
-    /// Optional RP-defined signal that will be bound into the proof.
+    /// Unique identifier for the credential schema and issuer pair.
     ///
-    /// When present, the authenticator hashes this via `signal_hash`
-    /// and commits it into the proof circuit so the RP can tie the proof to a
-    /// particular action.
+    /// Registered in the `CredentialSchemaIssuerRegistry`.
+    pub issuer_schema_id: u64,
+
+    /// Arbitrary data provided by the RP that gets cryptographically bound into the proof.
+    ///
+    /// When present, the Authenticator hashes this via `signal_hash` and commits it into the
+    /// proof circuit so the RP can tie the proof to a particular context.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
 
-    /// An optional constraint on the minimum genesis issued at timestamp on the Credential used for the proof.
+    /// Minimum `genesis_issued_at` timestamp that the used Credential must meet.
     ///
     /// If present, the proof will include a constraint that the credential's genesis issued at timestamp
-    /// is greater than or equal to this value. This is useful for migration from previous protocol versions.
+    /// is greater than or equal to this value. Can be set to 0 to skip.
+    /// This is useful for migration from previous protocol versions.
     pub genesis_issued_at_min: Option<u64>,
 
-    /// An optional constraint on the minimuim expiration timestamp on the Credential used for the proof.
+    /// The minimum expiration required for the Credential used in the proof.
     ///
-    /// If present, the proof will include a constraint that the credential's expiration timestamp
-    /// is greater than or equal to this value.
+    /// If the constraint is not required, it should use the current time as the minimum expiration.
+    /// The Authenticator will normally expose the effective input used in the proof.
     ///
     /// This is particularly useful to specify a minimum duration for a Credential proportional to the action
     /// being performed. For example, when claiming a benefit that is once every 6 months, the minimum duration
@@ -186,40 +189,41 @@ pub struct ProofResponse {
     pub responses: Vec<ResponseItem>,
 }
 
-/// Per-credential response item returned by the authenticator.
+/// Per-credential response item returned by the Authenticator.
 ///
 /// Each entry corresponds to one requested credential. It carries the proof
-/// material when the authenticator could satisfy the request, or an `error`
+/// material when the Authenticator could satisfy the request, or an `error`
 /// explaining why the credential could not be provided.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
-    /// An RP-defined identifier for this request item which can be used to match against constraints and responses.
+    /// An RP-defined identifier for this request item used to match against constraints and responses.
     ///
     /// Example: `orb`, `document`.
     pub identifier: String,
 
-    /// Issuer schema id this item refers to (serialized as hex string)
+    /// Unique identifier for the credential schema and issuer pair.
     pub issuer_schema_id: u64,
 
-    /// Proof payload
+    /// Encoded World ID Proof. See [`ZeroKnowledgeProof`] for more details.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<ZeroKnowledgeProof>,
 
-    /// RP-scoped nullifier derived from the credential, action, and RP id.
+    /// A unique, one-time identifier derived from (user, rpId, action) that lets RPs detect
+    /// duplicate actions without learning who the user is.
     ///
-    /// Encoded as a hex string representation of the field element output by
-    /// the nullifier circuit. Present only when a proof was produced.
+    /// Encoded as a hex string representation of the field element.
+    /// Present only when a proof was produced.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nullifier: Option<FieldElement>,
 
-    /// Present if credential not provided
+    /// Present if credential not provided.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 
-    /// The effective minimum expiration time of the Credential constraint used for the proof.
+    /// The minimum expiration required for the Credential used in the proof.
     ///
-    /// This precise value must be used when verifying the proof.
+    /// This precise value must be used when verifying the proof on-chain.
     pub expires_at_min: u64,
 }
 
