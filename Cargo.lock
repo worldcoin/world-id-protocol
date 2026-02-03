@@ -2666,7 +2666,6 @@ name = "common"
 version = "0.3.0"
 dependencies = [
  "alloy",
- "anyhow",
  "aws-config",
  "aws-sdk-kms",
  "clap",
@@ -2674,6 +2673,7 @@ dependencies = [
  "governor",
  "serde",
  "tempfile",
+ "thiserror 1.0.69",
  "tower",
  "tracing",
  "url",

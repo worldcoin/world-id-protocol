@@ -41,12 +41,7 @@ impl GatewayHandle {
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
-    let provider = Arc::new(
-        cfg.provider
-            .http()
-            .await
-            .map_err(|e| GatewayError::Provider(e.to_string()))?,
-    );
+    let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -80,12 +75,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env();
-    let provider = Arc::new(
-        cfg.provider
-            .http()
-            .await
-            .map_err(|e| GatewayError::Provider(e.to_string()))?,
-    );
+    let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
