@@ -577,7 +577,7 @@ impl Authenticator {
 
         let proof = ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root);
 
-        let response_item = ResponseItem::from_success(
+        let response_item = ResponseItem::new(
             request_item.identifier.clone(),
             request_item.issuer_schema_id,
             proof,

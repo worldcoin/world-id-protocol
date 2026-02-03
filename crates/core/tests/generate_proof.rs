@@ -316,14 +316,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         proof_request.created_at,
     )?;
 
-    assert_eq!(response_item.nullifier.unwrap(), raw_nullifier);
+    assert_eq!(response_item.nullifier, raw_nullifier);
 
     // verify proof with verifier contract
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
         WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
-            response_item.nullifier.unwrap().into(),
+            response_item.nullifier.into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
             rp_fixture.nonce.into(),
@@ -335,7 +335,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            response_item.proof.unwrap().as_ethereum_representation(),
+            response_item.proof.as_ethereum_representation(),
         )
         .call()
         .await?;

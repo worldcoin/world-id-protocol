@@ -189,9 +189,9 @@ pub struct ProofResponse {
 
 /// Per-credential response item returned by the Authenticator.
 ///
-/// Each entry corresponds to one requested credential. It carries the proof
-/// material when the Authenticator could satisfy the request, or an `error`
-/// explaining why the credential could not be provided.
+/// Each entry corresponds to one requested credential with its proof material.
+/// If any credential cannot be satisfied, the entire proof response fails at
+/// the Result level rather than including error items.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
@@ -204,20 +204,13 @@ pub struct ResponseItem {
     pub issuer_schema_id: u64,
 
     /// Encoded World ID Proof. See [`ZeroKnowledgeProof`] for more details.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub proof: Option<ZeroKnowledgeProof>,
+    pub proof: ZeroKnowledgeProof,
 
     /// A unique, one-time identifier derived from (user, rpId, action) that lets RPs detect
     /// duplicate actions without learning who the user is.
     ///
     /// Encoded as a hex string representation of the field element.
-    /// Present only when a proof was produced.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nullifier: Option<FieldElement>,
-
-    /// Present if credential not provided.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub nullifier: FieldElement,
 
     /// The minimum expiration required for the Credential used in the proof.
     ///
@@ -232,7 +225,6 @@ impl ProofResponse {
         let provided: HashSet<&str> = self
             .responses
             .iter()
-            .filter(|item| item.error.is_none())
             .map(|item| item.identifier.as_str())
             .collect();
 
@@ -241,9 +233,9 @@ impl ProofResponse {
 }
 
 impl ResponseItem {
-    /// Create a new response item for a successfully fulfilled request.
+    /// Create a new response item for a fulfilled request.
     #[must_use]
-    pub const fn from_success(
+    pub const fn new(
         identifier: String,
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
@@ -253,9 +245,8 @@ impl ResponseItem {
         Self {
             identifier,
             issuer_schema_id,
-            proof: Some(proof),
-            nullifier: Some(nullifier),
-            error: None,
+            proof,
+            nullifier,
             expires_at_min,
         }
     }
@@ -389,11 +380,10 @@ impl ProofRequest {
             }
         }
 
-        // Build set of successful credentials by identifier
+        // Build set of provided credentials by identifier
         let provided: HashSet<&str> = response
             .responses
             .iter()
-            .filter(|r| r.error.is_none())
             .map(|r| r.identifier.as_str())
             .collect();
 
@@ -476,14 +466,10 @@ impl ProofResponse {
         serde_json::to_string_pretty(self)
     }
 
-    /// Return the list of successful `issuer_schema_id`s (no error)
+    /// Return the list of `issuer_schema_id`s in the response.
     #[must_use]
-    pub fn successful_credentials(&self) -> Vec<u64> {
-        self.responses
-            .iter()
-            .filter(|r| r.error.is_none())
-            .map(|r| r.issuer_schema_id)
-            .collect()
+    pub fn credentials(&self) -> Vec<u64> {
+        self.responses.iter().map(|r| r.issuer_schema_id).collect()
     }
 }
 
@@ -572,7 +558,7 @@ mod tests {
 
     #[test]
     fn constraints_all_any_nested() {
-        // Build a response that has orb and passport successful, gov-id missing
+        // Build a response that has test_req_1 and test_req_2 provided
         let response = ProofResponse {
             id: "req_123".into(),
             version: RequestVersion::V1,
@@ -581,26 +567,16 @@ mod tests {
                 ResponseItem {
                     identifier: "test_req_1".into(),
                     issuer_schema_id: 1,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1001)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1001),
                     expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_2".into(),
                     issuer_schema_id: 2,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1002)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1002),
                     expires_at_min: 1_735_689_600,
-                },
-                ResponseItem {
-                    identifier: "test_req_3".into(),
-                    issuer_schema_id: 3,
-                    proof: None,
-                    nullifier: None,
-                    error: Some("credential_not_available".into()),
-                    expires_at_min: 0,
                 },
             ],
         };
@@ -620,7 +596,7 @@ mod tests {
 
         assert!(response.constraints_satisfied(&expr));
 
-        // all: [test_req_1, test_req_3] should fail due to test_req_3 error
+        // all: [test_req_1, test_req_3] should fail because test_req_3 is not in response
         let fail_expr = ConstraintExpr::All {
             all: vec![
                 ConstraintNode::Type("test_req_1".into()),
@@ -710,17 +686,15 @@ mod tests {
                 ResponseItem {
                     identifier: "orb".into(),
                     issuer_schema_id: 1,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: None,
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1001),
                     expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "document".into(),
                     issuer_schema_id: 2,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: None,
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1002),
                     expires_at_min: 1_735_689_600,
                 },
             ],
@@ -734,9 +708,8 @@ mod tests {
             responses: vec![ResponseItem {
                 identifier: "orb".into(),
                 issuer_schema_id: 1,
-                proof: Some(ZeroKnowledgeProof::default()),
-                nullifier: None,
-                error: None,
+                proof: ZeroKnowledgeProof::default(),
+                nullifier: test_field_element(1001),
                 expires_at_min: 1_735_689_600,
             }],
         };
@@ -783,9 +756,8 @@ mod tests {
             responses: vec![ResponseItem {
                 identifier: "orb".into(),
                 issuer_schema_id: 1,
-                proof: Some(ZeroKnowledgeProof::default()),
-                nullifier: None,
-                error: None,
+                proof: ZeroKnowledgeProof::default(),
+                nullifier: test_field_element(1001),
                 expires_at_min: 1_735_689_600,
             }],
         };
@@ -910,25 +882,22 @@ mod tests {
                 ResponseItem {
                     identifier: "test_req_10".into(),
                     issuer_schema_id: 10,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: None,
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1010),
                     expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_11".into(),
                     issuer_schema_id: 11,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: None,
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1011),
                     expires_at_min: 1_735_689_600,
                 },
                 ResponseItem {
                     identifier: "test_req_15".into(),
                     issuer_schema_id: 15,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: None,
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1015),
                     expires_at_min: 1_735_689_600,
                 },
             ],
@@ -1060,9 +1029,8 @@ mod tests {
             responses: vec![ResponseItem {
                 identifier: "test_req_20".into(),
                 issuer_schema_id: 20,
-                proof: Some(ZeroKnowledgeProof::default()),
-                nullifier: None,
-                error: None,
+                proof: ZeroKnowledgeProof::default(),
+                nullifier: test_field_element(1020),
                 expires_at_min: 1_735_689_600,
             }],
         };
@@ -1105,9 +1073,8 @@ mod tests {
             responses: vec![ResponseItem {
                 identifier: "test_req_1".into(),
                 issuer_schema_id: 1,
-                proof: Some(ZeroKnowledgeProof::default()),
-                nullifier: Some(test_field_element(1001)),
-                error: None,
+                proof: ZeroKnowledgeProof::default(),
+                nullifier: test_field_element(1001),
                 expires_at_min: 1_725_381_192,
             }],
         };
@@ -1115,7 +1082,7 @@ mod tests {
     }
 
     #[test]
-    fn request_multiple_credentials_all_constraint_and_failure() {
+    fn request_multiple_credentials_all_constraint_and_missing() {
         let req = ProofRequest {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
@@ -1151,29 +1118,18 @@ mod tests {
             }),
         };
 
-        // Build response that fails constraints (0x1 error)
+        // Build response that fails constraints (test_req_1 is missing)
         let resp = ProofResponse {
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
-            responses: vec![
-                ResponseItem {
-                    identifier: "test_req_2".into(),
-                    issuer_schema_id: 2,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1001)),
-                    error: None,
-                    expires_at_min: 1_725_381_192,
-                },
-                ResponseItem {
-                    identifier: "test_req_1".into(),
-                    issuer_schema_id: 1,
-                    proof: None,
-                    nullifier: None,
-                    error: Some("credential_not_available".into()),
-                    expires_at_min: 1_725_381_192,
-                },
-            ],
+            responses: vec![ResponseItem {
+                identifier: "test_req_2".into(),
+                issuer_schema_id: 2,
+                proof: ZeroKnowledgeProof::default(),
+                nullifier: test_field_element(1001),
+                expires_at_min: 1_725_381_192,
+            }],
         };
 
         let err = req.validate_response(&resp).unwrap_err();
@@ -1238,17 +1194,15 @@ mod tests {
                 ResponseItem {
                     identifier: "test_req_3".into(),
                     issuer_schema_id: 3,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1001)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1001),
                     expires_at_min: 1_725_381_192,
                 },
                 ResponseItem {
                     identifier: "test_req_1".into(),
                     issuer_schema_id: 1,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1002)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1002),
                     expires_at_min: 1_725_381_192,
                 },
             ],
@@ -1258,7 +1212,7 @@ mod tests {
     }
 
     #[test]
-    fn response_success_and_with_session_and_failure_parse() {
+    fn response_json_parse() {
         // Success OK - using default proof (all zeros) in hex
         let ok_json = r#"{
   "id": "req_18c0f7f03e7d",
@@ -1275,19 +1229,7 @@ mod tests {
 }"#;
 
         let ok = ProofResponse::from_json(ok_json).unwrap();
-        assert_eq!(ok.successful_credentials(), vec![100]);
-
-        // Failure (constraints not satisfied) shape parsing
-        let fail_json = r#"{
-  "id": "req_18c0f7f03e7d",
-  "version": 1,
-  "responses": [
-    { "identifier": "orb", "issuer_schema_id": 100, "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9", "expires_at_min": 1725381192 },
-    { "identifier": "gov_id", "issuer_schema_id": 101, "error": "credential_not_available", "expires_at_min": 0 }
-  ]
-}"#;
-        let fail = ProofResponse::from_json(fail_json).unwrap();
-        assert_eq!(fail.successful_credentials(), vec![100]);
+        assert_eq!(ok.credentials(), vec![100]);
 
         // Success with Session
         let sess_json = r#"{
@@ -1305,7 +1247,7 @@ mod tests {
   ]
 }"#;
         let sess = ProofResponse::from_json(sess_json).unwrap();
-        assert_eq!(sess.successful_credentials(), vec![100]);
+        assert_eq!(sess.credentials(), vec![100]);
         assert!(sess.session_id.is_some());
     }
 
@@ -1554,17 +1496,15 @@ mod tests {
                 ResponseItem {
                     identifier: "orb".into(),
                     issuer_schema_id: 100,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1001)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1001),
                     expires_at_min: request_created_at, // Matches default
                 },
                 ResponseItem {
                     identifier: "document".into(),
                     issuer_schema_id: 101,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1002)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1002),
                     expires_at_min: custom_expires_at, // Matches explicit value
                 },
             ],
@@ -1580,17 +1520,15 @@ mod tests {
                 ResponseItem {
                     identifier: "orb".into(),
                     issuer_schema_id: 100,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1001)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1001),
                     expires_at_min: custom_expires_at, // Wrong! Should be request_created_at
                 },
                 ResponseItem {
                     identifier: "document".into(),
                     issuer_schema_id: 101,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1002)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1002),
                     expires_at_min: custom_expires_at,
                 },
             ],
@@ -1615,17 +1553,15 @@ mod tests {
                 ResponseItem {
                     identifier: "orb".into(),
                     issuer_schema_id: 100,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1001)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1001),
                     expires_at_min: request_created_at,
                 },
                 ResponseItem {
                     identifier: "document".into(),
                     issuer_schema_id: 101,
-                    proof: Some(ZeroKnowledgeProof::default()),
-                    nullifier: Some(test_field_element(1002)),
-                    error: None,
+                    proof: ZeroKnowledgeProof::default(),
+                    nullifier: test_field_element(1002),
                     expires_at_min: request_created_at, // Wrong! Should be custom_expires_at
                 },
             ],
