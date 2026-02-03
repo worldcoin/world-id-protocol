@@ -194,8 +194,8 @@ pub struct ProofResponse {
 /// Per-credential response item returned by the Authenticator.
 ///
 /// Each entry corresponds to one requested credential with its proof material.
-/// If any credential cannot be satisfied, the entire proof response fails at
-/// the Result level rather than including error items.
+/// If any credential cannot be satisfied, the entire proof response will have
+/// an error at the `ProofResponse` level with an empty `responses` array.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
