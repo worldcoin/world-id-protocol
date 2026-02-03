@@ -33,7 +33,7 @@ alloy = { version = "1.5", default-features = false }
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.2", default-features = false, features = [
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.4", default-features = false, features = [
   "babyjubjub",
 ] }
 ark-bn254 = "0.5"
@@ -42,22 +42,20 @@ ark-groth16 = "0.5"
 ark-serialize = "0.5"
 backon = "1"
 circom-witness-rs = "0.2.1"
-circom-types = { package = "taceo-circom-types", version = "=0.1.1", default-features = false }
+circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
 criterion = "0.7"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5" }
 eyre = "0.6"
 futures = "0.3"
-groth16-material = { package = "taceo-groth16-material", version = "0.1", default-features = false }
+groth16-material = { package = "taceo-groth16-material", version = "0.2", default-features = false }
 hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
-taceo-groth16-sol = { version = "0.1" }
-taceo-oprf = { version = "0.1", default-features = false }
-taceo-oprf-core = { version = "0.4", default-features = false }
-taceo-oprf-types = { version = "0.5", default-features = false }
-taceo-oprf-test-utils = "0.1"
-taceo-oprf-key-gen = "0.1"
+taceo-groth16-sol = { version = "0.2" }
+taceo-oprf = { version = "0.2", default-features = false }
+taceo-oprf-test-utils = "0.2"
+taceo-oprf-key-gen = "0.2"
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
@@ -103,9 +101,3 @@ world-id-primitives = { version = "0.3.0", path = "crates/primitives" }
 world-id-oprf-node = { version = "0.1", path = "services/oprf-node" }
 world-id-gateway = { version = "0.1", path = "services/gateway" }
 test-utils = { version = "0.3.0", path = "crates/test-utils" }
-
-
-[patch.crates-io]
-taceo-oprf = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "b3b95bf" }
-taceo-oprf-test-utils = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "b3b95bf" }
-taceo-oprf-key-gen = { version = "0.1", git = "https://github.com/TaceoLabs/oprf-service.git", rev = "b3b95bf" }

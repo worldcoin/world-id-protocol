@@ -1,17 +1,14 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    network::EthereumWallet,
-    primitives::{Address, U160, U256},
-    providers::ProviderBuilder,
+    primitives::{Address, U160},
     signers::{Signature, SignerSync, local::PrivateKeySigner},
-    sol_types::SolEvent,
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{PrimeField, UniformRand};
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
-use eyre::{Context as _, Result, eyre};
+use ark_ff::UniformRand;
+use eddsa_babyjubjub::EdDSAPublicKey;
+use eyre::{Context as _, Result};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
@@ -21,10 +18,7 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
 
-use crate::{
-    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, TestAnvil},
-    merkle::first_leaf_merkle_path,
-};
+use crate::{anvil::TestAnvil, merkle::first_leaf_merkle_path};
 
 /// Holds the default on-chain environment used by the E2E tests
 pub struct RegistryTestContext {
@@ -34,9 +28,6 @@ pub struct RegistryTestContext {
     pub credential_registry: Address,
     pub rp_registry: Address,
     pub world_id_verifier: Address,
-    pub issuer_private_key: EdDSAPrivateKey,
-    pub issuer_public_key: EdDSAPublicKey,
-    pub issuer_schema_id: u64,
 }
 
 impl RegistryTestContext {
@@ -88,51 +79,6 @@ impl RegistryTestContext {
             .await
             .wrap_err("failed to add CredentialSchemaIssuerRegistry as OprfKeyRegistry admin")?;
 
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(deployer.clone()))
-            .connect_http(
-                anvil
-                    .endpoint()
-                    .parse()
-                    .wrap_err("invalid anvil endpoint URL")?,
-            );
-        let issuer_registry = CredentialSchemaIssuerRegistry::new(credential_registry, provider);
-
-        let issuer_private_key = EdDSAPrivateKey::random(&mut thread_rng());
-        let issuer_public_key = issuer_private_key.public();
-        let issuer_pubkey_repr = ICredentialSchemaIssuerRegistry::Pubkey {
-            x: U256::from_limbs(issuer_public_key.pk.x.into_bigint().0),
-            y: U256::from_limbs(issuer_public_key.pk.y.into_bigint().0),
-        };
-
-        let issuer_schema_id: u64 = 1;
-
-        let receipt = issuer_registry
-            .register(issuer_schema_id, issuer_pubkey_repr, deployer.address())
-            .send()
-            .await
-            .wrap_err("failed to submit issuer registration")?
-            .get_receipt()
-            .await
-            .wrap_err("failed to fetch issuer registration receipt")?;
-
-        let registered_id = receipt
-            .logs()
-            .iter()
-            .find_map(|log| {
-                CredentialSchemaIssuerRegistry::IssuerSchemaRegistered::decode_log(
-                    log.inner.as_ref(),
-                )
-                .ok()
-            })
-            .map(|event| event.issuerSchemaId)
-            .ok_or_else(|| eyre!("IssuerSchemaRegistered event not emitted"))?;
-
-        assert_eq!(
-            registered_id, issuer_schema_id,
-            "registered ID should match requested ID"
-        );
-
         Ok(Self {
             anvil,
             world_id_registry,
@@ -140,9 +86,6 @@ impl RegistryTestContext {
             credential_registry,
             rp_registry,
             world_id_verifier,
-            issuer_private_key,
-            issuer_public_key,
-            issuer_schema_id,
         })
     }
 }

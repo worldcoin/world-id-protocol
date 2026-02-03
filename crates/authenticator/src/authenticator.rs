@@ -32,10 +32,7 @@ use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
-use taceo_oprf::{
-    client::Connector,
-    types::{OprfKeyId, ShareEpoch},
-};
+use taceo_oprf::{client::Connector, types::OprfKeyId};
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
@@ -495,7 +492,6 @@ impl Authenticator {
         &self,
         issuer_schema_id: u64,
         oprf_key_id: OprfKeyId,
-        share_epoch: ShareEpoch,
     ) -> Result<FieldElement, AuthenticatorError> {
         let (services, threshold) = self.check_oprf_config()?;
 
@@ -523,7 +519,6 @@ impl Authenticator {
             issuer_schema_id,
             FieldElement::ZERO, // for now action is always zero, might change in future
             oprf_key_id,
-            share_epoch,
             self.ws_connector.clone(),
         )
         .await?;

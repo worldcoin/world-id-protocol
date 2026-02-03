@@ -6,7 +6,7 @@ use groth16_material::circom::CircomGroth16Material;
 use taceo_oprf::{
     client::{Connector, VerifiableOprfOutput},
     core::oprf::BlindingFactor,
-    types::{OprfKeyId, ShareEpoch},
+    types::OprfKeyId,
 };
 
 use world_id_primitives::{
@@ -41,7 +41,6 @@ impl OprfCredentialBlindingFactor {
     /// - `issuer_schema_id`: The schema ID of the credential issuer.
     /// - `action`: The action for which the blinding factor is being requested.
     /// - `oprf_key_id`: The OPRF key identifier.
-    /// - `share_epoch`: The share epoch for the OPRF key.
     ///
     /// # Errors
     ///
@@ -58,7 +57,6 @@ impl OprfCredentialBlindingFactor {
         issuer_schema_id: u64,
         action: FieldElement,
         oprf_key_id: OprfKeyId,
-        share_epoch: ShareEpoch,
         connector: Connector,
     ) -> Result<Self, ProofError> {
         let mut rng = rand::rngs::OsRng;
@@ -113,7 +111,6 @@ impl OprfCredentialBlindingFactor {
             OprfModule::CredentialBlindingFactor.to_string().as_str(),
             threshold,
             oprf_key_id,
-            share_epoch,
             *query_hash,
             query_blinding_factor,
             ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
