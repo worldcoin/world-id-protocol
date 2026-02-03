@@ -68,11 +68,8 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
         let _ = rx.await;
     });
-    let join = tokio::spawn(async move {
-        server
-            .await
-            .map_err(|e| GatewayError::HttpService(Box::new(e)))
-    });
+    let join =
+        tokio::spawn(async move { server.await.map_err(|e| GatewayError::Serve(Box::new(e))) });
     Ok(GatewayHandle {
         shutdown: Some(tx),
         join,
@@ -107,6 +104,6 @@ pub async fn run() -> GatewayResult<()> {
     tracing::info!("HTTP server listening on {}", cfg.listen_addr);
     axum::serve(listener, app)
         .await
-        .map_err(|e| GatewayError::HttpService(Box::new(e)))?;
+        .map_err(|e| GatewayError::Serve(Box::new(e)))?;
     Ok(())
 }
