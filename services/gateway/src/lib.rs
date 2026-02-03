@@ -9,6 +9,7 @@ use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 mod batcher;
 mod config;
 mod create_batcher;
+mod error;
 mod metrics;
 mod ops_batcher;
 mod request;
@@ -17,31 +18,35 @@ mod routes;
 mod types;
 
 // Re-export common types
+pub use crate::error::{GatewayError, GatewayResult};
 pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};
 
 #[derive(Debug)]
 pub struct GatewayHandle {
     shutdown: Option<oneshot::Sender<()>>,
-    join: tokio::task::JoinHandle<anyhow::Result<()>>,
+    join: tokio::task::JoinHandle<GatewayResult<()>>,
     pub listen_addr: SocketAddr,
 }
 
 impl GatewayHandle {
-    pub async fn shutdown(mut self) -> anyhow::Result<()> {
+    pub async fn shutdown(mut self) -> GatewayResult<()> {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
         // Wait for server task to finish
-        match self.join.await {
-            Ok(res) => res,
-            Err(e) => Err(anyhow::anyhow!(format!("join error: {e}"))),
-        }
+        self.join.await??;
+        Ok(())
     }
 }
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
-pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<GatewayHandle> {
-    let provider = Arc::new(cfg.provider.http().await?);
+pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
+    let provider = Arc::new(
+        cfg.provider
+            .http()
+            .await
+            .map_err(|e| GatewayError::Provider(e.to_string()))?,
+    );
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -63,7 +68,8 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
         let _ = rx.await;
     });
-    let join = tokio::spawn(async move { server.await.map_err(|e| anyhow::anyhow!(e)) });
+    let join =
+        tokio::spawn(async move { server.await.map_err(|e| GatewayError::Serve(Box::new(e))) });
     Ok(GatewayHandle {
         shutdown: Some(tx),
         join,
@@ -72,9 +78,14 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> anyhow::Result<Gatew
 }
 
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
-pub async fn run() -> anyhow::Result<()> {
+pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env();
-    let provider = Arc::new(cfg.provider.http().await?);
+    let provider = Arc::new(
+        cfg.provider
+            .http()
+            .await
+            .map_err(|e| GatewayError::Provider(e.to_string()))?,
+    );
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -91,6 +102,8 @@ pub async fn run() -> anyhow::Result<()> {
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
     tracing::info!("HTTP server listening on {}", cfg.listen_addr);
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| GatewayError::Serve(Box::new(e)))?;
     Ok(())
 }

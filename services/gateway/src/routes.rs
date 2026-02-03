@@ -4,6 +4,7 @@ use crate::{
     AppState,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
+    error::GatewayResult,
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -60,7 +61,7 @@ pub(crate) async fn build_app(
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
-) -> anyhow::Result<Router> {
+) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(redis_url).await;
 
     let (tx, rx) = mpsc::channel(1024);

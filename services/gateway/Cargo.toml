@@ -20,7 +20,6 @@ alloy = { workspace = true, features = [
   "signer-aws",
 ] }
 
-anyhow = { workspace = true }
 aws-config = "1"
 aws-sdk-kms = "1"
 axum = { workspace = true, features = ["macros", "json"] }

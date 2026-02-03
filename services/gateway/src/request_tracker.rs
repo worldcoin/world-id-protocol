@@ -13,6 +13,7 @@ use world_id_core::types::{
     GatewayErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
 };
 
+use crate::error::{GatewayError, GatewayResult};
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
     pub kind: GatewayRequestKind,
@@ -217,7 +218,7 @@ impl RequestTracker {
         &self,
         id: &str,
         status: &GatewayRequestState,
-    ) -> anyhow::Result<()> {
+    ) -> GatewayResult<()> {
         if let Some(mut manager) = self.redis_manager.clone() {
             let key = Self::request_key(id);
             let status_json = serde_json::to_string(status)?;
@@ -247,7 +248,7 @@ impl RequestTracker {
             return Ok(());
         }
 
-        anyhow::bail!("Cannot call set_status_redis if Redis is not configured.")
+        Err(GatewayError::RedisNotConfigured)
     }
 
     // =========================================================================
