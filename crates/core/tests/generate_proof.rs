@@ -181,7 +181,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
     health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
-    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
 
     // Register an issuer which also triggers a OPRF key-gen.
     let issuer_schema_id = 1u64;
