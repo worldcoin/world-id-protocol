@@ -74,7 +74,7 @@ fn test_run_mode_from_env_indexer_only() {
     set_env("RUN_MODE", "indexer");
     set_env("START_BLOCK", "100");
 
-    let mode = RunMode::from_env();
+    let mode = RunMode::from_env().expect("Should load RunMode from env.");
     assert!(matches!(mode, RunMode::IndexerOnly { .. }));
 
     clear_env("RUN_MODE");
@@ -90,8 +90,9 @@ fn test_run_mode_from_env_http_only() {
 
     set_env("RUN_MODE", "http");
     set_env("HTTP_ADDR", "127.0.0.1:8080");
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-    let mode = RunMode::from_env();
+    let mode = RunMode::from_env().expect("Should load RunMode from env.");
     assert!(matches!(mode, RunMode::HttpOnly { .. }));
 
     clear_env("RUN_MODE");
@@ -108,8 +109,9 @@ fn test_run_mode_from_env_both() {
     set_env("RUN_MODE", "both");
     set_env("START_BLOCK", "100");
     set_env("HTTP_ADDR", "127.0.0.1:8080");
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-    let mode = RunMode::from_env();
+    let mode = RunMode::from_env().expect("Should load RunMode from env.");
     assert!(matches!(mode, RunMode::Both { .. }));
 
     clear_env("RUN_MODE");
@@ -125,8 +127,9 @@ fn test_run_mode_default() {
     clear_all_config_env();
     set_env("START_BLOCK", "100");
     set_env("HTTP_ADDR", "127.0.0.1:8080");
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-    let mode = RunMode::from_env();
+    let mode = RunMode::from_env().expect("Should load RunMode from env.");
     // Default should be "both"
     assert!(matches!(mode, RunMode::Both { .. }));
 
@@ -134,15 +137,19 @@ fn test_run_mode_default() {
 }
 
 #[test]
-#[should_panic(expected = "Invalid run mode")]
 #[serial]
 fn test_run_mode_invalid() {
-    {
-        let _guard = ENV_LOCK.lock().unwrap();
-        set_env("RUN_MODE", "invalid_mode");
-    } // Drop guard before panic
+    let _guard = ENV_LOCK.lock().unwrap();
 
-    let _ = RunMode::from_env();
+    clear_all_config_env();
+    set_env("RUN_MODE", "invalid_mode");
+
+    let result = RunMode::from_env();
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("invalid RUN_MODE") || err_msg.contains("Invalid"));
+
+    clear_all_config_env();
 }
 
 #[test]
@@ -152,11 +159,12 @@ fn test_http_config_defaults() {
 
     clear_all_config_env();
 
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
     clear_env("HTTP_ADDR");
     clear_env("DB_POLL_INTERVAL_SECS");
     clear_env("SANITY_CHECK_INTERVAL_SECS");
 
-    let config = HttpConfig::from_env();
+    let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
 
     assert_eq!(config.http_addr.to_string(), "0.0.0.0:8080");
     assert_eq!(config.db_poll_interval_secs, 1);
@@ -170,11 +178,12 @@ fn test_http_config_custom_values() {
 
     clear_all_config_env();
 
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
     set_env("HTTP_ADDR", "127.0.0.1:9000");
     set_env("DB_POLL_INTERVAL_SECS", "5");
     set_env("SANITY_CHECK_INTERVAL_SECS", "60");
 
-    let config = HttpConfig::from_env();
+    let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
 
     assert_eq!(config.http_addr.to_string(), "127.0.0.1:9000");
     assert_eq!(config.db_poll_interval_secs, 5);
@@ -192,9 +201,10 @@ fn test_http_config_sanity_check_disabled_on_zero() {
 
     clear_all_config_env();
 
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
     set_env("SANITY_CHECK_INTERVAL_SECS", "0");
 
-    let config = HttpConfig::from_env();
+    let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
     assert_eq!(config.sanity_check_interval_secs, None);
 
     clear_env("SANITY_CHECK_INTERVAL_SECS");
@@ -269,116 +279,114 @@ fn test_global_config_environment_default() {
         "0x0000000000000000000000000000000000000001",
     );
     set_env("TREE_CACHE_FILE", "/tmp/test_cache");
+    set_env("HTTP_ADDR", "127.0.0.1:8080");
+    set_env("START_BLOCK", "0");
 
-    let config = GlobalConfig::from_env();
+    let config = GlobalConfig::from_env().expect("Should load GlobalConfig from env.");
     assert_eq!(config.environment, Environment::Development);
 
     clear_all_config_env();
 }
 
 #[test]
-#[should_panic(expected = "DATABASE_URL must be set")]
 #[serial]
 fn test_global_config_missing_database_url() {
-    {
-        let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap();
 
-        clear_all_config_env();
-        set_env("RPC_URL", "http://localhost:8545");
-        set_env("WS_URL", "ws://localhost:8545");
-        set_env(
-            "REGISTRY_ADDRESS",
-            "0x0000000000000000000000000000000000000001",
-        );
-        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
+    clear_all_config_env();
+    set_env("RPC_URL", "http://localhost:8545");
+    set_env("WS_URL", "ws://localhost:8545");
+    set_env(
+        "REGISTRY_ADDRESS",
+        "0x0000000000000000000000000000000000000001",
+    );
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-        drop(_guard);
-    }
+    let result = GlobalConfig::from_env();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("DATABASE_URL"));
 
-    let _ = GlobalConfig::from_env();
+    clear_all_config_env();
 }
 
 #[test]
-#[should_panic(expected = "RPC_URL must be set")]
 #[serial]
 fn test_global_config_missing_rpc_url() {
-    {
-        let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap();
 
-        clear_all_config_env();
-        set_env("DATABASE_URL", "postgresql://localhost/test");
-        set_env("WS_URL", "ws://localhost:8545");
-        set_env(
-            "REGISTRY_ADDRESS",
-            "0x0000000000000000000000000000000000000001",
-        );
-        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
+    clear_all_config_env();
+    set_env("DATABASE_URL", "postgresql://localhost/test");
+    set_env("WS_URL", "ws://localhost:8545");
+    set_env(
+        "REGISTRY_ADDRESS",
+        "0x0000000000000000000000000000000000000001",
+    );
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-        drop(_guard);
-    }
+    let result = GlobalConfig::from_env();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("RPC_URL"));
 
-    let _ = GlobalConfig::from_env();
+    clear_all_config_env();
 }
 
 #[test]
-#[should_panic(expected = "WS_URL must be set")]
 #[serial]
 fn test_global_config_missing_ws_url() {
-    {
-        let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap();
 
-        clear_all_config_env();
-        set_env("DATABASE_URL", "postgresql://localhost/test");
-        set_env("RPC_URL", "http://localhost:8545");
-        set_env(
-            "REGISTRY_ADDRESS",
-            "0x0000000000000000000000000000000000000001",
-        );
-        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
+    clear_all_config_env();
+    set_env("DATABASE_URL", "postgresql://localhost/test");
+    set_env("RPC_URL", "http://localhost:8545");
+    set_env(
+        "REGISTRY_ADDRESS",
+        "0x0000000000000000000000000000000000000001",
+    );
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-        drop(_guard);
-    }
+    let result = GlobalConfig::from_env();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("WS_URL"));
 
-    let _ = GlobalConfig::from_env();
+    clear_all_config_env();
 }
 
 #[test]
-#[should_panic(expected = "REGISTRY_ADDRESS must be set")]
 #[serial]
 fn test_global_config_missing_registry_address() {
-    {
-        let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap();
 
-        clear_all_config_env();
-        set_env("DATABASE_URL", "postgresql://localhost/test");
-        set_env("RPC_URL", "http://localhost:8545");
-        set_env("WS_URL", "ws://localhost:8545");
-        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
+    clear_all_config_env();
+    set_env("DATABASE_URL", "postgresql://localhost/test");
+    set_env("RPC_URL", "http://localhost:8545");
+    set_env("WS_URL", "ws://localhost:8545");
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-        drop(_guard);
-    }
+    let result = GlobalConfig::from_env();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("REGISTRY_ADDRESS"));
 
-    let _ = GlobalConfig::from_env();
+    clear_all_config_env();
 }
 
 #[test]
-#[should_panic(expected = "REGISTRY_ADDRESS must be a valid address")]
 #[serial]
 fn test_global_config_invalid_registry_address() {
-    {
-        let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap();
 
-        clear_all_config_env();
-        set_env("DATABASE_URL", "postgresql://localhost/test");
-        set_env("RPC_URL", "http://localhost:8545");
-        set_env("WS_URL", "ws://localhost:8545");
-        set_env("REGISTRY_ADDRESS", "invalid_address");
-        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
+    clear_all_config_env();
+    set_env("DATABASE_URL", "postgresql://localhost/test");
+    set_env("RPC_URL", "http://localhost:8545");
+    set_env("WS_URL", "ws://localhost:8545");
+    set_env("REGISTRY_ADDRESS", "invalid_address");
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-        drop(_guard);
-    }
+    let result = GlobalConfig::from_env();
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("REGISTRY_ADDRESS") || err_msg.contains("Invalid"));
 
-    let _ = GlobalConfig::from_env();
+    clear_all_config_env();
 }
 
 #[test]
@@ -452,27 +460,31 @@ fn test_http_addr_parsing() {
     clear_all_config_env();
 
     // Valid formats
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
     set_env("HTTP_ADDR", "0.0.0.0:8080");
-    let config = HttpConfig::from_env();
+    let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
     assert_eq!(config.http_addr.to_string(), "0.0.0.0:8080");
 
     set_env("HTTP_ADDR", "127.0.0.1:3000");
-    let config = HttpConfig::from_env();
+    let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
     assert_eq!(config.http_addr.to_string(), "127.0.0.1:3000");
 
     clear_env("HTTP_ADDR");
 }
 
 #[test]
-#[should_panic]
 #[serial]
 fn test_http_addr_invalid_format() {
-    {
-        let _guard = ENV_LOCK.lock().unwrap();
-        set_env("HTTP_ADDR", "invalid:address:format");
-    } // Drop guard before panic
+    let _guard = ENV_LOCK.lock().unwrap();
 
-    let _ = HttpConfig::from_env();
+    clear_all_config_env();
+    set_env("TREE_CACHE_FILE", "/tmp/test_cache");
+    set_env("HTTP_ADDR", "invalid:address:format");
+
+    let result = HttpConfig::from_env();
+    assert!(result.is_err());
+
+    clear_all_config_env();
 }
 
 #[test]
