@@ -52,14 +52,29 @@ pub async fn init_tree(
     };
 
     let root = tree.root();
-    set_global_tree(tree, last_event_id).await;
+
+    // Validate that the final root exists in world_tree_roots
+    let root_entry = db
+        .world_tree_roots()
+        .get_root_by_value(&root)
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "final root 0x{:x} not found in world_tree_roots — tree state is inconsistent",
+                root
+            )
+        })?;
 
     info!(
         root = %format!("0x{:x}", root),
+        block_number = root_entry.id.block_number,
+        log_index = root_entry.id.log_index,
         ?last_event_id,
         source,
-        "init_tree: complete"
+        "init_tree: root validated"
     );
+
+    set_global_tree(tree, last_event_id).await;
 
     Ok(())
 }
