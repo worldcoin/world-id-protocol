@@ -11,7 +11,7 @@ use taceo_oprf::{
 use world_id_primitives::{
     FieldElement, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
-    oprf::{OprfModule, RpOprfRequestAuthV1},
+    oprf::{NullifierOprfRequestAuthV1, OprfModule},
 };
 use world_id_request::ProofRequest;
 
@@ -92,7 +92,7 @@ impl OprfNullifier {
         query_material.verify_proof(&proof, &public_inputs)?;
         tracing::debug!("generated query proof");
 
-        let auth = RpOprfRequestAuthV1 {
+        let auth = NullifierOprfRequestAuthV1 {
             proof: proof.into(),
             action,
             nonce: *proof_request.nonce,

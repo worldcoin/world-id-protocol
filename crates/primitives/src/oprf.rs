@@ -23,9 +23,9 @@ impl std::fmt::Display for OprfModule {
     }
 }
 
-/// A request sent by a client to perform an OPRF evaluation.
+/// A request sent by a client for OPRF nullifier authentication.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct RpOprfRequestAuthV1 {
+pub struct NullifierOprfRequestAuthV1 {
     /// Zero-knowledge proof provided by the user.
     pub proof: Proof<Bn254>,
     /// The action
@@ -50,9 +50,9 @@ pub struct RpOprfRequestAuthV1 {
     pub rp_id: RpId,
 }
 
-/// A request sent by a client to perform an OPRF evaluation.
+/// A request sent by a client for OPRF credential blinding factor authentication.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct SchemaIssuerOprfRequestAuthV1 {
+pub struct CredentialBlindingFactorOprfRequestAuthV1 {
     /// Zero-knowledge proof provided by the user.
     pub proof: Proof<Bn254>,
     /// The action

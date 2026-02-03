@@ -11,11 +11,11 @@ use axum::{http::StatusCode, response::IntoResponse};
 use std::time::{Duration, SystemTime};
 use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator};
 use uuid::Uuid;
-use world_id_primitives::oprf::RpOprfRequestAuthV1;
+use world_id_primitives::oprf::NullifierOprfRequestAuthV1;
 
-/// Errors returned by the [`RpOprfReqAuthenticator`].
+/// Errors returned by the [`NullifierOprfReqAuthenticator`].
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RpOprfRequestAuthError {
+pub(crate) enum NullifierOprfRequestAuthError {
     /// An error returned from the RpRegistry watcher service during merkle look-up.
     #[error(transparent)]
     RpRegistryWatcherError(#[from] RpRegistryWatcherError),
@@ -42,32 +42,32 @@ pub(crate) enum RpOprfRequestAuthError {
     InternalServerError(#[from] eyre::Report),
 }
 
-impl IntoResponse for RpOprfRequestAuthError {
+impl IntoResponse for NullifierOprfRequestAuthError {
     fn into_response(self) -> axum::response::Response {
         match self {
-            RpOprfRequestAuthError::RpRegistryWatcherError(err) => {
+            NullifierOprfRequestAuthError::RpRegistryWatcherError(err) => {
                 tracing::error!("RpRegistry watcher error: {err}");
                 (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
             }
-            RpOprfRequestAuthError::TimeStampDifference => (
+            NullifierOprfRequestAuthError::TimeStampDifference => (
                 StatusCode::BAD_REQUEST,
                 "the time stamp difference is too large",
             )
                 .into_response(),
-            RpOprfRequestAuthError::OprfKeyIdMismatch => {
+            NullifierOprfRequestAuthError::OprfKeyIdMismatch => {
                 (StatusCode::BAD_REQUEST, "oprf key id mismatch").into_response()
             }
-            RpOprfRequestAuthError::InvalidSignature(err) => {
+            NullifierOprfRequestAuthError::InvalidSignature(err) => {
                 (StatusCode::BAD_REQUEST, err.to_string()).into_response()
             }
-            RpOprfRequestAuthError::InvalidSigner => {
+            NullifierOprfRequestAuthError::InvalidSigner => {
                 (StatusCode::BAD_REQUEST, "invalid signer").into_response()
             }
-            RpOprfRequestAuthError::Common(err) => err.into_response(),
-            RpOprfRequestAuthError::DuplicateSignatureError(err) => {
+            NullifierOprfRequestAuthError::Common(err) => err.into_response(),
+            NullifierOprfRequestAuthError::DuplicateSignatureError(err) => {
                 (StatusCode::BAD_REQUEST, err.to_string()).into_response()
             }
-            RpOprfRequestAuthError::InternalServerError(err) => {
+            NullifierOprfRequestAuthError::InternalServerError(err) => {
                 let error_id = Uuid::new_v4();
                 tracing::error!("{error_id} - {err:?}");
                 (
@@ -80,14 +80,14 @@ impl IntoResponse for RpOprfRequestAuthError {
     }
 }
 
-pub(crate) struct RpOprfRequestAuthenticator {
+pub(crate) struct NullifierOprfRequestAuthenticator {
     rp_registry_watcher: RpRegistryWatcher,
     signature_history: SignatureHistory,
     current_time_stamp_max_difference: Duration,
     common: crate::auth::OprfRequestAuthenticator,
 }
 
-impl RpOprfRequestAuthenticator {
+impl NullifierOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
         rp_registry_watcher: RpRegistryWatcher,
@@ -104,9 +104,9 @@ impl RpOprfRequestAuthenticator {
 }
 
 #[async_trait]
-impl OprfRequestAuthenticator for RpOprfRequestAuthenticator {
-    type RequestAuth = RpOprfRequestAuthV1;
-    type RequestAuthError = RpOprfRequestAuthError;
+impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
+    type RequestAuth = NullifierOprfRequestAuthV1;
+    type RequestAuthError = NullifierOprfRequestAuthError;
 
     async fn verify(
         &self,
@@ -120,7 +120,7 @@ impl OprfRequestAuthenticator for RpOprfRequestAuthenticator {
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("system time is after unix epoch");
         if current_time.abs_diff(req_time_stamp) > self.current_time_stamp_max_difference {
-            return Err(RpOprfRequestAuthError::TimeStampDifference);
+            return Err(NullifierOprfRequestAuthError::TimeStampDifference);
         }
 
         // fetch the RP info
@@ -128,7 +128,7 @@ impl OprfRequestAuthenticator for RpOprfRequestAuthenticator {
 
         // check if the oprf key id matches the one registered for the RP
         if rp.oprf_key_id != request.share_identifier.oprf_key_id {
-            return Err(RpOprfRequestAuthError::OprfKeyIdMismatch);
+            return Err(NullifierOprfRequestAuthError::OprfKeyIdMismatch);
         }
 
         // check the RP nonce signature
@@ -140,7 +140,7 @@ impl OprfRequestAuthenticator for RpOprfRequestAuthenticator {
 
         let recovered = request.auth.signature.recover_address_from_msg(&msg)?;
         if recovered != rp.signer {
-            return Err(RpOprfRequestAuthError::InvalidSigner);
+            return Err(NullifierOprfRequestAuthError::InvalidSigner);
         }
 
         // add signature to history to check if the nonces where only used once

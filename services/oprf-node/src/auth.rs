@@ -4,9 +4,9 @@
 //!
 //! Additionally, it defines two sub-modules necessary for the authentication process.
 //!
-//! - [`issuer`] – implements authentication for Schema Issuers.
+//! - [`credential_blinding_factor`] – implements authentication for OPRF credential blinding factor generation.
 //! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
-//! - [`rp`] – implements authentication for Relying Parties (RPs).
+//! - [`nullifier`] – implements authentication for OPRF nullifier generation.
 //! - [`rp_registry_watcher`] – keeps track of registered RPs
 //! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
 //! - [`signature_history`] – keeps track of nonce + time_stamp signatures to detect replays
@@ -24,14 +24,14 @@ use crate::auth::merkle_watcher::{MerkleWatcher, MerkleWatcherError};
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
 
-pub(crate) mod issuer;
+pub(crate) mod credential_blinding_factor;
 pub(crate) mod merkle_watcher;
-pub(crate) mod rp;
+pub(crate) mod nullifier;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
 pub(crate) mod signature_history;
 
-/// Common errors returned by the [`RpOprfRequestAuthenticator`] and [`SchemaIssuerOprfRequestAuthenticator`].
+/// Common errors returned by the [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum OprfRequestAuthError {
     /// The client Groth16 proof did not verify.
@@ -62,7 +62,7 @@ impl IntoResponse for OprfRequestAuthError {
     }
 }
 
-/// Common authentication for [`RpOprfRequestAuthenticator`] and [`SchemaIssuerOprfRequestAuthenticator`].
+/// Common authentication for [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
 pub(crate) struct OprfRequestAuthenticator {
     merkle_watcher: MerkleWatcher,
     vk: Arc<ark_groth16::PreparedVerifyingKey<Bn254>>,
