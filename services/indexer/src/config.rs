@@ -278,13 +278,6 @@ mod tests {
         }
     }
 
-    /// Helper to clear environment variable
-    fn clear_env(key: &str) {
-        unsafe {
-            env::remove_var(key);
-        }
-    }
-
     /// Clear all config-related environment variables
     fn clear_all_config_env() {
         unsafe {
@@ -309,7 +302,7 @@ mod tests {
             env::remove_var("TREE_CACHE_FILE");
             env::remove_var("TREE_DEPTH");
             env::remove_var("TREE_DENSE_PREFIX_DEPTH");
-            env::remove_var("HTTP_CACHE_REFRESH_INTERVAL_SECS");
+            env::remove_var("TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS");
         }
     }
     #[test]
@@ -409,9 +402,6 @@ mod tests {
         clear_all_config_env();
 
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
-        clear_env("HTTP_ADDR");
-        clear_env("DB_POLL_INTERVAL_SECS");
-        clear_env("SANITY_CHECK_INTERVAL_SECS");
 
         let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
 
@@ -457,9 +447,6 @@ mod tests {
     #[serial]
     fn test_indexer_config_defaults() {
         clear_all_config_env();
-
-        clear_env("START_BLOCK");
-        clear_env("BATCH_SIZE");
 
         let config = IndexerConfig::from_env();
 
@@ -612,9 +599,6 @@ mod tests {
         clear_all_config_env();
 
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
-        clear_env("TREE_DEPTH");
-        clear_env("TREE_DENSE_PREFIX_DEPTH");
-        clear_env("TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS");
 
         let config = super::TreeCacheConfig::from_env().unwrap();
 
@@ -646,8 +630,6 @@ mod tests {
     #[serial]
     fn test_tree_cache_config_missing_required_field() {
         clear_all_config_env();
-
-        clear_env("TREE_CACHE_FILE");
 
         let result = super::TreeCacheConfig::from_env();
         assert!(
