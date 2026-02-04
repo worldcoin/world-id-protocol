@@ -47,6 +47,9 @@ rp = ["dep:world-id-request"]
 # OpenAPI/Swagger docs
 openapi = ["world-id-types/openapi"]
 
+# Axum support (for web services)
+axum = ["world-id-types/axum"]
+
 [dependencies]
 eddsa-babyjubjub = { workspace = true }
 

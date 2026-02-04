@@ -9381,6 +9381,7 @@ dependencies = [
  "alloy",
  "axum",
  "hex",
+ "http 1.4.0",
  "rand 0.8.5",
  "ruint",
  "serde",

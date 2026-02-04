@@ -12,8 +12,12 @@ repository.workspace = true
 include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
 [features]
-default = []
+default = ["http-minimal"]
 openapi = ["dep:utoipa"]
+# Axum support (for web services) - when enabled, provides IntoResponse implementations
+axum = ["dep:axum"]
+# Used when axum is not enabled to provide StatusCode type
+http-minimal = ["dep:http"]
 
 [dependencies]
 alloy = { workspace = true }
@@ -22,8 +26,11 @@ world-id-primitives = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true, features = ["derive"] }
-axum = { workspace = true }
+axum = { workspace = true, optional = true }
 hex = { workspace = true }
+
+# Only needed when axum feature is not enabled
+http = { workspace = true, optional = true }
 
 # Internal
 world-id-registry = { workspace = true }

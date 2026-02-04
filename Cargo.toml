@@ -49,6 +49,7 @@ eyre = "0.6"
 futures = "0.3"
 groth16-material = { package = "taceo-groth16-material", version = "0.2", default-features = false }
 hex = { version = "0.4" }
+http = "1"
 itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"

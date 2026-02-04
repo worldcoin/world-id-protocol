@@ -8,7 +8,10 @@ use alloy::primitives::Address;
 #[cfg(feature = "openapi")]
 use utoipa::{IntoParams, ToSchema};
 
+#[cfg(feature = "axum")]
 use axum::{http::StatusCode, response::IntoResponse};
+#[cfg(all(not(feature = "axum"), feature = "http-minimal"))]
+use http::StatusCode;
 use world_id_primitives::serde_utils::{
     hex_u32, hex_u32_opt, hex_u256, hex_u256_opt, hex_u256_vec,
 };
@@ -569,6 +572,7 @@ impl std::fmt::Display for GatewayErrorResponse {
 
 impl std::error::Error for GatewayErrorResponse {}
 
+#[cfg(feature = "axum")]
 impl IntoResponse for GatewayErrorResponse {
     fn into_response(self) -> axum::response::Response {
         (self.status, axum::Json(self.error)).into_response()
@@ -637,6 +641,7 @@ impl std::fmt::Display for IndexerErrorResponse {
 
 impl std::error::Error for IndexerErrorResponse {}
 
+#[cfg(feature = "axum")]
 impl IntoResponse for IndexerErrorResponse {
     fn into_response(self) -> axum::response::Response {
         (self.status, axum::Json(self.error)).into_response()

@@ -28,6 +28,7 @@ world-id-core = { workspace = true, features = [
   "authenticator",
   "openapi",
   "embed-zkeys",
+  "axum",
 ] }
 dotenvy = "0.15"
 hex = "0.4"
