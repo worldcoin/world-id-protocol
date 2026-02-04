@@ -6,7 +6,7 @@ use std::{
 
 use alloy::{
     network::EthereumWallet,
-    providers::{DynProvider, Provider, ProviderBuilder, WsConnect, fillers::CachedNonceManager},
+    providers::{DynProvider, Provider, ProviderBuilder, fillers::CachedNonceManager},
     rpc::{client::RpcClient, json_rpc::RequestPacket},
     signers::{
         Signer,
@@ -48,8 +48,8 @@ pub enum ProviderError {
     NoWsUrls,
     #[error("config error: {0}")]
     Config(#[from] ConfigError),
-    #[error("transport error: {0}")]
-    Transport(#[from] TransportError),
+    #[error("transport error while trying to fetch chain id: {0}")]
+    ChainId(#[from] TransportError),
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
@@ -114,7 +114,10 @@ impl SignerArgs {
                 tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
 
                 let temp_provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-                let chain_id = temp_provider.get_chain_id().await?;
+                let chain_id = temp_provider
+                    .get_chain_id()
+                    .await
+                    .map_err(ProviderError::ChainId)?;
                 tracing::info!("Fetched chain_id: {}", chain_id);
 
                 let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
@@ -265,26 +268,6 @@ impl ProviderArgs {
         };
 
         Ok(provider)
-    }
-
-    pub async fn ws(self) -> ProviderResult<DynProvider> {
-        let Some(ws) = self.ws else {
-            return Err(ProviderError::NoWsUrls);
-        };
-
-        let provider = ProviderBuilder::new()
-            .connect_ws(WsConnect::new(ws))
-            .await?
-            .erased();
-
-        Ok(provider)
-    }
-
-    pub async fn build_providers(self) -> ProviderResult<(DynProvider, DynProvider)> {
-        let http_provider = self.clone().http().await?;
-        let ws_provider = self.ws().await?;
-
-        Ok((http_provider, ws_provider))
     }
 }
 
