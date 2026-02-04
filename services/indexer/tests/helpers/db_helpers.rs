@@ -90,45 +90,6 @@ pub async fn create_unique_test_db() -> TestDatabase {
     }
 }
 
-/// Creates a unique test database for isolation between tests (legacy version)
-/// Returns (DB, String) tuple - caller must manually call cleanup_test_db
-///
-/// DEPRECATED: Use create_unique_test_db() instead which returns TestDatabase
-/// that automatically cleans up on drop
-#[deprecated(note = "Use create_unique_test_db() instead for automatic cleanup")]
-pub async fn create_unique_test_db_legacy() -> (DB, String) {
-    let unique_name = format!("test_db_{}", Uuid::new_v4().to_string().replace('-', "_"));
-    let base_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
-
-    // Connect to postgres database to create our test database
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&base_url)
-        .await
-        .expect("Failed to connect to postgres");
-
-    sqlx::query(&format!("CREATE DATABASE {}", unique_name))
-        .execute(&pool)
-        .await
-        .expect("Failed to create test database");
-
-    // Connect to the new database
-    // Properly replace just the database name in the URL
-    let test_db_url = if let Some(pos) = base_url.rfind('/') {
-        format!("{}/{}", &base_url[..pos], unique_name)
-    } else {
-        format!("{}/{}", base_url, unique_name)
-    };
-    let db = DB::new(&test_db_url, Some(5))
-        .await
-        .expect("Failed to connect to test database");
-
-    db.run_migrations().await.expect("Failed to run migrations");
-
-    (db, unique_name)
-}
-
 /// Cleanup test database
 pub async fn cleanup_test_db(db_name: &str) {
     let base_url = std::env::var("TEST_DATABASE_URL")

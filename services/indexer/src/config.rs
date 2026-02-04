@@ -288,18 +288,28 @@ mod tests {
     /// Clear all config-related environment variables
     fn clear_all_config_env() {
         unsafe {
-            env::remove_var("RUN_MODE");
-            env::remove_var("START_BLOCK");
-            env::remove_var("HTTP_ADDR");
+            // Global config
+            env::remove_var("ENVIRONMENT");
             env::remove_var("DATABASE_URL");
             env::remove_var("RPC_URL");
             env::remove_var("WS_URL");
             env::remove_var("REGISTRY_ADDRESS");
+            env::remove_var("RUN_MODE");
+
+            // HTTP config
+            env::remove_var("HTTP_ADDR");
+            env::remove_var("DB_POLL_INTERVAL_SECS");
+            env::remove_var("SANITY_CHECK_INTERVAL_SECS");
+
+            // Indexer config
+            env::remove_var("START_BLOCK");
+            env::remove_var("BATCH_SIZE");
+
+            // Tree cache config
             env::remove_var("TREE_CACHE_FILE");
-            env::remove_var("INDEXER_POLL_INTERVAL_SECONDS");
-            env::remove_var("INDEXER_BATCH_SIZE");
-            env::remove_var("HTTP_SANITY_CHECK_INTERVAL_SECONDS");
-            env::remove_var("ENVIRONMENT");
+            env::remove_var("TREE_DEPTH");
+            env::remove_var("TREE_DENSE_PREFIX_DEPTH");
+            env::remove_var("HTTP_CACHE_REFRESH_INTERVAL_SECS");
         }
     }
     #[test]
