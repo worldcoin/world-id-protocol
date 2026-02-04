@@ -1,6 +1,6 @@
 #![cfg(feature = "integration-tests")]
 mod helpers;
-use helpers::common::{TestSetup, RECOVERY_ADDRESS, query_count};
+use helpers::common::{RECOVERY_ADDRESS, TestSetup, query_count};
 
 use std::{fs, path::PathBuf, time::Duration};
 
@@ -460,7 +460,7 @@ async fn test_authenticator_removed_replay() {
                 batch_size: 1000,
             },
             http_config: HttpConfig {
-                http_addr: "0.0.0.0:8095".parse().unwrap(),
+                http_addr: "0.0.0.0:8098".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
