@@ -11,5 +11,10 @@ via_ir = true
 memory_limit = 1073741824
 gas_limit = "18446744073709551615"
 
+fs_permissions = [
+    { access = "read", path = "script/config/" },
+    { access = "read-write", path = "deployments/" }
+]
+
 [lint]
 exclude_lints = ["screaming-snake-case-const"]
