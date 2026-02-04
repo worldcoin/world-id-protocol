@@ -1,6 +1,6 @@
 #![cfg(feature = "integration-tests")]
 mod helpers;
-use helpers::common::{RECOVERY_ADDRESS, TestSetup, query_count};
+use helpers::common::{TestSetup, query_count};
 
 use std::{fs, path::PathBuf, time::Duration};
 

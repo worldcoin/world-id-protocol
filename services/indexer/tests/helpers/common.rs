@@ -8,7 +8,7 @@ use alloy::{
     primitives::{Address, U256, address},
     providers::ProviderBuilder,
 };
-use sqlx::{Executor, PgPool};
+use sqlx::PgPool;
 use test_utils::anvil::TestAnvil;
 use world_id_core::world_id_registry::WorldIdRegistry;
 use world_id_primitives::TREE_DEPTH;
@@ -95,8 +95,6 @@ impl TestSetup {
         registry.currentRoot().call().await.unwrap()
     }
 
-
-
     pub async fn wait_for_health(host_url: &str) {
         let client = reqwest::Client::new();
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
@@ -116,7 +114,6 @@ impl TestSetup {
         }
     }
 }
-
 
 pub async fn query_count(pool: &PgPool) -> i64 {
     let rec: (i64,) = sqlx::query_as("select count(*) from accounts")

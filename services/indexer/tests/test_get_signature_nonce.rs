@@ -1,7 +1,7 @@
 #![cfg(feature = "integration-tests")]
 
 mod helpers;
-use helpers::common::{TestSetup, RECOVERY_ADDRESS, query_count};
+use helpers::common::{TestSetup, query_count};
 
 use std::time::Duration;
 
