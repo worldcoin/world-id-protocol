@@ -137,8 +137,8 @@ where
         sqlx::query(&format!(
             r#"
                 UPDATE {} SET
-                    authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), false),
-                    authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), false),
+                    authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], to_jsonb($3::text), false),
+                    authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], to_jsonb($4::text), false),
                     offchain_signer_commitment = $5
                 WHERE
                     leaf_index = $1
@@ -205,8 +205,8 @@ where
         sqlx::query(&format!(
             r#"
                 UPDATE {} SET
-                    authenticator_addresses = jsonb_set(authenticator_addresses, $2, to_jsonb($3::text), true),
-                    authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, to_jsonb($4::text), true),
+                    authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], to_jsonb($3::text), true),
+                    authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], to_jsonb($4::text), true),
                     offchain_signer_commitment = $5
                 WHERE
                     leaf_index = $1
@@ -233,8 +233,8 @@ where
         sqlx::query(&format!(
             r#"
                 UPDATE {} SET
-                    authenticator_addresses = jsonb_set(authenticator_addresses, $2, 'null'::jsonb, false),
-                    authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2, 'null'::jsonb, false),
+                    authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], 'null'::jsonb, false),
+                    authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], 'null'::jsonb, false),
                     offchain_signer_commitment = $3
                 WHERE
                     leaf_index = $1
@@ -273,19 +273,19 @@ where
 
     fn map_authenticator_addresses(row: &PgRow) -> DBResult<Vec<Address>> {
         Ok(row
-            .get::<Json<Vec<String>>, _>("authenticator_addresses")
+            .get::<Json<Vec<Option<String>>>, _>("authenticator_addresses")
             .0
             .iter()
-            .filter_map(|s| s.parse::<Address>().ok())
+            .filter_map(|opt| opt.as_ref()?.parse::<Address>().ok())
             .collect())
     }
 
     fn map_authenticator_pub_keys(row: &PgRow) -> DBResult<Vec<U256>> {
         Ok(row
-            .get::<Json<Vec<String>>, _>("authenticator_pubkeys")
+            .get::<Json<Vec<Option<String>>>, _>("authenticator_pubkeys")
             .0
             .iter()
-            .filter_map(|s| s.parse::<U256>().ok())
+            .filter_map(|opt| opt.as_ref()?.parse::<U256>().ok())
             .collect())
     }
 

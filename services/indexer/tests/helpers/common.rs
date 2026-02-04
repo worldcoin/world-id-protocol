@@ -2,27 +2,25 @@
 
 use std::time::Duration;
 
+use super::db_helpers::{TestDatabase, create_unique_test_db};
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, U256, address},
     providers::ProviderBuilder,
 };
-use regex::Regex;
-use sqlx::{Executor, PgPool, postgres::PgPoolOptions};
+use sqlx::PgPool;
 use test_utils::anvil::TestAnvil;
-use tracing::info;
 use world_id_core::world_id_registry::WorldIdRegistry;
-use world_id_indexer::db::DB;
 use world_id_primitives::TREE_DEPTH;
 
 pub const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
-const TEST_DB_NAME: &str = "indexer_tests";
 
 pub struct TestSetup {
     pub _anvil: TestAnvil,
     pub registry_address: Address,
     pub db_url: String,
     pub pool: PgPool,
+    _test_db: TestDatabase, // Holds reference for automatic cleanup via RAII
 }
 
 impl TestSetup {
@@ -35,12 +33,9 @@ impl TestSetup {
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .try_init();
 
-        let db_url = Self::setup_test_database().await;
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(&db_url)
-            .await
-            .expect("failed to connect to test database");
+        let test_db = create_unique_test_db().await;
+        let db_url = test_db.db_url().to_string();
+        let pool = test_db.db.pool().clone();
 
         let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
         let deployer = anvil.signer(0).expect("failed to obtain deployer signer");
@@ -54,6 +49,7 @@ impl TestSetup {
             registry_address,
             db_url,
             pool,
+            _test_db: test_db,
         }
     }
 
@@ -99,53 +95,6 @@ impl TestSetup {
         registry.currentRoot().call().await.unwrap()
     }
 
-    async fn setup_test_database() -> String {
-        let base_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            format!("postgresql://postgres:postgres@localhost:5432/{TEST_DB_NAME}")
-        });
-
-        {
-            let re = Regex::new(&format!("/{TEST_DB_NAME}(\\??)")).unwrap();
-            let base_url = re.replace_all(&base_url, "/postgres${1}");
-
-            let db = DB::new(&base_url, Some(1)).await.unwrap();
-
-            info!("Dropping database...");
-            let _ = db
-                .pool()
-                .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
-                .await;
-            info!("Database dropped.");
-            info!("Creating database...");
-            db.pool()
-                .execute(format!("CREATE DATABASE {TEST_DB_NAME}").as_str())
-                .await
-                .unwrap();
-            info!("Database created.");
-        }
-
-        let db = DB::new(&base_url, Some(1)).await.unwrap();
-        db.run_migrations().await.unwrap();
-
-        base_url
-    }
-
-    async fn cleanup_test_database() {
-        let base_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            format!("postgresql://postgres:postgres@localhost:5432/{TEST_DB_NAME}")
-        });
-
-        let re = Regex::new(&format!("/{TEST_DB_NAME}(\\??)")).unwrap();
-        let base_url = re.replace_all(&base_url, "/postgres${1}");
-
-        if let Ok(db) = DB::new(&base_url, Some(1)).await {
-            let _ = db
-                .pool()
-                .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
-                .await;
-        }
-    }
-
     pub async fn wait_for_health(host_url: &str) {
         let client = reqwest::Client::new();
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
@@ -163,14 +112,6 @@ impl TestSetup {
 
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-    }
-}
-
-impl Drop for TestSetup {
-    fn drop(&mut self) {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(Self::cleanup_test_database());
-        });
     }
 }
 

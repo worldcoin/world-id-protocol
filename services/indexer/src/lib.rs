@@ -17,11 +17,11 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 pub use config::GlobalConfig;
 pub use error::{IndexerError, IndexerResult};
 
-mod blockchain;
+pub mod blockchain;
 pub mod config;
 pub mod db;
 mod error;
-mod events_committer;
+pub mod events_committer;
 mod routes;
 mod sanity_check;
 mod tree;

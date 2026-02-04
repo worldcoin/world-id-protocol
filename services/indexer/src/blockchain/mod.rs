@@ -9,7 +9,10 @@ use futures_util::{Stream, StreamExt, stream};
 use thiserror::Error;
 use url::Url;
 
-pub use crate::blockchain::events::{BlockchainEvent, RegistryEvent};
+pub use crate::blockchain::events::{
+    AccountCreatedEvent, AccountRecoveredEvent, AccountUpdatedEvent, AuthenticatorInsertedEvent,
+    AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent, RootRecordedEvent,
+};
 
 mod events;
 

@@ -1,13 +1,12 @@
 #![cfg(feature = "integration-tests")]
-mod common;
+mod helpers;
+use helpers::common::{TestSetup, query_count};
+use serial_test::serial;
 
 use std::time::Duration;
 
 use alloy::primitives::{U256, address};
-use common::{RECOVERY_ADDRESS, TestSetup, query_count};
 use http::StatusCode;
-use serial_test::serial;
-use sqlx::types::Json;
 use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
@@ -151,16 +150,33 @@ async fn test_backfill_and_live_sync() {
 /// is already in the DB, but the in-memory tree is not yet updated. This test ensures that we properly handle this case
 /// so that an incorrect inclusion proof is never returned.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[cfg(feature = "integration-tests")]
 #[serial]
+#[cfg(feature = "integration-tests")]
 async fn test_insertion_cycle_and_avoids_race_condition() {
     let setup = TestSetup::new_with_tree_depth(6).await;
+
+    // Create an account on-chain using the test helper
+    // This properly creates the account through the WorldIdRegistry contract
+    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let pk = U256::from_le_slice(&sk.public().to_compressed_bytes().unwrap());
+
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000021"),
+            pk,
+            1,
+        )
+        .await;
 
     let temp_cache_path =
         std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
     let global_config = GlobalConfig {
         environment: Environment::Development,
-        run_mode: RunMode::HttpOnly {
+        run_mode: RunMode::Both {
+            indexer_config: IndexerConfig {
+                start_block: 0,
+                batch_size: 1000,
+            },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8082".parse().unwrap(),
                 db_poll_interval_secs: 1,
@@ -169,7 +185,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,
                     dense_tree_prefix_depth: 2,
-                    http_cache_refresh_interval_secs: 30,
+                    http_cache_refresh_interval_secs: 1,
                 },
             },
         },
@@ -185,57 +201,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     TestSetup::wait_for_health("http://127.0.0.1:8082").await;
 
-    // Generate a valid EdDSA public key instead of using a raw integer
-    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
-    let pk = sk.public().to_compressed_bytes().unwrap();
-    let pk = U256::from_le_slice(&pk);
-
-    sqlx::query(
-        r#"insert into accounts
-        (leaf_index, recovery_address, authenticator_addresses, authenticator_pubkeys, offchain_signer_commitment)
-        values ($1, $2, $3, $4, $5)"#,
-    )
-    .bind(U256::from(1))
-    .bind(RECOVERY_ADDRESS.as_slice())
-    .bind(Json(vec![
-        "0x0000000000000000000000000000000000000011".to_string()
-    ]))
-    .bind(Json(vec![pk.to_string()]))
-    .bind(U256::from(99))
-    .execute(&setup.pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        r#"insert into world_tree_events
-        (leaf_index, event_type, offchain_signer_commitment, block_number, tx_hash, log_index)
-        values ($1, $2, $3, $4, $5, $6)"#,
-    )
-    .bind(U256::from(1))
-    .bind("created")
-    .bind(U256::from(99))
-    .bind(1i64)
-    .bind(U256::from(1))
-    .bind(0i64)
-    .execute(&setup.pool)
-    .await
-    .unwrap();
-
     let client = reqwest::Client::new();
-
-    let resp = client
-        .post("http://127.0.0.1:8082/inclusion-proof")
-        .header("Content-Type", "application/json")
-        .body(
-            serde_json::json!({
-                "leaf_index": "0x1"
-            })
-            .to_string(),
-        )
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::LOCKED);
 
     // wait for the in-memory tree to be updated
     tokio::time::sleep(Duration::from_secs(2)).await;

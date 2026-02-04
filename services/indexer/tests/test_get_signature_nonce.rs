@@ -1,13 +1,12 @@
 #![cfg(feature = "integration-tests")]
 
-mod common;
+mod helpers;
+use helpers::common::{TestSetup, query_count};
 
 use std::time::Duration;
 
 use alloy::primitives::{U256, address};
-use common::{TestSetup, query_count};
 use http::StatusCode;
-use serial_test::serial;
 use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
@@ -15,7 +14,6 @@ use world_id_indexer::config::{
 
 /// Tests the signature_nonce endpoint that retrieves signature nonces by account index
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
 async fn test_signature_nonce_endpoint() {
     let setup = TestSetup::new().await;
     let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());

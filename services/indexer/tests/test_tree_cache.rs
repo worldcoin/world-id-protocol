@@ -1,11 +1,11 @@
 #![cfg(feature = "integration-tests")]
-mod common;
+mod helpers;
+use helpers::common::{TestSetup, query_count};
+use serial_test::serial;
 
 use std::{fs, path::PathBuf, time::Duration};
 
 use alloy::primitives::{U256, address};
-use common::{TestSetup, query_count};
-use serial_test::serial;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
@@ -466,7 +466,7 @@ async fn test_authenticator_removed_replay() {
                 batch_size: 1000,
             },
             http_config: HttpConfig {
-                http_addr: "0.0.0.0:8095".parse().unwrap(),
+                http_addr: "0.0.0.0:8098".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
