@@ -12,7 +12,10 @@ async fn main() -> IndexerResult<()> {
     tracing::info!("Starting world-id-indexer...");
 
     let config = GlobalConfig::from_env()?;
-    world_id_indexer::run_indexer(config).await?;
+    if let Err(error) = world_id_indexer::run_indexer(config).await {
+        tracing::error!(error = ?error, "indexer terminated with error");
+        return Err(error);
+    }
 
     tracing::info!("⚠️ Exiting world-id-indexer...");
     Ok(())
