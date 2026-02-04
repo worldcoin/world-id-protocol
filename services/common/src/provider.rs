@@ -44,8 +44,6 @@ pub enum ProviderError {
     SignerConfigMissing,
     #[error("no HTTP URLs provided")]
     NoHttpUrls,
-    #[error("no WS URLs provided")]
-    NoWsUrls,
     #[error("config error: {0}")]
     Config(#[from] ConfigError),
     #[error("transport error while trying to fetch chain id: {0}")]
@@ -60,11 +58,6 @@ pub struct ProviderArgs {
     #[arg(long = "rpc-url", value_delimiter = ',', env = "RPC_URL")]
     #[serde(default)]
     pub http: Option<Vec<Url>>,
-
-    /// WebSocket RPC endpoints (in priority order).
-    #[arg(long = "ws-url", env = "WS_URL")]
-    #[serde(default)]
-    pub ws: Option<String>,
 
     #[command(flatten)]
     #[serde(default)]
@@ -206,11 +199,6 @@ impl ProviderArgs {
         self
     }
 
-    /// Add multiple WebSocket RPC endpoints.
-    pub fn with_ws_urls(mut self, url: String) -> Self {
-        self.ws = Some(url);
-        self
-    }
     /// Build a dynamic provider from the configuration.
     pub async fn http(self) -> ProviderResult<DynProvider> {
         let Some(http) = self.http else {
@@ -357,22 +345,6 @@ mod tests {
         assert_eq!(urls[0].as_str(), "https://rpc1.example.com/");
         assert_eq!(urls[1].as_str(), "https://rpc2.example.com/");
         assert_eq!(urls[2].as_str(), "https://rpc3.example.com/");
-    }
-
-    #[test]
-    fn from_file_loads_http_and_ws() {
-        let config = r#"
-            [provider]
-            http = ["https://rpc.example.com"]
-            ws = "wss://ws.example.com"
-        "#;
-
-        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
-        file.write_all(config.as_bytes()).unwrap();
-
-        let args = ProviderArgs::from_file(file.path()).unwrap();
-        assert_eq!(args.http.unwrap().len(), 1);
-        assert_eq!(args.ws.unwrap(), "wss://ws.example.com");
     }
 
     #[test]
