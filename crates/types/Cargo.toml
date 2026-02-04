@@ -12,11 +12,15 @@ repository.workspace = true
 include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
 [features]
+# Default feature includes http-minimal to provide StatusCode for error response types
+# This is required for backward compatibility as StatusCode is used in public API
 default = ["http-minimal"]
 openapi = ["dep:utoipa"]
 # Axum support (for web services) - when enabled, provides IntoResponse implementations
+# Note: When both axum and http-minimal are enabled, axum's StatusCode is preferred
 axum = ["dep:axum"]
-# Used when axum is not enabled to provide StatusCode type
+# Provides StatusCode type via the http crate when axum is not enabled
+# This is needed for GatewayErrorResponse and IndexerErrorResponse types
 http-minimal = ["dep:http"]
 
 [dependencies]

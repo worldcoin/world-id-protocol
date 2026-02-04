@@ -8,6 +8,9 @@ use alloy::primitives::Address;
 #[cfg(feature = "openapi")]
 use utoipa::{IntoParams, ToSchema};
 
+// StatusCode is needed for error response types in the public API.
+// When axum feature is enabled, we use axum's re-exported StatusCode.
+// When axum is not enabled, we use the minimal http crate for StatusCode.
 #[cfg(feature = "axum")]
 use axum::{http::StatusCode, response::IntoResponse};
 #[cfg(all(not(feature = "axum"), feature = "http-minimal"))]
