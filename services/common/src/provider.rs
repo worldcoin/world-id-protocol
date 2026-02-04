@@ -47,7 +47,7 @@ pub enum ProviderError {
     #[error("config error: {0}")]
     Config(#[from] ConfigError),
     #[error("transport error while trying to fetch chain id: {0}")]
-    ChainId(#[from] TransportError),
+    ChainId(TransportError),
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
