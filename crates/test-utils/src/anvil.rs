@@ -571,7 +571,7 @@ impl TestAnvil {
         signer: PrivateKeySigner,
         auth_addr: Address,
         pubkey: U256,
-        commitment: u64,
+        commitment: U256,
     ) -> FieldElement {
         let registry = WorldIDRegistry::new(
             world_id_registry,
@@ -582,12 +582,7 @@ impl TestAnvil {
                 .unwrap(),
         );
         registry
-            .createAccount(
-                Address::ZERO,
-                vec![auth_addr],
-                vec![pubkey],
-                U256::from(commitment),
-            )
+            .createAccount(Address::ZERO, vec![auth_addr], vec![pubkey], commitment)
             .send()
             .await
             .expect("failed to submit createAccount transaction")
