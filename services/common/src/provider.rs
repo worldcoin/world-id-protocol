@@ -6,7 +6,7 @@ use std::{
 
 use alloy::{
     network::EthereumWallet,
-    providers::{DynProvider, Provider, ProviderBuilder, WsConnect, fillers::CachedNonceManager},
+    providers::{DynProvider, Provider, ProviderBuilder, fillers::CachedNonceManager},
     rpc::{client::RpcClient, json_rpc::RequestPacket},
     signers::{
         Signer,
@@ -44,12 +44,10 @@ pub enum ProviderError {
     SignerConfigMissing,
     #[error("no HTTP URLs provided")]
     NoHttpUrls,
-    #[error("no WS URLs provided")]
-    NoWsUrls,
     #[error("config error: {0}")]
     Config(#[from] ConfigError),
-    #[error("transport error: {0}")]
-    Transport(#[from] TransportError),
+    #[error("transport error while trying to fetch chain id: {0}")]
+    ChainId(TransportError),
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
@@ -60,11 +58,6 @@ pub struct ProviderArgs {
     #[arg(long = "rpc-url", value_delimiter = ',', env = "RPC_URL")]
     #[serde(default)]
     pub http: Option<Vec<Url>>,
-
-    /// WebSocket RPC endpoints (in priority order).
-    #[arg(long = "ws-url", env = "WS_URL")]
-    #[serde(default)]
-    pub ws: Option<String>,
 
     #[command(flatten)]
     #[serde(default)]
@@ -114,7 +107,10 @@ impl SignerArgs {
                 tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
 
                 let temp_provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-                let chain_id = temp_provider.get_chain_id().await?;
+                let chain_id = temp_provider
+                    .get_chain_id()
+                    .await
+                    .map_err(ProviderError::ChainId)?;
                 tracing::info!("Fetched chain_id: {}", chain_id);
 
                 let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
@@ -203,11 +199,6 @@ impl ProviderArgs {
         self
     }
 
-    /// Add multiple WebSocket RPC endpoints.
-    pub fn with_ws_urls(mut self, url: String) -> Self {
-        self.ws = Some(url);
-        self
-    }
     /// Build a dynamic provider from the configuration.
     pub async fn http(self) -> ProviderResult<DynProvider> {
         let Some(http) = self.http else {
@@ -265,26 +256,6 @@ impl ProviderArgs {
         };
 
         Ok(provider)
-    }
-
-    pub async fn ws(self) -> ProviderResult<DynProvider> {
-        let Some(ws) = self.ws else {
-            return Err(ProviderError::NoWsUrls);
-        };
-
-        let provider = ProviderBuilder::new()
-            .connect_ws(WsConnect::new(ws))
-            .await?
-            .erased();
-
-        Ok(provider)
-    }
-
-    pub async fn build_providers(self) -> ProviderResult<(DynProvider, DynProvider)> {
-        let http_provider = self.clone().http().await?;
-        let ws_provider = self.ws().await?;
-
-        Ok((http_provider, ws_provider))
     }
 }
 
@@ -374,22 +345,6 @@ mod tests {
         assert_eq!(urls[0].as_str(), "https://rpc1.example.com/");
         assert_eq!(urls[1].as_str(), "https://rpc2.example.com/");
         assert_eq!(urls[2].as_str(), "https://rpc3.example.com/");
-    }
-
-    #[test]
-    fn from_file_loads_http_and_ws() {
-        let config = r#"
-            [provider]
-            http = ["https://rpc.example.com"]
-            ws = "wss://ws.example.com"
-        "#;
-
-        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
-        file.write_all(config.as_bytes()).unwrap();
-
-        let args = ProviderArgs::from_file(file.path()).unwrap();
-        assert_eq!(args.http.unwrap().len(), 1);
-        assert_eq!(args.ws.unwrap(), "wss://ws.example.com");
     }
 
     #[test]

@@ -12,5 +12,10 @@ async fn main() -> GatewayResult<()> {
     tracing::info!("Starting world-id-gateway");
     println!("Starting world-id-gateway");
 
-    world_id_gateway::run().await
+    if let Err(error) = world_id_gateway::run().await {
+        tracing::error!(error = ?error, "gateway terminated with error");
+        return Err(error);
+    }
+
+    Ok(())
 }

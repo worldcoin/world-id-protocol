@@ -1,8 +1,7 @@
-use std::{net::SocketAddr, sync::Arc};
-
 pub use crate::config::GatewayConfig;
 use crate::{routes::build_app, types::AppState};
 use request_tracker::RequestTracker;
+use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
@@ -56,15 +55,29 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     )
     .await?;
 
-    let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
-    let addr = listener.local_addr()?;
+    let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
+        .await
+        .map_err(|source| GatewayError::Bind {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
+    let addr = listener
+        .local_addr()
+        .map_err(|source| GatewayError::ListenerAddr {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
 
     let (tx, rx) = oneshot::channel::<()>();
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
         let _ = rx.await;
     });
-    let join =
-        tokio::spawn(async move { server.await.map_err(|e| GatewayError::Serve(Box::new(e))) });
+    let join = tokio::spawn(async move {
+        server.await.map_err(|e| GatewayError::Serve {
+            source: e,
+            backtrace: Backtrace::capture().to_string(),
+        })
+    });
     Ok(GatewayHandle {
         shutdown: Some(tx),
         join,
@@ -90,10 +103,18 @@ pub async fn run() -> GatewayResult<()> {
         cfg.redis_url,
     )
     .await?;
-    let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
+    let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
+        .await
+        .map_err(|source| GatewayError::Bind {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
     tracing::info!("HTTP server listening on {}", cfg.listen_addr);
     axum::serve(listener, app)
         .await
-        .map_err(|e| GatewayError::Serve(Box::new(e)))?;
+        .map_err(|e| GatewayError::Serve {
+            source: e,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
     Ok(())
 }
