@@ -30,7 +30,6 @@ use axum::{
 };
 use moka::future::Cache;
 use tokio::sync::mpsc;
-use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::{
     types::{
@@ -124,7 +123,7 @@ pub(crate) async fn build_app(
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
         )))
-        .layer(TraceLayer::new_for_http()))
+        .layer(common::trace_layer()))
 }
 
 #[utoipa::path(

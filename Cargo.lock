@@ -2675,6 +2675,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tower",
+ "tower-http 0.5.2",
  "tracing",
  "url",
 ]
@@ -9178,6 +9179,7 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "axum",
+ "common",
  "dotenvy",
  "futures-util",
  "hex",
@@ -9200,7 +9202,6 @@ dependencies = [
  "test-utils",
  "thiserror 1.0.69",
  "tokio",
- "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber 0.3.22",
  "url",

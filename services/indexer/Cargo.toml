@@ -6,8 +6,8 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+common = { path = "../common" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 telemetry-batteries = { workspace = true }
