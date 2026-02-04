@@ -9,7 +9,7 @@ pub enum GatewayError {
     #[error("provider error: {source}")]
     Provider {
         #[source]
-        source: ProviderError,
+        source: Box<ProviderError>,
         backtrace: String,
     },
     #[error("failed to bind listener: {source}")]
@@ -55,7 +55,7 @@ pub enum GatewayError {
 impl From<ProviderError> for GatewayError {
     fn from(source: ProviderError) -> Self {
         Self::Provider {
-            source,
+            source: Box::new(source),
             backtrace: Backtrace::capture().to_string(),
         }
     }
