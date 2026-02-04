@@ -16,7 +16,7 @@ default = ["circuits"]
 circuits = ["dep:circom-types", "dep:groth16-material", "dep:ark-serde-compat"]
 
 [dependencies]
-alloy-primitives = { version = "1", default-features = false, features = [
+alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
     "std",
 ] }
@@ -26,7 +26,7 @@ ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serde-compat = { workspace = true, optional = true }
 ark-serialize = { workspace = true }
-arrayvec = { version = "0.7", features = ["serde"] }
+arrayvec = { workspace = true, features = ["serde"] }
 circom-types = { workspace = true, features = ["groth16"], optional = true }
 groth16-material = { workspace = true, features = ["circom"], optional = true }
 eddsa-babyjubjub = { workspace = true }
@@ -39,12 +39,12 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 poseidon2 = { workspace = true }
-sha3 = { version = "0.10", default-features = false }
-rand.workspace = true
+sha3 = { workspace = true, default-features = false }
+rand = { workspace = true }
 
 # WASM support: getrandom needs 'js' feature to work in browsers
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
-ciborium = "0.2.2"
+ciborium = { workspace = true }
