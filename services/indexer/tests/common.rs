@@ -11,18 +11,19 @@ use regex::Regex;
 use sqlx::{Executor, PgPool, postgres::PgPoolOptions};
 use test_utils::anvil::TestAnvil;
 use tracing::info;
+use uuid::Uuid;
 use world_id_core::world_id_registry::WorldIdRegistry;
 use world_id_indexer::db::DB;
 use world_id_primitives::TREE_DEPTH;
 
 pub const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
-const TEST_DB_NAME: &str = "indexer_tests";
 
 pub struct TestSetup {
     pub _anvil: TestAnvil,
     pub registry_address: Address,
     pub db_url: String,
     pub pool: PgPool,
+    db_name: String,
 }
 
 impl TestSetup {
@@ -35,7 +36,7 @@ impl TestSetup {
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .try_init();
 
-        let db_url = Self::setup_test_database().await;
+        let (db_url, db_name) = Self::setup_test_database().await;
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .connect(&db_url)
@@ -54,6 +55,7 @@ impl TestSetup {
             registry_address,
             db_url,
             pool,
+            db_name,
         }
     }
 
@@ -99,50 +101,54 @@ impl TestSetup {
         registry.currentRoot().call().await.unwrap()
     }
 
-    async fn setup_test_database() -> String {
+    async fn setup_test_database() -> (String, String) {
         let base_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            format!("postgresql://postgres:postgres@localhost:5432/{TEST_DB_NAME}")
+            "postgresql://postgres:postgres@localhost:5432/postgres".to_string()
         });
 
+        // Generate unique database name
+        let unique_name = format!("indexer_tests_{}", Uuid::new_v4().simple());
+
         {
-            let re = Regex::new(&format!("/{TEST_DB_NAME}(\\??)")).unwrap();
+            let re = Regex::new(r"/[^/]+(\??)$").unwrap();
             let base_url = re.replace_all(&base_url, "/postgres${1}");
 
             let db = DB::new(&base_url, Some(1)).await.unwrap();
 
-            info!("Dropping database...");
-            let _ = db
-                .pool()
-                .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
-                .await;
-            info!("Database dropped.");
-            info!("Creating database...");
+            info!("Creating database {}...", unique_name);
             db.pool()
-                .execute(format!("CREATE DATABASE {TEST_DB_NAME}").as_str())
+                .execute(format!("CREATE DATABASE {}", unique_name).as_str())
                 .await
                 .unwrap();
             info!("Database created.");
         }
 
-        let db = DB::new(&base_url, Some(1)).await.unwrap();
+        let db_url = format!(
+            "{}/{}",
+            base_url.trim_end_matches('/').trim_end_matches("postgres"),
+            unique_name
+        );
+        let db = DB::new(&db_url, Some(1)).await.unwrap();
         db.run_migrations().await.unwrap();
 
-        base_url
+        (db_url, unique_name)
     }
 
-    async fn cleanup_test_database() {
+    async fn cleanup_test_database(db_name: &str) {
         let base_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            format!("postgresql://postgres:postgres@localhost:5432/{TEST_DB_NAME}")
+            "postgresql://postgres:postgres@localhost:5432/postgres".to_string()
         });
 
-        let re = Regex::new(&format!("/{TEST_DB_NAME}(\\??)")).unwrap();
+        let re = Regex::new(r"/[^/]+(\??)$").unwrap();
         let base_url = re.replace_all(&base_url, "/postgres${1}");
 
         if let Ok(db) = DB::new(&base_url, Some(1)).await {
+            info!("Dropping database {}...", db_name);
             let _ = db
                 .pool()
-                .execute(format!("DROP DATABASE IF EXISTS {TEST_DB_NAME}").as_str())
+                .execute(format!("DROP DATABASE IF EXISTS {}", db_name).as_str())
                 .await;
+            info!("Database {} dropped.", db_name);
         }
     }
 
@@ -168,9 +174,18 @@ impl TestSetup {
 
 impl Drop for TestSetup {
     fn drop(&mut self) {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(Self::cleanup_test_database());
-        });
+        let db_name = self.db_name.clone();
+        let _ = std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                rt.block_on(async {
+                    Self::cleanup_test_database(&db_name).await;
+                });
+            }
+        })
+        .join();
     }
 }
 
