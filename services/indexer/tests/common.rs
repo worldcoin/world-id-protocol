@@ -123,11 +123,12 @@ impl TestSetup {
             info!("Database created.");
         }
 
-        let db_url = format!(
-            "{}/{}",
-            base_url.trim_end_matches('/').trim_end_matches("postgres"),
-            unique_name
-        );
+        // Properly replace just the database name in the URL
+        let db_url = if let Some(pos) = base_url.rfind('/') {
+            format!("{}/{}", &base_url[..pos], unique_name)
+        } else {
+            format!("{}/{}", base_url, unique_name)
+        };
         let db = DB::new(&db_url, Some(1)).await.unwrap();
         db.run_migrations().await.unwrap();
 
@@ -142,11 +143,23 @@ impl TestSetup {
         let re = Regex::new(r"/[^/]+(\??)$").unwrap();
         let base_url = re.replace_all(&base_url, "/postgres${1}");
 
-        if let Ok(db) = DB::new(&base_url, Some(1)).await {
+        if let Ok(pool) = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(base_url.as_ref())
+            .await
+        {
+            info!("Terminating connections to database {}...", db_name);
+            // Terminate all active connections to the database first
+            let _ = sqlx::query(&format!(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}'",
+                db_name
+            ))
+            .execute(&pool)
+            .await;
+
             info!("Dropping database {}...", db_name);
-            let _ = db
-                .pool()
-                .execute(format!("DROP DATABASE IF EXISTS {}", db_name).as_str())
+            let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {}", db_name))
+                .execute(&pool)
                 .await;
             info!("Database {} dropped.", db_name);
         }
@@ -174,6 +187,12 @@ impl TestSetup {
 
 impl Drop for TestSetup {
     fn drop(&mut self) {
+        // Close the pool to release connections
+        // Note: pool.close() is not async, it just marks the pool for closure.
+        // The cleanup_test_database function uses pg_terminate_backend to force-close
+        // any remaining connections before dropping the database.
+        self.pool.close();
+
         let db_name = self.db_name.clone();
         let _ = std::thread::spawn(move || {
             if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
