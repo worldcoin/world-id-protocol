@@ -55,22 +55,17 @@ pub(crate) struct MerkleWatcherError(alloy::contract::Error);
 ///
 /// In this example, we only override the `expire_after_create` method to set
 /// the expiration duration based on `root_validity_window` (the value of the entry).
-/// In case the `root_validity_window` is 0 (infinite), the entry will never expire.
 pub struct RootExpiry;
 
-impl Expiry<FieldElement, u64> for RootExpiry {
+impl Expiry<FieldElement, Duration> for RootExpiry {
     /// Returns the duration of the expiration of the value that was just created.
     fn expire_after_create(
         &self,
         _key: &FieldElement,
-        value: &u64,
+        value: &Duration,
         _current_time: Instant,
     ) -> Option<Duration> {
-        if *value == 0 {
-            None
-        } else {
-            Some(Duration::from_secs(*value))
-        }
+        Some(*value)
     }
 }
 
@@ -81,7 +76,7 @@ impl Expiry<FieldElement, u64> for RootExpiry {
 #[derive(Clone)]
 pub(crate) struct MerkleWatcher {
     latest_root: Arc<RwLock<FieldElement>>,
-    merkle_root_cache: Cache<FieldElement, u64>,
+    merkle_root_cache: Cache<FieldElement, Duration>,
     root_validity_window: Arc<AtomicU64>,
     provider: DynProvider, // do not drop provider while we want to stay subscribed
     contract_address: Address,
@@ -164,15 +159,12 @@ impl MerkleWatcher {
                 .expect("fits in u64");
         let elapsed = current_timestamp.saturating_sub(latest_root_timestamp);
 
-        if root_validity_window == 0 {
-            tracing::debug!("insert latest root with infinite validity");
-            merkle_root_cache.insert(latest_root, 0).await;
-        } else if elapsed >= root_validity_window {
+        if elapsed >= root_validity_window {
             tracing::debug!("latest root is expired, not caching");
         } else {
-            // > 0 because of the previous else if
-            let remaining_validity = root_validity_window.saturating_sub(elapsed);
-            tracing::debug!("insert latest root with remaining validity {remaining_validity}s");
+            let remaining_validity =
+                Duration::from_secs(root_validity_window.saturating_sub(elapsed));
+            tracing::debug!("insert latest root with remaining validity {remaining_validity:?}");
             merkle_root_cache
                 .insert(latest_root, remaining_validity)
                 .await;
@@ -204,10 +196,11 @@ impl MerkleWatcher {
                                     // update latest root
                                     *latest_root.write().expect("not poisoned") = root;
 
-                                    let root_validity_window =
-                                        root_validity_window.load(Ordering::Relaxed);
+                                    let root_validity_window = Duration::from_secs(
+                                        root_validity_window.load(Ordering::Relaxed),
+                                    );
                                     tracing::debug!(
-                                        "insert root with current validity window {root_validity_window}"
+                                        "insert root with current validity window {root_validity_window:?}"
                                     );
                                     merkle_root_cache.insert(root, root_validity_window).await;
                                 }
@@ -230,11 +223,8 @@ impl MerkleWatcher {
                                     );
                                     root_validity_window.store(new_window, Ordering::Relaxed);
 
-                                    // invalidate all cached roots if the validity window decreased but is not 0 (infinite).
-                                    // or if it was previously 0 (infinite) and is now non 0 (finite)
-                                    if new_window != 0
-                                        && (new_window < old_window || old_window == 0)
-                                    {
+                                    // invalidate all cached roots if the validity window decreased
+                                    if new_window < old_window {
                                         merkle_root_cache.invalidate_all();
                                     }
 
@@ -306,34 +296,30 @@ impl MerkleWatcher {
         if valid {
             ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES).increment(1);
 
-            // insert into cache with current validity window
             let root_validity_window = self.root_validity_window.load(Ordering::Relaxed);
-            if root_validity_window != 0 {
-                let current_timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("system time after epoch")
-                    .as_secs();
-                let root_timestamp = u64::try_from(
-                    contract
-                        .getRootTimestamp(root.into())
-                        .call()
-                        .await
-                        .map_err(MerkleWatcherError)?,
-                )
-                .expect("fits in u64");
-                let elapsed = current_timestamp.saturating_sub(root_timestamp);
-                let remaining_validity = root_validity_window.saturating_sub(elapsed);
-                if remaining_validity != 0 {
-                    tracing::debug!("insert root with remaining validity {remaining_validity}s");
-                    self.merkle_root_cache
-                        .insert(root, remaining_validity)
-                        .await;
-                } else {
-                    tracing::debug!("root is already expired, not caching");
-                }
+            let current_timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after epoch")
+                .as_secs();
+            let root_timestamp = u64::try_from(
+                contract
+                    .getRootTimestamp(root.into())
+                    .call()
+                    .await
+                    .map_err(MerkleWatcherError)?,
+            )
+            .expect("fits in u64");
+            let elapsed = current_timestamp.saturating_sub(root_timestamp);
+
+            if elapsed >= root_validity_window {
+                tracing::debug!("root is expired, not caching");
             } else {
-                tracing::debug!("inserting root {root} into cache with infinite validity");
-                self.merkle_root_cache.insert(root, 0).await;
+                let remaining_validity =
+                    Duration::from_secs(root_validity_window.saturating_sub(elapsed));
+                tracing::debug!("insert root with remaining validity {remaining_validity:?}");
+                self.merkle_root_cache
+                    .insert(root, remaining_validity)
+                    .await;
             }
         }
 
@@ -524,9 +510,9 @@ mod tests {
         // root_0 should be cached and latest, unless it took longer than validity window to get here
         assert_root!(merkle_watcher, root_0, CACHED | LATEST);
 
-        // set to infinite validity window
+        // set longer validity window
         anvil
-            .set_root_validity_window(registry_address, signer.clone(), 0)
+            .set_root_validity_window(registry_address, signer.clone(), 3600)
             .await;
 
         let root_1 = anvil
@@ -545,7 +531,7 @@ mod tests {
         // atm we dont reinsert old roots on validity window update, so root_0 is not cached anymore
         assert_root!(merkle_watcher, root_0, !(CACHED | LATEST));
 
-        // root_1 should be cached and latest because validity window is infinite
+        // root_1 should be cached and latest because validity window is 1h
         assert_root!(merkle_watcher, root_1, CACHED | LATEST);
     }
 }
