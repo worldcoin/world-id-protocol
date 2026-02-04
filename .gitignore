@@ -25,4 +25,3 @@ logs/
 crates/core/contracts/out/*.sol/*.json
 !crates/core/contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json
 !crates/core/contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
-CLAUDE.md
