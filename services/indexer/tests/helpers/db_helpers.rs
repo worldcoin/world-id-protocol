@@ -8,6 +8,7 @@ use world_id_indexer::db::{DB, DBResult, WorldTreeEventType, WorldTreeRootEventT
 /// RAII guard that ensures test database cleanup on drop
 pub struct TestDatabase {
     pub db: DB,
+    db_url: String,
     db_name: Option<String>,
 }
 
@@ -15,6 +16,11 @@ impl TestDatabase {
     /// Get a reference to the underlying DB
     pub fn db(&self) -> &DB {
         &self.db
+    }
+
+    /// Get the database URL
+    pub fn db_url(&self) -> &str {
+        &self.db_url
     }
 
     /// Get the database name
@@ -86,6 +92,7 @@ pub async fn create_unique_test_db() -> TestDatabase {
 
     TestDatabase {
         db,
+        db_url: test_db_url,
         db_name: Some(unique_name),
     }
 }

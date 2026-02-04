@@ -1,10 +1,10 @@
 #![cfg(feature = "integration-tests")]
-mod common;
+mod helpers;
+use helpers::common::{TestSetup, RECOVERY_ADDRESS, query_count};
 
 use std::{fs, path::PathBuf, time::Duration};
 
 use alloy::primitives::{U256, address};
-use common::{TestSetup, query_count};
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };

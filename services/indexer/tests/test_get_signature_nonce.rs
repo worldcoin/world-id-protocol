@@ -1,11 +1,11 @@
 #![cfg(feature = "integration-tests")]
 
-mod common;
+mod helpers;
+use helpers::common::{TestSetup, RECOVERY_ADDRESS, query_count};
 
 use std::time::Duration;
 
 use alloy::primitives::{U256, address};
-use common::{TestSetup, query_count};
 use http::StatusCode;
 use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
