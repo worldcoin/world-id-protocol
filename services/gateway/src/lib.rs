@@ -55,8 +55,18 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     )
     .await?;
 
-    let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
-    let addr = listener.local_addr()?;
+    let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
+        .await
+        .map_err(|source| GatewayError::Bind {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
+    let addr = listener
+        .local_addr()
+        .map_err(|source| GatewayError::ListenerAddr {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
 
     let (tx, rx) = oneshot::channel::<()>();
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
@@ -93,7 +103,12 @@ pub async fn run() -> GatewayResult<()> {
         cfg.redis_url,
     )
     .await?;
-    let listener = tokio::net::TcpListener::bind(cfg.listen_addr).await?;
+    let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
+        .await
+        .map_err(|source| GatewayError::Bind {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
     tracing::info!("HTTP server listening on {}", cfg.listen_addr);
     axum::serve(listener, app)
         .await

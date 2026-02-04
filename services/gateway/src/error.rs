@@ -18,6 +18,12 @@ pub enum GatewayError {
         source: std::io::Error,
         backtrace: String,
     },
+    #[error("failed to read listener address: {source}")]
+    ListenerAddr {
+        #[source]
+        source: std::io::Error,
+        backtrace: String,
+    },
     #[error("server error: {source}")]
     Serve {
         #[source]
@@ -49,15 +55,6 @@ pub enum GatewayError {
 impl From<ProviderError> for GatewayError {
     fn from(source: ProviderError) -> Self {
         Self::Provider {
-            source,
-            backtrace: Backtrace::capture().to_string(),
-        }
-    }
-}
-
-impl From<std::io::Error> for GatewayError {
-    fn from(source: std::io::Error) -> Self {
-        Self::Bind {
             source,
             backtrace: Backtrace::capture().to_string(),
         }
