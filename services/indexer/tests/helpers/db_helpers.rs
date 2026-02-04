@@ -78,9 +78,13 @@ pub async fn create_unique_test_db() -> TestDatabase {
         .expect("Failed to create test database");
 
     // Connect to the new database
-    // Properly replace just the database name in the URL
+    // Replace just the database name while preserving query parameters
     let test_db_url = if let Some(pos) = base_url.rfind('/') {
-        format!("{}/{}", &base_url[..pos], unique_name)
+        let (_base, path_and_query) = base_url.split_at(pos + 1);
+        // Split database name from query string
+        let query_start = path_and_query.find('?');
+        let query_str = query_start.map(|idx| &path_and_query[idx..]).unwrap_or("");
+        format!("{}{}{}", &base_url[..pos + 1], unique_name, query_str)
     } else {
         format!("{}/{}", base_url, unique_name)
     };
