@@ -1,13 +1,12 @@
 #![cfg(feature = "integration-tests")]
 mod helpers;
-use helpers::common::{RECOVERY_ADDRESS, TestSetup, query_count};
+use helpers::common::{TestSetup, query_count};
 use serial_test::serial;
 
 use std::time::Duration;
 
 use alloy::primitives::{U256, address};
 use http::StatusCode;
-use sqlx::types::Json;
 use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
