@@ -1,11 +1,21 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
-
+use crate::{
+    blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
+    config::{AppState, HttpConfig, IndexerConfig, RunMode},
+    db::{DB, fetch_recent_account_updates},
+    events_committer::EventsCommitter,
+    tree::{GLOBAL_TREE, update_tree_with_commitment},
+};
 use alloy::{
     primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
 };
 use futures_util::StreamExt;
+use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
 use world_id_core::world_id_registry::WorldIdRegistry;
+
+// re-exports
+pub use config::GlobalConfig;
+pub use error::{IndexerError, IndexerResult};
 
 mod blockchain;
 pub mod config;
@@ -15,17 +25,6 @@ mod events_committer;
 mod routes;
 mod sanity_check;
 mod tree;
-
-pub use crate::db::fetch_recent_account_updates;
-use crate::{
-    blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
-    config::{AppState, HttpConfig, IndexerConfig, RunMode},
-    db::DB,
-    events_committer::EventsCommitter,
-    tree::{GLOBAL_TREE, update_tree_with_commitment},
-};
-pub use config::GlobalConfig;
-pub use error::{IndexerError, IndexerResult};
 
 /// Tree cache parameters needed during indexing
 #[derive(Clone)]
@@ -177,9 +176,18 @@ async fn start_http_server(
     let registry = WorldIdRegistry::new(registry_address, provider.erased());
     let router = routes::handler(AppState::new(db, Arc::new(registry)));
     tracing::info!(%addr, "HTTP server listening");
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, router)
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .map_err(|err| IndexerError::HttpService(Box::new(err)))?;
+        .map_err(|source| IndexerError::Bind {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
+    axum::serve(listener, router)
+        .await
+        .map_err(|source| IndexerError::Serve {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
     Ok(())
 }
 
