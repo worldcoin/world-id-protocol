@@ -17,12 +17,13 @@ contract WorldIDAddressBookV4 is Ownable2Step {
     error InvalidSignalBinding();
     error SessionBoundToDifferentAccount();
     error CannotRenounceOwnership();
+    error InvalidSessionId();
 
     ////////////////////////////////////////////////////////////////////////////////
     //                                   EVENTS                                   //
     ////////////////////////////////////////////////////////////////////////////////
 
-    event AccountVerified(address indexed account, uint64 indexed issuerSchemaId, uint256 verifiedAt);
+    event AccountVerified(address indexed account, uint64 indexed rpId, uint64 issuerSchemaId, uint256 verifiedAt);
 
     event RotationDelayUpdated(uint64 oldDuration, uint64 newDuration);
 
@@ -57,7 +58,9 @@ contract WorldIDAddressBookV4 is Ownable2Step {
     ////////////////////////////////////////////////////////////////////////////////
 
     constructor(IWorldIDVerifier _worldIdVerifier, uint64 _rotationDelay) Ownable(msg.sender) {
-        if (address(_worldIdVerifier) == address(0)) revert InvalidConfiguration();
+        if (address(_worldIdVerifier) == address(0)) {
+            revert InvalidConfiguration();
+        }
         worldIdVerifier = _worldIdVerifier;
         rotationDelay = _rotationDelay;
     }
@@ -79,10 +82,10 @@ contract WorldIDAddressBookV4 is Ownable2Step {
         uint256[2] calldata sessionNullifier,
         uint256[5] calldata zeroKnowledgeProof
     ) external {
-        // account is added as a param to ensure the signalHash matches
-        if (msg.sender != address(uint160(uint256(signalHash)))) {
-            revert InvalidSignalBinding();
-        }
+        if (signalHash >> 160 != 0) revert InvalidSignalBinding();
+        if (msg.sender != address(uint160(signalHash))) revert InvalidSignalBinding();
+
+        if (sessionId == 0) revert InvalidSessionId();
 
         // Enforce session rules (session -> account binding + rotationDelay-based reuse).
         Session storage s = sessions[rpId][sessionId];
@@ -91,13 +94,27 @@ contract WorldIDAddressBookV4 is Ownable2Step {
             if (s.boundAt != 0 && block.timestamp < uint256(s.boundAt) + uint256(rotationDelay)) {
                 revert SessionBoundToDifferentAccount();
             }
-            // clear the old entry from sessionIdByAccount
-            if (s.account != address(0)) {
-                delete sessionIdByAccount[rpId][s.account];
+            // handle same sessionId, different account: clear the old entry from sessionIdByAccount
+            delete sessionIdByAccount[rpId][s.account]; // safe even if s.account is the zero address
+
+            // handle same account, different sessionId: clear the old entry from sessions
+            uint256 oldSessionId = sessionIdByAccount[rpId][msg.sender];
+            if (oldSessionId != 0 && oldSessionId != sessionId) {
+                Session storage oldS = sessions[rpId][oldSessionId];
+                if (oldS.account == msg.sender) {
+                    delete sessions[rpId][oldSessionId];
+                }
             }
             s.account = msg.sender;
             s.boundAt = uint64(block.timestamp);
         }
+
+        // we store the sessionId that must be reused for future verification, the RP can thus remain stateless
+        // we do not enforce that accounts must use the same sessionId as this is the responsibility of the RP
+        sessionIdByAccount[rpId][msg.sender] = sessionId;
+
+        // Update verification state
+        verifiedAt[rpId][msg.sender][issuerSchemaId] = block.timestamp;
 
         worldIdVerifier.verifySession(
             rpId,
@@ -111,14 +128,7 @@ contract WorldIDAddressBookV4 is Ownable2Step {
             zeroKnowledgeProof
         );
 
-        // we store the sessionId that must be reused for future verification, the RP can thus remain stateless
-        // we do not enforce that accounts must use the same sessionId as this is the responsibility of the RP
-        sessionIdByAccount[rpId][msg.sender] = sessionId;
-
-        // Update verification state
-        verifiedAt[rpId][msg.sender][issuerSchemaId] = block.timestamp;
-
-        emit AccountVerified(msg.sender, issuerSchemaId, block.timestamp);
+        emit AccountVerified(msg.sender, rpId, issuerSchemaId, block.timestamp);
     }
 
     ////////////////////////////////////////////////////////////////////////////////
@@ -127,7 +137,7 @@ contract WorldIDAddressBookV4 is Ownable2Step {
 
     function setWorldIdVerifier(IWorldIDVerifier newVerifier) external onlyOwner {
         if (address(newVerifier) == address(0)) revert InvalidConfiguration();
-        oldVerifier = worldIdVerifier;
+        IWorldIDVerifier oldVerifier = worldIdVerifier;
         worldIdVerifier = newVerifier;
         emit WorldIdVerifierUpdated(oldVerifier, newVerifier);
     }
