@@ -547,7 +547,7 @@ impl Authenticator {
     #[allow(clippy::too_many_arguments)]
     pub fn generate_single_proof(
         &self,
-        oprf_nullifier: OprfNullifier,
+        oprf_nullifier: &OprfNullifier,
         request_item: &RequestItem,
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,

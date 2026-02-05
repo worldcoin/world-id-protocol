@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
     let nullifier = authenticator.generate_nullifier(&proof_request).await?;
 
     let proof_response = authenticator.generate_single_proof(
-        nullifier,
+        &nullifier,
         request_item,
         &credential,
         cred_sub_blinding_factor,

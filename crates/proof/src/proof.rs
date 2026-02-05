@@ -321,7 +321,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     rng: &mut R,
     credential: &Credential,
     credential_sub_blinding_factor: FieldElement,
-    oprf_nullifier: OprfNullifier,
+    oprf_nullifier: &OprfNullifier,
     request_item: &RequestItem,
     session_id: Option<FieldElement>,
     session_id_r_seed: FieldElement,
@@ -340,7 +340,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
 
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
-        query_input: oprf_nullifier.query_proof_input,
+        query_input: oprf_nullifier.query_proof_input.clone(),
         issuer_schema_id: credential.issuer_schema_id.into(),
         cred_pk: credential.issuer.pk,
         cred_hashes: [*credential.claims_hash()?, *credential.associated_data_hash],
