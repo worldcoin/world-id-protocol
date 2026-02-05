@@ -21,6 +21,7 @@ use crate::{
 };
 
 /// Nullifier computed using OPRF Nodes.
+#[derive(Debug, Clone)]
 pub struct OprfNullifier {
     /// The raw inputs to the Query Proof circuit
     pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
