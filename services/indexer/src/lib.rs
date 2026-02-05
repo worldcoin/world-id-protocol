@@ -514,10 +514,7 @@ pub async fn poll_db_changes(
                             "Updating tree from DB poll"
                         );
 
-                        if let Err(e) = tree_state
-                            .update_commitment(leaf_index, commitment)
-                            .await
-                        {
+                        if let Err(e) = tree_state.update_commitment(leaf_index, commitment).await {
                             tracing::error!(
                                 ?e,
                                 leaf_index = %leaf_index,

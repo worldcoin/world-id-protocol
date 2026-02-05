@@ -146,9 +146,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_tree_with_zero_index() {
         let state = TreeState::new_empty(6);
-        let result = state
-            .update_commitment(U256::ZERO, U256::from(1u64))
-            .await;
+        let result = state.update_commitment(U256::ZERO, U256::from(1u64)).await;
         assert!(matches!(result, Err(TreeError::ZeroLeafIndex)));
     }
 
