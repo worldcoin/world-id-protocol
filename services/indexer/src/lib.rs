@@ -3,7 +3,6 @@ use crate::{
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::{DB, fetch_recent_account_updates},
     events_committer::EventsCommitter,
-    tree::{GLOBAL_TREE, update_tree_with_commitment},
 };
 use alloy::{
     primitives::{Address, U256},
