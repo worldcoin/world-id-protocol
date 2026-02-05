@@ -54,4 +54,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-integration-tests = []
+integration-tests = [] # running integration tests requires running external services (i.e. Postgres)

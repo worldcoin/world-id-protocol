@@ -1,23 +1,23 @@
 #![allow(clippy::option_if_let_else)]
-use ruint::aliases::U256;
-
-use serde::{Deserialize, Serialize};
-use strum::EnumString;
-
-use alloy::primitives::Address;
-#[cfg(feature = "openapi")]
-use utoipa::{IntoParams, ToSchema};
-
-use axum::{http::StatusCode, response::IntoResponse};
-use world_id_primitives::serde_utils::{
-    hex_u32, hex_u32_opt, hex_u256, hex_u256_opt, hex_u256_vec,
-};
 use crate::registry::WorldIdRegistry::{
     AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
     AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
-
+use alloy::primitives::Address;
+use http::StatusCode;
+use ruint::aliases::U256;
+use serde::{Deserialize, Serialize};
+use strum::EnumString;
 pub use world_id_primitives::merkle::AccountInclusionProof;
+use world_id_primitives::serde_utils::{
+    hex_u32, hex_u32_opt, hex_u256, hex_u256_opt, hex_u256_vec,
+};
+
+#[cfg(feature = "openapi")]
+use utoipa::{IntoParams, ToSchema};
+
+#[cfg(feature = "openapi")]
+use axum::response::IntoResponse;
 
 /// The request to create a new World ID account.
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -569,6 +569,7 @@ impl std::fmt::Display for GatewayErrorResponse {
 
 impl std::error::Error for GatewayErrorResponse {}
 
+#[cfg(feature = "openapi")]
 impl IntoResponse for GatewayErrorResponse {
     fn into_response(self) -> axum::response::Response {
         (self.status, axum::Json(self.error)).into_response()
@@ -637,6 +638,7 @@ impl std::fmt::Display for IndexerErrorResponse {
 
 impl std::error::Error for IndexerErrorResponse {}
 
+#[cfg(feature = "openapi")]
 impl IntoResponse for IndexerErrorResponse {
     fn into_response(self) -> axum::response::Response {
         (self.status, axum::Json(self.error)).into_response()

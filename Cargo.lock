@@ -9086,6 +9086,7 @@ dependencies = [
  "backon",
  "eyre",
  "hex",
+ "http 1.4.0",
  "mockito",
  "rand 0.8.5",
  "reqwest",
