@@ -431,9 +431,9 @@ impl ProofRequest {
             return Err(ValidationError::ProofGenerationFailed(error.clone()));
         }
 
-        // Session ID consistency check: if request has session_id, response must also have it
-        if self.session_id.is_some() && response.session_id.is_none() {
-            return Err(ValidationError::MissingSessionId);
+        // Session ID of the response doesn't match the request's session ID (if present)
+        if self.session_id.is_some() && self.session_id != response.session_id {
+            return Err(ValidationError::SessionIdMismatch);
         }
 
         // Validate nullifier presence based on proof type
@@ -599,9 +599,9 @@ pub enum ValidationError {
     /// The `expires_at_min` value in the response does not match the expected value from the request
     #[error("Invalid expires_at_min for credential '{0}': expected {1}, got {2}")]
     ExpiresAtMinMismatch(String, u64, u64),
-    /// Session ID missing in response when request specified a session
-    #[error("Session ID missing in response")]
-    MissingSessionId,
+    /// Session ID doesn't match between request and response
+    #[error("Session ID doesn't match between request and response")]
+    SessionIdMismatch,
     /// Session nullifier missing for credential in session proof
     #[error("Session nullifier missing for credential: {0}")]
     MissingSessionNullifier(String),
@@ -1811,7 +1811,7 @@ mod tests {
         let err = request
             .validate_response(&response_missing_session_id)
             .unwrap_err();
-        assert!(matches!(err, ValidationError::MissingSessionId));
+        assert!(matches!(err, ValidationError::SessionIdMismatch));
     }
 
     #[test]
