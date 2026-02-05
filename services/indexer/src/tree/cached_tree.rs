@@ -325,6 +325,11 @@ async fn build_from_db_with_cache(
         )
         .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
 
+    info!(
+        root = %format!("0x{:x}", tree.root()),
+        "Tree built from database with mmap cache"
+    );
+
     // Step 4: Apply sparse leaves (beyond dense prefix)
     if max_leaf_index >= dense_prefix_size {
         info!("Second pass: collecting and applying sparse leaves beyond dense prefix");

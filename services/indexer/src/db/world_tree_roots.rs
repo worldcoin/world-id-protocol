@@ -124,6 +124,16 @@ where
         result.map(|row| Self::map_root_id(&row)).transpose()
     }
 
+    pub async fn get_latest_block(self) -> anyhow::Result<Option<u64>> {
+        let rec: Option<(Option<i64>,)> = sqlx::query_as(&format!(
+            "SELECT MAX(block_number) FROM {}",
+            self.table_name
+        ))
+        .fetch_optional(self.executor)
+        .await?;
+        Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
+    }
+
     /// Look up a root by its value (for restore validation).
     pub async fn get_root_by_value(
         self,

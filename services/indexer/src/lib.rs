@@ -151,11 +151,10 @@ async fn run_indexer_only(
     indexer_cfg: IndexerConfig,
 ) -> anyhow::Result<()> {
     // Determine starting block from checkpoint or env
-    let from = db
-        .world_tree_events()
-        .get_latest_block()
-        .await?
-        .unwrap_or(indexer_cfg.start_block);
+    let from = match db.world_tree_events().get_latest_block().await? {
+        Some(block) => block + 1,
+        None => indexer_cfg.start_block,
+    };
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
@@ -216,11 +215,10 @@ async fn run_both(
     tree_cache_cfg: &config::TreeCacheConfig,
 ) -> anyhow::Result<()> {
     // --- Phase 1: Backfill historical events into DB (no tree) ---
-    let from = db
-        .world_tree_events()
-        .get_latest_block()
-        .await?
-        .unwrap_or(indexer_cfg.start_block);
+    let from = match db.world_tree_roots().get_latest_block().await? {
+        Some(block) => block + 1,
+        None => indexer_cfg.start_block,
+    };
 
     tracing::info!(from_block = from, "Phase 1: starting historical backfill");
 
@@ -275,7 +273,7 @@ async fn run_both(
     stream_logs(
         blockchain,
         &db,
-        backfill_up_to_block,
+        backfill_up_to_block + 1,
         true, // Sync in-memory tree after each DB commit
     )
     .await?;
