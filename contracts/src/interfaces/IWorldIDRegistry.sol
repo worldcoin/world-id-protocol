@@ -480,10 +480,10 @@ interface IWorldIDRegistry {
     function currentRoot() external view returns (uint256);
 
     /**
-     * @dev Returns the recovery address for the given World ID (based on its leaf index).
+     * @dev Returns the recovery agent for the given World ID (based on its leaf index).
      * @param leafIndex The index of the leaf.
      */
-    function getRecoveryAddress(uint256 leafIndex) external view returns (address);
+    function getRecoveryAgent(uint256 leafIndex) external view returns (address);
 
     /**
      * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.

@@ -147,8 +147,8 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function getRecoveryAddress(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
-        return _getRecoveryAddress(leafIndex);
+    function getRecoveryAgent(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
+        return _getRecoveryAgent(leafIndex);
     }
 
     /// @inheritdoc IWorldIDRegistry
@@ -236,11 +236,11 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Helper function to get recovery address from the packed storage.
+     * @dev Helper function to get recovery agent from the packed storage.
      * @param leafIndex The leaf index of the account.
-     * @return The recovery address for the account.
+     * @return The recovery agent for the account.
      */
-    function _getRecoveryAddress(uint256 leafIndex) internal view returns (address) {
+    function _getRecoveryAgent(uint256 leafIndex) internal view returns (address) {
         return address(uint160(_leafIndexToRecoveryAddressPacked[leafIndex]));
     }
 
@@ -427,7 +427,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert RecoveryAgentUpdateStillInCooldown(leafIndex, pendingUpdate.executeAfter);
         }
 
-        address oldRecoveryAgent = _getRecoveryAddress(leafIndex);
+        address oldRecoveryAgent = _getRecoveryAgent(leafIndex);
 
         uint256 bitmap = _getPubkeyBitmap(leafIndex); // Preserve the bitmap when updating the recovery agent
         _setRecoveryAddressAndBitmap(leafIndex, pendingUpdate.newRecoveryAgent, bitmap);
@@ -760,7 +760,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             )
         );
 
-        address recoverySigner = _getRecoveryAddress(leafIndex);
+        address recoverySigner = _getRecoveryAgent(leafIndex);
         if (recoverySigner == address(0)) {
             revert RecoveryNotEnabled();
         }
@@ -816,7 +816,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         }
         _leafIndexToSignatureNonce[leafIndex]++;
 
-        address oldRecoveryAgent = _getRecoveryAddress(leafIndex);
+        address oldRecoveryAgent = _getRecoveryAgent(leafIndex);
         uint256 executeAfter = block.timestamp + _recoveryAgentUpdateCooldown;
 
         // Store the update request as pending
