@@ -11,6 +11,7 @@ use secrecy::ExposeSecret;
 use taceo_oprf::service::{
     OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
 };
+use tokio_util::sync::CancellationToken;
 use world_id_primitives::oprf::OprfModule;
 
 use crate::{
@@ -28,6 +29,36 @@ pub(crate) mod auth;
 pub mod config;
 pub mod metrics;
 
+/// The tasks spawned by the oprf-node. Should call [`WorldOprfNodeTasks::join`] when shutting down for graceful shutdown.
+pub struct WorldOprfNodeTasks {
+    key_event_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
+    merkle_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
+    rp_registry_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
+    schema_issuer_registry_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
+}
+
+impl WorldOprfNodeTasks {
+    /// Consumes the task by joining every registered `JoinHandle`.
+    pub async fn join(self) -> eyre::Result<()> {
+        let (
+            key_event_watcher,
+            merkle_watcher,
+            rp_registry_watcher,
+            schema_issuer_registry_watcher,
+        ) = tokio::join!(
+            self.key_event_watcher,
+            self.merkle_watcher,
+            self.rp_registry_watcher,
+            self.schema_issuer_registry_watcher
+        );
+        key_event_watcher??;
+        merkle_watcher??;
+        rp_registry_watcher??;
+        schema_issuer_registry_watcher??;
+        Ok(())
+    }
+}
+
 /// Main entry point for an OPRF node.
 ///
 /// This function initializes and starts the OPRF node, including its various components, and
@@ -40,15 +71,13 @@ pub mod metrics;
 pub async fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
-    shutdown_signal: impl std::future::Future<Output = ()> + Send + 'static,
-) -> eyre::Result<()> {
-    tracing::info!("starting oprf-node with config: {config:#?}");
+    cancellation_token: CancellationToken,
+) -> eyre::Result<(axum::Router, WorldOprfNodeTasks)> {
     let node_config = config.node_config;
-    let cancellation_token = taceo_nodes_common::spawn_shutdown_task(shutdown_signal);
-    let mut started_services = StartedServices::default();
+    let started_services = StartedServices::default();
 
     tracing::info!("init merkle watcher..");
-    let merkle_watcher = MerkleWatcher::init(
+    let (merkle_watcher, merkle_watcher_task) = MerkleWatcher::init(
         config.world_id_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_merkle_cache_size,
@@ -60,7 +89,7 @@ pub async fn start(
     .context("while starting merkle watcher")?;
 
     tracing::info!("init RpRegistry watcher..");
-    let rp_registry_watcher = RpRegistryWatcher::init(
+    let (rp_registry_watcher, rp_registry_watcher_task) = RpRegistryWatcher::init(
         config.rp_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
         config.max_rp_registry_store_size,
@@ -87,16 +116,17 @@ pub async fn start(
     ));
 
     tracing::info!("init CredentialSchemaIssuerRegistry watcher..");
-    let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
-        config.credential_schema_issuer_registry_contract,
-        node_config.chain_ws_rpc_url.expose_secret(),
-        config.max_credential_schema_issuer_registry_store_size,
-        config.cache_maintenance_interval,
-        started_services.new_service(),
-        cancellation_token.clone(),
-    )
-    .await
-    .context("while starting schema issuer registry watcher")?;
+    let (schema_issuer_registry_watcher, schema_issuer_registry_watcher_task) =
+        SchemaIssuerRegistryWatcher::init(
+            config.credential_schema_issuer_registry_contract,
+            node_config.chain_ws_rpc_url.expose_secret(),
+            config.max_credential_schema_issuer_registry_store_size,
+            config.cache_maintenance_interval,
+            started_services.new_service(),
+            cancellation_token.clone(),
+        )
+        .await
+        .context("while starting schema issuer registry watcher")?;
 
     tracing::info!("init credential blinding factor oprf request auth service..");
     let credential_blinding_factor_oprf_req_auth_service =
@@ -106,7 +136,7 @@ pub async fn start(
         ));
 
     tracing::info!("init oprf service..");
-    let (oprf_service_router, key_event_watcher) = OprfServiceBuilder::init(
+    let (router, key_event_watcher) = OprfServiceBuilder::init(
         node_config,
         secret_manager,
         started_services,
@@ -123,43 +153,12 @@ pub async fn start(
     )
     .build();
 
-    let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;
-    let axum_cancel_token = cancellation_token.clone();
-    let server = tokio::spawn(async move {
-        tracing::info!(
-            "starting axum server on {}",
-            listener
-                .local_addr()
-                .map(|x| x.to_string())
-                .unwrap_or(String::from("invalid addr"))
-        );
-        let axum_shutdown_signal = axum_cancel_token.clone();
-        let axum_result = axum::serve(listener, oprf_service_router)
-            .with_graceful_shutdown(async move { axum_shutdown_signal.cancelled().await })
-            .await;
-        tracing::info!("axum server shutdown");
-        if let Err(err) = axum_result {
-            tracing::error!("got error from axum: {err:?}");
-        }
-        // we cancel the token in case axum encountered an error to shutdown the service
-        axum_cancel_token.cancel();
-    });
+    let tasks = WorldOprfNodeTasks {
+        key_event_watcher,
+        merkle_watcher: merkle_watcher_task,
+        rp_registry_watcher: rp_registry_watcher_task,
+        schema_issuer_registry_watcher: schema_issuer_registry_watcher_task,
+    };
 
-    tracing::info!("everything started successfully - now waiting for shutdown...");
-    cancellation_token.cancelled().await;
-
-    tracing::info!(
-        "waiting for shutdown of services (max wait time {:?})..",
-        config.max_wait_time_shutdown
-    );
-    match tokio::time::timeout(config.max_wait_time_shutdown, async move {
-        tokio::join!(server, key_event_watcher)
-    })
-    .await
-    {
-        Ok(_) => tracing::info!("successfully finished shutdown in time"),
-        Err(_) => tracing::warn!("could not finish shutdown in time"),
-    }
-
-    Ok(())
+    Ok((router, tasks))
 }
