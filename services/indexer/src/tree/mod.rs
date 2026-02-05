@@ -11,6 +11,7 @@ pub use world_id_primitives::TREE_DEPTH;
 pub mod builder;
 pub mod initializer;
 pub mod metadata;
+pub mod state;
 
 #[cfg(test)]
 mod tests;
