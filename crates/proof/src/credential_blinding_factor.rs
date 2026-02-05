@@ -83,7 +83,9 @@ impl OprfCredentialBlindingFactor {
             r: signature.r,
             merkle_root: *authenticator_input.inclusion_proof.root,
             depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-            mt_index: authenticator_input.inclusion_proof.leaf_index.into(),
+            mt_index: *authenticator_input
+                .inclusion_proof
+                .leaf_index_as_field_element(),
             siblings,
             beta: query_blinding_factor.beta(),
             rp_id: issuer_schema_id.into(),

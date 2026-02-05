@@ -26,7 +26,7 @@ use alloy::{
     providers::DynProvider,
     uint,
 };
-use ark_babyjubjub::EdwardsAffine;
+use ark_babyjubjub::{EdwardsAffine, Fq};
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
@@ -337,12 +337,21 @@ impl Authenticator {
         self.registry.clone()
     }
 
-    /// Returns the account index for the holder's World ID.
+    /// Returns the index for the holder's World ID.
     ///
     /// This is the index at the Merkle tree where the holder's World ID account is registered.
     #[must_use]
     pub fn leaf_index(&self) -> U256 {
         self.packed_account_data & MASK_LEAF_INDEX
+    }
+
+    /// Returns the World ID's leaf index as a field element.
+    ///
+    /// # Panics
+    /// This does not panic as even though the leaf index is U256, the `WorldIDRegistry` contract
+    /// enforces it must fit in 192 bits (see `PackedAccountData.sol`) which is always below the modulo of BN254.
+    pub fn leaf_index_as_field_element(&self) -> FieldElement {
+        Fq::try_from(self.leaf_index()).unwrap().into()
     }
 
     /// Returns the recovery counter for the holder's World ID.

@@ -128,11 +128,8 @@ pub(crate) async fn handler(
         }
     }
 
-    let merkle_proof = MerkleInclusionProof::new(
-        tree.root().try_into().unwrap(),
-        leaf_index.as_limbs()[0],
-        siblings,
-    );
+    let merkle_proof =
+        MerkleInclusionProof::new(tree.root().try_into().unwrap(), leaf_index, siblings);
 
     let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
         .expect("authenticator_pubkeys already validated");
