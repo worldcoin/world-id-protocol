@@ -18,7 +18,19 @@ killall -9 world-id-gateway
 anvil &
 sleep 1
 cd contracts
-TREE_DEPTH=30 forge script script/WorldIDRegistry.s.sol --broadcast --rpc-url 127.0.0.1:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 2>&1 | tee /tmp/forge-output.log
+
+# Deploy an ERC20 mock token to use as the fee token.
+forge script script/ERC20Mock.s.sol --broadcast --rpc-url 127.0.0.1:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 2>&1 | tee /tmp/erc20-mock-forge-output.log
+
+# Extract the deployed ERC20Mock address from the forge output.
+ERC20_MOCK_ADDRESS=$(grep "ERC20Mock deployed to:" /tmp/erc20-mock-forge-output.log | tail -1 | awk '{print $4}')
+
+# Deploy the WorldIDRegistry using the ERC20 mock as the fee token and zero registration fee.
+TREE_DEPTH=30 \
+FEE_TOKEN="$ERC20_MOCK_ADDRESS" \
+FEE_RECIPIENT=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
+REGISTRATION_FEE=0 \
+forge script script/WorldIDRegistry.s.sol --broadcast --rpc-url 127.0.0.1:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 2>&1 | tee /tmp/forge-output.log
 cd ..
 
 # Load environment variables from indexer .env
