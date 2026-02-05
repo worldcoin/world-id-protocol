@@ -304,10 +304,15 @@ async fn run_http_only(
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = rpc_url.to_string();
+        let sanity_tree_state = tree_state.clone();
         sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) =
-                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
-                    .await
+            if let Err(e) = sanity_check::root_sanity_check_loop(
+                rpc_url,
+                registry_address,
+                sanity_interval,
+                sanity_tree_state,
+            )
+            .await
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }
@@ -350,6 +355,9 @@ async fn run_both(
     tree_cache_params: TreeCacheParams,
     tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
+    // Clone tree_state for sanity checker before moving into HTTP server spawn
+    let sanity_tree_state = tree_state.clone();
+
     // Start HTTP server
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
@@ -363,9 +371,13 @@ async fn run_both(
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = rpc_url.to_string();
         sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) =
-                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
-                    .await
+            if let Err(e) = sanity_check::root_sanity_check_loop(
+                rpc_url,
+                registry_address,
+                sanity_interval,
+                sanity_tree_state,
+            )
+            .await
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }
