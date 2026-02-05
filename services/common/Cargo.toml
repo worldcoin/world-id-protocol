@@ -24,17 +24,17 @@ alloy = { workspace = true, features = [
     "signer-local",
     "transport-http",
 ] }
-serde.workspace = true
-thiserror.workspace = true
-url.workspace = true
-tracing.workspace = true
+serde = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+tracing = { workspace = true }
 
-config = "0.15.19"
-aws-sdk-kms = "1.0.0"
-aws-config = "1.0.0"
-clap = { version = "4.5.54", features = ["derive", "env"] }
-tower = "0.5.3"
-governor = "0.10.4"
+config = { workspace = true }
+aws-sdk-kms = { workspace = true }
+aws-config = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+tower = { workspace = true }
+governor = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
