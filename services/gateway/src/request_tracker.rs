@@ -148,7 +148,7 @@ impl RequestTracker {
                 .map_err(handle_redis_error)?;
         } else {
             // No Redis, use local cache as storage
-            self.cache.insert(id.clone(), record.clone()).await;
+            self.cache.insert(id, record).await;
         }
 
         Ok(())

@@ -630,4 +630,36 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.getSignerForIssuerSchemaId(id2), signer2);
         assertEq(registry.getSignerForIssuerSchemaId(id3), signer3);
     }
+
+    // UpdateOprfKeyRegistry Tests
+
+    function testUpdateOprfKeyRegistry() public {
+        MockOprfKeyRegistry newOprfKeyRegistry = new MockOprfKeyRegistry();
+
+        vm.expectEmit(true, true, false, true);
+        emit ICredentialSchemaIssuerRegistry.OprfKeyRegistryUpdated(
+            registry.getOprfKeyRegistry(), address(newOprfKeyRegistry)
+        );
+
+        registry.updateOprfKeyRegistry(address(newOprfKeyRegistry));
+
+        assertEq(registry.getOprfKeyRegistry(), address(newOprfKeyRegistry));
+    }
+
+    function testCannotUpdateOprfKeyRegistryToZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
+        registry.updateOprfKeyRegistry(address(0));
+    }
+
+    function testOnlyOwnerCanUpdateOprfKeyRegistry() public {
+        MockOprfKeyRegistry newOprfKeyRegistry = new MockOprfKeyRegistry();
+        address nonOwner = vm.addr(0xEEEE);
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        registry.updateOprfKeyRegistry(address(newOprfKeyRegistry));
+
+        // Verify it wasn't updated
+        assertNotEq(registry.getOprfKeyRegistry(), address(newOprfKeyRegistry));
+    }
 }

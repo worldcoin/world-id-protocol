@@ -15,7 +15,7 @@ alloy = { workspace = true, default-features = false, features = [
     "sol-types",
     "json",
 ] }
-alloy-node-bindings = "1.0.38"
+alloy-node-bindings = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
 serde_json = { workspace = true }
