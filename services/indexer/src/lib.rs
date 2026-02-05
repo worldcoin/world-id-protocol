@@ -37,10 +37,7 @@ pub struct TreeCacheParams {
 async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
-) -> IndexerResult<()> {
-    // Set the configured tree depth globally
-    tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
-
+) -> IndexerResult<tree::TreeState> {
     let initializer = tree::TreeInitializer::new(
         tree_cache_cfg.cache_file_path.clone(),
         tree_cache_cfg.tree_depth,
@@ -48,17 +45,16 @@ async fn initialize_tree_with_config(
         U256::ZERO,
     );
 
-    // initialize() now updates GLOBAL_TREE internally
-    initializer.initialize(db).await?;
+    let tree_state = initializer.initialize(db).await?;
 
     // Log the initialized root
-    let root = GLOBAL_TREE.read().await.root();
+    let root = tree_state.root().await;
     tracing::info!(
         root = %format!("0x{:x}", root),
         depth = tree_cache_cfg.tree_depth,
         "Tree initialized successfully"
     );
-    Ok(())
+    Ok(tree_state)
 }
 
 /// Background task for HttpOnly mode: periodically check for stale cache and refresh
@@ -66,12 +62,13 @@ async fn cache_refresh_loop(
     tree_cache_cfg: config::TreeCacheConfig,
     db: &DB,
     refresh_interval_secs: u64,
+    tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
     let check_interval = Duration::from_secs(refresh_interval_secs);
     let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
 
     // Perform initial check immediately on startup (before first sleep)
-    match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path).await {
+    match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path, &tree_state).await {
         Ok(refreshed) => {
             if refreshed {
                 tracing::info!("Initial cache refresh completed with new events");
@@ -86,7 +83,7 @@ async fn cache_refresh_loop(
         tokio::time::sleep(check_interval).await;
 
         // Check if cache needs refresh
-        match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path).await {
+        match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path, &tree_state).await {
             Ok(refreshed) => {
                 if refreshed {
                     tracing::info!("Cache refreshed with new events");
@@ -104,6 +101,7 @@ async fn check_and_refresh_cache(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
     cache_path: &std::path::Path,
+    tree_state: &tree::TreeState,
 ) -> IndexerResult<bool> {
     // Read current cache metadata
     let metadata = tree::metadata::read_metadata(cache_path)?;
@@ -138,7 +136,7 @@ async fn check_and_refresh_cache(
         U256::ZERO,
     );
 
-    let (blocks_synced, logs_synced) = initializer.sync_with_db(db).await?;
+    let (blocks_synced, logs_synced) = initializer.sync_with_db(db, tree_state).await?;
     tracing::info!(blocks_synced, logs_synced, "Cache refresh complete");
 
     Ok(blocks_synced > 0 || logs_synced > 0)
@@ -214,13 +212,8 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
             // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
             let tree_cache_cfg = http_config.tree_cache.clone();
-            initialize_tree_with_config(&tree_cache_cfg, &db).await?;
+            let tree_state = initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
-
-            // Create TreeState for AppState
-            // Note: routes still use GLOBAL_TREE; this will be wired up properly
-            // after TreeInitializer is updated to return TreeState
-            let tree_state = tree::TreeState::new_empty(tree_cache_cfg.tree_depth);
 
             run_http_only(
                 db,
@@ -246,13 +239,8 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
             // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
             let tree_cache_cfg = http_config.tree_cache.clone();
-            initialize_tree_with_config(&tree_cache_cfg, &db).await?;
+            let tree_state = initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
-
-            // Create TreeState for AppState
-            // Note: routes still use GLOBAL_TREE; this will be wired up properly
-            // after TreeInitializer is updated to return TreeState
-            let tree_state = tree::TreeState::new_empty(tree_cache_cfg.tree_depth);
 
             run_both(
                 &blockchain,
@@ -330,8 +318,11 @@ async fn run_http_only(
     let refresh_pool = db.clone();
     let refresh_interval = tree_cache_cfg.http_cache_refresh_interval_secs;
     let refresh_cache_cfg = tree_cache_cfg.clone();
+    let refresh_tree_state = tree_state.clone();
     let cache_refresh_handle = tokio::spawn(async move {
-        if let Err(e) = cache_refresh_loop(refresh_cache_cfg, &refresh_pool, refresh_interval).await
+        if let Err(e) =
+            cache_refresh_loop(refresh_cache_cfg, &refresh_pool, refresh_interval, refresh_tree_state)
+                .await
         {
             tracing::error!(?e, "Cache refresh task failed");
         }
