@@ -605,11 +605,10 @@ impl Authenticator {
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_offchain_signer_commitment = key_set.leaf_hash();
-        key_set.try_push(new_authenticator_pubkey.clone())?;
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
+        key_set.try_push(new_authenticator_pubkey)?;
         let index = key_set.len() - 1;
         let new_offchain_signer_commitment = key_set.leaf_hash();
-
-        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
@@ -690,10 +689,9 @@ impl Authenticator {
         let nonce = self.signing_nonce().await?;
         let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
-        key_set.try_set_at_index(index as usize, new_authenticator_pubkey.clone())?;
-        let new_commitment: U256 = key_set.leaf_hash().into();
-
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
+        key_set.try_set_at_index(index as usize, new_authenticator_pubkey)?;
+        let new_commitment: U256 = key_set.leaf_hash().into();
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 

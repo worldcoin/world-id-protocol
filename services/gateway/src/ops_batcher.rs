@@ -108,11 +108,11 @@ impl OpsBatcherRunner {
                 .await;
 
             let calls: Vec<Multicall3::Call3> = batch
-                .iter()
+                .into_iter()
                 .map(|env| Multicall3::Call3 {
                     target: *self.registry.address(),
                     allowFailure: false,
-                    callData: env.calldata.clone(),
+                    callData: env.calldata,
                 })
                 .collect();
 
@@ -136,7 +136,7 @@ impl OpsBatcherRunner {
                         .await;
 
                     let tracker = self.tracker.clone();
-                    let ids_for_receipt = ids.clone();
+                    let ids_for_receipt = ids;
                     tokio::spawn(async move {
                         match builder.get_receipt().await {
                             Ok(receipt) => {
