@@ -137,21 +137,6 @@ struct OptimismBridgeProofData {
 }
 ```
 
----
-
-## Contract Files
-
-```
-contracts/src/bridge/
-├── WorldIDStateBridgeL1.sol       # L1: reads L2OutputOracle directly
-├── WorldIDStateBridgeOP.sol       # Optimism: verifies via L1Block
-├── WorldIDVerifierBridge.sol      # Shared verifier (or one per chain)
-├── interfaces/
-│   └── IWorldIDStateBridge.sol
-└── libraries/
-    ├── RLPReader.sol
-    ├── MerklePatriciaProof.sol
-    └── OutputRootLib.sol
 ```
 
 ### Bridge Update Flow (~hourly)
