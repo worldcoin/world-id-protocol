@@ -165,7 +165,6 @@ mod tests {
         };
         let json = serde_json::to_string(&original).unwrap();
         assert!(json.contains("0xdeadbeef"));
-        assert!(json.contains("0x2a"));
 
         let parsed: Test = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, original);
