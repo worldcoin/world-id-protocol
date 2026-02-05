@@ -130,6 +130,7 @@ pub fn single_leaf_merkle_fixture(
     })
 }
 
+#[derive(Clone)]
 pub struct RpFixture {
     pub world_rp_id: WorldRpId,
     pub oprf_key_id: OprfKeyId,

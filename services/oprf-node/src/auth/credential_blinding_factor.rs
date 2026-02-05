@@ -154,7 +154,6 @@ mod tests {
     };
 
     pub(crate) struct CredentialBlindingFactorOprfRequestAuthTestSetup {
-        #[expect(dead_code)]
         setup: OprfRequestAuthTestSetup,
         request_authenticator: CredentialBlindingFactorOprfRequestAuthenticator,
         request: OprfRequest<CredentialBlindingFactorOprfRequestAuthV1>,
@@ -359,6 +358,33 @@ mod tests {
             CredentialBlindingFactorOprfRequestAuthError::Common(
                 OprfRequestAuthError::InvalidProof
             )
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_credential_blinding_factor_oprf_req_auth_removed_issuer() -> eyre::Result<()> {
+        let setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
+        let deployer = setup.setup.anvil.signer(0)?;
+        setup
+            .setup
+            .anvil
+            .remove_issuer_unchecked(
+                setup.setup.credential_schema_issuer_registry,
+                deployer,
+                setup.setup.issuer_schema_id,
+            )
+            .await?;
+        let err = setup
+            .request_authenticator
+            .verify(&setup.request)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            CredentialBlindingFactorOprfRequestAuthError::SchemaIssuerRegistryWatcherError(
+                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(id)
+            ) if id == setup.setup.issuer_schema_id
         ));
         Ok(())
     }

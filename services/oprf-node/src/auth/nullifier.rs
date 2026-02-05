@@ -162,7 +162,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 mod tests {
     use std::{path::PathBuf, time::Duration};
 
-    use alloy::primitives::U160;
+    use alloy::{primitives::U160, signers::local::LocalSigner};
     use secrecy::ExposeSecret as _;
     use taceo_oprf::{
         core::oprf::BlindingFactor,
@@ -184,7 +184,7 @@ mod tests {
         merkle_watcher::MerkleWatcher,
         nullifier::{NullifierOprfRequestAuthError, NullifierOprfRequestAuthenticator},
         rp_registry_watcher::{
-            RpRegistry::{RpIdDoesNotExist, RpRegistryErrors},
+            RpRegistry::{RpIdDoesNotExist, RpIdInactive, RpRegistryErrors},
             RpRegistryWatcher, RpRegistryWatcherError,
         },
         signature_history::{DuplicateSignatureError, SignatureHistory},
@@ -192,7 +192,6 @@ mod tests {
     };
 
     pub(crate) struct NullifierOprfRequestAuthTestSetup {
-        #[expect(dead_code)]
         setup: OprfRequestAuthTestSetup,
         request_authenticator: NullifierOprfRequestAuthenticator,
         request: OprfRequest<NullifierOprfRequestAuthV1>,
@@ -428,6 +427,40 @@ mod tests {
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::DuplicateSignatureError(DuplicateSignatureError)
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_nullifier_oprf_req_auth_inactive_rp() -> eyre::Result<()> {
+        let setup = NullifierOprfRequestAuthTestSetup::new().await?;
+        let rp_fixture = setup.setup.rp_fixture.clone();
+        let deployer = setup.setup.anvil.signer(0)?;
+        let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+        setup
+            .setup
+            .anvil
+            .update_rp_unchecked(
+                setup.setup.rp_registry,
+                deployer,
+                rp_fixture.world_rp_id,
+                rp_fixture.oprf_key_id,
+                true,
+                rp_signer.address(),
+                rp_signer.address(),
+                "taceo.oprf".to_string(),
+            )
+            .await?;
+        let err = setup
+            .request_authenticator
+            .verify(&setup.request)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            NullifierOprfRequestAuthError::RpRegistryWatcherError(
+                RpRegistryWatcherError::AlloyError(err)
+            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().unwrap(), RpRegistryErrors::RpIdInactive(RpIdInactive))
         ));
         Ok(())
     }
