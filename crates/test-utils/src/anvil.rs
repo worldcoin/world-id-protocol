@@ -68,16 +68,6 @@ sol!(
 );
 
 sol!(
-    #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
-    VerifierKeyGen13,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/VerifierKeyGen13.sol/Verifier.json"
-    )
-);
-
-sol!(
     #[sol(rpc)]
     ERC1967Proxy,
     concat!(
