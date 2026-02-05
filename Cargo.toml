@@ -1,11 +1,13 @@
 [workspace]
 members = [
   "crates/core",
+  "crates/authenticator",
   "crates/issuer",
   "crates/signer",
   "crates/proof",
   "crates/request",
   "crates/primitives",
+  "crates/types",
   "crates/test-utils",
   "services/indexer",
   "services/gateway",

@@ -1,6 +1,6 @@
 [package]
 name = "world-id-registry"
-description = "World ID Registry crate"
+description = "Minimal World ID Registry contract bindings"
 publish = true
 edition.workspace = true
 version.workspace = true
@@ -9,13 +9,8 @@ authors.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
+include = ["src/**/*", "Cargo.toml"]
 
 [dependencies]
-anyhow = { workspace = true }
 alloy = { workspace = true, features = ["sol-types", "signer-local", "json", "contract"] }
-
-[dev-dependencies]
-ruint = { workspace = true }
-rand = { workspace = true }
-serde_json = { workspace = true }
+anyhow = { workspace = true }

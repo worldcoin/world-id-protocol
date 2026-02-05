@@ -55,8 +55,8 @@ world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
 world-id-request = { workspace = true, optional = true }
 world-id-signer = { workspace = true, optional = true }
-world-id-authenticator = { workspace = true, optional = true }
 world-id-registry = { workspace = true, optional = true }
+world-id-authenticator = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
 world-id-types = { workspace = true }
 
