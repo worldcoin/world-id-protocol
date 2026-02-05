@@ -7,10 +7,6 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
 
 /// Thread-safe wrapper around the Merkle tree and its configuration.
-///
-/// `TreeState` encapsulates both the Merkle tree and its configured depth,
-/// providing a clean API for tree operations without relying on global state.
-/// This enables proper dependency injection and isolated testing.
 #[derive(Clone)]
 pub struct TreeState {
     inner: Arc<TreeStateInner>,
@@ -38,8 +34,8 @@ impl TreeState {
         Self::new(tree, tree_depth)
     }
 
-    /// Returns the configured tree depth.
-    pub fn tree_depth(&self) -> usize {
+    /// Returns the configured depth.
+    pub fn depth(&self) -> usize {
         self.inner.tree_depth
     }
 
@@ -82,10 +78,10 @@ impl TreeState {
         Ok(())
     }
 
-    /// Update the tree with a commitment at the given leaf index.
+    /// Update commitment at the given leaf index.
     ///
     /// Returns an error if the leaf index is zero (reserved) or out of range.
-    pub async fn update_tree_with_commitment(
+    pub async fn update_commitment(
         &self,
         leaf_index: U256,
         new_commitment: U256,
@@ -98,10 +94,7 @@ impl TreeState {
     }
 
     /// Atomically replace the entire tree.
-    ///
-    /// This is used during initialization and recovery to swap in a new tree
-    /// without requiring callers to hold a write lock across complex operations.
-    pub async fn replace_tree(&self, new_tree: MerkleTree<PoseidonHasher, Canonical>) {
+    pub async fn replace(&self, new_tree: MerkleTree<PoseidonHasher, Canonical>) {
         let mut tree = self.write().await;
         *tree = new_tree;
     }
@@ -114,7 +107,7 @@ mod tests {
     #[tokio::test]
     async fn test_new_empty() {
         let state = TreeState::new_empty(6);
-        assert_eq!(state.tree_depth(), 6);
+        assert_eq!(state.depth(), 6);
         assert_eq!(state.capacity(), 64);
     }
 
@@ -137,12 +130,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_update_tree_with_commitment() {
+    async fn test_update_commitment() {
         let state = TreeState::new_empty(6);
         let commitment = U256::from(123u64);
 
         state
-            .update_tree_with_commitment(U256::from(5u64), commitment)
+            .update_commitment(U256::from(5u64), commitment)
             .await
             .unwrap();
 
@@ -154,13 +147,13 @@ mod tests {
     async fn test_update_tree_with_zero_index() {
         let state = TreeState::new_empty(6);
         let result = state
-            .update_tree_with_commitment(U256::ZERO, U256::from(1u64))
+            .update_commitment(U256::ZERO, U256::from(1u64))
             .await;
         assert!(matches!(result, Err(TreeError::ZeroLeafIndex)));
     }
 
     #[tokio::test]
-    async fn test_replace_tree() {
+    async fn test_replace() {
         let state = TreeState::new_empty(6);
         let initial_root = state.root().await;
 
@@ -169,7 +162,7 @@ mod tests {
         new_tree = new_tree.update_with_mutation(1, &U256::from(999u64));
         let new_root = new_tree.root();
 
-        state.replace_tree(new_tree).await;
+        state.replace(new_tree).await;
 
         assert_ne!(initial_root, state.root().await);
         assert_eq!(new_root, state.root().await);

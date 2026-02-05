@@ -291,7 +291,7 @@ impl TreeInitializer {
 
             // Trigger full rebuild instead of failing
             let rebuilt_tree = self.full_rebuild(db).await?;
-            tree_state.replace_tree(rebuilt_tree).await;
+            tree_state.replace(rebuilt_tree).await;
             return Ok((0, 0));
         }
 
@@ -314,7 +314,7 @@ impl TreeInitializer {
             .await?;
 
         // 6. Replace tree in TreeState atomically (one brief write lock)
-        tree_state.replace_tree(updated_tree).await;
+        tree_state.replace(updated_tree).await;
 
         // 7. Update metadata on disk
         let tree_guard = tree_state.read().await;

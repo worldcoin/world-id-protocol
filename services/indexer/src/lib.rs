@@ -148,27 +148,27 @@ async fn update_tree_with_event(
     match ev {
         RegistryEvent::AccountCreated(e) => {
             tree_state
-                .update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment)
+                .update_commitment(e.leaf_index, e.offchain_signer_commitment)
                 .await?;
         }
         RegistryEvent::AccountUpdated(e) => {
             tree_state
-                .update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment)
+                .update_commitment(e.leaf_index, e.new_offchain_signer_commitment)
                 .await?;
         }
         RegistryEvent::AuthenticatorInserted(e) => {
             tree_state
-                .update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment)
+                .update_commitment(e.leaf_index, e.new_offchain_signer_commitment)
                 .await?;
         }
         RegistryEvent::AuthenticatorRemoved(e) => {
             tree_state
-                .update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment)
+                .update_commitment(e.leaf_index, e.new_offchain_signer_commitment)
                 .await?;
         }
         RegistryEvent::AccountRecovered(e) => {
             tree_state
-                .update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment)
+                .update_commitment(e.leaf_index, e.new_offchain_signer_commitment)
                 .await?;
         }
         RegistryEvent::RootRecorded(_) => {}
@@ -515,7 +515,7 @@ pub async fn poll_db_changes(
                         );
 
                         if let Err(e) = tree_state
-                            .update_tree_with_commitment(leaf_index, commitment)
+                            .update_commitment(leaf_index, commitment)
                             .await
                         {
                             tracing::error!(
