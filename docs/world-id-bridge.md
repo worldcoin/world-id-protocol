@@ -142,37 +142,6 @@ contracts/src/bridge/
     └── OutputRootLib.sol
 ```
 
----
-
-## world-id-bridge Service (Rust)
-
-Monitors World Chain and submits bridge updates to destination chains (~hourly).
-
-**Code style**: Follow the patterns and style of `world-id-indexer` (`services/indexer/`). Use similar:
-- Configuration structure (`config.rs` with clap + env vars)
-- Error handling patterns (custom error types with backtrace)
-- Logging/tracing setup
-- HTTP server structure (axum + utoipa)
-- Database patterns if needed
-
-```
-services/world-id-bridge/
-├── src/
-│   ├── main.rs
-│   ├── lib.rs
-│   ├── config.rs              # Similar to indexer config pattern
-│   ├── error.rs               # Custom error types
-│   ├── monitor.rs             # Watch World Chain for state changes
-│   ├── bridge.rs              # Submit bridge transactions
-│   ├── prover.rs              # Generate storage proofs for Type 2
-│   └── routes/
-│       ├── mod.rs
-│       ├── health.rs
-│       └── status.rs
-```
-
-### Bridge Update Flow (~hourly)
-
 1. Check if World Chain state has changed (root, registry pubkeys)
 2. For Type 1 (L1): Call `WorldIDStateSender.bridgeState()` on World Chain
 3. For Type 2 (Optimism): Generate storage proofs, call `WorldIDStateBridge.updateState()`
