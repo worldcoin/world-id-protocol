@@ -82,6 +82,31 @@ impl Blockchain {
             .map(|log| RegistryEvent::decode(&log)))
     }
 
+    /// Fetch all historical events from `from_block` to the current latest block.
+    /// Returns the logs and the block number they were fetched up to (inclusive).
+    pub async fn get_backfill_events(
+        &self,
+        from_block: u64,
+    ) -> anyhow::Result<(Vec<alloy::rpc::types::Log>, u64)> {
+        let filter = Filter::new()
+            .address(self.world_id_registry)
+            .event_signature(RegistryEvent::signatures());
+
+        let latest_block_number = self.http_provider.get_block_number().await?;
+
+        if from_block > latest_block_number {
+            return Ok((vec![], latest_block_number));
+        }
+
+        let range_filter = filter
+            .from_block(from_block)
+            .to_block(latest_block_number);
+
+        let logs = self.http_provider.get_logs(&range_filter).await?;
+
+        Ok((logs, latest_block_number))
+    }
+
     pub async fn get_block_number(&self) -> anyhow::Result<u64> {
         Ok(self.http_provider.get_block_number().await?)
     }

@@ -3,6 +3,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
+    rpc::types::Log,
 };
 use futures_util::StreamExt;
 use world_id_core::world_id_registry::WorldIdRegistry;
@@ -130,10 +131,6 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
                 Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
             tracing::info!("Connection to blockchain successful.");
 
-            // Initialize tree with cache for both mode
-            let start_time = std::time::Instant::now();
-            initialize_tree_with_config(tree_cache_cfg, &db).await?;
-            tracing::info!("tree initialization took {:?}", start_time.elapsed());
             run_both(
                 &blockchain,
                 db,
@@ -141,6 +138,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
                 cfg.registry_address,
                 indexer_config,
                 http_config,
+                tree_cache_cfg,
             )
             .await
         }
@@ -215,8 +213,39 @@ async fn run_both(
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
+    tree_cache_cfg: &config::TreeCacheConfig,
 ) -> anyhow::Result<()> {
-    // Start HTTP server
+    // --- Phase 1: Backfill historical events into DB (no tree) ---
+    let from = db
+        .world_tree_events()
+        .get_latest_block()
+        .await?
+        .unwrap_or(indexer_cfg.start_block);
+
+    tracing::info!(from_block = from, "Phase 1: starting historical backfill");
+
+    let (raw_logs, backfill_up_to_block) = blockchain.get_backfill_events(from).await?;
+
+    tracing::info!(
+        log_count = raw_logs.len(),
+        backfill_up_to_block,
+        "Phase 1: fetched historical logs, processing..."
+    );
+
+    let committed_batches = save_events(&db, raw_logs).await?;
+
+    tracing::info!(
+        committed_batches,
+        "Phase 1: backfill complete, all historical events stored in DB"
+    );
+
+    // --- Phase 2: Build tree from complete DB ---
+    tracing::info!("Phase 2: building tree from DB");
+    let start_time = std::time::Instant::now();
+    initialize_tree_with_config(tree_cache_cfg, &db).await?;
+    tracing::info!("Phase 2: tree initialization took {:?}", start_time.elapsed());
+
+    // --- Phase 3: Start HTTP server + sanity check ---
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
     let rpc_url_clone = rpc_url.to_string();
@@ -224,7 +253,6 @@ async fn run_both(
         start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool).await
     });
 
-    // Start root sanity checker in the background
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = rpc_url.to_string();
@@ -238,18 +266,16 @@ async fn run_both(
         }));
     }
 
-    // Determine starting block from checkpoint or env
-    let from = db
-        .world_tree_events()
-        .get_latest_block()
-        .await?
-        .unwrap_or(indexer_cfg.start_block);
+    // --- Phase 4: Live event streaming with tree sync ---
+    tracing::info!(
+        from_block = backfill_up_to_block,
+        "Phase 4: starting live event stream with tree sync"
+    );
 
-    tracing::info!("switching to websocket live follow");
     stream_logs(
         blockchain,
         &db,
-        from,
+        backfill_up_to_block,
         true, // Sync in-memory tree after each DB commit
     )
     .await?;
@@ -277,6 +303,30 @@ pub async fn handle_registry_event<'a>(
     }
 
     Ok(())
+}
+
+/// Process backfill logs from HTTP get_logs, writing to DB only (no tree sync).
+/// Returns the number of committed batches.
+async fn save_events(db: &DB, raw_logs: Vec<Log>) -> anyhow::Result<usize> {
+    let mut events_committer = EventsCommitter::new(db);
+    let mut committed_batches = 0usize;
+
+    for log in raw_logs {
+        match RegistryEvent::decode(&log) {
+            Ok(event) => {
+                tracing::info!(?event, "processing backfill event");
+                let committed = events_committer.handle_event(event).await?;
+                if committed {
+                    committed_batches += 1;
+                }
+            }
+            Err(e) => {
+                tracing::warn!(?e, "failed to decode backfill event");
+            }
+        }
+    }
+
+    Ok(committed_batches)
 }
 
 pub async fn stream_logs(
