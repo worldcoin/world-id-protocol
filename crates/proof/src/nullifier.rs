@@ -109,7 +109,6 @@ impl OprfNullifier {
             services,
             OprfModule::Nullifier.to_string().as_str(),
             threshold,
-            proof_request.oprf_key_id,
             *query_hash,
             query_blinding_factor,
             ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),

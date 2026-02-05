@@ -32,7 +32,7 @@ use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
-use taceo_oprf::{client::Connector, types::OprfKeyId};
+use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
@@ -491,7 +491,6 @@ impl Authenticator {
     pub async fn generate_credential_blinding_factor(
         &self,
         issuer_schema_id: u64,
-        oprf_key_id: OprfKeyId,
     ) -> Result<FieldElement, AuthenticatorError> {
         let (services, threshold) = self.check_oprf_config()?;
 
@@ -518,7 +517,6 @@ impl Authenticator {
             authenticator_input,
             issuer_schema_id,
             FieldElement::ZERO, // for now action is always zero, might change in future
-            oprf_key_id,
             self.ws_connector.clone(),
         )
         .await?;
