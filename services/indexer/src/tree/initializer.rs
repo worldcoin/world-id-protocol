@@ -4,7 +4,9 @@ use alloy::primitives::U256;
 use semaphore_rs_trees::lazy::Canonical;
 use tracing::{info, warn};
 
-use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult, TreeState, builder::TreeBuilder, metadata};
+use super::{
+    MerkleTree, PoseidonHasher, TreeError, TreeResult, TreeState, builder::TreeBuilder, metadata,
+};
 use crate::db::{DB, WorldTreeEventId};
 
 /// State of cache files on disk

@@ -287,9 +287,7 @@ async fn run_indexer_only(
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
-        blockchain,
-        &db,
-        from,
+        blockchain, &db, from,
         None, // Don't update in-memory tree or cache in indexer-only mode
         None, // No tree state in indexer-only mode
     )
@@ -341,17 +339,27 @@ async fn run_http_only(
     let refresh_cache_cfg = tree_cache_cfg.clone();
     let refresh_tree_state = tree_state.clone();
     let cache_refresh_handle = tokio::spawn(async move {
-        if let Err(e) =
-            cache_refresh_loop(refresh_cache_cfg, &refresh_pool, refresh_interval, refresh_tree_state)
-                .await
+        if let Err(e) = cache_refresh_loop(
+            refresh_cache_cfg,
+            &refresh_pool,
+            refresh_interval,
+            refresh_tree_state,
+        )
+        .await
         {
             tracing::error!(?e, "Cache refresh task failed");
         }
     });
 
     // Start HTTP server
-    let http_result =
-        start_http_server(rpc_url, registry_address, http_cfg.http_addr, db, tree_state).await;
+    let http_result = start_http_server(
+        rpc_url,
+        registry_address,
+        http_cfg.http_addr,
+        db,
+        tree_state,
+    )
+    .await;
 
     poller_handle.abort();
     cache_refresh_handle.abort();
@@ -381,8 +389,14 @@ async fn run_both(
     let http_addr = http_cfg.http_addr;
     let rpc_url_clone = rpc_url.to_string();
     let http_handle = tokio::spawn(async move {
-        start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool, http_tree_state)
-            .await
+        start_http_server(
+            &rpc_url_clone,
+            registry_address,
+            http_addr,
+            http_pool,
+            http_tree_state,
+        )
+        .await
     });
 
     // Start root sanity checker in the background
@@ -500,8 +514,9 @@ pub async fn poll_db_changes(
                             "Updating tree from DB poll"
                         );
 
-                        if let Err(e) =
-                            tree_state.update_tree_with_commitment(leaf_index, commitment).await
+                        if let Err(e) = tree_state
+                            .update_tree_with_commitment(leaf_index, commitment)
+                            .await
                         {
                             tracing::error!(
                                 ?e,
