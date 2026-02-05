@@ -339,7 +339,21 @@ impl Authenticator {
 
     /// Returns the index for the holder's World ID.
     ///
-    /// This is the index at the Merkle tree where the holder's World ID account is registered.
+    /// # Definition
+    ///
+    /// The `leaf_index` is the main (internal) identifier of a World ID. It is registered in
+    /// the `WorldIDRegistry` and represents the index at the Merkle tree where the World ID
+    /// resides.
+    ///
+    /// # Notes
+    /// - The `leaf_index` is used as input in the nullifier generation, ensuring a nullifier
+    ///   will always be the same for the same RP context and the same World ID (allowing for uniqueness).
+    /// - The `leaf_index` is generally not exposed outside Authenticators. It is not a secret because
+    ///   it's not exposed to RPs outside ZK-circuits, but it should not be shared outside the Protocol
+    ///   boundaries or it may create a pseudonymous identifier.
+    /// - The `leaf_index` is technically a `uint256`. However, for storage optimizations and to ensure it
+    ///   always fits in the field, the contract in practice enforces it must fit in `uint192`, i.e. the last
+    ///   64 bits are always 0.
     #[must_use]
     pub fn leaf_index(&self) -> U256 {
         self.packed_account_data & MASK_LEAF_INDEX
