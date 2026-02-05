@@ -33,7 +33,7 @@ pub async fn init_tree(
     tree_depth: usize,
     dense_prefix_depth: usize,
 ) -> anyhow::Result<()> {
-    let (tree, last_event_id, source) = if cache_path.exists() {
+    let (tree, last_event_id, _source) = if cache_path.exists() {
         match try_restore(db, cache_path, tree_depth, dense_prefix_depth).await {
             Ok((tree, last_event_id)) => (tree, last_event_id, "cache"),
             Err(e) => {
@@ -50,29 +50,6 @@ pub async fn init_tree(
             build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth).await?;
         (tree, last_event_id, "database")
     };
-
-    let root = tree.root();
-
-    // Validate that the final root exists in world_tree_roots
-    let root_entry = db
-        .world_tree_roots()
-        .get_root_by_value(&root)
-        .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "final root 0x{:x} not found in world_tree_roots — tree state is inconsistent",
-                root
-            )
-        })?;
-
-    info!(
-        root = %format!("0x{:x}", root),
-        block_number = root_entry.id.block_number,
-        log_index = root_entry.id.log_index,
-        ?last_event_id,
-        source,
-        "init_tree: root validated"
-    );
 
     set_global_tree(tree, last_event_id).await;
 
