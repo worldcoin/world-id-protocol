@@ -82,7 +82,7 @@ pub(crate) async fn handler(
     let tree = state.tree_state.read().await;
 
     let index_as_usize = leaf_index.as_limbs()[0] as usize;
-    let capacity = state.tree_state.tree_capacity();
+    let capacity = state.tree_state.capacity();
     if index_as_usize >= capacity {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,

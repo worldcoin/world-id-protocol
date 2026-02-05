@@ -44,7 +44,7 @@ impl TreeState {
     }
 
     /// Returns the tree capacity (2^depth).
-    pub fn tree_capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         1usize << self.inner.tree_depth
     }
 
@@ -67,7 +67,7 @@ impl TreeState {
     ///
     /// Returns an error if the index is out of range.
     pub async fn set_leaf_at_index(&self, leaf_index: usize, value: U256) -> TreeResult<()> {
-        let capacity = self.tree_capacity();
+        let capacity = self.capacity();
         if leaf_index >= capacity {
             return Err(TreeError::LeafIndexOutOfRange {
                 leaf_index,
@@ -115,7 +115,7 @@ mod tests {
     async fn test_new_empty() {
         let state = TreeState::new_empty(6);
         assert_eq!(state.tree_depth(), 6);
-        assert_eq!(state.tree_capacity(), 64);
+        assert_eq!(state.capacity(), 64);
     }
 
     #[tokio::test]
