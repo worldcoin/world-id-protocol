@@ -16,21 +16,21 @@ Both bridges use the same pattern: verify World Chain storage proofs against the
 ## Architecture
 
 ```
-World Chain                 Ethereum L1                      Optimism
-┌──────────────┐           ┌─────────────────────────────┐  ┌───────────────────────────┐
-│ WorldID      │           │  L2OutputOracle             │  │  L1Block predeploy        │
-│ Registry     │           │  (WC outputs)               │  │  (has L1 block hash)      │
-│ + Registries │           │         │ read directly     │  │         │                 │
-└──────────────┘           │         ▼                   │  │         ▼                 │
-       │                   │  WorldIDStateBridge         │  │  WorldIDStateBridge       │
-       │                   │  (verifies WC proofs)       │  │  (verifies L1 + WC proofs)│
-       │                   │         │                   │  │         │                 │
-       │                   │         ▼                   │  │         ▼                 │
-       │                   │  WorldIDVerifier            │  │  WorldIDVerifier          │
-       │                   └─────────────────────────────┘  └───────────────────────────┘
-       │                          ▲                                ▲
-       │                          │                                │
-       │    ┌─────────────────────┴────────────────────────────────┘
+World Chain        Ethereum L1                      Optimism
+┌──────────────┐  ┌─────────────────────────────┐  ┌───────────────────────────┐
+│ WorldID      │  │  L2OutputOracle             │  │  L1Block predeploy        │
+│ Registry     │  │  (WC outputs)               │  │  (has L1 block hash)      │
+│ + Registries │  │         │ read directly     │  │         │                 │
+└──────────────┘  │         ▼                   │  │         ▼                 │
+       │          │  WorldIDStateBridge         │  │  WorldIDStateBridge       │
+       │          │  (verifies WC proofs)       │  │  (verifies L1 + WC proofs)│
+       │          │         │                   │  │         │                 │
+       │          │         ▼                   │  │         ▼                 │
+       │          │  WorldIDVerifier            │  │  WorldIDVerifier          │
+       │          └─────────────────────────────┘  └───────────────────────────┘
+       │                 ▲                                ▲
+       │                 │                                │
+       │    ┌────────────┴────────────────────────────────┘
        │    │
        ▼    │
 ┌──────────────────┐
