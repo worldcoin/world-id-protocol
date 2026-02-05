@@ -10,7 +10,9 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::OprfKeyId;
-use world_id_primitives::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
+use world_id_primitives::{
+    FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId,
+};
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
