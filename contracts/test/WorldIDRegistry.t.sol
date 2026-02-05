@@ -1771,7 +1771,7 @@ contract WorldIDRegistryTest is Test {
 
         (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
         assertEq(pendingAgent, alternateRecoveryAddress);
-        assertEq(executeAfter, block.timestamp + 7 days);
+        assertEq(executeAfter, block.timestamp + 14 days);
     }
 
     function test_CannotRecoverWithPendingRecoveryAgent() public {
