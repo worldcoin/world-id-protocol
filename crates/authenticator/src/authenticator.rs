@@ -577,26 +577,25 @@ impl Authenticator {
 
         // Construct the appropriate response item based on proof type
         let nullifier_fe: FieldElement = nullifier.into();
-        let response_item = match session_id {
-            Some(_) => {
-                // Session proof: extract action from public_inputs[9]
-                let action: FieldElement = public_inputs[9].into();
-                let session_nullifier = SessionNullifier::new(nullifier_fe, action);
-                ResponseItem::new_session(
-                    request_item.identifier.clone(),
-                    request_item.issuer_schema_id,
-                    proof,
-                    session_nullifier,
-                    expires_at_min,
-                )
-            }
-            None => ResponseItem::new_uniqueness(
+        let response_item = if session_id.is_some() {
+            // Session proof: extract action from public_inputs[9]
+            let action: FieldElement = public_inputs[9].into();
+            let session_nullifier = SessionNullifier::new(nullifier_fe, action);
+            ResponseItem::new_session(
+                request_item.identifier.clone(),
+                request_item.issuer_schema_id,
+                proof,
+                session_nullifier,
+                expires_at_min,
+            )
+        } else {
+            ResponseItem::new_uniqueness(
                 request_item.identifier.clone(),
                 request_item.issuer_schema_id,
                 proof,
                 nullifier_fe,
                 expires_at_min,
-            ),
+            )
         };
 
         Ok(response_item)

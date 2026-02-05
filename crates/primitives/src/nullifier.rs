@@ -1,9 +1,3 @@
-//! Session nullifier type for World ID Session proofs.
-//!
-//! For Uniqueness proofs, the nullifier is a simple `FieldElement` (or `Option<FieldElement>`
-//! in response types). For Session proofs, this module provides [`SessionNullifier`] which
-//! packs both the nullifier and action values together.
-
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
@@ -11,36 +5,10 @@ use crate::FieldElement;
 
 /// A session nullifier for World ID Session proofs.
 ///
-/// Session proofs produce both a nullifier and an action value that are cryptographically
-/// bound together. The contract's `verifySession()` function expects these as a
-/// `uint256[2] calldata sessionNullifier` array where:
-/// - `sessionNullifier[0]` is the nullifier
-/// - `sessionNullifier[1]` is the action
+/// Internally represented as a pair of field elements (nullifier, action)
 ///
-/// # Serialization
-///
-/// **JSON (human-readable):** A 2-element array matching the contract's `uint256[2]` layout:
-/// ```json
-/// ["0x1234...abcd", "0x5678...ef01"]
-/// ```
-/// Where index 0 = nullifier, index 1 = action.
-///
-/// **Binary:** 64 bytes total (32 bytes nullifier + 32 bytes action), big-endian.
-///
-/// # Example
-/// ```
-/// use world_id_primitives::{FieldElement, SessionNullifier};
-/// use ruint::aliases::U256;
-///
-/// let nullifier = FieldElement::from(42u64);
-/// let action = FieldElement::from(100u64);
-/// let session = SessionNullifier::new(nullifier, action);
-///
-/// // Get as contract-compatible array
-/// let eth_repr: [U256; 2] = session.as_ethereum_representation();
-/// assert_eq!(eth_repr[0], U256::from(42));
-/// assert_eq!(eth_repr[1], U256::from(100));
-/// ```
+/// The `WorldIDVerifier.sol` contract expects this as a `uint256[2]` array
+/// use `as_ethereum_representation()` for conversion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionNullifier {
     /// The nullifier value derived from (user, rpId, sessionId).
@@ -81,10 +49,10 @@ impl SessionNullifier {
     /// # Errors
     /// Returns an error if the U256 values are not valid field elements.
     pub fn from_ethereum_representation(value: [U256; 2]) -> Result<Self, String> {
-        let nullifier = FieldElement::try_from(value[0])
-            .map_err(|e| format!("invalid nullifier: {e}"))?;
-        let action = FieldElement::try_from(value[1])
-            .map_err(|e| format!("invalid action: {e}"))?;
+        let nullifier =
+            FieldElement::try_from(value[0]).map_err(|e| format!("invalid nullifier: {e}"))?;
+        let action =
+            FieldElement::try_from(value[1]).map_err(|e| format!("invalid action: {e}"))?;
         Ok(Self { nullifier, action })
     }
 
@@ -129,8 +97,6 @@ impl Default for SessionNullifier {
     }
 }
 
-// --- Serialization ---
-
 impl Serialize for SessionNullifier {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -169,8 +135,6 @@ impl<'de> Deserialize<'de> for SessionNullifier {
         }
     }
 }
-
-// --- Conversions ---
 
 impl From<SessionNullifier> for [U256; 2] {
     fn from(value: SessionNullifier) -> Self {
