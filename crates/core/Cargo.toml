@@ -61,9 +61,9 @@ world-id-primitives = { workspace = true }
 world-id-types = { workspace = true }
 
 [dev-dependencies]
+test-utils = { path = "../test-utils" }
 alloy = { workspace = true }
 reqwest = { workspace = true }
-test-utils = { workspace = true }
 world-id-gateway = { workspace = true }
 taceo-oprf-test-utils = { workspace = true }
 taceo-oprf = { workspace = true }
