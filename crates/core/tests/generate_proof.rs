@@ -304,7 +304,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // Normally here the authenticator would check the nullifier is UNIQUE.
 
     let response_item = authenticator.generate_single_proof(
-        &nullifier,
+        nullifier,
         request_item,
         &credential,
         credential_sub_blinding_factor,
