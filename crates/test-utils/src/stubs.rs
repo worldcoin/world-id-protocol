@@ -15,13 +15,13 @@ use std::sync::RwLock;
 
 #[derive(Clone)]
 struct IndexerState {
-    leaf_index: u64,
+    leaf_index: U256,
     proof: AccountInclusionProof<{ TREE_DEPTH }>,
 }
 
 /// Spawns a minimal HTTP server that serves the provided inclusion proof.
 pub async fn spawn_indexer_stub(
-    leaf_index: u64,
+    leaf_index: U256,
     proof: AccountInclusionProof<{ TREE_DEPTH }>,
 ) -> Result<(String, JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -42,7 +42,7 @@ pub async fn spawn_indexer_stub(
                             .and_then(|s| s.parse::<U256>().ok())
                             .ok_or(StatusCode::BAD_REQUEST)?;
 
-                        if requested_leaf_index.as_limbs()[0] != state.leaf_index {
+                        if requested_leaf_index != state.leaf_index {
                             return Err(StatusCode::NOT_FOUND);
                         }
                         Ok::<_, StatusCode>(Json(state.proof.clone()))
@@ -68,7 +68,7 @@ pub struct MutableIndexerStub {
 impl MutableIndexerStub {
     /// Spawns a new mutable indexer stub server.
     pub async fn spawn(
-        leaf_index: u64,
+        leaf_index: U256,
         proof: AccountInclusionProof<{ TREE_DEPTH }>,
     ) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -97,7 +97,7 @@ impl MutableIndexerStub {
                             let guard = state
                                 .read()
                                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                            if requested_leaf_index.as_limbs()[0] != guard.leaf_index {
+                            if requested_leaf_index != guard.leaf_index {
                                 return Err(StatusCode::NOT_FOUND);
                             }
                             Ok::<_, StatusCode>(Json(guard.proof.clone()))

@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::{Address, U160},
+    primitives::{Address, U160, U256},
     signers::{Signature, SignerSync, local::PrivateKeySigner},
 };
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
@@ -93,7 +93,7 @@ impl RegistryTestContext {
 /// Helper for building a minimal credential used in tests.
 pub fn build_base_credential(
     issuer_schema_id: u64,
-    leaf_index: u64,
+    leaf_index: U256,
     genesis_issued_at: u64,
     expires_at: u64,
     credential_sub_blinding_factor: FieldElement,
@@ -115,7 +115,7 @@ pub struct MerkleFixture {
 /// Builds the Merkle witness for the first leaf given a set of public keys.
 pub fn single_leaf_merkle_fixture(
     pubkeys: Vec<EdDSAPublicKey>,
-    leaf_index: u64,
+    leaf_index: U256,
 ) -> Result<MerkleFixture> {
     let key_set = AuthenticatorPublicKeySet::new(Some(pubkeys))?;
     let leaf = key_set.leaf_hash();

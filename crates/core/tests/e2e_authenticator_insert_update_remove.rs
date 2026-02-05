@@ -54,7 +54,7 @@ async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {
 // Creates a merkle inclusion proof for the given pubkeys
 fn make_inclusion_proof(
     pubkeys: Vec<EdDSAPublicKey>,
-    leaf_index: u64,
+    leaf_index: U256,
 ) -> AccountInclusionProof<{ TREE_DEPTH }> {
     let MerkleFixture {
         key_set,
@@ -154,7 +154,7 @@ async fn e2e_authenticator_insert_update_remove() {
     assert_eq!(primary.leaf_index(), U256::from(1));
     assert_eq!(primary.signing_nonce().await.unwrap(), U256::from(0));
 
-    let leaf_index: u64 = primary.leaf_index().try_into().unwrap();
+    let leaf_index = primary.leaf_index();
 
     // Prepare secondary authenticator keys (will be inserted at index 1)
     let secondary_seed = [43u8; 32];

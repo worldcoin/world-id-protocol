@@ -71,7 +71,9 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
     /// This does not panic as even though the leaf index is U256, the `WorldIDRegistry` contract
     /// enforces it must fit in 192 bits (see `PackedAccountData.sol`) which is always below the modulo of BN254.
     pub fn leaf_index_as_field_element(&self) -> FieldElement {
-        Fq::try_from(self.leaf_index).unwrap().into()
+        Fq::try_from(self.leaf_index)
+            .expect("leaf_index must always fit in field")
+            .into()
     }
 }
 

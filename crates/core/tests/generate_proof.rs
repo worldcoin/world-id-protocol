@@ -137,23 +137,20 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_eq!(authenticator.leaf_index(), U256::from(1u64));
 
     // Local indexer stub serving inclusion proof.
-    let leaf_index_u64: u64 = authenticator
-        .leaf_index()
-        .try_into()
-        .expect("account id fits in u64");
+    let leaf_index = authenticator.leaf_index();
     let MerkleFixture {
         key_set,
         inclusion_proof: merkle_inclusion_proof,
         root: _,
         ..
-    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index_u64)
+    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index)
         .wrap_err("failed to construct merkle fixture")?;
 
     let inclusion_proof =
         AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
             .wrap_err("failed to build inclusion proof")?;
 
-    let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index_u64, inclusion_proof.clone())
+    let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index, inclusion_proof.clone())
         .await
         .wrap_err("failed to start indexer stub")?;
 
@@ -247,6 +244,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), U256::from(1u64));
 
+    let leaf_index = authenticator.leaf_index();
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(
             issuer_schema_id,
@@ -261,7 +259,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .as_secs();
     let mut credential = build_base_credential(
         issuer_schema_id,
-        leaf_index_u64,
+        leaf_index,
         now,
         now + 60,
         credential_sub_blinding_factor,

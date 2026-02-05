@@ -1,5 +1,6 @@
 use std::env::args;
 
+use alloy::primitives::U256;
 use chrono::Utc;
 use eyre::Result;
 use serde_json::json;
@@ -11,10 +12,10 @@ static EXPIRATION_TIME: u64 = 3600;
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut rng = rand::thread_rng();
-    let leaf_index: u64 = args()
+    let leaf_index: U256 = args()
         .nth(1)
         .expect("leaf_index is required")
-        .parse::<u64>()?;
+        .parse::<U256>()?;
     let sk = EdDSAPrivateKey::random(&mut rng);
     let cred_sub_blinding_factor = FieldElement::random(&mut rng);
     let current_timestamp = Utc::now().timestamp() as u64;
