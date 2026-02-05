@@ -171,10 +171,11 @@ async fn start_http_server(
     registry_address: Address,
     addr: SocketAddr,
     db: DB,
+    tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
     let registry = WorldIdRegistry::new(registry_address, provider.erased());
-    let router = routes::handler(AppState::new(db, Arc::new(registry)));
+    let router = routes::handler(AppState::new(db, Arc::new(registry), tree_state));
     tracing::info!(%addr, "HTTP server listening");
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -215,12 +216,19 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
             let tree_cache_cfg = http_config.tree_cache.clone();
             initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
+
+            // Create TreeState for AppState
+            // Note: routes still use GLOBAL_TREE; this will be wired up properly
+            // after TreeInitializer is updated to return TreeState
+            let tree_state = tree::TreeState::new_empty(tree_cache_cfg.tree_depth);
+
             run_http_only(
                 db,
                 &cfg.http_rpc_url,
                 cfg.registry_address,
                 http_config,
                 tree_cache_cfg,
+                tree_state,
             )
             .await
         }
@@ -240,6 +248,12 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
             let tree_cache_cfg = http_config.tree_cache.clone();
             initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
+
+            // Create TreeState for AppState
+            // Note: routes still use GLOBAL_TREE; this will be wired up properly
+            // after TreeInitializer is updated to return TreeState
+            let tree_state = tree::TreeState::new_empty(tree_cache_cfg.tree_depth);
+
             run_both(
                 &blockchain,
                 db,
@@ -252,6 +266,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
                     tree_depth: tree_cache_cfg.tree_depth,
                     dense_prefix_depth: tree_cache_cfg.dense_tree_prefix_depth,
                 },
+                tree_state,
             )
             .await
         }
@@ -286,6 +301,7 @@ async fn run_http_only(
     registry_address: Address,
     http_cfg: HttpConfig,
     tree_cache_cfg: config::TreeCacheConfig,
+    tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
     // Start DB poller for account updates
     let poller_pool = db.clone();
@@ -322,7 +338,8 @@ async fn run_http_only(
     });
 
     // Start HTTP server
-    let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, db).await;
+    let http_result =
+        start_http_server(rpc_url, registry_address, http_cfg.http_addr, db, tree_state).await;
 
     poller_handle.abort();
     cache_refresh_handle.abort();
@@ -340,13 +357,14 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     tree_cache_params: TreeCacheParams,
+    tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
     // Start HTTP server
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
     let rpc_url_clone = rpc_url.to_string();
     let http_handle = tokio::spawn(async move {
-        start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool).await
+        start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool, tree_state).await
     });
 
     // Start root sanity checker in the background

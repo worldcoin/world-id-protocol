@@ -17,6 +17,7 @@ pub mod state;
 mod tests;
 
 pub use initializer::TreeInitializer;
+pub use state::TreeState;
 
 pub type TreeResult<T> = Result<T, TreeError>;
 
