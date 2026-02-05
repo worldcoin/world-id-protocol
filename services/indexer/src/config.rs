@@ -140,6 +140,7 @@ impl HttpConfig {
 pub struct IndexerConfig {
     pub start_block: u64,
     pub batch_size: u64,
+    pub backfill_batch_size: u64,
 }
 
 impl IndexerConfig {
@@ -153,6 +154,10 @@ impl IndexerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(64),
+            backfill_batch_size: std::env::var("BACKFILL_BATCH_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10_000),
         };
         tracing::info!("✔️ Indexer config loaded from env");
         config

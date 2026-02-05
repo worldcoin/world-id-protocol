@@ -78,11 +78,17 @@ impl Blockchain {
     /// at the time of the query. It is crucial to first create a subscription
     /// and then check for last block number to not miss any logs between the
     /// call for last block number and subscription creation.
+    ///
+    /// The `backfill_batch_size` parameter controls how many blocks are queried
+    /// at once during the backfill process. This is necessary because RPC providers
+    /// typically have a maximum range limit per query.
     pub async fn stream_world_tree_events(
         &self,
         from_block: u64,
-    ) -> BlockchainResult<impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>>>
-    {
+        backfill_batch_size: u64,
+    ) -> BlockchainResult<
+        impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin,
+    > {
         let filter = Filter::new()
             .address(self.world_id_registry)
             .event_signature(RegistryEvent::signatures());
@@ -101,26 +107,27 @@ impl Blockchain {
             .await
             .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
-        let range_filter = filter
-            .clone()
-            .from_block(from_block)
-            .to_block(latest_block_number);
+        let backfill_stream = self.fetch_logs_in_batches(
+            filter,
+            from_block,
+            latest_block_number,
+            backfill_batch_size,
+        );
 
-        let backfill_events = self
-            .http_provider
-            .get_logs(&range_filter)
-            .await
-            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
-
-        Ok(stream::iter(backfill_events)
-            .chain(new_events.filter(move |v| {
-                future::ready({
-                    v.block_number
-                        .map(|block_number| block_number > latest_block_number)
-                        .unwrap_or(false)
-                })
-            }))
-            .map(|log| RegistryEvent::decode(&log)))
+        Ok(backfill_stream
+            .chain(
+                new_events
+                    .filter(move |v| {
+                        future::ready({
+                            v.block_number
+                                .map(|block_number| block_number > latest_block_number)
+                                .unwrap_or(false)
+                        })
+                    })
+                    .map(Ok),
+            )
+            .map(|log_result| log_result.and_then(|log| RegistryEvent::decode(&log)))
+            .boxed())
     }
 
     pub async fn get_block_number(&self) -> BlockchainResult<u64> {
@@ -128,5 +135,64 @@ impl Blockchain {
             .get_block_number()
             .await
             .map_err(|err| BlockchainError::Rpc(Box::new(err)))
+    }
+
+    /// Fetches logs in batches to avoid exceeding RPC provider's max range limits.
+    ///
+    /// This function chunks the block range into smaller batches and streams logs
+    /// for each batch sequentially, yielding logs as they're fetched.
+    fn fetch_logs_in_batches(
+        &self,
+        filter: Filter,
+        from_block: u64,
+        to_block: u64,
+        batch_size: u64,
+    ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin {
+        let http_provider = self.http_provider.clone();
+
+        stream::unfold((from_block, 0usize), move |(current_from, total_logs)| {
+            let filter = filter.clone();
+            let http_provider = http_provider.clone();
+
+            async move {
+                if current_from > to_block {
+                    tracing::info!(
+                        "Backfill complete: fetched {} total logs from block {} to {}",
+                        total_logs,
+                        from_block,
+                        to_block
+                    );
+                    return None;
+                }
+
+                let current_to = std::cmp::min(current_from + batch_size - 1, to_block);
+
+                tracing::debug!(
+                    "Fetching logs from block {} to {}",
+                    current_from,
+                    current_to
+                );
+
+                let batch_filter = filter.clone().from_block(current_from).to_block(current_to);
+
+                let batch_logs = match http_provider.get_logs(&batch_filter).await {
+                    Ok(logs) => logs,
+                    Err(err) => {
+                        return Some((
+                            stream::iter([Err(BlockchainError::Rpc(Box::new(err)))]),
+                            (to_block + 1, total_logs),
+                        ));
+                    }
+                };
+
+                tracing::debug!("Fetched {} logs in batch", batch_logs.len());
+                let new_total = total_logs + batch_logs.len();
+                let next_from = current_to + 1;
+
+                Some((stream::iter(batch_logs).map(Ok), (next_from, new_total)))
+            }
+        })
+        .flatten()
+        .boxed()
     }
 }

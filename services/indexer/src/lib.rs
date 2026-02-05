@@ -264,7 +264,10 @@ async fn run_indexer_only(
 
     tracing::info!("switching to websocket live follow");
     stream_logs(
-        blockchain, &db, from,
+        blockchain,
+        &db,
+        from,
+        indexer_cfg.backfill_batch_size,
         None, // Don't update in-memory tree or cache in indexer-only mode
     )
     .await?;
@@ -367,6 +370,7 @@ async fn run_both(
         blockchain,
         &db,
         from,
+        indexer_cfg.backfill_batch_size,
         Some(&tree_cache_params), // Update in-memory tree and cache metadata after each event
     )
     .await?;
@@ -469,9 +473,12 @@ pub async fn stream_logs(
     blockchain: &Blockchain,
     db: &DB,
     start_from: u64,
+    backfill_batch_size: u64,
     tree_cache_params: Option<&TreeCacheParams>,
 ) -> IndexerResult<()> {
-    let mut stream = blockchain.stream_world_tree_events(start_from).await?;
+    let mut stream = blockchain
+        .stream_world_tree_events(start_from, backfill_batch_size)
+        .await?;
     let mut events_committer = EventsCommitter::new(db);
 
     while let Some(log) = stream.next().await {
