@@ -24,9 +24,6 @@ pub(crate) enum CredentialBlindingFactorOprfRequestAuthError {
     /// An error returned from the CredentialSchemaIssuerRegistry watcher service.
     #[error(transparent)]
     SchemaIssuerRegistryWatcherError(#[from] SchemaIssuerRegistryWatcherError),
-    /// The provided OprfKeyId does not match the issuer schema id.
-    #[error("oprf key id mismatch")]
-    OprfKeyIdMismatch,
     /// The provided action is not valid (must be 0 for now, might change in the future)
     #[error("invalid action")]
     InvalidAction,
@@ -44,9 +41,6 @@ impl IntoResponse for CredentialBlindingFactorOprfRequestAuthError {
             CredentialBlindingFactorOprfRequestAuthError::SchemaIssuerRegistryWatcherError(err) => {
                 tracing::error!("CredentialSchemaIssuerRegistry watcher error: {err}");
                 (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
-            }
-            CredentialBlindingFactorOprfRequestAuthError::OprfKeyIdMismatch => {
-                (StatusCode::BAD_REQUEST, "oprf key id mismatch").into_response()
             }
             CredentialBlindingFactorOprfRequestAuthError::InvalidAction => (
                 StatusCode::BAD_REQUEST,
@@ -89,10 +83,10 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
     type RequestAuth = CredentialBlindingFactorOprfRequestAuthV1;
     type RequestAuthError = CredentialBlindingFactorOprfRequestAuthError;
 
-    async fn verify(
+    async fn authenticate(
         &self,
         request: &OprfRequest<Self::RequestAuth>,
-    ) -> Result<(), Self::RequestAuthError> {
+    ) -> Result<OprfKeyId, Self::RequestAuthError> {
         ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
 
         // check that the action is valid (must be 0 for now, might change in the future)
@@ -100,10 +94,7 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
             return Err(CredentialBlindingFactorOprfRequestAuthError::InvalidAction);
         }
 
-        // check if the oprf key id matches the issuer schema id
-        if OprfKeyId::new(U160::from(request.auth.issuer_schema_id)) != request.oprf_key_id {
-            return Err(CredentialBlindingFactorOprfRequestAuthError::OprfKeyIdMismatch);
-        }
+        let oprf_key_id = OprfKeyId::new(U160::from(request.auth.issuer_schema_id));
 
         // check that the issuer schema id is valid
         self.schema_issuer_registry_watcher
@@ -116,7 +107,7 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
                 &request.auth.proof.clone().into(),
                 request.blinded_query,
                 request.auth.merkle_root,
-                request.oprf_key_id,
+                oprf_key_id,
                 request.auth.action,
                 request.auth.nonce,
             )
@@ -124,6 +115,6 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
 
         ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_VERIFIED).increment(1);
 
-        Ok(())
+        Ok(oprf_key_id)
     }
 }

@@ -9,7 +9,10 @@ use crate::{
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
 use std::time::{Duration, SystemTime};
-use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator};
+use taceo_oprf::types::{
+    OprfKeyId,
+    api::{OprfRequest, OprfRequestAuthenticator},
+};
 use uuid::Uuid;
 use world_id_primitives::oprf::NullifierOprfRequestAuthV1;
 
@@ -19,9 +22,6 @@ pub(crate) enum NullifierOprfRequestAuthError {
     /// An error returned from the RpRegistry watcher service during merkle look-up.
     #[error(transparent)]
     RpRegistryWatcherError(#[from] RpRegistryWatcherError),
-    /// The provided OprfKeyId does not match the one registered for the RP.
-    #[error("oprf key id mismatch")]
-    OprfKeyIdMismatch,
     /// The current time stamp difference between client and service is larger than allowed.
     #[error("the time stamp difference is too large")]
     TimeStampDifference,
@@ -54,9 +54,6 @@ impl IntoResponse for NullifierOprfRequestAuthError {
                 "the time stamp difference is too large",
             )
                 .into_response(),
-            NullifierOprfRequestAuthError::OprfKeyIdMismatch => {
-                (StatusCode::BAD_REQUEST, "oprf key id mismatch").into_response()
-            }
             NullifierOprfRequestAuthError::InvalidSignature(err) => {
                 (StatusCode::BAD_REQUEST, err.to_string()).into_response()
             }
@@ -108,10 +105,10 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
     type RequestAuth = NullifierOprfRequestAuthV1;
     type RequestAuthError = NullifierOprfRequestAuthError;
 
-    async fn verify(
+    async fn authenticate(
         &self,
         request: &OprfRequest<Self::RequestAuth>,
-    ) -> Result<(), Self::RequestAuthError> {
+    ) -> Result<OprfKeyId, Self::RequestAuthError> {
         ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
 
         // check the time stamp against system time +/- difference
@@ -125,11 +122,6 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 
         // fetch the RP info
         let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
-
-        // check if the oprf key id matches the one registered for the RP
-        if rp.oprf_key_id != request.oprf_key_id {
-            return Err(NullifierOprfRequestAuthError::OprfKeyIdMismatch);
-        }
 
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
@@ -154,7 +146,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
                 &request.auth.proof.clone().into(),
                 request.blinded_query,
                 request.auth.merkle_root,
-                request.oprf_key_id,
+                rp.oprf_key_id,
                 request.auth.action,
                 request.auth.nonce,
             )
@@ -162,6 +154,6 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 
         ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_VERIFIED).increment(1);
 
-        Ok(())
+        Ok(rp.oprf_key_id)
     }
 }

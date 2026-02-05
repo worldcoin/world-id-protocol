@@ -6,7 +6,6 @@ use groth16_material::circom::CircomGroth16Material;
 use taceo_oprf::{
     client::{Connector, VerifiableOprfOutput},
     core::oprf::BlindingFactor,
-    types::OprfKeyId,
 };
 
 use world_id_primitives::{
@@ -48,7 +47,6 @@ impl OprfCredentialBlindingFactor {
     /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the `key_set`.
     /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
     /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
-    #[expect(clippy::too_many_arguments)]
     pub async fn generate(
         services: &[String],
         threshold: usize,
@@ -56,7 +54,6 @@ impl OprfCredentialBlindingFactor {
         authenticator_input: AuthenticatorProofInput,
         issuer_schema_id: u64,
         action: FieldElement,
-        oprf_key_id: OprfKeyId,
         connector: Connector,
     ) -> Result<Self, ProofError> {
         let mut rng = rand::rngs::OsRng;
@@ -110,7 +107,6 @@ impl OprfCredentialBlindingFactor {
             services,
             OprfModule::CredentialBlindingFactor.to_string().as_str(),
             threshold,
-            oprf_key_id,
             *query_hash,
             query_blinding_factor,
             ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
