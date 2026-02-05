@@ -12,7 +12,7 @@ use axum::{http::StatusCode, response::IntoResponse};
 use world_id_primitives::serde_utils::{
     hex_u32, hex_u32_opt, hex_u256, hex_u256_opt, hex_u256_vec,
 };
-use world_id_registry::WorldIdRegistry::{
+use crate::registry::WorldIdRegistry::{
     AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
     AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };

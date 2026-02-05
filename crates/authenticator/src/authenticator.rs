@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use world_id_primitives::{Credential, FieldElement};
 use world_id_signer::Signer;
-use world_id_types::{
+use crate::types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
     IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
@@ -38,7 +38,7 @@ use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
     merkle::MerkleInclusionProof,
 };
-use world_id_registry::{
+use crate::registry::{
     WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
     sign_remove_authenticator, sign_update_authenticator,
 };
@@ -96,7 +96,7 @@ impl Authenticator {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(world_id_registry::WorldIdRegistry::new(
+                Some(crate::registry::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
