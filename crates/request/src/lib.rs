@@ -10,7 +10,7 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::OprfKeyId;
-use world_id_primitives::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
+use world_id_primitives::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -196,6 +196,16 @@ pub struct ProofResponse {
 /// Each entry corresponds to one requested credential with its proof material.
 /// If any credential cannot be satisfied, the entire proof response will have
 /// an error at the `ProofResponse` level with an empty `responses` array.
+///
+/// # Nullifier Types
+///
+/// - **Uniqueness proofs**: Use `nullifier` field (a single `FieldElement`).
+///   The contract's `verify()` function takes this as a separate `uint256 nullifier` param.
+///
+/// - **Session proofs**: Use `session_nullifier` field (contains both nullifier and action).
+///   The contract's `verifySession()` function expects `uint256[2] sessionNullifier`.
+///
+/// Exactly one of `nullifier` or `session_nullifier` should be present.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseItem {
@@ -210,11 +220,23 @@ pub struct ResponseItem {
     /// Encoded World ID Proof. See [`ZeroKnowledgeProof`] for more details.
     pub proof: ZeroKnowledgeProof,
 
-    /// A unique, one-time identifier derived from (user, rpId, action) that lets RPs detect
-    /// duplicate actions without learning who the user is.
+    /// Nullifier for Uniqueness proofs.
     ///
-    /// Encoded as a hex string representation of the field element.
-    pub nullifier: FieldElement,
+    /// A unique, one-time identifier derived from (user, rpId, action) that lets RPs detect
+    /// duplicate actions without learning who the user is. Used with the contract's `verify()` function.
+    ///
+    /// Present for Uniqueness proofs, absent for Session proofs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nullifier: Option<FieldElement>,
+
+    /// Session nullifier for Session proofs.
+    ///
+    /// Contains both the nullifier and action values that are cryptographically bound together.
+    /// Used with the contract's `verifySession()` function which expects `uint256[2] sessionNullifier`.
+    ///
+    /// Present for Session proofs, absent for Uniqueness proofs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_nullifier: Option<SessionNullifier>,
 
     /// The minimum expiration required for the Credential used in the proof.
     ///
@@ -243,9 +265,9 @@ impl ProofResponse {
 }
 
 impl ResponseItem {
-    /// Create a new response item for a fulfilled request.
+    /// Create a new response item for a Uniqueness proof.
     #[must_use]
-    pub const fn new(
+    pub fn new_uniqueness(
         identifier: String,
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
@@ -256,9 +278,41 @@ impl ResponseItem {
             identifier,
             issuer_schema_id,
             proof,
-            nullifier,
+            nullifier: Some(nullifier),
+            session_nullifier: None,
             expires_at_min,
         }
+    }
+
+    /// Create a new response item for a Session proof.
+    #[must_use]
+    pub fn new_session(
+        identifier: String,
+        issuer_schema_id: u64,
+        proof: ZeroKnowledgeProof,
+        session_nullifier: SessionNullifier,
+        expires_at_min: u64,
+    ) -> Self {
+        Self {
+            identifier,
+            issuer_schema_id,
+            proof,
+            nullifier: None,
+            session_nullifier: Some(session_nullifier),
+            expires_at_min,
+        }
+    }
+
+    /// Returns true if this is a Session proof response.
+    #[must_use]
+    pub const fn is_session(&self) -> bool {
+        self.session_nullifier.is_some()
+    }
+
+    /// Returns true if this is a Uniqueness proof response.
+    #[must_use]
+    pub const fn is_uniqueness(&self) -> bool {
+        self.nullifier.is_some()
     }
 }
 
@@ -373,6 +427,30 @@ impl ProofRequest {
         // If response has an error, it failed to satisfy constraints
         if let Some(error) = &response.error {
             return Err(ValidationError::ProofGenerationFailed(error.clone()));
+        }
+
+        // Session ID consistency check: if request has session_id, response must also have it
+        if self.session_id.is_some() && response.session_id.is_none() {
+            return Err(ValidationError::MissingSessionId);
+        }
+
+        // Validate nullifier presence based on proof type
+        for response_item in &response.responses {
+            if self.session_id.is_some() {
+                // Session proof: must have session_nullifier
+                if response_item.session_nullifier.is_none() {
+                    return Err(ValidationError::MissingSessionNullifier(
+                        response_item.identifier.clone(),
+                    ));
+                }
+            } else {
+                // Uniqueness proof: must have nullifier
+                if response_item.nullifier.is_none() {
+                    return Err(ValidationError::MissingNullifier(
+                        response_item.identifier.clone(),
+                    ));
+                }
+            }
         }
 
         // Validate that expires_at_min matches for each response item
@@ -519,6 +597,15 @@ pub enum ValidationError {
     /// The `expires_at_min` value in the response does not match the expected value from the request
     #[error("Invalid expires_at_min for credential '{0}': expected {1}, got {2}")]
     ExpiresAtMinMismatch(String, u64, u64),
+    /// Session ID missing in response when request specified a session
+    #[error("Session ID missing in response")]
+    MissingSessionId,
+    /// Session nullifier missing for credential in session proof
+    #[error("Session nullifier missing for credential: {0}")]
+    MissingSessionNullifier(String),
+    /// Nullifier missing for credential in uniqueness proof
+    #[error("Nullifier missing for credential: {0}")]
+    MissingNullifier(String),
 }
 
 // Helper selection functions for constraint evaluation
@@ -562,6 +649,7 @@ mod tests {
         uint,
     };
     use k256::ecdsa::SigningKey;
+    use world_id_primitives::SessionNullifier;
 
     // Test helpers
     fn test_signature() -> alloy::signers::Signature {
@@ -587,20 +675,20 @@ mod tests {
             session_id: None,
             error: None,
             responses: vec![
-                ResponseItem {
-                    identifier: "test_req_1".into(),
-                    issuer_schema_id: 1,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1001),
-                    expires_at_min: 1_735_689_600,
-                },
-                ResponseItem {
-                    identifier: "test_req_2".into(),
-                    issuer_schema_id: 2,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1002),
-                    expires_at_min: 1_735_689_600,
-                },
+                ResponseItem::new_uniqueness(
+                    "test_req_1".into(),
+                    1,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    1_735_689_600,
+                ),
+                ResponseItem::new_uniqueness(
+                    "test_req_2".into(),
+                    2,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1002),
+                    1_735_689_600,
+                ),
             ],
         };
 
@@ -707,20 +795,20 @@ mod tests {
             session_id: None,
             error: None,
             responses: vec![
-                ResponseItem {
-                    identifier: "orb".into(),
-                    issuer_schema_id: 1,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1001),
-                    expires_at_min: 1_735_689_600,
-                },
-                ResponseItem {
-                    identifier: "document".into(),
-                    issuer_schema_id: 2,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1002),
-                    expires_at_min: 1_735_689_600,
-                },
+                ResponseItem::new_uniqueness(
+                    "orb".into(),
+                    1,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    1_735_689_600,
+                ),
+                ResponseItem::new_uniqueness(
+                    "document".into(),
+                    2,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1002),
+                    1_735_689_600,
+                ),
             ],
         };
         assert!(request.validate_response(&ok).is_ok());
@@ -730,13 +818,13 @@ mod tests {
             version: RequestVersion::V1,
             session_id: None,
             error: None,
-            responses: vec![ResponseItem {
-                identifier: "orb".into(),
-                issuer_schema_id: 1,
-                proof: ZeroKnowledgeProof::default(),
-                nullifier: test_field_element(1001),
-                expires_at_min: 1_735_689_600,
-            }],
+            responses: vec![ResponseItem::new_uniqueness(
+                "orb".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                test_field_element(1001),
+                1_735_689_600,
+            )],
         };
         let err = request.validate_response(&missing).unwrap_err();
         assert!(matches!(err, ValidationError::MissingCredential(_)));
@@ -779,13 +867,13 @@ mod tests {
             version: RequestVersion::V1,
             session_id: None,
             error: None,
-            responses: vec![ResponseItem {
-                identifier: "orb".into(),
-                issuer_schema_id: 1,
-                proof: ZeroKnowledgeProof::default(),
-                nullifier: test_field_element(1001),
-                expires_at_min: 1_735_689_600,
-            }],
+            responses: vec![ResponseItem::new_uniqueness(
+                "orb".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                test_field_element(1001),
+                1_735_689_600,
+            )],
         };
 
         let err = request.validate_response(&response).unwrap_err();
@@ -906,27 +994,27 @@ mod tests {
             session_id: None,
             error: None,
             responses: vec![
-                ResponseItem {
-                    identifier: "test_req_10".into(),
-                    issuer_schema_id: 10,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1010),
-                    expires_at_min: 1_735_689_600,
-                },
-                ResponseItem {
-                    identifier: "test_req_11".into(),
-                    issuer_schema_id: 11,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1011),
-                    expires_at_min: 1_735_689_600,
-                },
-                ResponseItem {
-                    identifier: "test_req_15".into(),
-                    issuer_schema_id: 15,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1015),
-                    expires_at_min: 1_735_689_600,
-                },
+                ResponseItem::new_uniqueness(
+                    "test_req_10".into(),
+                    10,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1010),
+                    1_735_689_600,
+                ),
+                ResponseItem::new_uniqueness(
+                    "test_req_11".into(),
+                    11,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1011),
+                    1_735_689_600,
+                ),
+                ResponseItem::new_uniqueness(
+                    "test_req_15".into(),
+                    15,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1015),
+                    1_735_689_600,
+                ),
             ],
         };
 
@@ -1054,13 +1142,13 @@ mod tests {
             version: RequestVersion::V1,
             session_id: None,
             error: None,
-            responses: vec![ResponseItem {
-                identifier: "test_req_20".into(),
-                issuer_schema_id: 20,
-                proof: ZeroKnowledgeProof::default(),
-                nullifier: test_field_element(1020),
-                expires_at_min: 1_735_689_600,
-            }],
+            responses: vec![ResponseItem::new_uniqueness(
+                "test_req_20".into(),
+                20,
+                ZeroKnowledgeProof::default(),
+                test_field_element(1020),
+                1_735_689_600,
+            )],
         };
 
         let err = request.validate_response(&response).unwrap_err();
@@ -1093,19 +1181,19 @@ mod tests {
         assert_eq!(req.id, "req_18c0f7f03e7d");
         assert_eq!(req.requests.len(), 1);
 
-        // Build matching successful response
+        // Build matching successful response (session proof requires session_id and session_nullifier)
         let resp = ProofResponse {
             id: req.id.clone(),
             version: RequestVersion::V1,
-            session_id: None,
+            session_id: Some(test_field_element(55)),
             error: None,
-            responses: vec![ResponseItem {
-                identifier: "test_req_1".into(),
-                issuer_schema_id: 1,
-                proof: ZeroKnowledgeProof::default(),
-                nullifier: test_field_element(1001),
-                expires_at_min: 1_725_381_192,
-            }],
+            responses: vec![ResponseItem::new_session(
+                "test_req_1".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                SessionNullifier::new(test_field_element(1001), test_field_element(1)),
+                1_725_381_192,
+            )],
         };
         assert!(req.validate_response(&resp).is_ok());
     }
@@ -1153,13 +1241,13 @@ mod tests {
             version: RequestVersion::V1,
             session_id: None,
             error: None,
-            responses: vec![ResponseItem {
-                identifier: "test_req_2".into(),
-                issuer_schema_id: 2,
-                proof: ZeroKnowledgeProof::default(),
-                nullifier: test_field_element(1001),
-                expires_at_min: 1_725_381_192,
-            }],
+            responses: vec![ResponseItem::new_uniqueness(
+                "test_req_2".into(),
+                2,
+                ZeroKnowledgeProof::default(),
+                test_field_element(1001),
+                1_725_381_192,
+            )],
         };
 
         let err = req.validate_response(&resp).unwrap_err();
@@ -1222,20 +1310,20 @@ mod tests {
             session_id: None,
             error: None,
             responses: vec![
-                ResponseItem {
-                    identifier: "test_req_3".into(),
-                    issuer_schema_id: 3,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1001),
-                    expires_at_min: 1_725_381_192,
-                },
-                ResponseItem {
-                    identifier: "test_req_1".into(),
-                    issuer_schema_id: 1,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1002),
-                    expires_at_min: 1_725_381_192,
-                },
+                ResponseItem::new_uniqueness(
+                    "test_req_3".into(),
+                    3,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    1_725_381_192,
+                ),
+                ResponseItem::new_uniqueness(
+                    "test_req_1".into(),
+                    1,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1002),
+                    1_725_381_192,
+                ),
             ],
         };
 
@@ -1244,7 +1332,7 @@ mod tests {
 
     #[test]
     fn response_json_parse() {
-        // Success OK - using default proof (all zeros) in hex
+        // Success OK - Uniqueness nullifier (simple FieldElement)
         let ok_json = r#"{
   "id": "req_18c0f7f03e7d",
   "version": 1,
@@ -1261,8 +1349,9 @@ mod tests {
 
         let ok = ProofResponse::from_json(ok_json).unwrap();
         assert_eq!(ok.successful_credentials(), vec![100]);
+        assert!(ok.responses[0].is_uniqueness());
 
-        // Success with Session
+        // Success with Session nullifier (2-element array [nullifier, action])
         let sess_json = r#"{
   "id": "req_18c0f7f03e7d",
   "version": 1,
@@ -1272,7 +1361,7 @@ mod tests {
       "identifier": "orb",
       "issuer_schema_id": 100,
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
-      "nullifier": "0x00000000000000000000000000000000000000000000000000000000000003e9",
+      "session_nullifier": ["0x00000000000000000000000000000000000000000000000000000000000003e9", "0x000000000000000000000000000000000000000000000000000000000000002a"],
       "expires_at_min": 1725381192
     }
   ]
@@ -1280,6 +1369,7 @@ mod tests {
         let sess = ProofResponse::from_json(sess_json).unwrap();
         assert_eq!(sess.successful_credentials(), vec![100]);
         assert!(sess.session_id.is_some());
+        assert!(sess.responses[0].is_session());
     }
 
     /// Test duplicate detection by creating a serialized `ProofRequest` with duplicates
@@ -1590,20 +1680,20 @@ mod tests {
             session_id: None,
             error: None,
             responses: vec![
-                ResponseItem {
-                    identifier: "orb".into(),
-                    issuer_schema_id: 100,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1001),
-                    expires_at_min: request_created_at, // Matches default
-                },
-                ResponseItem {
-                    identifier: "document".into(),
-                    issuer_schema_id: 101,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1002),
-                    expires_at_min: custom_expires_at, // Matches explicit value
-                },
+                ResponseItem::new_uniqueness(
+                    "orb".into(),
+                    100,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    request_created_at, // Matches default
+                ),
+                ResponseItem::new_uniqueness(
+                    "document".into(),
+                    101,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1002),
+                    custom_expires_at, // Matches explicit value
+                ),
             ],
         };
         assert!(request.validate_response(&valid_response).is_ok());
@@ -1615,20 +1705,20 @@ mod tests {
             session_id: None,
             error: None,
             responses: vec![
-                ResponseItem {
-                    identifier: "orb".into(),
-                    issuer_schema_id: 100,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1001),
-                    expires_at_min: custom_expires_at, // Wrong! Should be request_created_at
-                },
-                ResponseItem {
-                    identifier: "document".into(),
-                    issuer_schema_id: 101,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1002),
-                    expires_at_min: custom_expires_at,
-                },
+                ResponseItem::new_uniqueness(
+                    "orb".into(),
+                    100,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    custom_expires_at, // Wrong! Should be request_created_at
+                ),
+                ResponseItem::new_uniqueness(
+                    "document".into(),
+                    101,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1002),
+                    custom_expires_at,
+                ),
             ],
         };
         let err1 = request.validate_response(&invalid_response_1).unwrap_err();
@@ -1649,20 +1739,20 @@ mod tests {
             session_id: None,
             error: None,
             responses: vec![
-                ResponseItem {
-                    identifier: "orb".into(),
-                    issuer_schema_id: 100,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1001),
-                    expires_at_min: request_created_at,
-                },
-                ResponseItem {
-                    identifier: "document".into(),
-                    issuer_schema_id: 101,
-                    proof: ZeroKnowledgeProof::default(),
-                    nullifier: test_field_element(1002),
-                    expires_at_min: request_created_at, // Wrong! Should be custom_expires_at
-                },
+                ResponseItem::new_uniqueness(
+                    "orb".into(),
+                    100,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    request_created_at,
+                ),
+                ResponseItem::new_uniqueness(
+                    "document".into(),
+                    101,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1002),
+                    request_created_at, // Wrong! Should be custom_expires_at
+                ),
             ],
         };
         let err2 = request.validate_response(&invalid_response_2).unwrap_err();
@@ -1675,5 +1765,146 @@ mod tests {
             assert_eq!(expected, custom_expires_at);
             assert_eq!(got, request_created_at);
         }
+    }
+
+    #[test]
+    fn test_validate_response_requires_session_id_in_response() {
+        // Request with session_id should require response to also have session_id
+        let request = ProofRequest {
+            id: "req_session".into(),
+            version: RequestVersion::V1,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_900,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: Some(test_field_element(123)), // Session proof
+            action: Some(test_field_element(42)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        // Response without session_id should fail validation
+        let response_missing_session_id = ProofResponse {
+            id: "req_session".into(),
+            version: RequestVersion::V1,
+            session_id: None, // Missing!
+            error: None,
+            responses: vec![ResponseItem::new_session(
+                "orb".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                SessionNullifier::new(test_field_element(1001), test_field_element(42)),
+                1_735_689_600,
+            )],
+        };
+
+        let err = request
+            .validate_response(&response_missing_session_id)
+            .unwrap_err();
+        assert!(matches!(err, ValidationError::MissingSessionId));
+    }
+
+    #[test]
+    fn test_validate_response_requires_session_nullifier_for_session_proof() {
+        // Request with session_id requires session_nullifier in each response item
+        let request = ProofRequest {
+            id: "req_session".into(),
+            version: RequestVersion::V1,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_900,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: Some(test_field_element(123)), // Session proof
+            action: Some(test_field_element(42)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        // Response with uniqueness nullifier instead of session nullifier should fail
+        let response_wrong_nullifier_type = ProofResponse {
+            id: "req_session".into(),
+            version: RequestVersion::V1,
+            session_id: Some(test_field_element(123)),
+            error: None,
+            responses: vec![ResponseItem::new_uniqueness(
+                "orb".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                test_field_element(1001), // Using uniqueness nullifier instead of session!
+                1_735_689_600,
+            )],
+        };
+
+        let err = request
+            .validate_response(&response_wrong_nullifier_type)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::MissingSessionNullifier(ref id) if id == "orb"
+        ));
+    }
+
+    #[test]
+    fn test_validate_response_requires_nullifier_for_uniqueness_proof() {
+        // Request without session_id requires nullifier in each response item
+        let request = ProofRequest {
+            id: "req_uniqueness".into(),
+            version: RequestVersion::V1,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_900,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None, // Uniqueness proof
+            action: Some(test_field_element(42)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        // Response with session nullifier instead of uniqueness nullifier should fail
+        let response_wrong_nullifier_type = ProofResponse {
+            id: "req_uniqueness".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: None,
+            responses: vec![ResponseItem::new_session(
+                "orb".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                SessionNullifier::new(test_field_element(1001), test_field_element(42)), // Using session nullifier instead of uniqueness!
+                1_735_689_600,
+            )],
+        };
+
+        let err = request
+            .validate_response(&response_wrong_nullifier_type)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::MissingNullifier(ref id) if id == "orb"
+        ));
     }
 }

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use world_id_primitives::{Credential, FieldElement};
+use world_id_primitives::{Credential, FieldElement, SessionNullifier};
 use world_id_signer::Signer;
 use world_id_types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
@@ -563,7 +563,7 @@ impl Authenticator {
 
         let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
-        let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
+        let (proof, public_inputs, nullifier) = generate_nullifier_proof(
             &self.nullifier_material,
             &mut rng,
             credential,
@@ -577,13 +577,29 @@ impl Authenticator {
 
         let proof = ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root);
 
-        let response_item = ResponseItem::new(
-            request_item.identifier.clone(),
-            request_item.issuer_schema_id,
-            proof,
-            nullifier.into(),
-            expires_at_min,
-        );
+        // Construct the appropriate response item based on proof type
+        let nullifier_fe: FieldElement = nullifier.into();
+        let response_item = match session_id {
+            Some(_) => {
+                // Session proof: extract action from public_inputs[9]
+                let action: FieldElement = public_inputs[9].into();
+                let session_nullifier = SessionNullifier::new(nullifier_fe, action);
+                ResponseItem::new_session(
+                    request_item.identifier.clone(),
+                    request_item.issuer_schema_id,
+                    proof,
+                    session_nullifier,
+                    expires_at_min,
+                )
+            }
+            None => ResponseItem::new_uniqueness(
+                request_item.identifier.clone(),
+                request_item.issuer_schema_id,
+                proof,
+                nullifier_fe,
+                expires_at_min,
+            ),
+        };
 
         Ok(response_item)
     }
