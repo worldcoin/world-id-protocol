@@ -779,6 +779,9 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
 
+        // Clear any pending recovery agent update
+        delete _pendingRecoveryAgentUpdates[leafIndex];
+
         emit AccountRecovered(
             leafIndex,
             newAuthenticatorAddress,

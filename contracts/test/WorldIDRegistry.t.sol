@@ -1691,9 +1691,10 @@ contract WorldIDRegistryTest is Test {
         // Check that recovery agent was NOT updated (still original)
         assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), recoverySigner);
 
-        // Pending update should still exist
-        (address pendingAgent,) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
-        assertEq(pendingAgent, alternateRecoveryAddress);
+        // Pending update should be cleared after recovery
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, address(0));
+        assertEq(executeAfter, 0);
     }
 
     function test_SetRecoveryAgentUpdateCooldown_Success() public {
@@ -1825,8 +1826,9 @@ contract WorldIDRegistryTest is Test {
         // Recovery should have succeeded using current recovery agent
         assertEq(uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), uint192(leafIndex));
 
-        // Pending update should still exist (wasn't past cooldown)
-        (address stillPending,) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
-        assertEq(stillPending, alternateRecoveryAddress);
+        // Pending update should be cleared after recovery (even though it wasn't past cooldown)
+        (address stillPending, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(stillPending, address(0));
+        assertEq(executeAfter, 0);
     }
 }
