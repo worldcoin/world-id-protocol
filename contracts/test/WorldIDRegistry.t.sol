@@ -1411,14 +1411,21 @@ contract WorldIDRegistryTest is Test {
         bytes memory signature1 = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature1, 0);
 
+        uint256 newTime = block.timestamp + 400;
+        vm.warp(newTime);
+
         // Initiate another update to overwrite
         address thirdRecoveryAgent = address(0xC11CE);
         bytes memory signature2 = initiateRecoveryAgentUpdateSignature(leafIndex, thirdRecoveryAgent, 1);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, thirdRecoveryAgent, signature2, 1);
 
         // Check that the pending update was overwritten
-        (address pendingAgent,) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
         assertEq(pendingAgent, thirdRecoveryAgent);
+
+        // Assert the cooldown period is restarted
+        uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
+        assertEq(executeAfter, newTime + cooldown);
     }
 
     /**
@@ -1660,8 +1667,6 @@ contract WorldIDRegistryTest is Test {
         bytes memory initiateSignature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, initiateSignature, 0);
 
-        // Do NOT fast forward - cooldown still pending
-
         // Perform recovery - should NOT apply pending update (still in cooldown)
         address newAuthenticatorAddress = address(0xBEEF);
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
@@ -1733,7 +1738,7 @@ contract WorldIDRegistryTest is Test {
 
     function test_GetRecoveryAgentUpdateCooldown_DefaultValue() public {
         uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
-        assertEq(cooldown, 7 days, "Default cooldown should be 7 days");
+        assertEq(cooldown, 14 days, "Default cooldown should be 14 days");
     }
 
     function test_GetPendingRecoveryAgentUpdate_NoPending() public {

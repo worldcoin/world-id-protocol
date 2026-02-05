@@ -129,7 +129,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
         _maxAuthenticators = 7;
         _rootValidityWindow = 3600;
-        _recoveryAgentUpdateCooldown = 7 days;
+        _recoveryAgentUpdateCooldown = 14 days;
     }
 
     ////////////////////////////////////////////////////////////
