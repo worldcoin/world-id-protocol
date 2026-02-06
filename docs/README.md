@@ -35,7 +35,7 @@ These circuits require Groth16 proving keys, which are produced via a Phase 2 se
 
 ### How to contribute
 
-The `@worldcoin/world-id-trusted-setup-cli` package was built as a fork of [PSE](https://pse.dev/)'s [p0tion](https://github.com/privacy-scaling-explorations/p0tion) for organizing a trusted setup ceremony with minimum work needed to
+The [`@worldcoin/world-id-trusted-setup-cli`](https://www.npmjs.com/package/@worldcoin/world-id-trusted-setup-cli) package was built as a fork of [PSE](https://pse.dev/)'s [p0tion](https://github.com/privacy-scaling-explorations/p0tion) for organizing a trusted setup ceremony with minimum work needed to
 be done by the contributors. You can perform a contribution with the following 2 easy steps:
 
 1. Authenticate with GitHub device-flow OAuth (used by the CLI and for ceremony identity/attestation flow):
