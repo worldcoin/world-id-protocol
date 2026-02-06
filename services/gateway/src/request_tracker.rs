@@ -9,7 +9,7 @@ use moka::{
 use redis::{AsyncTypedCommands, Client, SetExpiry, SetOptions, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use world_id_core::types::{
+use world_id_core::api_types::{
     GatewayErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
 };
 

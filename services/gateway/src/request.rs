@@ -19,7 +19,7 @@ use alloy::{
 use moka::future::Cache;
 use uuid::Uuid;
 use world_id_core::{
-    types::{
+    api_types::{
         CreateAccountRequest, GatewayErrorCode, GatewayErrorResponse, GatewayRequestKind,
         GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest,
         RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,

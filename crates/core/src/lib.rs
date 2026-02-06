@@ -40,7 +40,7 @@ pub use world_id_primitives::FieldElement;
 
 /// Re-export types from authenticator for convenience
 #[cfg(feature = "authenticator")]
-pub mod types {
+pub mod api_types {
     pub use world_id_authenticator::api_types::*;
 }
 

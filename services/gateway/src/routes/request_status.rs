@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, State},
 };
 use tracing::instrument;
-use world_id_core::types::{GatewayErrorResponse, GatewayStatusResponse};
+use world_id_core::api_types::{GatewayErrorResponse, GatewayStatusResponse};
 
 /// GET /v1/requests/:id
 ///

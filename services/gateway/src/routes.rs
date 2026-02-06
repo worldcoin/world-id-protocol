@@ -32,7 +32,7 @@ use moka::future::Cache;
 use tokio::sync::mpsc;
 use utoipa::OpenApi;
 use world_id_core::{
-    types::{
+    api_types::{
         CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
         GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
         IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,

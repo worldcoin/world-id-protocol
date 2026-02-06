@@ -1,6 +1,6 @@
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
-use world_id_core::types::{
+use world_id_core::api_types::{
     IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
 

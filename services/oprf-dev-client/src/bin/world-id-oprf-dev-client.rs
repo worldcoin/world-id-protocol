@@ -40,7 +40,7 @@ use world_id_core::{
     FieldElement,
     proof::CircomGroth16Material,
     requests::{ProofRequest, RequestItem, RequestVersion},
-    types::AccountInclusionProof,
+    api_types::AccountInclusionProof,
 };
 use world_id_gateway::{GatewayConfig, ProviderArgs, SignerArgs};
 use world_id_primitives::{

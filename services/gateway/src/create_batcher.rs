@@ -13,7 +13,7 @@ use alloy::{
 };
 use tokio::sync::mpsc;
 use world_id_core::{
-    types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error},
+    api_types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error},
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 

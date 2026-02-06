@@ -6,7 +6,7 @@ use alloy::{
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
 use world_id_core::{
-    types::{
+    api_types::{
         CreateAccountRequest, GatewayErrorResponse, InsertAuthenticatorRequest,
         RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
