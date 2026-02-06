@@ -12,7 +12,7 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
 };
 
-use crate::tree::{GLOBAL_TREE, PoseidonHasher};
+use crate::tree::PoseidonHasher;
 
 /// OpenAPI schema representation of the `AccountInclusionProof` response.
 #[derive(serde::Serialize, utoipa::ToSchema)]
@@ -79,10 +79,10 @@ pub(crate) async fn handler(
         IndexerErrorResponse::internal_server_error()
     })?;
 
-    let tree = GLOBAL_TREE.read().await;
+    let tree = state.tree_state.read().await;
 
     let index_as_usize = leaf_index.as_limbs()[0] as usize;
-    let capacity = crate::tree::tree_capacity().await;
+    let capacity = state.tree_state.capacity();
     if index_as_usize >= capacity {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
