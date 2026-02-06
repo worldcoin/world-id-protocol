@@ -11,6 +11,11 @@ use eyre::Context;
 use taceo_oprf::service::secret_manager::postgres::PostgresSecretManager;
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 
+// Avoid musl's default allocator due to lackluster performance
+// https://nickb.dev/blog/default-musl-allocator-considered-harmful-to-performance
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 async fn run() -> eyre::Result<()> {
     taceo_oprf::service::metrics::describe_metrics();
     world_id_oprf_node::metrics::describe_metrics();
