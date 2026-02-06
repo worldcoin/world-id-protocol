@@ -56,7 +56,7 @@ impl<T> Request<T> {
 
     /// Get the request kind.
     pub fn kind(&self) -> GatewayRequestKind {
-        self.kind.clone()
+        self.kind
     }
 
     /// Calldata for the contract call.
@@ -132,7 +132,7 @@ impl Request<CreateAccountRequest> {
         // Register in tracker
         if let Err(err) = ctx
             .tracker
-            .new_request_with_id(self.id().to_string(), self.kind().clone())
+            .new_request_with_id(self.id().to_string(), self.kind())
             .await
         {
             // Remove from inflight tracker if an error appears
@@ -178,7 +178,7 @@ impl Request<InsertAuthenticatorRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         // Register in tracker
         ctx.tracker
-            .new_request_with_id(self.id.to_string(), self.kind.clone())
+            .new_request_with_id(self.id.to_string(), self.kind)
             .await?;
 
         // Build command with pre-computed calldata
@@ -294,7 +294,7 @@ impl Request<RecoverAccountRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         // Register in tracker
         ctx.tracker
-            .new_request_with_id(self.id().to_string(), self.kind().clone())
+            .new_request_with_id(self.id().to_string(), self.kind())
             .await?;
 
         // Build command with pre-computed calldata
