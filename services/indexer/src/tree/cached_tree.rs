@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use alloy::primitives::U256;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
@@ -171,9 +170,7 @@ fn restore_from_cache(
     tree_depth: usize,
     dense_prefix_depth: usize,
 ) -> TreeResult<MerkleTree<PoseidonHasher, Canonical>> {
-    let cache_path_str = cache_path
-        .to_str()
-        .ok_or(TreeError::InvalidCacheFilePath)?;
+    let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
 
     let tree = MerkleTree::<PoseidonHasher, Canonical>::attempt_dense_mmap_restore(
         tree_depth,
@@ -205,9 +202,7 @@ async fn build_from_db_with_cache(
 ) -> TreeResult<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
     info!("Building tree from database with mmap cache (chunk-based processing)");
 
-    let cache_path_str = cache_path
-        .to_str()
-        .ok_or(TreeError::InvalidCacheFilePath)?;
+    let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
 
     let dense_prefix_size = 1usize << dense_prefix_depth;
 

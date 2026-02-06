@@ -146,9 +146,7 @@ impl Blockchain {
             return Ok((vec![], latest_block_number));
         }
 
-        let range_filter = filter
-            .from_block(from_block)
-            .to_block(latest_block_number);
+        let range_filter = filter.from_block(from_block).to_block(latest_block_number);
 
         let logs = self
             .http_provider

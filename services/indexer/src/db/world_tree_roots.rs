@@ -137,10 +137,7 @@ where
     }
 
     /// Look up a root by its value (for restore validation).
-    pub async fn get_root_by_value(
-        self,
-        root: &U256,
-    ) -> DBResult<Option<WorldTreeRoot>> {
+    pub async fn get_root_by_value(self, root: &U256) -> DBResult<Option<WorldTreeRoot>> {
         let table_name = self.table_name;
         let result = sqlx::query(&format!(
             r#"

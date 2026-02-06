@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use alloy::primitives::U256;
-use semaphore_rs_trees::lazy::Canonical;
-use semaphore_rs_trees::proof::InclusionProof;
+use semaphore_rs_trees::{lazy::Canonical, proof::InclusionProof};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};

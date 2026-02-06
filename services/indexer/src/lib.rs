@@ -265,7 +265,10 @@ async fn run_both(
     tracing::info!("Phase 2: building tree from DB");
     let start_time = std::time::Instant::now();
     let tree_state = initialize_tree_with_config(tree_cache_cfg, &db).await?;
-    tracing::info!("Phase 2: tree initialization took {:?}", start_time.elapsed());
+    tracing::info!(
+        "Phase 2: tree initialization took {:?}",
+        start_time.elapsed()
+    );
 
     // --- Phase 3: Start HTTP server + sanity check ---
     let http_tree_state = tree_state.clone();
@@ -308,13 +311,7 @@ async fn run_both(
         "Phase 4: starting live event stream with tree sync"
     );
 
-    stream_logs(
-        blockchain,
-        &db,
-        backfill_up_to_block + 1,
-        Some(&tree_state),
-    )
-    .await?;
+    stream_logs(blockchain, &db, backfill_up_to_block + 1, Some(&tree_state)).await?;
 
     http_handle.abort();
     if let Some(handle) = sanity_handle {
