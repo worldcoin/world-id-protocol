@@ -227,7 +227,6 @@ async fn run_http_only(
     http_result
 }
 
-#[expect(clippy::too_many_arguments)]
 async fn run_both(
     blockchain: &Blockchain,
     db: DB,
@@ -329,12 +328,11 @@ pub async fn handle_registry_event<'a>(
     let committed = events_committer.handle_event(event.clone()).await?;
 
     // After a DB commit, sync the in-memory tree from DB
-    if let Some(tree_state) = tree_state {
-        if committed {
-            if let Err(e) = tree::cached_tree::sync_from_db(db, tree_state).await {
-                tracing::error!(?e, "failed to sync tree from DB after commit");
-            }
-        }
+    if let Some(tree_state) = tree_state
+        && committed
+        && let Err(e) = tree::cached_tree::sync_from_db(db, tree_state).await
+    {
+        tracing::error!(?e, "failed to sync tree from DB after commit");
     }
 
     Ok(())
