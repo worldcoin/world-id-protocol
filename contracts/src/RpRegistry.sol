@@ -8,11 +8,10 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
 
 /**
- * @title Relying Party Registry (World ID)
+ * @title RpRegistry (World ID)
  * @author World Contributors
- * @dev The registry of Relying Parties (RPs) for the World ID Protocol.
- * @dev This is the implementation delegated to by a proxy. Please review the README in the source
- * repository before making any updates.
+ * @notice World ID. Registry of Relying Parties (RPs).
+ * @dev A Relying Party (RP) is an entity that requests World ID proofs from users.
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract RpRegistry is WorldIDBase, IRpRegistry {
@@ -24,22 +23,24 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     // that no reordering of these variables takes place. If reordering happens, a storage
     // clash will occur (effectively a memory safety error).
 
-    // rpId -> RelyingParty, the main record for a relying party
+    /// @dev rpId -> RelyingParty record
     mapping(uint64 => RelyingParty) internal _relyingParties;
 
-    // rpId -> nonce, used to prevent replays on management operations
+    /// @dev rpId -> signature nonce for replay protection
     mapping(uint64 => uint256) internal _rpIdToSignatureNonce;
 
-    // the OPRF key registry contract, used to init OPRF key gen for RPs
+    /// @dev OPRF key registry contract, used to init OPRF key gen for RPs
     IOprfKeyRegistry internal _oprfKeyRegistry;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
 
-    // sentinel value for no domain updates
+    /// @dev Sentinel value for no domain updates
     string public constant NO_UPDATE = "__NO_UPDATE__";
-    bytes32 constant NO_UPDATE_HASH = keccak256(bytes(NO_UPDATE));
+
+    /// @dev Hash of the sentinel value for efficient comparison
+    bytes32 internal constant NO_UPDATE_HASH = keccak256(bytes(NO_UPDATE));
 
     string public constant EIP712_NAME = "RpRegistry";
     string public constant EIP712_VERSION = "1.0";
@@ -58,10 +59,15 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     }
 
     /**
-     * @dev Initializes the contract.
+     * @notice Initializes the contract.
+     * @param feeRecipient The recipient of registration fees (can be address(0) if no fees).
+     * @param feeToken The token used to pay registration fees (can be address(0) if no fees).
+     * @param registrationFee The fee to register an RP (default: 0).
+     * @param oprfKeyRegistry The address of the OPRF key registry contract.
      */
     function initialize(address feeRecipient, address feeToken, uint256 registrationFee, address oprfKeyRegistry)
         public
+        virtual
         initializer
     {
         if (oprfKeyRegistry == address(0)) revert ZeroAddress();
@@ -71,13 +77,8 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     }
 
     ////////////////////////////////////////////////////////////
-    //                   Public Functions                     //
+    //                    PUBLIC FUNCTIONS                    //
     ////////////////////////////////////////////////////////////
-
-    /// @inheritdoc IRpRegistry
-    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
-        return _domainSeparatorV4();
-    }
 
     /// @inheritdoc IRpRegistry
     function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain)
@@ -106,48 +107,6 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
         for (uint256 i = 0; i < rpIds.length; i++) {
             _register(rpIds[i], managers[i], signers[i], unverifiedWellKnownDomains[i]);
         }
-    }
-
-    /// @inheritdoc IRpRegistry
-    function getRp(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
-        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
-
-        if (!_relyingParties[rpId].active) revert RpIdInactive();
-
-        return _relyingParties[rpId];
-    }
-
-    /// @inheritdoc IRpRegistry
-    function getRpUnchecked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
-        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
-
-        return _relyingParties[rpId];
-    }
-
-    /// @inheritdoc IRpRegistry
-    function getOprfKeyIdAndSigner(uint64 rpId)
-        external
-        view
-        virtual
-        onlyProxy
-        onlyInitialized
-        returns (uint160, address)
-    {
-        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
-
-        if (!_relyingParties[rpId].active) revert RpIdInactive();
-
-        return (_relyingParties[rpId].oprfKeyId, _relyingParties[rpId].signer);
-    }
-
-    /// @inheritdoc IRpRegistry
-    function nonceOf(uint64 rpId) public view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _rpIdToSignatureNonce[rpId];
-    }
-
-    /// @inheritdoc IRpRegistry
-    function getOprfKeyRegistry() public view virtual onlyProxy onlyInitialized returns (address) {
-        return address(_oprfKeyRegistry);
     }
 
     /// @inheritdoc IRpRegistry
@@ -216,7 +175,70 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     }
 
     ////////////////////////////////////////////////////////////
-    //                  Internal Functions                    //
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /// @inheritdoc IRpRegistry
+    function domainSeparatorV4() public view virtual onlyProxy onlyInitialized returns (bytes32) {
+        return _domainSeparatorV4();
+    }
+
+    /// @inheritdoc IRpRegistry
+    function getRp(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
+        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
+
+        if (!_relyingParties[rpId].active) revert RpIdInactive();
+
+        return _relyingParties[rpId];
+    }
+
+    /// @inheritdoc IRpRegistry
+    function getRpUnchecked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
+        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
+
+        return _relyingParties[rpId];
+    }
+
+    /// @inheritdoc IRpRegistry
+    function getOprfKeyIdAndSigner(uint64 rpId)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint160, address)
+    {
+        if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
+
+        if (!_relyingParties[rpId].active) revert RpIdInactive();
+
+        return (_relyingParties[rpId].oprfKeyId, _relyingParties[rpId].signer);
+    }
+
+    /// @inheritdoc IRpRegistry
+    function nonceOf(uint64 rpId) public view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _rpIdToSignatureNonce[rpId];
+    }
+
+    /// @inheritdoc IRpRegistry
+    function getOprfKeyRegistry() public view virtual onlyProxy onlyInitialized returns (address) {
+        return address(_oprfKeyRegistry);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
+
+    /// @inheritdoc IRpRegistry
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newOprfKeyRegistry == address(0)) revert ZeroAddress();
+        address oldOprfKeyRegistry = address(_oprfKeyRegistry);
+        _oprfKeyRegistry = IOprfKeyRegistry(newOprfKeyRegistry);
+        emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, newOprfKeyRegistry);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
 
     /**
@@ -226,7 +248,10 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
      * @param signer The address authorized to sign proof requests.
      * @param unverifiedWellKnownDomain The FQDN where the well-known metadata file is published.
      */
-    function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain) internal {
+    function _register(uint64 rpId, address manager, address signer, string memory unverifiedWellKnownDomain)
+        internal
+        virtual
+    {
         if (_relyingParties[rpId].initialized) revert IdAlreadyInUse(rpId);
 
         if (rpId == 0) revert InvalidId();

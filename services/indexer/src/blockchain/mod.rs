@@ -1,16 +1,46 @@
 use std::future;
 
 use alloy::{
-    primitives::Address,
+    primitives::{Address, FixedBytes},
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
 };
 use futures_util::{Stream, StreamExt, stream};
+use thiserror::Error;
 use url::Url;
 
-pub use crate::blockchain::events::{BlockchainEvent, RegistryEvent};
+pub use crate::blockchain::events::{
+    AccountCreatedEvent, AccountRecoveredEvent, AccountUpdatedEvent, AuthenticatorInsertedEvent,
+    AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent, RootRecordedEvent,
+};
 
 mod events;
+
+pub type BlockchainResult<T> = Result<T, BlockchainError>;
+
+#[derive(Debug, Error)]
+pub enum BlockchainError {
+    #[error("invalid http rpc url: {0}")]
+    InvalidHttpRpcUrl(#[from] url::ParseError),
+    #[error("failed to connect ws provider: {0}")]
+    WsProvider(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("rpc error: {0}")]
+    Rpc(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("invalid log for decoding")]
+    InvalidLog,
+    #[error("log decode error: {0}")]
+    LogDecode(#[source] alloy::sol_types::Error),
+    #[error("log topics are empty")]
+    EmptyTopics,
+    #[error("missing block number in log topics")]
+    MissingBlockNumber,
+    #[error("missing transaction hash in log topics")]
+    MissingTxHash,
+    #[error("missing log indesx in log topics")]
+    MissingLogIndex,
+    #[error("unknown event signature: {0:?}")]
+    UnknownEventSignature(FixedBytes<32>),
+}
 
 pub struct Blockchain {
     http_provider: DynProvider,
@@ -23,14 +53,15 @@ impl Blockchain {
         http_rpc_url: &str,
         ws_rpc_url: &str,
         world_id_registry: Address,
-    ) -> anyhow::Result<Self> {
-        let http_provider =
-            DynProvider::new(ProviderBuilder::new().connect_http(Url::parse(http_rpc_url)?));
+    ) -> BlockchainResult<Self> {
+        let http_url = Url::parse(http_rpc_url)?;
+        let http_provider = DynProvider::new(ProviderBuilder::new().connect_http(http_url));
 
         let ws_provider = DynProvider::new(
             ProviderBuilder::new()
                 .connect_ws(WsConnect::new(ws_rpc_url))
-                .await?,
+                .await
+                .map_err(|err| BlockchainError::WsProvider(Box::new(err)))?,
         );
 
         Ok(Self {
@@ -53,23 +84,36 @@ impl Blockchain {
     pub async fn stream_world_tree_events(
         &self,
         from_block: u64,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<BlockchainEvent<RegistryEvent>>>> {
+    ) -> BlockchainResult<impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>>>
+    {
         let filter = Filter::new()
             .address(self.world_id_registry)
             .event_signature(RegistryEvent::signatures());
 
-        let logs = self.ws_provider.subscribe_logs(&filter).await?;
+        let logs = self
+            .ws_provider
+            .subscribe_logs(&filter)
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
         let new_events = logs.into_stream();
 
-        let latest_block_number = self.http_provider.get_block_number().await?;
+        let latest_block_number = self
+            .http_provider
+            .get_block_number()
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
         let range_filter = filter
             .clone()
             .from_block(from_block)
             .to_block(latest_block_number);
 
-        let backfill_events = self.http_provider.get_logs(&range_filter).await?;
+        let backfill_events = self
+            .http_provider
+            .get_logs(&range_filter)
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
         Ok(stream::iter(backfill_events)
             .chain(new_events.filter(move |v| {
@@ -87,12 +131,16 @@ impl Blockchain {
     pub async fn get_backfill_events(
         &self,
         from_block: u64,
-    ) -> anyhow::Result<(Vec<alloy::rpc::types::Log>, u64)> {
+    ) -> BlockchainResult<(Vec<alloy::rpc::types::Log>, u64)> {
         let filter = Filter::new()
             .address(self.world_id_registry)
             .event_signature(RegistryEvent::signatures());
 
-        let latest_block_number = self.http_provider.get_block_number().await?;
+        let latest_block_number = self
+            .http_provider
+            .get_block_number()
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
         if from_block > latest_block_number {
             return Ok((vec![], latest_block_number));
@@ -102,12 +150,19 @@ impl Blockchain {
             .from_block(from_block)
             .to_block(latest_block_number);
 
-        let logs = self.http_provider.get_logs(&range_filter).await?;
+        let logs = self
+            .http_provider
+            .get_logs(&range_filter)
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
         Ok((logs, latest_block_number))
     }
 
-    pub async fn get_block_number(&self) -> anyhow::Result<u64> {
-        Ok(self.http_provider.get_block_number().await?)
+    pub async fn get_block_number(&self) -> BlockchainResult<u64> {
+        self.http_provider
+            .get_block_number()
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))
     }
 }

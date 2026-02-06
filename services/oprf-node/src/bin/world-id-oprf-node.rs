@@ -7,7 +7,8 @@
 use std::{process::ExitCode, sync::Arc};
 
 use clap::Parser;
-use taceo_oprf::service::{config::Environment, secret_manager::aws::AwsSecretManager};
+use eyre::Context;
+use taceo_oprf::service::secret_manager::postgres::PostgresSecretManager;
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 
 #[tokio::main]
@@ -23,30 +24,66 @@ async fn main() -> eyre::Result<ExitCode> {
     tracing::info!("{}", taceo_nodes_common::version_info!());
 
     let config = WorldOprfNodeConfig::parse();
+    tracing::info!("starting oprf-node with config: {config:#?}");
 
-    let aws_config = match config.node_config.environment {
-        Environment::Prod => aws_config::load_from_env().await,
-        Environment::Dev => taceo_nodes_common::localstack_aws_config().await,
-    };
+    // Load the postgres secret manager.
+    let secret_manager = Arc::new(
+        PostgresSecretManager::init(
+            &config.node_config.db_connection_string,
+            &config.node_config.db_schema,
+            config.node_config.db_max_connections,
+        )
+        .await
+        .context("while initializing Postgres secret manager")?,
+    );
 
-    // Load the AWS secret manager.
-    let secret_manager =
-        Arc::new(AwsSecretManager::init(aws_config, &config.node_config.rp_secret_id_prefix).await);
+    let (cancellation_token, _) =
+        taceo_nodes_common::spawn_shutdown_task(taceo_nodes_common::default_shutdown_signal());
 
-    let result = world_id_oprf_node::start(
-        config,
-        secret_manager,
-        taceo_nodes_common::default_shutdown_signal(),
-    )
-    .await;
-    match result {
-        Ok(()) => {
-            tracing::info!("good night!");
+    // Clone the values we need afterwards
+    let bind_addr = config.bind_addr;
+    let max_wait_time_shutdown = config.max_wait_time_shutdown;
+
+    tracing::info!("starting world-node service...");
+    let (oprf_service_router, oprf_node_tasks) =
+        world_id_oprf_node::start(config, secret_manager, cancellation_token.clone()).await?;
+
+    let server = tokio::spawn({
+        let cancellation_token = cancellation_token.clone();
+        async move {
+            let _drop_guard = cancellation_token.clone().drop_guard();
+            tracing::info!("starting axum server on {bind_addr}",);
+            let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+            let axum_result = axum::serve(listener, oprf_service_router)
+                .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
+                .await;
+            tracing::info!("axum server shutdown");
+            axum_result
+        }
+    });
+
+    tracing::info!("waiting for shutdown...");
+    cancellation_token.cancelled().await;
+
+    tracing::info!("waiting for shutdown of services (max wait time {max_wait_time_shutdown:?})..");
+    match tokio::time::timeout(max_wait_time_shutdown, async move {
+        let (server, oprf_node_tasks) = tokio::join!(server, oprf_node_tasks.join());
+        server??;
+        oprf_node_tasks?;
+        eyre::Ok(())
+    })
+    .await
+    {
+        Ok(Ok(_)) => {
+            tracing::info!("successfully finished graceful shutdown in time");
             Ok(ExitCode::SUCCESS)
         }
-        Err(err) => {
-            // we don't want to double print the error therefore we just return FAILURE
-            tracing::error!("{err:?}");
+        Ok(Err(err)) => {
+            tracing::error!("oprf-node encountered an error: {err:?}");
+            Ok(ExitCode::FAILURE)
+        }
+        Err(_) => {
+            tracing::warn!("could not finish shutdown in time");
             Ok(ExitCode::FAILURE)
         }
     }

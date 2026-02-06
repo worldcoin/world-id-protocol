@@ -6,16 +6,17 @@ use std::{
 
 use alloy::{
     network::EthereumWallet,
-    providers::{DynProvider, Provider, ProviderBuilder, WsConnect, fillers::CachedNonceManager},
+    providers::{DynProvider, Provider, ProviderBuilder, fillers::CachedNonceManager},
     rpc::{client::RpcClient, json_rpc::RequestPacket},
     signers::{
         Signer,
-        aws::{AwsSigner, aws_config::BehaviorVersion},
-        local::PrivateKeySigner,
+        aws::{AwsSigner, AwsSignerError, aws_config::BehaviorVersion},
+        local::{LocalSignerError, PrivateKeySigner},
     },
-    transports::{http::Http, layers::FallbackLayer},
+    transports::{TransportError, http::Http, layers::FallbackLayer},
 };
 use clap::Args;
+use config::ConfigError;
 use governor::{
     Quota, RateLimiter,
     clock::DefaultClock,
@@ -27,8 +28,27 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use thiserror::Error;
 use tower::{Layer, Service, ServiceBuilder};
 use url::Url;
+
+pub type ProviderResult<T> = Result<T, ProviderError>;
+
+#[derive(Debug, Error)]
+pub enum ProviderError {
+    #[error("invalid private key: {0}")]
+    InvalidPrivateKey(#[from] LocalSignerError),
+    #[error("failed to initialize AWS KMS signer: {0}")]
+    AwsKmsSigner(#[from] Box<AwsSignerError>),
+    #[error("exactly one of wallet_private_key or aws_kms_key_id must be provided")]
+    SignerConfigMissing,
+    #[error("no HTTP URLs provided")]
+    NoHttpUrls,
+    #[error("config error: {0}")]
+    Config(#[from] ConfigError),
+    #[error("transport error while trying to fetch chain id: {0}")]
+    ChainId(TransportError),
+}
 
 #[derive(Debug, Clone, Args, Deserialize)]
 #[command(next_help_heading = "Rpc Configuration")]
@@ -38,11 +58,6 @@ pub struct ProviderArgs {
     #[arg(long = "rpc-url", value_delimiter = ',', env = "RPC_URL")]
     #[serde(default)]
     pub http: Option<Vec<Url>>,
-
-    /// WebSocket RPC endpoints (in priority order).
-    #[arg(long = "ws-url", env = "WS_URL")]
-    #[serde(default)]
-    pub ws: Option<String>,
 
     #[command(flatten)]
     #[serde(default)]
@@ -81,36 +96,35 @@ pub struct SignerArgs {
 }
 
 impl SignerArgs {
-    pub async fn signer(&self, rpc_url: &Url) -> anyhow::Result<EthereumWallet> {
+    pub async fn signer(&self, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
         match (&self.wallet_private_key, &self.aws_kms_key_id) {
             (Some(s), None) => {
                 // PrivateKey: No RPC call needed
-                let signer = s
-                    .parse::<PrivateKeySigner>()
-                    .map_err(|e| anyhow::anyhow!("invalid private key: {e}"))?;
+                let signer = s.parse::<PrivateKeySigner>()?;
                 Ok(EthereumWallet::from(signer))
             }
             (None, Some(key_id)) => {
                 tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
 
                 let temp_provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-                let chain_id = temp_provider.get_chain_id().await?;
+                let chain_id = temp_provider
+                    .get_chain_id()
+                    .await
+                    .map_err(ProviderError::ChainId)?;
                 tracing::info!("Fetched chain_id: {}", chain_id);
 
                 let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
                 let kms_client = aws_sdk_kms::Client::new(&config);
                 let aws_signer = AwsSigner::new(kms_client, key_id.to_string(), Some(chain_id))
                     .await
-                    .map_err(|e| anyhow::anyhow!("failed to initialize AWS KMS signer: {e}"))?;
+                    .map_err(|err| ProviderError::AwsKmsSigner(Box::new(err)))?;
                 tracing::info!(
                     "AWS KMS signer initialized with address: {}",
                     aws_signer.address()
                 );
                 Ok(EthereumWallet::from(aws_signer))
             }
-            _ => Err(anyhow::anyhow!(
-                "exactly one of wallet_private_key or aws_kms_key_id must be provided"
-            )),
+            _ => Err(ProviderError::SignerConfigMissing),
         }
     }
 
@@ -166,7 +180,7 @@ impl ProviderArgs {
     }
 
     /// Load configuration from a TOML file.
-    pub fn from_file(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn from_file(path: impl AsRef<Path>) -> ProviderResult<Self> {
         let settings = config::Config::builder()
             .add_source(config::File::from(path.as_ref()))
             .build()?;
@@ -185,22 +199,14 @@ impl ProviderArgs {
         self
     }
 
-    /// Add multiple WebSocket RPC endpoints.
-    pub fn with_ws_urls(mut self, url: String) -> Self {
-        self.ws = Some(url);
-        self
-    }
     /// Build a dynamic provider from the configuration.
-    pub async fn http(self) -> anyhow::Result<DynProvider> {
+    pub async fn http(self) -> ProviderResult<DynProvider> {
         let Some(http) = self.http else {
-            return Err(anyhow::anyhow!("No HTTP URLs provided"));
+            return Err(ProviderError::NoHttpUrls);
         };
 
         // Save first URL for signer (needed for AWS KMS chain_id lookup)
-        let first_url = http
-            .first()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No HTTP URLs provided"))?;
+        let first_url = http.first().cloned().ok_or(ProviderError::NoHttpUrls)?;
 
         // Configure the fallback layer
         let fallback_layer = FallbackLayer::default()
@@ -250,26 +256,6 @@ impl ProviderArgs {
         };
 
         Ok(provider)
-    }
-
-    pub async fn ws(self) -> anyhow::Result<DynProvider> {
-        let Some(ws) = self.ws else {
-            return Err(anyhow::anyhow!("No WS URLs provided"));
-        };
-
-        let provider = ProviderBuilder::new()
-            .connect_ws(WsConnect::new(ws))
-            .await?
-            .erased();
-
-        Ok(provider)
-    }
-
-    pub async fn build_providers(self) -> anyhow::Result<(DynProvider, DynProvider)> {
-        let http_provider = self.clone().http().await?;
-        let ws_provider = self.ws().await?;
-
-        Ok((http_provider, ws_provider))
     }
 }
 
@@ -359,22 +345,6 @@ mod tests {
         assert_eq!(urls[0].as_str(), "https://rpc1.example.com/");
         assert_eq!(urls[1].as_str(), "https://rpc2.example.com/");
         assert_eq!(urls[2].as_str(), "https://rpc3.example.com/");
-    }
-
-    #[test]
-    fn from_file_loads_http_and_ws() {
-        let config = r#"
-            [provider]
-            http = ["https://rpc.example.com"]
-            ws = "wss://ws.example.com"
-        "#;
-
-        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
-        file.write_all(config.as_bytes()).unwrap();
-
-        let args = ProviderArgs::from_file(file.path()).unwrap();
-        assert_eq!(args.http.unwrap().len(), 1);
-        assert_eq!(args.ws.unwrap(), "wss://ws.example.com");
     }
 
     #[test]

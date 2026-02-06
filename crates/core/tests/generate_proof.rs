@@ -5,9 +5,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use alloy::{primitives::U256, signers::local::LocalSigner};
+use alloy::{
+    primitives::{U160, U256},
+    signers::local::LocalSigner,
+};
 use eyre::{Context as _, Result, eyre};
-use taceo_oprf::types::ShareEpoch;
+use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::health_checks;
 use test_utils::{
     anvil::WorldIDVerifier,
@@ -18,7 +21,7 @@ use test_utils::{
     stubs::spawn_indexer_stub,
 };
 use world_id_core::{
-    Authenticator, AuthenticatorError, HashableCredential,
+    Authenticator, AuthenticatorError, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
 use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
@@ -29,12 +32,32 @@ const GW_PORT: u16 = 4104;
 /// Generates an entire end-to-end Uniqueness Proof Generator
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
+    let mut rng = rand::thread_rng();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
 
-    let (_localstack_container, localstack_url) =
-        taceo_oprf_test_utils::localstack_testcontainer().await?;
+    let containers = tokio::join!(
+        taceo_oprf_test_utils::localstack_testcontainer(),
+        taceo_oprf_test_utils::postgres_testcontainer(),
+        taceo_oprf_test_utils::postgres_testcontainer(),
+        taceo_oprf_test_utils::postgres_testcontainer(),
+        taceo_oprf_test_utils::postgres_testcontainer(),
+        taceo_oprf_test_utils::postgres_testcontainer(),
+    );
+    let (_localstack_container, localstack_url) = containers.0?;
+    let (_postgres_container_0, postgres_url_0) = containers.1?;
+    let (_postgres_container_1, postgres_url_1) = containers.2?;
+    let (_postgres_container_2, postgres_url_2) = containers.3?;
+    let (_postgres_container_3, postgres_url_3) = containers.4?;
+    let (_postgres_container_4, postgres_url_4) = containers.5?;
+    let postgres_urls = [
+        postgres_url_0,
+        postgres_url_1,
+        postgres_url_2,
+        postgres_url_3,
+        postgres_url_4,
+    ];
 
     let RegistryTestContext {
         anvil,
@@ -42,10 +65,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         rp_registry,
         oprf_key_registry,
         world_id_verifier,
-        issuer_private_key: issuer_sk,
-        issuer_public_key: issuer_pk,
-        issuer_schema_id,
-        ..
+        credential_registry,
     } = RegistryTestContext::new().await?;
 
     let deployer = anvil
@@ -140,21 +160,40 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let rp_fixture = generate_rp_fixture();
 
     // OPRF key-gen instances
-    let oprf_key_gens =
-        test_utils::stubs::spawn_key_gens(anvil.ws_endpoint(), &localstack_url, oprf_key_registry)
-            .await;
+    let oprf_key_gens = test_utils::stubs::spawn_key_gens(
+        anvil.ws_endpoint(),
+        &localstack_url,
+        &postgres_urls,
+        oprf_key_registry,
+    )
+    .await;
 
     // OPRF nodes
     let nodes = test_utils::stubs::spawn_oprf_nodes(
         anvil.ws_endpoint(),
-        &localstack_url,
+        &postgres_urls,
         oprf_key_registry,
         world_id_registry,
         rp_registry,
+        credential_registry,
     )
     .await;
 
+    health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
     health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+
+    // Register an issuer which also triggers a OPRF key-gen.
+    let issuer_schema_id = 1u64;
+    let issuer_sk = EdDSAPrivateKey::random(&mut rng);
+    let issuer_pk = issuer_sk.public();
+    anvil
+        .register_issuer(
+            credential_registry,
+            deployer.clone(),
+            issuer_schema_id,
+            issuer_pk.clone(),
+        )
+        .await?;
 
     // Register the RP which also triggers a OPRF key-gen.
     let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -169,9 +208,18 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         )
         .await?;
 
-    // Wait for OPRF key-gen and until the public key is available from the nodes.
+    // Wait for RP OPRF key-gen and until the public key is available from the nodes.
     let _oprf_public_key = health_checks::oprf_public_key_from_services(
         rp_fixture.oprf_key_id,
+        ShareEpoch::default(),
+        &nodes,
+        Duration::from_secs(120),
+    )
+    .await?;
+    // Wait for issuer OPRF key-gen and until the public key is available from the nodes.
+    // This key-gen is started in `RegistryTestContext::new()`
+    let _oprf_public_key = health_checks::oprf_public_key_from_services(
+        OprfKeyId::new(U160::from(issuer_schema_id)),
         ShareEpoch::default(),
         &nodes,
         Duration::from_secs(120),
@@ -199,13 +247,22 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), U256::from(1u64));
 
+    let credential_sub_blinding_factor = authenticator
+        .generate_credential_blinding_factor(issuer_schema_id)
+        .await?;
+
     // Create and sign credential.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
-    let (mut credential, credential_sub_blinding_factor) =
-        build_base_credential(issuer_schema_id, leaf_index_u64, now, now + 60);
+    let mut credential = build_base_credential(
+        issuer_schema_id,
+        leaf_index_u64,
+        now,
+        now + 60,
+        credential_sub_blinding_factor,
+    );
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()
@@ -220,7 +277,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
-        share_epoch: rp_fixture.share_epoch,
         session_id: None,
         action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
@@ -230,6 +286,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             issuer_schema_id,
             signal: Some("my_signal".to_string()),
             genesis_issued_at_min: None,
+            expires_at_min: None,
         }],
         constraints: None,
     };
@@ -242,7 +299,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_ne!(raw_nullifier, FieldElement::ZERO);
 
     // Generate session_id_r_seed for proof generation
-    let mut rng = rand::thread_rng();
     let session_id_r_seed = FieldElement::random(&mut rng); // Normally the authenticator would provide this from cache or (in the future) OPRF Nodes
 
     // Normally here the authenticator would check the nullifier is UNIQUE.
@@ -257,29 +313,26 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         proof_request.created_at,
     )?;
 
-    assert_eq!(response_item.nullifier.unwrap(), raw_nullifier);
+    assert_eq!(response_item.nullifier, raw_nullifier);
 
     // verify proof with verifier contract
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
         WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
-            response_item.nullifier.unwrap().into(),
+            response_item.nullifier.into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
             rp_fixture.nonce.into(),
             request_item.signal_hash().into(),
-            rp_fixture
-                .current_timestamp
-                .try_into()
-                .expect("u64 fits into U256"),
+            response_item.expires_at_min,
             issuer_schema_id,
             request_item
                 .genesis_issued_at_min
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            response_item.proof.unwrap().as_ethereum_representation(),
+            response_item.proof.as_ethereum_representation(),
         )
         .call()
         .await?;

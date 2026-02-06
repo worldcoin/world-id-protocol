@@ -4,7 +4,9 @@ pragma solidity ^0.8.13;
 /**
  * @title ICredentialSchemaIssuerRegistry
  * @author World Contributors
- * @dev Interface for the Credential Schema Issuer Registry contract
+ * @notice Interface for the Credential Schema Issuer Registry contract.
+ * @dev An `issuerSchemaId` represents the unique combination of a specific schema (e.g. ICAO 9303 Passport)
+ *   from a specific issuer (e.g. TFH). This ID is included in each issued Credential.
  */
 interface ICredentialSchemaIssuerRegistry {
     ////////////////////////////////////////////////////////////
@@ -110,6 +112,13 @@ interface ICredentialSchemaIssuerRegistry {
      */
     event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
+    /**
+     * @notice Emitted when the OPRF key registry is updated.
+     * @param oldOprfKeyRegistry The previous registry address.
+     * @param newOprfKeyRegistry The new registry address.
+     */
+    event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
+
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
@@ -185,4 +194,20 @@ interface ICredentialSchemaIssuerRegistry {
      * @return The current nonce for the issuer-schema ID.
      */
     function nonceOf(uint64 issuerSchemaId) external view returns (uint256);
+
+    /**
+     * @dev Returns the OPRF key registry address.
+     * @return The address of the OPRF key registry contract.
+     */
+    function getOprfKeyRegistry() external view returns (address);
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @notice Updates the OPRF key registry address.
+     * @param newOprfKeyRegistry The new OPRF key registry address.
+     */
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external;
 }

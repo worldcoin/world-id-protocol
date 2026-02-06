@@ -25,7 +25,6 @@ required-features = ["issuer"]
 default = ["authenticator", "embed-zkeys"]
 
 authenticator = [
-    "dep:world-id-credential",
     "dep:world-id-signer",
     "dep:world-id-proof",
     "dep:world-id-request",
@@ -40,7 +39,6 @@ compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/compress-zkeys
 
 issuer = [
     "dep:world-id-issuer",
-    "dep:world-id-credential",
     "dep:world-id-signer",
 ]
 
@@ -57,7 +55,6 @@ world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
 world-id-request = { workspace = true, optional = true }
 world-id-signer = { workspace = true, optional = true }
-world-id-credential = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
 world-id-registry = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
@@ -71,7 +68,7 @@ world-id-gateway = { workspace = true }
 taceo-oprf-test-utils = { workspace = true }
 taceo-oprf = { workspace = true }
 backon = { workspace = true }
-chrono = "0.4"
+chrono = { workspace = true }
 hex = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }

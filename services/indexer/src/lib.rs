@@ -1,21 +1,3 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
-
-use alloy::{
-    primitives::Address,
-    providers::{Provider, ProviderBuilder},
-    rpc::types::Log,
-};
-use futures_util::StreamExt;
-use world_id_core::world_id_registry::WorldIdRegistry;
-
-mod blockchain;
-pub mod config;
-pub mod db;
-mod events_committer;
-mod routes;
-mod sanity_check;
-mod tree;
-
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
@@ -23,12 +5,32 @@ use crate::{
     events_committer::EventsCommitter,
     tree::cached_tree,
 };
+use alloy::{
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+    rpc::types::Log,
+};
+use futures_util::StreamExt;
+use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
+use world_id_core::world_id_registry::WorldIdRegistry;
+
+// re-exports
 pub use config::GlobalConfig;
+pub use error::{IndexerError, IndexerResult};
+
+pub mod blockchain;
+pub mod config;
+pub mod db;
+mod error;
+pub mod events_committer;
+mod routes;
+mod sanity_check;
+mod tree;
 
 async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
-) -> anyhow::Result<()> {
+) -> IndexerResult<tree::TreeState> {
     // Set the configured tree depth globally
     tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
 
@@ -49,12 +51,16 @@ async fn initialize_tree_with_config(
         depth = tree_cache_cfg.tree_depth,
         "Tree initialized successfully"
     );
-    Ok(())
+
+    // Create a TreeState for use by routes/sanity_check
+    // This wraps the same tree depth but routes still use cached_tree:: functions
+    let tree_state = tree::TreeState::new_empty(tree_cache_cfg.tree_depth);
+    Ok(tree_state)
 }
 
 /// Background task: periodically sync the in-memory tree with DB events.
 /// Used in HttpOnly mode (where an external indexer writes to DB).
-async fn tree_sync_loop(db: DB, interval_secs: u64) -> anyhow::Result<()> {
+async fn tree_sync_loop(db: DB, interval_secs: u64) -> IndexerResult<()> {
     tracing::info!(interval_secs, "Starting tree sync loop");
 
     loop {
@@ -78,22 +84,32 @@ async fn start_http_server(
     registry_address: Address,
     addr: SocketAddr,
     db: DB,
-) -> anyhow::Result<()> {
+    tree_state: tree::TreeState,
+) -> IndexerResult<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
     let registry = WorldIdRegistry::new(registry_address, provider.erased());
-    let router = routes::handler(AppState::new(db, Arc::new(registry)));
+    let router = routes::handler(AppState::new(db, Arc::new(registry), tree_state));
     tracing::info!(%addr, "HTTP server listening");
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, router).await?;
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|source| IndexerError::Bind {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
+    axum::serve(listener, router)
+        .await
+        .map_err(|source| IndexerError::Serve {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
     Ok(())
 }
 
-pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
+pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
     tracing::info!("Creating DB...");
     let db = DB::new(&cfg.db_url, None).await?;
     db.run_migrations().await?;
     tracing::info!("🟢 DB successfully created .");
-
-    let tree_cache_cfg = &cfg.tree_cache;
 
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
@@ -110,13 +126,16 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
             tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
             // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
-            initialize_tree_with_config(tree_cache_cfg, &db).await?;
+            let tree_cache_cfg = http_config.tree_cache.clone();
+            let tree_state = initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
+
             run_http_only(
                 db,
                 &cfg.http_rpc_url,
                 cfg.registry_address,
                 http_config,
+                tree_state,
             )
             .await
         }
@@ -138,7 +157,6 @@ pub async fn run_indexer(cfg: GlobalConfig) -> anyhow::Result<()> {
                 cfg.registry_address,
                 indexer_config,
                 http_config,
-                tree_cache_cfg,
             )
             .await
         }
@@ -149,7 +167,7 @@ async fn run_indexer_only(
     blockchain: &Blockchain,
     db: DB,
     indexer_cfg: IndexerConfig,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     // Determine starting block from checkpoint or env
     let from = match db.world_tree_events().get_latest_block().await? {
         Some(block) => block + 1,
@@ -171,7 +189,8 @@ async fn run_http_only(
     rpc_url: &str,
     registry_address: Address,
     http_cfg: HttpConfig,
-) -> anyhow::Result<()> {
+    tree_state: tree::TreeState,
+) -> IndexerResult<()> {
     // Start tree sync loop (replaces both poll_db_changes and cache_refresh_loop)
     let sync_pool = db.clone();
     let sync_interval = http_cfg.db_poll_interval_secs;
@@ -185,10 +204,15 @@ async fn run_http_only(
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = rpc_url.to_string();
+        let sanity_tree_state = tree_state.clone();
         sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) =
-                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
-                    .await
+            if let Err(e) = sanity_check::root_sanity_check_loop(
+                rpc_url,
+                registry_address,
+                sanity_interval,
+                sanity_tree_state,
+            )
+            .await
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }
@@ -196,7 +220,14 @@ async fn run_http_only(
     }
 
     // Start HTTP server
-    let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, db).await;
+    let http_result = start_http_server(
+        rpc_url,
+        registry_address,
+        http_cfg.http_addr,
+        db,
+        tree_state,
+    )
+    .await;
 
     sync_handle.abort();
     if let Some(handle) = sanity_handle {
@@ -205,6 +236,7 @@ async fn run_http_only(
     http_result
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn run_both(
     blockchain: &Blockchain,
     db: DB,
@@ -212,8 +244,9 @@ async fn run_both(
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
-    tree_cache_cfg: &config::TreeCacheConfig,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
+    let tree_cache_cfg = &http_cfg.tree_cache;
+
     // --- Phase 1: Backfill historical events into DB (no tree) ---
     let from = match db.world_tree_roots().get_latest_block().await? {
         Some(block) => block,
@@ -240,24 +273,38 @@ async fn run_both(
     // --- Phase 2: Build tree from complete DB ---
     tracing::info!("Phase 2: building tree from DB");
     let start_time = std::time::Instant::now();
-    initialize_tree_with_config(tree_cache_cfg, &db).await?;
+    let tree_state = initialize_tree_with_config(tree_cache_cfg, &db).await?;
     tracing::info!("Phase 2: tree initialization took {:?}", start_time.elapsed());
 
     // --- Phase 3: Start HTTP server + sanity check ---
+    let http_tree_state = tree_state.clone();
+    let sanity_tree_state = tree_state.clone();
+
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
     let rpc_url_clone = rpc_url.to_string();
     let http_handle = tokio::spawn(async move {
-        start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool).await
+        start_http_server(
+            &rpc_url_clone,
+            registry_address,
+            http_addr,
+            http_pool,
+            http_tree_state,
+        )
+        .await
     });
 
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = rpc_url.to_string();
         sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) =
-                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
-                    .await
+            if let Err(e) = sanity_check::root_sanity_check_loop(
+                rpc_url,
+                registry_address,
+                sanity_interval,
+                sanity_tree_state,
+            )
+            .await
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }
@@ -290,7 +337,7 @@ pub async fn handle_registry_event<'a>(
     events_committer: &mut EventsCommitter<'a>,
     event: &BlockchainEvent<RegistryEvent>,
     sync_tree: bool,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     let committed = events_committer.handle_event(event.clone()).await?;
 
     // After a DB commit, sync the in-memory tree from DB
@@ -305,7 +352,7 @@ pub async fn handle_registry_event<'a>(
 
 /// Process backfill logs from HTTP get_logs, writing to DB only (no tree sync).
 /// Returns the number of committed batches.
-async fn save_events(db: &DB, raw_logs: Vec<Log>) -> anyhow::Result<usize> {
+async fn save_events(db: &DB, raw_logs: Vec<Log>) -> IndexerResult<usize> {
     let mut events_committer = EventsCommitter::new(db);
     let mut committed_batches = 0usize;
 
@@ -332,7 +379,7 @@ pub async fn stream_logs(
     db: &DB,
     start_from: u64,
     sync_tree: bool,
-) -> anyhow::Result<()> {
+) -> IndexerResult<()> {
     let mut stream = blockchain.stream_world_tree_events(start_from).await?;
     let mut events_committer = EventsCommitter::new(db);
 

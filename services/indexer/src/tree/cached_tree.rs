@@ -8,7 +8,7 @@ use semaphore_rs_trees::proof::InclusionProof;
 use tokio::sync::RwLock;
 use tracing::info;
 
-use super::{GLOBAL_TREE, PoseidonHasher};
+use super::{GLOBAL_TREE, PoseidonHasher, TreeError, TreeResult};
 use crate::db::{DB, WorldTreeEventId, fetch_leaves_batch};
 
 /// Tracks the last event ID the tree has processed.
@@ -32,7 +32,7 @@ pub async fn init_tree(
     cache_path: &Path,
     tree_depth: usize,
     dense_prefix_depth: usize,
-) -> anyhow::Result<()> {
+) -> TreeResult<()> {
     let (tree, last_event_id, _source) = if cache_path.exists() {
         match try_restore(db, cache_path, tree_depth, dense_prefix_depth).await {
             Ok((tree, last_event_id)) => (tree, last_event_id, "cache"),
@@ -75,7 +75,7 @@ async fn set_global_tree(
 /// since the last sync point.
 ///
 /// Returns the number of raw events processed (before deduplication).
-pub async fn sync_from_db(db: &DB) -> anyhow::Result<usize> {
+pub async fn sync_from_db(db: &DB) -> TreeResult<usize> {
     const BATCH_SIZE: u64 = 10_000;
 
     let from = { *LAST_SYNCED_EVENT_ID.read().await };
@@ -175,7 +175,7 @@ async fn try_restore(
     cache_path: &Path,
     tree_depth: usize,
     dense_prefix_depth: usize,
-) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
+) -> TreeResult<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
     // 1. Load mmap
     let tree = restore_from_cache(cache_path, tree_depth, dense_prefix_depth)?;
     let restored_root = tree.root();
@@ -190,11 +190,8 @@ async fn try_restore(
         .world_tree_roots()
         .get_root_by_value(&restored_root)
         .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "restored root 0x{:x} not found in world_tree_roots — mmap is stale or corrupt",
-                restored_root
-            )
+        .ok_or_else(|| TreeError::StaleCache {
+            root: format!("0x{:x}", restored_root),
         })?;
 
     info!(
@@ -225,10 +222,10 @@ fn restore_from_cache(
     cache_path: &Path,
     tree_depth: usize,
     dense_prefix_depth: usize,
-) -> anyhow::Result<MerkleTree<PoseidonHasher, Canonical>> {
+) -> TreeResult<MerkleTree<PoseidonHasher, Canonical>> {
     let cache_path_str = cache_path
         .to_str()
-        .ok_or_else(|| anyhow::anyhow!("Invalid cache file path"))?;
+        .ok_or(TreeError::InvalidCacheFilePath)?;
 
     let tree = MerkleTree::<PoseidonHasher, Canonical>::attempt_dense_mmap_restore(
         tree_depth,
@@ -236,7 +233,7 @@ fn restore_from_cache(
         &U256::ZERO,
         cache_path_str,
     )
-    .map_err(|e| anyhow::anyhow!("Failed to restore tree from cache: {:?}", e))?;
+    .map_err(|e| TreeError::CacheRestore(Box::new(e)))?;
 
     info!(
         cache_file = %cache_path.display(),
@@ -257,12 +254,12 @@ async fn build_from_db_with_cache(
     cache_path: &Path,
     tree_depth: usize,
     dense_prefix_depth: usize,
-) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
+) -> TreeResult<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
     info!("Building tree from database with mmap cache (chunk-based processing)");
 
     let cache_path_str = cache_path
         .to_str()
-        .ok_or_else(|| anyhow::anyhow!("Invalid cache file path"))?;
+        .ok_or(TreeError::InvalidCacheFilePath)?;
 
     let dense_prefix_size = 1usize << dense_prefix_depth;
 
@@ -323,7 +320,7 @@ async fn build_from_db_with_cache(
             &dense_vec,
             cache_path_str,
         )
-        .map_err(|e| anyhow::anyhow!("Failed to create mmap tree: {:?}", e))?;
+        .map_err(|e| TreeError::CacheCreate(Box::new(e)))?;
 
     info!(
         root = %format!("0x{:x}", tree.root()),
@@ -409,7 +406,7 @@ async fn replay_events(
     mut tree: MerkleTree<PoseidonHasher, Canonical>,
     db: &DB,
     from_event_id: WorldTreeEventId,
-) -> anyhow::Result<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
+) -> TreeResult<(MerkleTree<PoseidonHasher, Canonical>, WorldTreeEventId)> {
     const BATCH_SIZE: u64 = 10_000;
 
     let mut last_event_id = from_event_id;
@@ -493,7 +490,7 @@ async fn fetch_and_parse_leaves_batch(
     db: &DB,
     last_cursor: usize,
     tree_depth: usize,
-) -> anyhow::Result<Vec<(usize, U256)>> {
+) -> TreeResult<Vec<(usize, U256)>> {
     const BATCH_SIZE: i64 = 100_000;
 
     let raw_batch = fetch_leaves_batch(db.pool(), &U256::from(last_cursor), BATCH_SIZE).await?;
@@ -509,11 +506,10 @@ async fn fetch_and_parse_leaves_batch(
         let leaf_index_usize = leaf_index.as_limbs()[0] as usize;
 
         if leaf_index_usize >= capacity {
-            anyhow::bail!(
-                "leaf index {} out of range for tree depth {}",
-                leaf_index,
-                tree_depth
-            );
+            return Err(TreeError::LeafIndexOutOfRange {
+                leaf_index: leaf_index_usize,
+                tree_depth,
+            });
         }
 
         parsed_batch.push((leaf_index_usize, commitment));

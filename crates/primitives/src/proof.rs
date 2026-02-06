@@ -5,16 +5,17 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 use crate::FieldElement;
 
-/// The output of a World ID ZKP. Uses custom encoding to simplify transmission.
+/// Encoded World ID Proof.
 ///
-/// Internally, the proofs in the World ID Protocol are Groth16 proofs. Proofs also
-/// require the root hash of the Merkle tree in the `WorldIDRegistry` as a public input. To
-/// simplify transmission, that root is encoded with the proof. The `Verifier.sol` contract
-/// handles the decoding.
+/// Internally, the first 4 elements are a compressed Groth16 proof
+/// [a (G1), b (G2), b (G2), c (G1)]. Proofs also require the root hash of the Merkle tree
+/// in the `WorldIDRegistry` as a public input. To simplify transmission, that root is encoded as the last element
+/// with the proof.
+///
+/// The `WorldIDVerifier.sol` contract handles the decoding and verification.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ZeroKnowledgeProof {
-    /// The inner is an array of 5 numbers where the first 4 represent a compressed Groth16 proof,
-    /// and the last one is the Merkle root.
+    /// Array of 5 U256 values: first 4 are compressed Groth16 proof, last is Merkle root.
     inner: [U256; 5],
 }
 

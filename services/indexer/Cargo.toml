@@ -6,35 +6,36 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+common = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 telemetry-batteries = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 poseidon2 = { workspace = true }
-alloy = { workspace = true, features = ["rpc-types", "provider-ws"] }
-dotenvy = "0.15"
-url = "2"
-hex = "0.4"
-anyhow = { workspace = true }
+alloy = { workspace = true, default-features = true, features = ["rpc-types", "provider-ws"] }
+dotenvy = { workspace = true }
+url = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
 ruint = { workspace = true, features = ["sqlx"] }
-futures-util = "0.3"
-sqlx = { version = "0.8", features = [
+futures-util = { workspace = true }
+rustls = { workspace = true, features = ["aws-lc-rs"] }
+sqlx = { workspace = true, features = [
   "runtime-tokio-rustls",
   "postgres",
   "macros",
   "json",
   "migrate",
 ] }
-semaphore-rs-trees = "0.5.0"
-semaphore-rs-hasher = "0.5.0"
-ark-ff = "0.5.0"
+semaphore-rs-trees = { workspace = true }
+semaphore-rs-hasher = { workspace = true }
+ark-ff = { workspace = true }
 ark-bn254 = { workspace = true }
 axum = { workspace = true, features = ["macros", "json"] }
-http = "1"
-take_mut = "0.2.2"
+http = { workspace = true }
+take_mut = { workspace = true }
 utoipa = { workspace = true }
 world-id-core = { workspace = true, features = [
   "authenticator",
@@ -44,13 +45,13 @@ world-id-core = { workspace = true, features = [
 world-id-primitives = { workspace = true }
 
 [dev-dependencies]
-test-utils = { path = "../../crates/test-utils" }
+test-utils = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
-serial_test = "3"
-tempfile = "3"
-uuid = { version = "1", features = ["v4"] }
-regex = "1"
+serial_test = { workspace = true }
+tempfile = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+regex = { workspace = true }
 
 [features]
 integration-tests = [

@@ -8,8 +8,8 @@ use std::{
 
 use alloy::{
     network::EthereumWallet,
-    primitives::{Address, U160},
-    providers::{DynProvider, Provider as _, ProviderBuilder},
+    primitives::{Address, U160, U256},
+    providers::{Provider as _, ProviderBuilder},
     signers::{
         SignerSync as _,
         k256::ecdsa::SigningKey,
@@ -17,7 +17,7 @@ use alloy::{
     },
 };
 
-use ark_ff::UniformRand as _;
+use ark_ff::{PrimeField as _, UniformRand as _};
 use clap::Parser;
 use eyre::{Context as _, OptionExt};
 use rand::SeedableRng;
@@ -26,22 +26,18 @@ use secrecy::{ExposeSecret, SecretString};
 use taceo_oprf::{
     client::Connector,
     core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor},
-    dev_client::{Command, StressTestCommand},
-    types::{
-        OprfKeyId, ShareEpoch,
-        api::{OprfRequest, ShareIdentifier},
-        crypto::OprfPublicKey,
-    },
+    dev_client::{Command, StressTestOprfCommand},
+    types::{OprfKeyId, ShareEpoch, api::OprfRequest, crypto::OprfPublicKey},
 };
 use taceo_oprf_test_utils::health_checks;
 use test_utils::{
-    anvil::RpRegistry,
+    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, RpRegistry},
     fixtures::{MerkleFixture, build_base_credential},
 };
 use uuid::Uuid;
 use world_id_core::{
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature,
-    FieldElement, HashableCredential,
+    FieldElement,
     proof::CircomGroth16Material,
     requests::{ProofRequest, RequestItem, RequestVersion},
     types::AccountInclusionProof,
@@ -52,11 +48,9 @@ use world_id_primitives::{
     authenticator::AuthenticatorPublicKeySet,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
     merkle::MerkleInclusionProof,
-    oprf::OprfRequestAuthV1,
+    oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,
 };
-
-const ISSUER_SCHEMA_ID: u64 = 1;
 
 /// The configuration for the OPRF client.
 ///
@@ -88,6 +82,13 @@ pub struct OprfDevClientConfig {
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT")]
     pub rp_registry_contract: Address,
 
+    /// The Address of the CredentialSchemaIssuerRegistry contract
+    #[clap(
+        long,
+        env = "OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT"
+    )]
+    pub credential_schema_issuer_registry_contract: Address,
+
     /// The RPC for chain communication
     #[clap(
         long,
@@ -118,6 +119,10 @@ pub struct OprfDevClientConfig {
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
     pub rp_id: Option<u64>,
 
+    /// issuer schema id of already registered issuer
+    #[clap(long, env = "OPRF_DEV_CLIENT_ISSUER_SCHEMA_ID")]
+    pub issuer_schema_id: Option<u64>,
+
     /// The share epoch. Will be ignored if `rp_id` is `None`.
     #[clap(long, env = "OPRF_DEV_CLIENT_SHARE_EPOCH", default_value = "0")]
     pub share_epoch: u32,
@@ -132,29 +137,36 @@ pub struct OprfDevClientConfig {
 }
 
 fn create_and_sign_credential(
+    issuer_schema_id: u64,
     issuer_pk: EdDSAPublicKey,
     issuer_sk: EdDSAPrivateKey,
     leaf_index: u64,
-) -> eyre::Result<(Credential, FieldElement)> {
+    credential_sub_blinding_factor: FieldElement,
+) -> eyre::Result<Credential> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time after epoch")
         .as_secs();
-    let (mut credential, credential_sub_blinding_factor) =
-        build_base_credential(ISSUER_SCHEMA_ID, leaf_index, now, now + 3600);
+    let mut credential = build_base_credential(
+        issuer_schema_id,
+        leaf_index,
+        now,
+        now + 3600,
+        credential_sub_blinding_factor,
+    );
     credential.issuer = issuer_pk;
     let credential_hash = credential
         .hash()
         .wrap_err("failed to hash credential prior to signing")?;
     credential.signature = Some(issuer_sk.sign(*credential_hash));
 
-    Ok((credential, credential_sub_blinding_factor))
+    Ok(credential)
 }
 
 fn create_proof_request(
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
-    share_epoch: ShareEpoch,
+    issuer_schema_id: u64,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<ProofRequest> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
@@ -182,16 +194,16 @@ fn create_proof_request(
         expires_at: expiration_timestamp,
         rp_id,
         oprf_key_id,
-        share_epoch,
         session_id: None,
         action: Some(FieldElement::from(action)),
         signature,
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
-            issuer_schema_id: ISSUER_SCHEMA_ID,
+            issuer_schema_id,
             signal: Some("my_signal".to_string()),
             genesis_issued_at_min: None,
+            expires_at_min: None,
         }],
         constraints: None,
     })
@@ -200,27 +212,33 @@ fn create_proof_request(
 async fn run_nullifier(
     authenticator: &Authenticator,
     rp_id: RpId,
-    oprf_key_id: OprfKeyId,
-    share_epoch: ShareEpoch,
+    rp_oprf_key_id: OprfKeyId,
+    issuer_schema_id: u64,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
+    let credential_sub_blinding_factor = authenticator
+        .generate_credential_blinding_factor(issuer_schema_id)
+        .await?;
+
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
     let issuer_pk = issuer_sk.public();
-    let (credential, credential_sub_blinding_factor) = create_and_sign_credential(
+    let credential = create_and_sign_credential(
+        issuer_schema_id,
         issuer_pk,
         issuer_sk,
         authenticator
             .leaf_index()
             .try_into()
             .expect("leaf_index fits into u64"),
+        credential_sub_blinding_factor,
     )?;
 
-    let proof_request = create_proof_request(rp_id, oprf_key_id, share_epoch, signer)
+    let proof_request = create_proof_request(rp_id, rp_oprf_key_id, issuer_schema_id, signer)
         .context("while creating proof request")?;
     let request_item = proof_request
-        .find_request_by_issuer_schema_id(ISSUER_SCHEMA_ID)
+        .find_request_by_issuer_schema_id(issuer_schema_id)
         .ok_or_eyre("unexpectedly not found relevant request_item")?;
 
     let nullifier = authenticator
@@ -247,7 +265,7 @@ struct NullifierStressTestItem {
     id: Uuid,
     query_input: QueryProofCircuitInput<TREE_DEPTH>,
     oprf_blinding_factor: BlindingFactor,
-    oprf_request: OprfRequest<OprfRequestAuthV1>,
+    oprf_request: OprfRequest<NullifierOprfRequestAuthV1>,
     credential: Credential,
     credential_sub_blinding_factor: FieldElement,
     session_id_r_seed: FieldElement,
@@ -262,7 +280,10 @@ fn generate_oprf_auth_request(
     key_index: u64,
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     query_material: &CircomGroth16Material,
-) -> eyre::Result<(OprfRequestAuthV1, QueryProofCircuitInput<TREE_DEPTH>)> {
+) -> eyre::Result<(
+    NullifierOprfRequestAuthV1,
+    QueryProofCircuitInput<TREE_DEPTH>,
+)> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
     let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] = inclusion_proof.siblings.map(|s| *s);
@@ -287,7 +308,7 @@ fn generate_oprf_auth_request(
         .verify_proof(&proof, &public_inputs)
         .expect("proof verifies");
 
-    let auth = OprfRequestAuthV1 {
+    let auth = NullifierOprfRequestAuthV1 {
         proof: proof.into(),
         action: *proof_request.computed_action(),
         nonce: *proof_request.nonce,
@@ -307,7 +328,7 @@ fn prepare_nullifier_stress_test_oprf_request(
     authenticator_private_key: &EdDSAPrivateKey,
     rp_id: RpId,
     oprf_key_id: OprfKeyId,
-    share_epoch: ShareEpoch,
+    issuer_schema_id: u64,
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
     key_index: u64,
@@ -322,14 +343,25 @@ fn prepare_nullifier_stress_test_oprf_request(
         .leaf_index()
         .try_into()
         .expect("leaf_index fits into u64");
-    let (credential, credential_sub_blinding_factor) =
-        create_and_sign_credential(issuer_pk, issuer_sk, leaf_index)?;
+    // Generate a random credential sub blinding factor for stress test
+    let credential_sub_blinding_factor = FieldElement::random(&mut rng);
+    let credential = create_and_sign_credential(
+        issuer_schema_id,
+        issuer_pk,
+        issuer_sk,
+        leaf_index,
+        credential_sub_blinding_factor,
+    )?;
 
-    let proof_request = create_proof_request(rp_id, oprf_key_id, share_epoch, signer)
+    let proof_request = create_proof_request(rp_id, oprf_key_id, issuer_schema_id, signer)
         .context("while creating proof request")?;
 
     let request_id = Uuid::new_v4();
-    let query_hash = proof_request.digest_for_authenticator(leaf_index);
+    let query_hash = world_id_primitives::authenticator::oprf_query_digest(
+        leaf_index,
+        proof_request.computed_action(),
+        proof_request.rp_id.into(),
+    );
     let oprf_blinding_factor = BlindingFactor::rand(&mut rng);
     let signature = authenticator_private_key.sign(*query_hash);
 
@@ -349,10 +381,6 @@ fn prepare_nullifier_stress_test_oprf_request(
     let oprf_request = OprfRequest {
         request_id,
         blinded_query: blinded_request.blinded_query(),
-        share_identifier: ShareIdentifier {
-            oprf_key_id,
-            share_epoch: ShareEpoch::default(),
-        },
         auth: oprf_request_auth,
     };
 
@@ -375,10 +403,10 @@ async fn stress_test(
     authenticator: &Authenticator,
     authenticator_private_key: EdDSAPrivateKey,
     rp_id: RpId,
-    oprf_key_id: OprfKeyId,
-    share_epoch: ShareEpoch,
-    oprf_public_key: OprfPublicKey,
-    cmd: StressTestCommand,
+    rp_oprf_key_id: OprfKeyId,
+    rp_oprf_public_key: OprfPublicKey,
+    issuer_schema_id: u64,
+    cmd: StressTestOprfCommand,
     connector: Connector,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
@@ -406,8 +434,8 @@ async fn stress_test(
             authenticator,
             &authenticator_private_key,
             rp_id,
-            oprf_key_id,
-            share_epoch,
+            rp_oprf_key_id,
+            issuer_schema_id,
             inclusion_proof.clone(),
             key_set.clone(),
             key_index,
@@ -421,7 +449,7 @@ async fn stress_test(
     tracing::info!("sending init requests..");
     let (sessions, finish_requests) = taceo_oprf::dev_client::send_init_requests(
         &nodes,
-        "rp",
+        OprfModule::Nullifier.to_string().as_str(),
         threshold,
         connector,
         cmd.sequential,
@@ -444,7 +472,7 @@ async fn stress_test(
             let finish_request = finish_requests.get(&id).expect("is there").clone();
             let dlog_proof = taceo_oprf::client::verify_dlog_equality(
                 id,
-                oprf_public_key,
+                rp_oprf_public_key,
                 &BlindedOprfRequest::new(req.oprf_request.blinded_query),
                 res,
                 finish_request.clone(),
@@ -460,7 +488,7 @@ async fn stress_test(
                 query_input: req.query_input.clone(),
                 dlog_e: dlog_proof.e,
                 dlog_s: dlog_proof.s,
-                oprf_pk: oprf_public_key.inner(),
+                oprf_pk: rp_oprf_public_key.inner(),
                 oprf_response_blinded: blinded_response,
                 oprf_response: unblinded_response,
                 signal_hash: *req.proof_request.requests[0].signal_hash(),
@@ -476,6 +504,7 @@ async fn stress_test(
                 cred_expires_at: req.credential.expires_at.into(),
                 cred_s: cred_signature.s,
                 cred_r: cred_signature.r,
+                // no explicit expires_at_min constraint is passed, so the default is `created_at`
                 current_timestamp: req.proof_request.created_at.into(),
                 cred_genesis_issued_at_min: req.proof_request.requests[0]
                     .genesis_issued_at_min
@@ -489,71 +518,6 @@ async fn stress_test(
             nullifier_material.verify_proof(&proof, &public)?;
         }
     }
-
-    Ok(())
-}
-
-#[expect(clippy::too_many_arguments)]
-async fn reshare_test(
-    authenticator: &Authenticator,
-    rp_id: RpId,
-    oprf_key_id: OprfKeyId,
-    share_epoch: ShareEpoch,
-    oprf_public_key: OprfPublicKey,
-    signer: &LocalSigner<SigningKey>,
-    provider: DynProvider,
-    oprf_key_registry: Address,
-    max_wait_time: Duration,
-) -> eyre::Result<()> {
-    let nodes = authenticator.config.nullifier_oracle_urls().to_vec();
-
-    tracing::info!("running single nullifier");
-    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch, signer).await?;
-    tracing::info!("nullifier successful");
-
-    let (share_epoch_1, oprf_public_key_1) = taceo_oprf::dev_client::reshare(
-        &nodes,
-        oprf_key_registry,
-        provider.clone(),
-        max_wait_time,
-        oprf_key_id,
-        share_epoch,
-    )
-    .await?;
-    assert_eq!(oprf_public_key, oprf_public_key_1);
-
-    tracing::info!("running nullifier with epoch 0 after 1st reshare");
-    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch, signer).await?;
-    tracing::info!("nullifier successful");
-
-    tracing::info!("running nullifier with epoch 1 after 1st reshare");
-    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch_1, signer).await?;
-    tracing::info!("nullifier successful");
-
-    let (share_epoch_2, oprf_public_key_2) = taceo_oprf::dev_client::reshare(
-        &nodes,
-        oprf_key_registry,
-        provider,
-        max_wait_time,
-        oprf_key_id,
-        share_epoch_1,
-    )
-    .await?;
-    assert_eq!(oprf_public_key, oprf_public_key_2);
-
-    tracing::info!("running nullifier with epoch 1 after 2nd reshare");
-    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch_1, signer).await?;
-    tracing::info!("nullifier successful");
-
-    tracing::info!("running nullifier with epoch 2 after 2nd reshare");
-    run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch_2, signer).await?;
-    tracing::info!("nullifier successful");
-
-    tracing::info!("running nullifier with epoch 0 after 2nd reshare - should fail");
-    let _ = run_nullifier(authenticator, rp_id, oprf_key_id, share_epoch, signer)
-        .await
-        .expect_err("should fail");
-    tracing::info!("nullifier failed as expected");
 
     Ok(())
 }
@@ -587,7 +551,7 @@ async fn main() -> eyre::Result<()> {
         .context("while connecting to RPC")?
         .erased();
 
-    let (rp_id, oprf_key_id, share_epoch, oprf_public_key) = if let Some(rp_id) = config.rp_id {
+    let (rp_id, rp_oprf_key_id, rp_oprf_public_key) = if let Some(rp_id) = config.rp_id {
         // TODO should maybe check if the oprf key id matches the registered one in case it was changed
         // in case they are not the same, we return them both
         let oprf_key_id = OprfKeyId::new(U160::from(rp_id));
@@ -599,7 +563,7 @@ async fn main() -> eyre::Result<()> {
             Duration::from_secs(10), // should already be there
         )
         .await?;
-        (RpId::new(rp_id), oprf_key_id, share_epoch, oprf_public_key)
+        (RpId::new(rp_id), oprf_key_id, oprf_public_key)
     } else {
         let rp_registry = RpRegistry::new(config.rp_registry_contract, provider.clone());
         let rp_id = RpId::new(rand::random());
@@ -628,8 +592,57 @@ async fn main() -> eyre::Result<()> {
             config.max_wait_time,
         )
         .await?;
-        (rp_id, oprf_key_id, ShareEpoch::default(), oprf_public_key)
+        (rp_id, oprf_key_id, oprf_public_key)
     };
+
+    let (issuer_schema_id, _issuer_oprf_public_key) =
+        if let Some(issuer_schema_id) = config.issuer_schema_id {
+            // TODO should maybe check if the oprf key id matches the registered one in case it was changed
+            // in case they are not the same, we return them both
+            let oprf_key_id = OprfKeyId::new(U160::from(issuer_schema_id));
+            let share_epoch = ShareEpoch::default();
+            let oprf_public_key = health_checks::oprf_public_key_from_services(
+                oprf_key_id,
+                share_epoch,
+                &config.nodes,
+                Duration::from_secs(10), // should already be there
+            )
+            .await?;
+            (issuer_schema_id, oprf_public_key)
+        } else {
+            tracing::info!("registering new credential schema issuer");
+            let credential_schema_issuer_registry = CredentialSchemaIssuerRegistry::new(
+                config.credential_schema_issuer_registry_contract,
+                provider.clone(),
+            );
+            let issuer_schema_id = rand::random::<u64>();
+            let oprf_key_id = OprfKeyId::new(U160::from(issuer_schema_id));
+            let seed = [8u8; 32];
+            let issuer_private_key = EdDSAPrivateKey::from_bytes(seed);
+            let issuer_public_key = ICredentialSchemaIssuerRegistry::Pubkey {
+                x: U256::from_limbs(issuer_private_key.public().pk.x.into_bigint().0),
+                y: U256::from_limbs(issuer_private_key.public().pk.y.into_bigint().0),
+            };
+            let receipt = credential_schema_issuer_registry
+                .register(issuer_schema_id, issuer_public_key, address)
+                .gas(10000000)
+                .send()
+                .await?
+                .get_receipt()
+                .await?;
+            if !receipt.status() {
+                eyre::bail!("failed to register issuer");
+            }
+            tracing::info!("registered issuer with OPRF key: {oprf_key_id}");
+            let oprf_public_key = health_checks::oprf_public_key_from_services(
+                oprf_key_id,
+                ShareEpoch::default(),
+                &config.nodes,
+                config.max_wait_time,
+            )
+            .await?;
+            (issuer_schema_id, oprf_public_key)
+        };
 
     let (gateway_url, _gateway_handle) = if let Some(gateway_url) = &config.gateway_url {
         (gateway_url.clone(), None)
@@ -732,22 +745,22 @@ async fn main() -> eyre::Result<()> {
             run_nullifier(
                 &authenticator,
                 rp_id,
-                oprf_key_id,
-                share_epoch,
+                rp_oprf_key_id,
+                issuer_schema_id,
                 &private_key,
             )
             .await?;
             tracing::info!("nullifier successful");
         }
-        Command::StressTest(cmd) => {
+        Command::StressTestOprf(cmd) => {
             tracing::info!("running stress-test");
             stress_test(
                 &authenticator,
                 authenticator_private_key,
                 rp_id,
-                oprf_key_id,
-                share_epoch,
-                oprf_public_key,
+                rp_oprf_key_id,
+                rp_oprf_public_key,
+                issuer_schema_id,
                 cmd,
                 connector,
                 &private_key,
@@ -755,21 +768,13 @@ async fn main() -> eyre::Result<()> {
             .await?;
             tracing::info!("stress-test successful");
         }
-        Command::ReshareTest => {
-            tracing::info!("running reshare test");
-            reshare_test(
-                &authenticator,
-                rp_id,
-                oprf_key_id,
-                share_epoch,
-                oprf_public_key,
-                &private_key,
-                provider,
-                config.oprf_key_registry_contract,
-                config.max_wait_time,
-            )
-            .await?;
-            tracing::info!("reshare test successful");
+        Command::StressTestKeyGen(_) => {
+            todo!()
+        }
+        Command::ReshareTest(_) => {
+            todo!()
+            // tracing::info!("running reshare test");
+            // tracing::info!("reshare test successful");
         }
     }
 

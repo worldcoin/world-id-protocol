@@ -4,7 +4,8 @@ pragma solidity ^0.8.13;
 /**
  * @title IRpRegistry
  * @author World Contributors
- * @dev Interface for the Relying Party Registry contract
+ * @notice Interface for the Relying Party Registry contract.
+ * @dev A Relying Party (RP) is an entity that requests World ID proofs from users.
  */
 interface IRpRegistry {
     ////////////////////////////////////////////////////////////
@@ -119,6 +120,13 @@ interface IRpRegistry {
         string unverifiedWellKnownDomain
     );
 
+    /**
+     * @notice Emitted when the OPRF key registry is updated.
+     * @param oldOprfKeyRegistry The previous registry address.
+     * @param newOprfKeyRegistry The new registry address.
+     */
+    event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
+
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
@@ -201,4 +209,14 @@ interface IRpRegistry {
      * @dev Returns the OPRF key registry address.
      */
     function getOprfKeyRegistry() external view returns (address);
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @notice Updates the OPRF key registry address.
+     * @param newOprfKeyRegistry The new OPRF key registry address.
+     */
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external;
 }

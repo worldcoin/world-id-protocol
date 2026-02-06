@@ -4,6 +4,8 @@ use alloy::primitives::U256;
 use sqlx::{Postgres, Row, postgres::PgRow};
 use tracing::instrument;
 
+use crate::db::{DBError, DBResult};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WorldTreeRootId {
     pub block_number: u64,
@@ -43,12 +45,12 @@ impl fmt::Display for WorldTreeRootEventType {
 }
 
 impl<'a> TryFrom<&'a str> for WorldTreeRootEventType {
-    type Error = anyhow::Error;
+    type Error = DBError;
 
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> std::result::Result<Self, Self::Error> {
         match value {
             "root_recorded" => Ok(WorldTreeRootEventType::RootRecorded),
-            _ => Err(anyhow::anyhow!("Unknown event type: {}", value)),
+            _ => Err(DBError::InvalidEventType(value.to_string())),
         }
     }
 }
@@ -77,7 +79,7 @@ where
     pub async fn get_root<T: Into<WorldTreeRootId>>(
         self,
         root_id: T,
-    ) -> anyhow::Result<Option<WorldTreeRoot>> {
+    ) -> DBResult<Option<WorldTreeRoot>> {
         let root_id = root_id.into();
         let table_name = self.table_name;
         let result = sqlx::query(&format!(
@@ -103,7 +105,7 @@ where
         result.map(|row| Self::map_root(&row)).transpose()
     }
 
-    pub async fn get_latest_id(self) -> anyhow::Result<Option<WorldTreeRootId>> {
+    pub async fn get_latest_id(self) -> DBResult<Option<WorldTreeRootId>> {
         let table_name = self.table_name;
         let result = sqlx::query(&format!(
             r#"
@@ -124,7 +126,7 @@ where
         result.map(|row| Self::map_root_id(&row)).transpose()
     }
 
-    pub async fn get_latest_block(self) -> anyhow::Result<Option<u64>> {
+    pub async fn get_latest_block(self) -> DBResult<Option<u64>> {
         let rec: Option<(Option<i64>,)> = sqlx::query_as(&format!(
             "SELECT MAX(block_number) FROM {}",
             self.table_name
@@ -138,7 +140,7 @@ where
     pub async fn get_root_by_value(
         self,
         root: &U256,
-    ) -> anyhow::Result<Option<WorldTreeRoot>> {
+    ) -> DBResult<Option<WorldTreeRoot>> {
         let table_name = self.table_name;
         let result = sqlx::query(&format!(
             r#"
@@ -162,7 +164,7 @@ where
     }
 
     /// Get the latest root entry (for final validation after replay).
-    pub async fn get_latest_root(self) -> anyhow::Result<Option<WorldTreeRoot>> {
+    pub async fn get_latest_root(self) -> DBResult<Option<WorldTreeRoot>> {
         let table_name = self.table_name;
         let result = sqlx::query(&format!(
             r#"
@@ -196,7 +198,7 @@ where
         tx_hash: &U256,
         root: &U256,
         timestamp: &U256,
-    ) -> anyhow::Result<()> {
+    ) -> DBResult<()> {
         sqlx::query(&format!(
             r#"
                 INSERT INTO {} (
@@ -221,14 +223,14 @@ where
         Ok(())
     }
 
-    fn map_root_id(row: &PgRow) -> anyhow::Result<WorldTreeRootId> {
+    fn map_root_id(row: &PgRow) -> DBResult<WorldTreeRootId> {
         Ok(WorldTreeRootId {
             block_number: row.get::<i64, _>("block_number") as u64,
             log_index: row.get::<i64, _>("log_index") as u64,
         })
     }
 
-    fn map_root(row: &PgRow) -> anyhow::Result<WorldTreeRoot> {
+    fn map_root(row: &PgRow) -> DBResult<WorldTreeRoot> {
         Ok(WorldTreeRoot {
             id: Self::map_root_id(row)?,
             tx_hash: row.get::<U256, _>("tx_hash"),

@@ -18,9 +18,6 @@ pub use world_id_authenticator::{
 
 pub use world_id_primitives::{Credential, CredentialVersion};
 
-#[cfg(any(feature = "authenticator", feature = "issuer"))]
-pub use world_id_credential::HashableCredential;
-
 #[cfg(feature = "issuer")]
 pub use world_id_issuer::Issuer;
 

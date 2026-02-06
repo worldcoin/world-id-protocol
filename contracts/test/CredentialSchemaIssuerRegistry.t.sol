@@ -591,7 +591,7 @@ contract CredentialIssuerRegistryTest is Test {
 
         // Manually register the same OPRF key ID that would be used by issuerSchemaId2
         // by directly calling the mock OprfKeyRegistry
-        MockOprfKeyRegistry oprfRegistry = MockOprfKeyRegistry(address(registry._oprfKeyRegistry()));
+        MockOprfKeyRegistry oprfRegistry = MockOprfKeyRegistry(registry.getOprfKeyRegistry());
         oprfRegistry.initKeyGen(uint160(issuerSchemaId2));
 
         // Try to register second issuer - should fail because OPRF key is already taken
@@ -629,5 +629,37 @@ contract CredentialIssuerRegistryTest is Test {
         assertEq(registry.getSignerForIssuerSchemaId(id1), signer1);
         assertEq(registry.getSignerForIssuerSchemaId(id2), signer2);
         assertEq(registry.getSignerForIssuerSchemaId(id3), signer3);
+    }
+
+    // UpdateOprfKeyRegistry Tests
+
+    function testUpdateOprfKeyRegistry() public {
+        MockOprfKeyRegistry newOprfKeyRegistry = new MockOprfKeyRegistry();
+
+        vm.expectEmit(true, true, false, true);
+        emit ICredentialSchemaIssuerRegistry.OprfKeyRegistryUpdated(
+            registry.getOprfKeyRegistry(), address(newOprfKeyRegistry)
+        );
+
+        registry.updateOprfKeyRegistry(address(newOprfKeyRegistry));
+
+        assertEq(registry.getOprfKeyRegistry(), address(newOprfKeyRegistry));
+    }
+
+    function testCannotUpdateOprfKeyRegistryToZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
+        registry.updateOprfKeyRegistry(address(0));
+    }
+
+    function testOnlyOwnerCanUpdateOprfKeyRegistry() public {
+        MockOprfKeyRegistry newOprfKeyRegistry = new MockOprfKeyRegistry();
+        address nonOwner = vm.addr(0xEEEE);
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        registry.updateOprfKeyRegistry(address(newOprfKeyRegistry));
+
+        // Verify it wasn't updated
+        assertNotEq(registry.getOprfKeyRegistry(), address(newOprfKeyRegistry));
     }
 }

@@ -55,6 +55,7 @@ dependencies = [
  "alloy-contract",
  "alloy-core",
  "alloy-eips",
+ "alloy-genesis",
  "alloy-json-rpc",
  "alloy-network",
  "alloy-node-bindings",
@@ -81,7 +82,7 @@ checksum = "25db5bcdd086f0b1b9610140a12c59b757397be90bd130d8d836fc8da0815a34"
 dependencies = [
  "alloy-primitives",
  "num_enum",
- "strum 0.27.2",
+ "strum",
 ]
 
 [[package]]
@@ -262,7 +263,9 @@ dependencies = [
  "alloy-primitives",
  "alloy-serde",
  "alloy-trie",
+ "borsh",
  "serde",
+ "serde_with",
 ]
 
 [[package]]
@@ -577,7 +580,7 @@ dependencies = [
  "derive_more",
  "rand 0.8.5",
  "serde",
- "strum 0.27.2",
+ "strum",
 ]
 
 [[package]]
@@ -1428,11 +1431,11 @@ dependencies = [
 
 [[package]]
 name = "askama"
-version = "0.14.0"
+version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f75363874b771be265f4ffe307ca705ef6f3baa19011c149da8674a87f1b75c4"
+checksum = "08e1676b346cadfec169374f949d7490fd80a24193d37d2afce0c047cf695e57"
 dependencies = [
- "askama_derive",
+ "askama_macros",
  "itoa",
  "percent-encoding",
  "serde",
@@ -1441,9 +1444,9 @@ dependencies = [
 
 [[package]]
 name = "askama_derive"
-version = "0.14.0"
+version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "129397200fe83088e8a68407a8e2b1f826cf0086b21ccdb866a722c8bcd3a94f"
+checksum = "7661ff56517787343f376f75db037426facd7c8d3049cef8911f1e75016f3a37"
 dependencies = [
  "askama_parser",
  "basic-toml",
@@ -1457,14 +1460,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "askama_parser"
-version = "0.14.0"
+name = "askama_macros"
+version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ab5630b3d5eaf232620167977f95eb51f3432fc76852328774afbd242d4358"
+checksum = "713ee4dbfd1eb719c2dab859465b01fa1d21cb566684614a713a6b7a99a4e47b"
 dependencies = [
- "memchr",
+ "askama_derive",
+]
+
+[[package]]
+name = "askama_parser"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d62d674238a526418b30c0def480d5beadb9d8964e7f38d635b03bf639c704c"
+dependencies = [
+ "rustc-hash",
  "serde",
  "serde_derive",
+ "unicode-ident",
  "winnow",
 ]
 
@@ -2404,9 +2417,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.11.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
+checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 dependencies = [
  "serde",
 ]
@@ -2663,7 +2676,6 @@ name = "common"
 version = "0.3.0"
 dependencies = [
  "alloy",
- "anyhow",
  "aws-config",
  "aws-sdk-kms",
  "clap",
@@ -2671,7 +2683,9 @@ dependencies = [
  "governor",
  "serde",
  "tempfile",
+ "thiserror 1.0.69",
  "tower",
+ "tower-http 0.5.2",
  "tracing",
  "url",
 ]
@@ -3318,7 +3332,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4115,7 +4129,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tokio",
  "tower-service",
  "tracing",
@@ -4875,7 +4889,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5641,7 +5655,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.36",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -5678,9 +5692,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6159,7 +6173,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6861,7 +6875,6 @@ checksum = "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "chrono",
  "crc",
  "crossbeam-queue",
  "either",
@@ -6939,7 +6952,6 @@ dependencies = [
  "bitflags 2.10.0",
  "byteorder",
  "bytes",
- "chrono",
  "crc",
  "digest 0.10.7",
  "dotenvy",
@@ -6981,7 +6993,6 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.10.0",
  "byteorder",
- "chrono",
  "crc",
  "dotenvy",
  "etcetera 0.8.0",
@@ -7016,7 +7027,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2d12fe70b2c1b4401038055f90f151b78208de1f9f89a7dbfd41587a10c3eea"
 dependencies = [
  "atoi",
- "chrono",
  "flume",
  "futures-channel",
  "futures-core",
@@ -7088,33 +7098,11 @@ dependencies = [
 
 [[package]]
 name = "strum"
-version = "0.26.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
-dependencies = [
- "strum_macros 0.26.4",
-]
-
-[[package]]
-name = "strum"
 version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
 dependencies = [
- "strum_macros 0.27.2",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.26.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c6bee85a5a24955dc440386795aa378cd9cf82acd5f764469152d2270e581be"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn 2.0.114",
+ "strum_macros",
 ]
 
 [[package]]
@@ -7217,22 +7205,24 @@ dependencies = [
 
 [[package]]
 name = "taceo-ark-serde-compat"
-version = "0.2.1"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9085f4762d38839ca1ab55c7eab2a24961b8eb1fdb639fabd1d015703a389f13"
+checksum = "07528b4dd1a0c9e49ef352f96219c611af0aa2f7cbd97ddb7276dcf3c2cf8dd0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "num-bigint",
  "serde",
  "taceo-ark-babyjubjub",
 ]
 
 [[package]]
 name = "taceo-circom-types"
-version = "0.1.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd2c756196776c43c258116dc21fed8ad34f7ab93f446311803aa04e7f8413db"
+checksum = "677eb3ed8275b2f179d4b1a93126a51c5b4f409c5ea9d7bc50398b13e517e30b"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -7254,9 +7244,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-eddsa-babyjubjub"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "965bab462ca0ece0fe2616282f7f8bd5568dbf31611a88748163a99ab4ee15d6"
+checksum = "75dbec63f7a89093b4116a7164e6a92d3cda33dec248da8c8a5922a80a06e7dd"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7291,9 +7281,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-groth16-material"
-version = "0.1.1"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07e2e97f306dc2aa157c36ce4da3812ee0310ee41686b38a6d199f3bdaeff219"
+checksum = "0ef020742823d08201ec9f953afa01f30ddb55d00eecbac86264c0da9e1d9d02"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -7315,9 +7305,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-groth16-sol"
-version = "0.1.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70bc9cde94809b52a212c19afef9ea9a8a649580652424512161822a0eeaaef9"
+checksum = "7c6a7b90f2ecb6db1212557550890d9d9d114447688f6146d726024ec7a3410b"
 dependencies = [
  "alloy-primitives",
  "ark-bn254 0.5.0",
@@ -7331,23 +7321,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-nodes-common"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9c614464e4d553c5475eaf87040d5a170c2fa1fc60386690c6f6e5f93242ff1"
-dependencies = [
- "aws-config",
- "aws-sdk-secretsmanager",
- "git-version",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "taceo-nodes-common"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f5dd5091853d26e0b665a7949fce6c3203f1cd42d02fed7536f02c1cd54a316"
+checksum = "b367a1b249843f1f58f9a9fde1830b3754959e9df64d94ef5764381d5df4b0ec"
 dependencies = [
  "aws-config",
  "aws-sdk-secretsmanager",
@@ -7377,20 +7353,22 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0b72bf18a6887c4ebb8b6ab26caa7c7efbdbb1493efd6e64f3b5c76580a5aae"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
  "taceo-oprf-dev-client",
  "taceo-oprf-service",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.7.0",
 ]
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.4.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35c970d34235130ce19d2b026e1a7ca0e027f8d6c5aaedef23f3699a4722e350"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -7398,7 +7376,7 @@ dependencies = [
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-oprf-core",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.7.0",
  "taceo-poseidon2",
  "thiserror 2.0.17",
  "tokio",
@@ -7409,8 +7387,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-core"
-version = "0.4.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa11a50d3f7ce049e1d498a4b00cddf4835c9b1857d838163d6f8a494a20f9cd"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7430,8 +7409,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-dev-client"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6aa71b6ce3fdb030ffbb87a5627bd4ad79fa4455ed8bb82c7fc4c708d8ba437"
 dependencies = [
  "alloy",
  "clap",
@@ -7441,7 +7421,7 @@ dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
  "taceo-oprf-test-utils",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.7.0",
  "tokio",
  "tracing",
  "uuid",
@@ -7449,8 +7429,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-key-gen"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aace01c4c9cf89abb9fa2d48dc7b5b52b0ea7cef5c57f19c40350f0b93dbfde"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -7475,10 +7456,10 @@ dependencies = [
  "sqlx",
  "taceo-ark-babyjubjub",
  "taceo-groth16-material",
- "taceo-nodes-common 0.2.0",
+ "taceo-nodes-common",
  "taceo-nodes-observability",
  "taceo-oprf-core",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.6.0",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
@@ -7489,10 +7470,12 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.4.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bdd697d3fe814bba82d8f764423b5e705ed5e6843aafce53fd7a00e94596703"
 dependencies = [
  "alloy",
+ "ark-serialize 0.5.0",
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
@@ -7511,22 +7494,26 @@ dependencies = [
  "semver 1.0.27",
  "serde",
  "serde_json",
+ "sqlx",
  "taceo-ark-babyjubjub",
- "taceo-nodes-common 0.2.0",
+ "taceo-nodes-common",
  "taceo-oprf-core",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.7.0",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
  "tower-http 0.6.8",
  "tracing",
+ "tungstenite 0.28.0",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
 name = "taceo-oprf-test-utils"
-version = "0.1.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d883bb46e06a126657ff654aa6c00484d5242d60c059f9713179e38f4a772aba"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -7546,7 +7533,7 @@ dependencies = [
  "sqlx",
  "taceo-ark-babyjubjub",
  "taceo-oprf-core",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.7.0",
  "testcontainers-modules",
  "tokio",
  "tokio-util",
@@ -7555,8 +7542,31 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-types"
-version = "0.5.0"
-source = "git+https://github.com/TaceoLabs/oprf-service.git?rev=b3b95bf#b3b95bfbc3bec66181ee0ea251f99364c41c52a6"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91b01a7fef47bdd15cf3cfc3af4cfbb52378fd3105097d860ac2d96f08f94f2b"
+dependencies = [
+ "alloy",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "async-trait",
+ "eyre",
+ "http 1.4.0",
+ "serde",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-circom-types",
+ "taceo-groth16-sol",
+ "taceo-oprf-core",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "taceo-oprf-types"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d8bb3332990b063920bf34e7391b56942daab551a45871d440023ebc3956d8d"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7680,7 +7690,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7716,6 +7726,7 @@ dependencies = [
  "taceo-oprf-test-utils",
  "taceo-poseidon2",
  "tokio",
+ "tokio-util",
  "world-id-oprf-node",
  "world-id-primitives",
 ]
@@ -8741,7 +8752,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9087,7 +9098,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "webpki-roots 1.0.5",
- "world-id-credential",
  "world-id-primitives",
  "world-id-proof",
  "world-id-registry",
@@ -9116,7 +9126,6 @@ dependencies = [
  "tokio",
  "tracing-subscriber 0.3.22",
  "world-id-authenticator",
- "world-id-credential",
  "world-id-gateway",
  "world-id-issuer",
  "world-id-primitives",
@@ -9128,24 +9137,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "world-id-credential"
-version = "0.3.0"
-dependencies = [
- "eyre",
- "rand 0.8.5",
- "ruint",
- "serde_json",
- "taceo-eddsa-babyjubjub",
- "taceo-poseidon2",
- "world-id-primitives",
-]
-
-[[package]]
 name = "world-id-gateway"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "anyhow",
  "aws-config",
  "aws-sdk-kms",
  "axum",
@@ -9160,7 +9155,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "strum 0.26.3",
+ "strum",
  "telemetry-batteries 0.2.1",
  "test-utils",
  "thiserror 1.0.69",
@@ -9178,10 +9173,10 @@ name = "world-id-indexer"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "anyhow",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "axum",
+ "common",
  "dotenvy",
  "futures-util",
  "hex",
@@ -9190,6 +9185,7 @@ dependencies = [
  "regex",
  "reqwest",
  "ruint",
+ "rustls 0.23.36",
  "semaphore-rs-hasher",
  "semaphore-rs-trees",
  "serde",
@@ -9201,8 +9197,8 @@ dependencies = [
  "telemetry-batteries 0.2.1",
  "tempfile",
  "test-utils",
+ "thiserror 1.0.69",
  "tokio",
- "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber 0.3.22",
  "url",
@@ -9275,7 +9271,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
- "taceo-nodes-common 0.1.0",
+ "taceo-nodes-common",
  "taceo-nodes-observability",
  "taceo-oprf",
  "test-utils",
@@ -9299,6 +9295,7 @@ dependencies = [
  "ark-serialize 0.5.0",
  "arrayvec",
  "ciborium",
+ "eyre",
  "getrandom 0.2.17",
  "hex",
  "rand 0.8.5",
@@ -9336,7 +9333,6 @@ dependencies = [
  "taceo-oprf",
  "thiserror 1.0.69",
  "tracing",
- "world-id-credential",
  "world-id-primitives",
  "world-id-request",
  "zeroize",
@@ -9358,13 +9354,10 @@ name = "world-id-request"
 version = "0.3.0"
 dependencies = [
  "alloy",
- "ark-ff 0.5.0",
  "k256",
  "serde",
  "serde_json",
- "taceo-ark-babyjubjub",
  "taceo-oprf",
- "taceo-poseidon2",
  "thiserror 1.0.69",
  "world-id-primitives",
 ]
@@ -9390,7 +9383,7 @@ dependencies = [
  "ruint",
  "serde",
  "serde_json",
- "strum 0.27.2",
+ "strum",
  "utoipa",
  "world-id-primitives",
  "world-id-registry",

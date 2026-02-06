@@ -4,6 +4,7 @@ use crate::{
     AppState,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
+    error::GatewayResult,
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -29,7 +30,6 @@ use axum::{
 };
 use moka::future::Cache;
 use tokio::sync::mpsc;
-use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::{
     types::{
@@ -60,7 +60,7 @@ pub(crate) async fn build_app(
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
-) -> anyhow::Result<Router> {
+) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(redis_url).await;
 
     let (tx, rx) = mpsc::channel(1024);
@@ -123,7 +123,7 @@ pub(crate) async fn build_app(
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
         )))
-        .layer(TraceLayer::new_for_http()))
+        .layer(common::trace_layer()))
 }
 
 #[utoipa::path(

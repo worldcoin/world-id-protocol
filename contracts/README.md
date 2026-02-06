@@ -1,8 +1,5 @@
 # World ID Protocol Contracts
 
-
-
-
 All World ID Protocol Contracts are designed explicitly to operate from behind a proxy contract to allow upgrades. There are a few important implementation considerations:
 
 - Updates to any contract are made by creating a new contract with a `V{number}` suffix which inherits from the previous version (e.g. `WorldIDRegistryV2.sol`). This keeps explicit versioning for contract upgrades and makes it easy to understand what each version changed. It also helps prevent accidental storage clases.

@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
 /**
  * @title IWorldIDRegistry
  * @author World Contributors
- * @dev Interface for the World ID Registry contract
+ * @notice Interface for the World ID Registry contract.
+ * @dev Manages World IDs and the authenticators which are authorized to perform operations on behalf of them.
  */
 interface IWorldIDRegistry {
     ////////////////////////////////////////////////////////////
