@@ -12,6 +12,7 @@ members = [
   "services/oprf-node",
   "services/oprf-dev-client",
   "services/common",
+  "services/faux-issuer",
 ]
 resolver = "2"
 

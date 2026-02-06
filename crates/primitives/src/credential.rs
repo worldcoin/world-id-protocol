@@ -9,6 +9,7 @@ use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_to_field_element};
 /// Domain separation tag to avoid collisions with other Poseidon2 usages.
 const ASSOCIATED_DATA_HASH_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
 const CLAIMS_HASH_DS_TAG: &[u8] = b"CLAIMS_HASH_V1";
+const SUB_DS_TAG: &[u8] = b"H_CS(id, r)";
 
 /// Version of the `Credential` object
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -185,12 +186,10 @@ impl Credential {
         self
     }
 
-    /// Set the `sub` for the credential computed from `leaf_index` and a `blinding_factor`.
+    /// Set the `sub` for the credential.
     #[must_use]
-    pub fn sub(mut self, leaf_index: u64, blinding_factor: FieldElement) -> Self {
-        let mut input = [*self.get_sub_ds(), leaf_index.into(), *blinding_factor];
-        poseidon2::bn254::t3::permutation_in_place(&mut input);
-        self.sub = input[1].into();
+    pub const fn subject(mut self, sub: FieldElement) -> Self {
+        self.sub = sub;
         self
     }
 
@@ -274,14 +273,6 @@ impl Credential {
         }
     }
 
-    /// Get the sub domain separator for the given version.
-    #[must_use]
-    pub fn get_sub_ds(&self) -> FieldElement {
-        match self.version {
-            CredentialVersion::V1 => FieldElement::from_be_bytes_mod_order(b"H_CS(id, r)"),
-        }
-    }
-
     /// Get the claims hash of the credential.
     ///
     /// # Errors
@@ -354,6 +345,18 @@ impl Credential {
             return Ok(self.issuer.verify(*self.hash()?, signature));
         }
         Err(eyre::eyre!("Credential not signed"))
+    }
+
+    /// Compute the `sub` for a credential computed from `leaf_index` and a `blinding_factor`.
+    #[must_use]
+    pub fn compute_sub(leaf_index: u64, blinding_factor: FieldElement) -> FieldElement {
+        let mut input = [
+            *FieldElement::from_be_bytes_mod_order(SUB_DS_TAG),
+            leaf_index.into(),
+            *blinding_factor,
+        ];
+        poseidon2::bn254::t3::permutation_in_place(&mut input);
+        input[1].into()
     }
 }
 
