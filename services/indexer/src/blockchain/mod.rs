@@ -13,6 +13,8 @@ pub use crate::blockchain::events::{BlockchainEvent, RegistryEvent};
 
 mod events;
 
+static WS_BUFFER_SIZE: usize = 1024;
+
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 
 #[derive(Debug, Error)]
@@ -37,6 +39,8 @@ pub enum BlockchainError {
     MissingLogIndex,
     #[error("unknown event signature: {0:?}")]
     UnknownEventSignature(FixedBytes<32>),
+    #[error("websocket subscription closed unexpectedly")]
+    WsSubscriptionClosed,
 }
 
 pub struct Blockchain {
@@ -60,6 +64,14 @@ impl Blockchain {
                 .await
                 .map_err(|err| BlockchainError::WsProvider(Box::new(err)))?,
         );
+
+        ws_provider
+            .client()
+            .pubsub_frontend()
+            .ok_or_else(|| {
+                BlockchainError::WsProvider("missing pubsub frontend on ws provider".into())
+            })?
+            .set_channel_size(WS_BUFFER_SIZE); // Increase buffer size to avoid losing events
 
         Ok(Self {
             http_provider,
@@ -126,6 +138,68 @@ impl Blockchain {
             .boxed())
     }
 
+    /// Starts a WebSocket log subscription and bridges the gap between the
+    /// backfill stage and live events.
+    ///
+    /// 1. Subscribes to new logs via WebSocket (buffered to [`WS_BUFFER_SIZE`]).
+    /// 2. Waits for the first live event and extracts its block number.
+    /// 3. Fetches any logs that may have been missed between
+    ///    `backfill_to_block + 1` and the first event's block (exclusive).
+    /// 4. Returns a stream that emits, in order: the gap-fill logs, the first
+    ///    live event, then the remaining live WebSocket events.
+    ///
+    /// All errors (including setup failures) are emitted as stream items rather
+    /// than returned as an outer `Result`, consistent with how
+    /// [`Self::fetch_logs_in_batches`] emits RPC errors.
+    pub fn websocket_stream(
+        &self,
+        backfill_to_block: u64,
+        batch_size: u64,
+    ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin + '_ {
+        stream::once(async move {
+            let filter = Filter::new()
+                .address(self.world_id_registry)
+                .event_signature(RegistryEvent::signatures());
+
+            let sub = self
+                .ws_provider
+                .subscribe_logs(&filter)
+                .await
+                .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
+
+            let mut ws_stream = sub.into_stream();
+
+            // Wait for the first live event to determine how far we need to gap-fill.
+            let first_log = ws_stream
+                .next()
+                .await
+                .ok_or(BlockchainError::WsSubscriptionClosed)?;
+
+            let block_number = first_log
+                .block_number
+                .ok_or(BlockchainError::MissingBlockNumber)?;
+
+            // Fetch any logs between the end of the backfill and the first live
+            // event's block (exclusive to avoid duplicates).
+            let missed_logs =
+                self.fetch_logs_in_batches(backfill_to_block + 1, block_number - 1, batch_size);
+
+            // Chain: gap-fill logs → first live event → remaining WS events
+            Ok::<_, BlockchainError>(
+                missed_logs
+                    .chain(stream::iter(std::iter::once(Ok(first_log))))
+                    .chain(ws_stream.map(Ok)),
+            )
+        })
+        .try_flatten()
+        .boxed()
+    }
+
+    /// Iteratively backfills logs from the blockchain.
+    ///
+    /// The idea here is that while we fetch logs, the head of the chain moves.
+    /// To prevent having to buffer a lot of incoming logs from the websocket,
+    /// we try to get within batch size distance from the head of the chain before in the backfill stage.
     pub async fn backfill(
         &self,
         from_block: u64,
@@ -135,7 +209,7 @@ impl Blockchain {
 
         stream::try_unfold(from_block, move |current_from| async move {
             let latest_block_number = self.get_block_number().await?;
-
+            // Stop when we are within batch size distance from the head of the chain
             if latest_block_number.saturating_sub(current_from) < batch_size {
                 return Ok::<_, BlockchainError>(None);
             }
