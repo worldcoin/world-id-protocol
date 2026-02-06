@@ -369,7 +369,7 @@ async fn run_http_only(
     http_result
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 async fn run_both(
     blockchain: &Blockchain,
     db: DB,
