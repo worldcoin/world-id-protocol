@@ -16,7 +16,7 @@ use test_utils::{
 };
 use world_id_core::{
     Authenticator, AuthenticatorError,
-    types::{GatewayRequestState, GatewayStatusResponse},
+    api_types::{GatewayRequestState, GatewayStatusResponse},
 };
 use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
 use world_id_primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof};

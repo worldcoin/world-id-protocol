@@ -5,7 +5,9 @@ use http::StatusCode;
 use semaphore_rs_trees::{Branch, proof::InclusionProof};
 use world_id_core::{
     EdDSAPublicKey,
-    api_types::{AccountInclusionProof, IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest},
+    api_types::{
+        AccountInclusionProof, IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest,
+    },
 };
 use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,

@@ -38,9 +38,9 @@ use uuid::Uuid;
 use world_id_core::{
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature,
     FieldElement,
+    api_types::AccountInclusionProof,
     proof::CircomGroth16Material,
     requests::{ProofRequest, RequestItem, RequestVersion},
-    api_types::AccountInclusionProof,
 };
 use world_id_gateway::{GatewayConfig, ProviderArgs, SignerArgs};
 use world_id_primitives::{

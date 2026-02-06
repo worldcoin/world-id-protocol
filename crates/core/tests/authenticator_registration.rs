@@ -3,7 +3,7 @@
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use test_utils::anvil::TestAnvil;
-use world_id_core::{Authenticator, AuthenticatorError, types::GatewayRequestState};
+use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
 use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
 use world_id_primitives::Config;
 
