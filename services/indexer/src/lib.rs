@@ -216,7 +216,7 @@ async fn run_both(
 ) -> anyhow::Result<()> {
     // --- Phase 1: Backfill historical events into DB (no tree) ---
     let from = match db.world_tree_roots().get_latest_block().await? {
-        Some(block) => block + 1,
+        Some(block) => block,
         None => indexer_cfg.start_block,
     };
 
