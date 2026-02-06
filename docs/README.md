@@ -23,7 +23,7 @@ and each contribution is publicly verifiable as part of a transcript. Security r
 
 ### Why we are doing this for World ID 4.0
 
-The World ID 4.0 ceremony is for the circuits used by the [`oprf-service`](https://github.com/TaceoLabs/oprf-service/) stack and the corresponding [Circom circuits](https://github.com/TaceoLabs/oprf-service/tree/main/circom/main):
+The World ID 4.0 ceremony is for the [Circom circuits](https://github.com/TaceoLabs/oprf-service/tree/main/circom/main) part of the [`oprf-service`](https://github.com/TaceoLabs/oprf-service/) stack:
 
 - `OPRFQueryProof`
 - `OPRFNullifierProof`
