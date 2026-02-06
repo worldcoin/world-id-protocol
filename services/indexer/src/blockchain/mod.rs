@@ -5,7 +5,7 @@ use alloy::{
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
 };
-use futures_util::{Stream, StreamExt, stream};
+use futures_util::{Stream, StreamExt, TryStreamExt, stream};
 use thiserror::Error;
 use url::Url;
 
@@ -107,12 +107,8 @@ impl Blockchain {
             .await
             .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
-        let backfill_stream = self.fetch_logs_in_batches(
-            filter,
-            from_block,
-            latest_block_number,
-            backfill_batch_size,
-        );
+        let backfill_stream =
+            self.fetch_logs_in_batches(from_block, latest_block_number, backfill_batch_size);
 
         Ok(backfill_stream
             .chain(
@@ -130,6 +126,30 @@ impl Blockchain {
             .boxed())
     }
 
+    pub async fn backfill(
+        &self,
+        from_block: u64,
+        batch_size: u64,
+    ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin {
+        tracing::info!(?from_block, "backfilling from block");
+
+        stream::try_unfold(from_block, move |current_from| async move {
+            let latest_block_number = self.get_block_number().await?;
+
+            if latest_block_number.saturating_sub(current_from) < batch_size {
+                return Ok::<_, BlockchainError>(None);
+            }
+
+            Ok(Some((
+                (current_from, latest_block_number),
+                latest_block_number + 1,
+            )))
+        })
+        .map_ok(move |(from, to)| self.fetch_logs_in_batches(from, to, batch_size))
+        .try_flatten()
+        .boxed()
+    }
+
     pub async fn get_block_number(&self) -> BlockchainResult<u64> {
         self.http_provider
             .get_block_number()
@@ -143,26 +163,30 @@ impl Blockchain {
     /// for each batch sequentially, yielding logs as they're fetched.
     fn fetch_logs_in_batches(
         &self,
-        filter: Filter,
         from_block: u64,
         to_block: u64,
         batch_size: u64,
     ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin {
         let http_provider = self.http_provider.clone();
+        let world_id_registry = self.world_id_registry;
 
-        stream::unfold((from_block, 0usize), move |(current_from, total_logs)| {
-            let filter = filter.clone();
+        let initial_state = (
+            from_block, // start block
+            0usize,     // total logs fetched; we keep this only for logging
+        );
+
+        stream::try_unfold(initial_state, move |(current_from, total_logs)| {
             let http_provider = http_provider.clone();
 
             async move {
                 if current_from > to_block {
                     tracing::info!(
-                        "Backfill complete: fetched {} total logs from block {} to {}",
+                        "Backfill step complete: fetched {} total logs from block {} to {}",
                         total_logs,
                         from_block,
                         to_block
                     );
-                    return None;
+                    return Ok::<_, BlockchainError>(None);
                 }
 
                 let current_to = std::cmp::min(current_from + batch_size - 1, to_block);
@@ -173,26 +197,29 @@ impl Blockchain {
                     current_to
                 );
 
-                let batch_filter = filter.clone().from_block(current_from).to_block(current_to);
+                let batch_filter = Filter::new()
+                    .address(world_id_registry)
+                    .event_signature(RegistryEvent::signatures())
+                    .from_block(current_from)
+                    .to_block(current_to);
 
-                let batch_logs = match http_provider.get_logs(&batch_filter).await {
-                    Ok(logs) => logs,
-                    Err(err) => {
-                        return Some((
-                            stream::iter([Err(BlockchainError::Rpc(Box::new(err)))]),
-                            (to_block + 1, total_logs),
-                        ));
-                    }
-                };
+                let logs = http_provider
+                    .get_logs(&batch_filter)
+                    .await
+                    .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
 
-                tracing::debug!("Fetched {} logs in batch", batch_logs.len());
-                let new_total = total_logs + batch_logs.len();
+                tracing::debug!("Fetched {} logs in batch", logs.len());
+
+                let new_total = total_logs + logs.len();
                 let next_from = current_to + 1;
 
-                Some((stream::iter(batch_logs).map(Ok), (next_from, new_total)))
+                Ok(Some((
+                    stream::iter(logs.into_iter().map(Ok)),
+                    (next_from, new_total),
+                )))
             }
         })
-        .flatten()
+        .try_flatten()
         .boxed()
     }
 }
