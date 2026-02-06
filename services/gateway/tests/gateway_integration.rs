@@ -9,7 +9,7 @@ use alloy::{
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
 use world_id_core::{
-    types::{
+    api_types::{
         GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
         RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
