@@ -3,7 +3,6 @@ use crate::{
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::{DB, fetch_recent_account_updates},
     events_committer::EventsCommitter,
-    tree::{GLOBAL_TREE, update_tree_with_commitment},
 };
 use alloy::{
     primitives::{Address, U256},
@@ -37,10 +36,7 @@ pub struct TreeCacheParams {
 async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
-) -> IndexerResult<()> {
-    // Set the configured tree depth globally
-    tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
-
+) -> IndexerResult<tree::TreeState> {
     let initializer = tree::TreeInitializer::new(
         tree_cache_cfg.cache_file_path.clone(),
         tree_cache_cfg.tree_depth,
@@ -48,17 +44,16 @@ async fn initialize_tree_with_config(
         U256::ZERO,
     );
 
-    // initialize() now updates GLOBAL_TREE internally
-    initializer.initialize(db).await?;
+    let tree_state = initializer.initialize(db).await?;
 
     // Log the initialized root
-    let root = GLOBAL_TREE.read().await.root();
+    let root = tree_state.root().await;
     tracing::info!(
         root = %format!("0x{:x}", root),
         depth = tree_cache_cfg.tree_depth,
         "Tree initialized successfully"
     );
-    Ok(())
+    Ok(tree_state)
 }
 
 /// Background task for HttpOnly mode: periodically check for stale cache and refresh
@@ -66,12 +61,13 @@ async fn cache_refresh_loop(
     tree_cache_cfg: config::TreeCacheConfig,
     db: &DB,
     refresh_interval_secs: u64,
+    tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
     let check_interval = Duration::from_secs(refresh_interval_secs);
     let cache_path = std::path::PathBuf::from(&tree_cache_cfg.cache_file_path);
 
     // Perform initial check immediately on startup (before first sleep)
-    match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path).await {
+    match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path, &tree_state).await {
         Ok(refreshed) => {
             if refreshed {
                 tracing::info!("Initial cache refresh completed with new events");
@@ -86,7 +82,7 @@ async fn cache_refresh_loop(
         tokio::time::sleep(check_interval).await;
 
         // Check if cache needs refresh
-        match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path).await {
+        match check_and_refresh_cache(&tree_cache_cfg, db, &cache_path, &tree_state).await {
             Ok(refreshed) => {
                 if refreshed {
                     tracing::info!("Cache refreshed with new events");
@@ -104,6 +100,7 @@ async fn check_and_refresh_cache(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
     cache_path: &std::path::Path,
+    tree_state: &tree::TreeState,
 ) -> IndexerResult<bool> {
     // Read current cache metadata
     let metadata = tree::metadata::read_metadata(cache_path)?;
@@ -138,28 +135,41 @@ async fn check_and_refresh_cache(
         U256::ZERO,
     );
 
-    let (blocks_synced, logs_synced) = initializer.sync_with_db(db).await?;
+    let (blocks_synced, logs_synced) = initializer.sync_with_db(db, tree_state).await?;
     tracing::info!(blocks_synced, logs_synced, "Cache refresh complete");
 
     Ok(blocks_synced > 0 || logs_synced > 0)
 }
 
-async fn update_tree_with_event(ev: &RegistryEvent) -> IndexerResult<()> {
+async fn update_tree_with_event(
+    ev: &RegistryEvent,
+    tree_state: &tree::TreeState,
+) -> IndexerResult<()> {
     match ev {
         RegistryEvent::AccountCreated(e) => {
-            update_tree_with_commitment(e.leaf_index, e.offchain_signer_commitment).await?;
+            tree_state
+                .update_commitment(e.leaf_index, e.offchain_signer_commitment)
+                .await?;
         }
         RegistryEvent::AccountUpdated(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await?;
+            tree_state
+                .update_commitment(e.leaf_index, e.new_offchain_signer_commitment)
+                .await?;
         }
         RegistryEvent::AuthenticatorInserted(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await?;
+            tree_state
+                .update_commitment(e.leaf_index, e.new_offchain_signer_commitment)
+                .await?;
         }
         RegistryEvent::AuthenticatorRemoved(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await?;
+            tree_state
+                .update_commitment(e.leaf_index, e.new_offchain_signer_commitment)
+                .await?;
         }
         RegistryEvent::AccountRecovered(e) => {
-            update_tree_with_commitment(e.leaf_index, e.new_offchain_signer_commitment).await?;
+            tree_state
+                .update_commitment(e.leaf_index, e.new_offchain_signer_commitment)
+                .await?;
         }
         RegistryEvent::RootRecorded(_) => {}
     }
@@ -171,10 +181,11 @@ async fn start_http_server(
     registry_address: Address,
     addr: SocketAddr,
     db: DB,
+    tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
     let registry = WorldIdRegistry::new(registry_address, provider.erased());
-    let router = routes::handler(AppState::new(db, Arc::new(registry)));
+    let router = routes::handler(AppState::new(db, Arc::new(registry), tree_state));
     tracing::info!(%addr, "HTTP server listening");
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -213,14 +224,16 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
             // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
             let tree_cache_cfg = http_config.tree_cache.clone();
-            initialize_tree_with_config(&tree_cache_cfg, &db).await?;
+            let tree_state = initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
+
             run_http_only(
                 db,
                 &cfg.http_rpc_url,
                 cfg.registry_address,
                 http_config,
                 tree_cache_cfg,
+                tree_state,
             )
             .await
         }
@@ -238,8 +251,9 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
             // Initialize tree with cache for both mode
             let start_time = std::time::Instant::now();
             let tree_cache_cfg = http_config.tree_cache.clone();
-            initialize_tree_with_config(&tree_cache_cfg, &db).await?;
+            let tree_state = initialize_tree_with_config(&tree_cache_cfg, &db).await?;
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
+
             run_both(
                 &blockchain,
                 db,
@@ -252,6 +266,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
                     tree_depth: tree_cache_cfg.tree_depth,
                     dense_prefix_depth: tree_cache_cfg.dense_tree_prefix_depth,
                 },
+                tree_state,
             )
             .await
         }
@@ -274,6 +289,7 @@ async fn run_indexer_only(
     stream_logs(
         blockchain, &db, from,
         None, // Don't update in-memory tree or cache in indexer-only mode
+        None, // No tree state in indexer-only mode
     )
     .await?;
 
@@ -286,12 +302,14 @@ async fn run_http_only(
     registry_address: Address,
     http_cfg: HttpConfig,
     tree_cache_cfg: config::TreeCacheConfig,
+    tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
     // Start DB poller for account updates
     let poller_pool = db.clone();
     let poll_interval = http_cfg.db_poll_interval_secs;
+    let poller_tree_state = tree_state.clone();
     let poller_handle = tokio::spawn(async move {
-        if let Err(e) = poll_db_changes(poller_pool, poll_interval).await {
+        if let Err(e) = poll_db_changes(poller_pool, poll_interval, poller_tree_state).await {
             tracing::error!(?e, "DB poller failed");
         }
     });
@@ -300,10 +318,15 @@ async fn run_http_only(
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = rpc_url.to_string();
+        let sanity_tree_state = tree_state.clone();
         sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) =
-                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
-                    .await
+            if let Err(e) = sanity_check::root_sanity_check_loop(
+                rpc_url,
+                registry_address,
+                sanity_interval,
+                sanity_tree_state,
+            )
+            .await
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }
@@ -314,15 +337,29 @@ async fn run_http_only(
     let refresh_pool = db.clone();
     let refresh_interval = tree_cache_cfg.http_cache_refresh_interval_secs;
     let refresh_cache_cfg = tree_cache_cfg.clone();
+    let refresh_tree_state = tree_state.clone();
     let cache_refresh_handle = tokio::spawn(async move {
-        if let Err(e) = cache_refresh_loop(refresh_cache_cfg, &refresh_pool, refresh_interval).await
+        if let Err(e) = cache_refresh_loop(
+            refresh_cache_cfg,
+            &refresh_pool,
+            refresh_interval,
+            refresh_tree_state,
+        )
+        .await
         {
             tracing::error!(?e, "Cache refresh task failed");
         }
     });
 
     // Start HTTP server
-    let http_result = start_http_server(rpc_url, registry_address, http_cfg.http_addr, db).await;
+    let http_result = start_http_server(
+        rpc_url,
+        registry_address,
+        http_cfg.http_addr,
+        db,
+        tree_state,
+    )
+    .await;
 
     poller_handle.abort();
     cache_refresh_handle.abort();
@@ -332,6 +369,7 @@ async fn run_http_only(
     http_result
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn run_both(
     blockchain: &Blockchain,
     db: DB,
@@ -340,13 +378,26 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     tree_cache_params: TreeCacheParams,
+    tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
+    // Clone tree_state for different tasks
+    let http_tree_state = tree_state.clone();
+    let sanity_tree_state = tree_state.clone();
+    // Note: tree_state itself will be used for stream_logs
+
     // Start HTTP server
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
     let rpc_url_clone = rpc_url.to_string();
     let http_handle = tokio::spawn(async move {
-        start_http_server(&rpc_url_clone, registry_address, http_addr, http_pool).await
+        start_http_server(
+            &rpc_url_clone,
+            registry_address,
+            http_addr,
+            http_pool,
+            http_tree_state,
+        )
+        .await
     });
 
     // Start root sanity checker in the background
@@ -354,9 +405,13 @@ async fn run_both(
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = rpc_url.to_string();
         sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) =
-                sanity_check::root_sanity_check_loop(rpc_url, registry_address, sanity_interval)
-                    .await
+            if let Err(e) = sanity_check::root_sanity_check_loop(
+                rpc_url,
+                registry_address,
+                sanity_interval,
+                sanity_tree_state,
+            )
+            .await
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }
@@ -375,7 +430,8 @@ async fn run_both(
         blockchain,
         &db,
         from,
-        Some(&tree_cache_params), // Update in-memory tree and cache metadata after each event
+        Some(&tree_cache_params),
+        Some(&tree_state),
     )
     .await?;
 
@@ -391,17 +447,18 @@ pub async fn handle_registry_event<'a>(
     events_committer: &mut EventsCommitter<'a>,
     event: &BlockchainEvent<RegistryEvent>,
     tree_cache_params: Option<&TreeCacheParams>,
+    tree_state: Option<&tree::TreeState>,
 ) -> IndexerResult<()> {
     events_committer.handle_event(event.clone()).await?;
 
-    // Update cache metadata if tree was updated
-    if let Some(cache_params) = tree_cache_params {
-        if let Err(e) = update_tree_with_event(&event.details).await {
+    // Update tree and cache metadata if tree state is provided
+    if let (Some(cache_params), Some(tree_state)) = (tree_cache_params, tree_state) {
+        if let Err(e) = update_tree_with_event(&event.details, tree_state).await {
             tracing::error!(?e, ?event, "failed to update tree for live event");
         }
 
         let cache_path_buf = std::path::PathBuf::from(&cache_params.cache_file_path);
-        let tree = GLOBAL_TREE.read().await;
+        let tree = tree_state.read().await;
 
         // Get the current max event ID to track replay position
         let current_event_id = db
@@ -427,7 +484,11 @@ pub async fn handle_registry_event<'a>(
     Ok(())
 }
 
-pub async fn poll_db_changes(db: DB, poll_interval_secs: u64) -> IndexerResult<()> {
+pub async fn poll_db_changes(
+    db: DB,
+    poll_interval_secs: u64,
+    tree_state: tree::TreeState,
+) -> IndexerResult<()> {
     tracing::info!(
         poll_interval_secs,
         "Starting DB polling for account updates..."
@@ -454,7 +515,7 @@ pub async fn poll_db_changes(db: DB, poll_interval_secs: u64) -> IndexerResult<(
                             "Updating tree from DB poll"
                         );
 
-                        if let Err(e) = update_tree_with_commitment(leaf_index, commitment).await {
+                        if let Err(e) = tree_state.update_commitment(leaf_index, commitment).await {
                             tracing::error!(
                                 ?e,
                                 leaf_index = %leaf_index,
@@ -478,6 +539,7 @@ pub async fn stream_logs(
     db: &DB,
     start_from: u64,
     tree_cache_params: Option<&TreeCacheParams>,
+    tree_state: Option<&tree::TreeState>,
 ) -> IndexerResult<()> {
     let mut stream = blockchain.stream_world_tree_events(start_from).await?;
     let mut events_committer = EventsCommitter::new(db);
@@ -488,9 +550,14 @@ pub async fn stream_logs(
             Ok(event) => {
                 tracing::info!(?event, "decoded live registry event");
 
-                if let Err(e) =
-                    handle_registry_event(db, &mut events_committer, &event, tree_cache_params)
-                        .await
+                if let Err(e) = handle_registry_event(
+                    db,
+                    &mut events_committer,
+                    &event,
+                    tree_cache_params,
+                    tree_state,
+                )
+                .await
                 {
                     tracing::error!(?e, ?event, "failed to handle registry event");
                 }

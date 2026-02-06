@@ -71,7 +71,7 @@ impl OpsBatcherRunner {
     }
 
     pub async fn run(mut self) {
-        let provider = self.registry.provider().clone();
+        let provider = self.registry.provider();
         let mc = Multicall3::new(MULTICALL3_ADDR, provider);
 
         loop {

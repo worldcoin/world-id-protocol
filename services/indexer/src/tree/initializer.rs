@@ -1,9 +1,12 @@
 use std::{fmt, path::PathBuf, time::Instant};
 
 use alloy::primitives::U256;
+use semaphore_rs_trees::lazy::Canonical;
 use tracing::{info, warn};
 
-use super::{TreeError, TreeResult, builder::TreeBuilder, metadata};
+use super::{
+    MerkleTree, PoseidonHasher, TreeError, TreeResult, TreeState, builder::TreeBuilder, metadata,
+};
 use crate::db::{DB, WorldTreeEventId};
 
 /// State of cache files on disk
@@ -72,38 +75,40 @@ impl TreeInitializer {
     }
 
     /// Initialize tree: try restore + replay, fallback to full rebuild.
-    /// Updates GLOBAL_TREE atomically and returns nothing.
-    pub async fn initialize(&self, db: &DB) -> TreeResult<()> {
+    /// Returns a TreeState wrapping the initialized tree.
+    pub async fn initialize(&self, db: &DB) -> TreeResult<TreeState> {
         let start = Instant::now();
 
         let cache_state = self.check_cache_files();
         info!(?cache_state, "Checking cache files");
 
         // If either file is missing, skip restore attempt and do full rebuild
-        if cache_state.is_valid() {
+        let tree = if cache_state.is_valid() {
             match self.try_restore_and_replay(db).await {
-                Ok(()) => {
+                Ok(tree) => {
                     info!("Successfully restored and updated tree from cache");
+                    tree
                 }
                 Err(e) => {
                     warn!("Cache restore failed ({}), doing full rebuild", e);
-                    self.full_rebuild_and_update_global_tree(db).await?;
+                    self.full_rebuild(db).await?
                 }
             }
         } else {
             info!("{}, building tree from scratch", cache_state);
-            self.full_rebuild_and_update_global_tree(db).await?;
+            self.full_rebuild(db).await?
         };
 
         info!("Tree initialization took {:?}", start.elapsed());
-        Ok(())
+        Ok(TreeState::new(tree, self.tree_depth))
     }
 
     /// Try to restore from cache and replay missed events.
-    /// Updates GLOBAL_TREE atomically.
-    async fn try_restore_and_replay(&self, db: &DB) -> TreeResult<()> {
-        use crate::tree::GLOBAL_TREE;
-
+    /// Returns the initialized tree.
+    async fn try_restore_and_replay(
+        &self,
+        db: &DB,
+    ) -> TreeResult<MerkleTree<PoseidonHasher, Canonical>> {
         // 1. Read metadata
         let metadata = metadata::read_metadata(&self.cache_path)?;
 
@@ -162,7 +167,7 @@ impl TreeInitializer {
                 .replay_events(
                     tree,
                     db,
-                    crate::db::WorldTreeEventId {
+                    WorldTreeEventId {
                         block_number: metadata.last_block_number,
                         log_index: metadata.last_log_index,
                     },
@@ -190,20 +195,12 @@ impl TreeInitializer {
             updated_tree
         };
 
-        // 6. Replace GLOBAL_TREE atomically
-        {
-            let mut tree_guard = GLOBAL_TREE.write().await;
-            *tree_guard = final_tree;
-        }
-
-        Ok(())
+        Ok(final_tree)
     }
 
-    /// Full rebuild from database and atomically replace GLOBAL_TREE.
-    /// Used during initialization and for recovery when cache is corrupted.
-    async fn full_rebuild_and_update_global_tree(&self, db: &DB) -> TreeResult<()> {
-        use crate::tree::GLOBAL_TREE;
-
+    /// Full rebuild from database.
+    /// Returns the built tree.
+    async fn full_rebuild(&self, db: &DB) -> TreeResult<MerkleTree<PoseidonHasher, Canonical>> {
         info!("Starting full tree rebuild with cache");
 
         let (tree, last_event_id) = self
@@ -211,17 +208,10 @@ impl TreeInitializer {
             .build_from_db_with_cache(db, &self.cache_path)
             .await?;
 
-        // Replace GLOBAL_TREE atomically
-        {
-            let mut tree_guard = GLOBAL_TREE.write().await;
-            *tree_guard = tree;
-        }
-
-        // Write metadata with event ID (read from GLOBAL_TREE for consistency)
-        let tree_for_metadata = GLOBAL_TREE.read().await;
+        // Write metadata
         metadata::write_metadata(
             &self.cache_path,
-            &tree_for_metadata,
+            &tree,
             db,
             last_event_id,
             self.tree_depth,
@@ -230,30 +220,28 @@ impl TreeInitializer {
         .await?;
 
         info!(
-            root = %format!("0x{:x}", tree_for_metadata.root()),
+            root = %format!("0x{:x}", tree.root()),
             last_block_number = last_event_id.block_number,
             last_log_index = last_event_id.log_index,
-            "Full rebuild and GLOBAL_TREE update complete"
+            "Full rebuild complete"
         );
 
-        Ok(())
+        Ok(tree)
     }
 
-    /// Sync the in-memory GLOBAL_TREE with database events without full reconstruction.
+    /// Sync the TreeState with database events without full reconstruction.
     ///
     /// This method efficiently syncs the tree by:
-    /// 1. Restoring tree from mmap (separate instance - GLOBAL_TREE continues serving requests)
+    /// 1. Restoring tree from mmap (separate instance - TreeState continues serving requests)
     /// 2. Validating restored root matches metadata (fails if cache is corrupted)
     /// 3. Replaying only new events since last sync
-    /// 4. Atomically replacing GLOBAL_TREE with the updated tree
+    /// 4. Atomically replacing the tree in TreeState
     ///
     /// Note: Mmap restore is fast due to OS-level page cache optimization.
     /// Most pages are already in memory if the tree was recently used.
     ///
-    /// Returns the number of events applied to the tree.
-    pub async fn sync_with_db(&self, db: &DB) -> TreeResult<(u64, u64)> {
-        use crate::tree::GLOBAL_TREE;
-
+    /// Returns the number of blocks and logs synced.
+    pub async fn sync_with_db(&self, db: &DB, tree_state: &TreeState) -> TreeResult<(u64, u64)> {
         // 1. Read current metadata to get last_event_id
         let metadata = metadata::read_metadata(&self.cache_path)?;
 
@@ -288,8 +276,8 @@ impl TreeInitializer {
             blocks_behind, "Tree is {} blocks behind, syncing", blocks_behind
         );
 
-        // 3. Restore tree from mmap (creates separate instance, doesn't touch GLOBAL_TREE)
-        //    IMPORTANT: GLOBAL_TREE continues serving requests during this operation
+        // 3. Restore tree from mmap (creates separate instance, doesn't touch tree_state)
+        //    IMPORTANT: tree_state continues serving requests during this operation
         let tree = self.builder.restore_from_cache(&self.cache_path)?;
 
         // 4. Verify restored root matches metadata
@@ -302,10 +290,9 @@ impl TreeInitializer {
             );
 
             // Trigger full rebuild instead of failing
-            return self
-                .full_rebuild_and_update_global_tree(db)
-                .await
-                .map(|_| (0, 0));
+            let rebuilt_tree = self.full_rebuild(db).await?;
+            tree_state.replace(rebuilt_tree).await;
+            return Ok((0, 0));
         }
 
         info!(
@@ -313,7 +300,7 @@ impl TreeInitializer {
             "Restored tree root matches metadata"
         );
 
-        // 5. Replay events on the restored tree (GLOBAL_TREE still serves requests)
+        // 5. Replay events on the restored tree (tree_state still serves requests)
         let (updated_tree, new_event_id) = self
             .builder
             .replay_events(
@@ -326,17 +313,14 @@ impl TreeInitializer {
             )
             .await?;
 
-        // 6. Replace GLOBAL_TREE atomically (one brief write lock)
-        {
-            let mut tree_guard = GLOBAL_TREE.write().await;
-            *tree_guard = updated_tree;
-        }
+        // 6. Replace tree in TreeState atomically (one brief write lock)
+        tree_state.replace(updated_tree).await;
 
         // 7. Update metadata on disk
-        let tree_for_metadata = GLOBAL_TREE.read().await;
+        let tree_guard = tree_state.read().await;
         metadata::write_metadata(
             &self.cache_path,
-            &tree_for_metadata,
+            &tree_guard,
             db,
             new_event_id,
             self.tree_depth,
