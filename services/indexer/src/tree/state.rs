@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use alloy::primitives::U256;
 use semaphore_rs_trees::lazy::Canonical;
+use semaphore_rs_trees::proof::InclusionProof;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
+use crate::db::WorldTreeEventId;
 
 /// Thread-safe wrapper around the Merkle tree and its configuration.
 #[derive(Clone)]
@@ -15,15 +17,21 @@ pub struct TreeState {
 struct TreeStateInner {
     tree: RwLock<MerkleTree<PoseidonHasher, Canonical>>,
     tree_depth: usize,
+    last_synced_event_id: RwLock<WorldTreeEventId>,
 }
 
 impl TreeState {
-    /// Create a new `TreeState` with an existing tree and depth.
-    pub fn new(tree: MerkleTree<PoseidonHasher, Canonical>, tree_depth: usize) -> Self {
+    /// Create a new `TreeState` with an existing tree, depth, and sync cursor.
+    pub fn new(
+        tree: MerkleTree<PoseidonHasher, Canonical>,
+        tree_depth: usize,
+        last_synced_event_id: WorldTreeEventId,
+    ) -> Self {
         Self {
             inner: Arc::new(TreeStateInner {
                 tree: RwLock::new(tree),
                 tree_depth,
+                last_synced_event_id: RwLock::new(last_synced_event_id),
             }),
         }
     }
@@ -31,7 +39,7 @@ impl TreeState {
     /// Create a new `TreeState` with an empty tree of the given depth.
     pub fn new_empty(tree_depth: usize) -> Self {
         let tree = MerkleTree::<PoseidonHasher>::new(tree_depth, U256::ZERO);
-        Self::new(tree, tree_depth)
+        Self::new(tree, tree_depth, WorldTreeEventId::default())
     }
 
     /// Returns the configured depth.
@@ -57,6 +65,20 @@ impl TreeState {
     /// Convenience method to get the current root.
     pub async fn root(&self) -> U256 {
         self.read().await.root()
+    }
+
+    /// Atomically read leaf value, inclusion proof, and root under a single
+    /// read lock to guarantee consistency.
+    pub async fn leaf_proof_and_root(
+        &self,
+        leaf_index: usize,
+    ) -> (U256, InclusionProof<PoseidonHasher>, U256) {
+        let tree = self.read().await;
+        (
+            tree.get_leaf(leaf_index),
+            tree.proof(leaf_index),
+            tree.root(),
+        )
     }
 
     /// Set a leaf value at the given index.
@@ -97,6 +119,16 @@ impl TreeState {
     pub async fn replace(&self, new_tree: MerkleTree<PoseidonHasher, Canonical>) {
         let mut tree = self.write().await;
         *tree = new_tree;
+    }
+
+    /// Get the last synced event ID.
+    pub async fn last_synced_event_id(&self) -> WorldTreeEventId {
+        *self.inner.last_synced_event_id.read().await
+    }
+
+    /// Set the last synced event ID.
+    pub async fn set_last_synced_event_id(&self, id: WorldTreeEventId) {
+        *self.inner.last_synced_event_id.write().await = id;
     }
 }
 
@@ -164,5 +196,16 @@ mod tests {
 
         assert_ne!(initial_root, state.root().await);
         assert_eq!(new_root, state.root().await);
+    }
+
+    #[tokio::test]
+    async fn test_leaf_proof_and_root() {
+        let state = TreeState::new_empty(6);
+        let value = U256::from(42u64);
+        state.set_leaf_at_index(3, value).await.unwrap();
+
+        let (leaf, _proof, root) = state.leaf_proof_and_root(3).await;
+        assert_eq!(leaf, value);
+        assert_eq!(root, state.root().await);
     }
 }

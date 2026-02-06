@@ -12,7 +12,7 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
 };
 
-use crate::tree::{cached_tree, PoseidonHasher};
+use crate::tree::PoseidonHasher;
 
 /// OpenAPI schema representation of the `AccountInclusionProof` response.
 #[derive(serde::Serialize, utoipa::ToSchema)]
@@ -88,7 +88,7 @@ pub(crate) async fn handler(
         ));
     }
 
-    let (leaf, proof, root) = cached_tree::leaf_proof_and_root(index_as_usize).await;
+    let (leaf, proof, root) = state.tree_state.leaf_proof_and_root(index_as_usize).await;
 
     if leaf == U256::ZERO {
         return Err(IndexerErrorResponse::new(

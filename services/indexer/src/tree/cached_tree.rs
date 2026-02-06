@@ -1,20 +1,12 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::LazyLock;
 
 use alloy::primitives::U256;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
-use semaphore_rs_trees::proof::InclusionProof;
-use tokio::sync::RwLock;
 use tracing::info;
 
-use super::{GLOBAL_TREE, PoseidonHasher, TreeError, TreeResult};
+use super::{PoseidonHasher, TreeError, TreeResult, TreeState};
 use crate::db::{DB, WorldTreeEventId, fetch_leaves_batch};
-
-/// Tracks the last event ID the tree has processed.
-/// All sync operations advance this cursor.
-static LAST_SYNCED_EVENT_ID: LazyLock<RwLock<WorldTreeEventId>> =
-    LazyLock::new(|| RwLock::new(WorldTreeEventId::default()));
 
 // =============================================================================
 // Public API
@@ -25,60 +17,38 @@ static LAST_SYNCED_EVENT_ID: LazyLock<RwLock<WorldTreeEventId>> =
 /// 1. If mmap file exists → load it, validate root against DB, replay missed events
 /// 2. If mmap missing or validation fails → full rebuild from DB
 ///
-/// After init, `LAST_SYNCED_EVENT_ID` is set so `sync_from_db()` can pick up
-/// any future events incrementally.
+/// Returns a `TreeState` with the sync cursor set so `sync_from_db()` can pick
+/// up any future events incrementally.
 pub async fn init_tree(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
     dense_prefix_depth: usize,
-) -> TreeResult<()> {
-    let (tree, last_event_id, _source) = if cache_path.exists() {
+) -> TreeResult<TreeState> {
+    let (tree, last_event_id) = if cache_path.exists() {
         match try_restore(db, cache_path, tree_depth, dense_prefix_depth).await {
-            Ok((tree, last_event_id)) => (tree, last_event_id, "cache"),
+            Ok(result) => result,
             Err(e) => {
                 tracing::warn!(?e, "restore failed, falling back to full rebuild");
-                let (tree, last_event_id) =
-                    build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth)
-                        .await?;
-                (tree, last_event_id, "database")
+                build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth).await?
             }
         }
     } else {
         info!("init_tree: no cache file, building from database");
-        let (tree, last_event_id) =
-            build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth).await?;
-        (tree, last_event_id, "database")
+        build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth).await?
     };
 
-    set_global_tree(tree, last_event_id).await;
-
-    Ok(())
-}
-
-/// Set the global tree and last synced event ID.
-async fn set_global_tree(
-    tree: MerkleTree<PoseidonHasher, Canonical>,
-    last_event_id: WorldTreeEventId,
-) {
-    {
-        let mut g = GLOBAL_TREE.write().await;
-        *g = tree;
-    }
-    {
-        let mut cursor = LAST_SYNCED_EVENT_ID.write().await;
-        *cursor = last_event_id;
-    }
+    Ok(TreeState::new(tree, tree_depth, last_event_id))
 }
 
 /// Incrementally sync the in-memory tree with events committed to DB
 /// since the last sync point.
 ///
 /// Returns the number of raw events processed (before deduplication).
-pub async fn sync_from_db(db: &DB) -> TreeResult<usize> {
+pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> {
     const BATCH_SIZE: u64 = 10_000;
 
-    let from = { *LAST_SYNCED_EVENT_ID.read().await };
+    let from = tree_state.last_synced_event_id().await;
 
     // Collect all pending events
     let mut all_events = Vec::new();
@@ -122,7 +92,7 @@ pub async fn sync_from_db(db: &DB) -> TreeResult<usize> {
 
     // Apply all under a single write lock
     {
-        let mut tree = GLOBAL_TREE.write().await;
+        let mut tree = tree_state.write().await;
         for (leaf_index, value) in &leaf_final_states {
             let idx = leaf_index.as_limbs()[0] as usize;
             take_mut::take(&mut *tree, |t| t.update_with_mutation(idx, value));
@@ -130,10 +100,7 @@ pub async fn sync_from_db(db: &DB) -> TreeResult<usize> {
     }
 
     // Advance cursor
-    {
-        let mut synced = LAST_SYNCED_EVENT_ID.write().await;
-        *synced = cursor;
-    }
+    tree_state.set_last_synced_event_id(cursor).await;
 
     info!(
         total_events = total,
@@ -143,25 +110,6 @@ pub async fn sync_from_db(db: &DB) -> TreeResult<usize> {
     );
 
     Ok(total)
-}
-
-/// Read the current root from `GLOBAL_TREE`.
-pub async fn root() -> U256 {
-    let tree = GLOBAL_TREE.read().await;
-    tree.root()
-}
-
-/// Atomically read leaf value, inclusion proof, and root from `GLOBAL_TREE`
-/// under a single read lock to guarantee consistency.
-pub async fn leaf_proof_and_root(
-    leaf_index: usize,
-) -> (U256, InclusionProof<PoseidonHasher>, U256) {
-    let tree = GLOBAL_TREE.read().await;
-    (
-        tree.get_leaf(leaf_index),
-        tree.proof(leaf_index),
-        tree.root(),
-    )
 }
 
 // =============================================================================

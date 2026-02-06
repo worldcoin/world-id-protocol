@@ -1,13 +1,8 @@
-use std::sync::LazyLock;
-
 use alloy::primitives::U256;
 use ark_bn254::Fr;
 use semaphore_rs_hasher::Hasher;
 pub use semaphore_rs_trees::lazy::LazyMerkleTree as MerkleTree;
-use semaphore_rs_trees::lazy::Canonical;
 use thiserror::Error;
-use tokio::sync::RwLock;
-use world_id_primitives::TREE_DEPTH;
 
 pub mod cached_tree;
 pub mod state;
@@ -54,25 +49,3 @@ impl Hasher for PoseidonHasher {
         input[0].into()
     }
 }
-
-// Store the configured tree depth (set during initialization)
-static CONFIGURED_TREE_DEPTH: LazyLock<RwLock<usize>> = LazyLock::new(|| RwLock::new(TREE_DEPTH));
-
-pub async fn set_tree_depth(depth: usize) {
-    let mut configured_depth = CONFIGURED_TREE_DEPTH.write().await;
-    *configured_depth = depth;
-}
-
-pub async fn get_tree_depth() -> usize {
-    *CONFIGURED_TREE_DEPTH.read().await
-}
-
-pub async fn tree_capacity() -> usize {
-    let depth = get_tree_depth().await;
-    1usize << depth
-}
-
-// Global Merkle tree (singleton). Protected by an async RwLock for concurrent reads.
-// Initial tree uses TREE_DEPTH but will be replaced during initialization with configured depth
-pub static GLOBAL_TREE: LazyLock<RwLock<MerkleTree<PoseidonHasher, Canonical>>> =
-    LazyLock::new(|| RwLock::new(MerkleTree::<PoseidonHasher>::new(TREE_DEPTH, U256::ZERO)));

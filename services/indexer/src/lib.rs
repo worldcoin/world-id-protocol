@@ -3,7 +3,6 @@ use crate::{
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
-    tree::cached_tree,
 };
 use alloy::{
     primitives::Address,
@@ -31,12 +30,9 @@ async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
 ) -> IndexerResult<tree::TreeState> {
-    // Set the configured tree depth globally
-    tree::set_tree_depth(tree_cache_cfg.tree_depth).await;
-
     let cache_path = std::path::Path::new(&tree_cache_cfg.cache_file_path);
 
-    cached_tree::init_tree(
+    let tree_state = tree::cached_tree::init_tree(
         db,
         cache_path,
         tree_cache_cfg.tree_depth,
@@ -44,29 +40,29 @@ async fn initialize_tree_with_config(
     )
     .await?;
 
-    // Log the initialized root
-    let root = cached_tree::root().await;
+    let root = tree_state.root().await;
     tracing::info!(
         root = %format!("0x{:x}", root),
         depth = tree_cache_cfg.tree_depth,
         "Tree initialized successfully"
     );
 
-    // Create a TreeState for use by routes/sanity_check
-    // This wraps the same tree depth but routes still use cached_tree:: functions
-    let tree_state = tree::TreeState::new_empty(tree_cache_cfg.tree_depth);
     Ok(tree_state)
 }
 
 /// Background task: periodically sync the in-memory tree with DB events.
 /// Used in HttpOnly mode (where an external indexer writes to DB).
-async fn tree_sync_loop(db: DB, interval_secs: u64) -> IndexerResult<()> {
+async fn tree_sync_loop(
+    db: DB,
+    interval_secs: u64,
+    tree_state: tree::TreeState,
+) -> IndexerResult<()> {
     tracing::info!(interval_secs, "Starting tree sync loop");
 
     loop {
         tokio::time::sleep(Duration::from_secs(interval_secs)).await;
 
-        match cached_tree::sync_from_db(&db).await {
+        match tree::cached_tree::sync_from_db(&db, &tree_state).await {
             Ok(count) => {
                 if count > 0 {
                     tracing::info!(count, "Synced events from DB to tree");
@@ -124,7 +120,6 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
         }
         RunMode::HttpOnly { http_config } => {
             tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
-            // Initialize tree with cache for HTTP-only mode
             let start_time = std::time::Instant::now();
             let tree_cache_cfg = http_config.tree_cache.clone();
             let tree_state = initialize_tree_with_config(&tree_cache_cfg, &db).await?;
@@ -168,18 +163,13 @@ async fn run_indexer_only(
     db: DB,
     indexer_cfg: IndexerConfig,
 ) -> IndexerResult<()> {
-    // Determine starting block from checkpoint or env
     let from = match db.world_tree_events().get_latest_block().await? {
         Some(block) => block + 1,
         None => indexer_cfg.start_block,
     };
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(
-        blockchain, &db, from,
-        false, // Don't sync in-memory tree in indexer-only mode
-    )
-    .await?;
+    stream_logs(blockchain, &db, from, None).await?;
 
     Ok(())
 }
@@ -191,11 +181,12 @@ async fn run_http_only(
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
 ) -> IndexerResult<()> {
-    // Start tree sync loop (replaces both poll_db_changes and cache_refresh_loop)
+    // Start tree sync loop
     let sync_pool = db.clone();
     let sync_interval = http_cfg.db_poll_interval_secs;
+    let sync_tree_state = tree_state.clone();
     let sync_handle = tokio::spawn(async move {
-        if let Err(e) = tree_sync_loop(sync_pool, sync_interval).await {
+        if let Err(e) = tree_sync_loop(sync_pool, sync_interval, sync_tree_state).await {
             tracing::error!(?e, "Tree sync loop failed");
         }
     });
@@ -321,7 +312,7 @@ async fn run_both(
         blockchain,
         &db,
         backfill_up_to_block + 1,
-        true, // Sync in-memory tree after each DB commit
+        Some(&tree_state),
     )
     .await?;
 
@@ -336,14 +327,16 @@ pub async fn handle_registry_event<'a>(
     db: &DB,
     events_committer: &mut EventsCommitter<'a>,
     event: &BlockchainEvent<RegistryEvent>,
-    sync_tree: bool,
+    tree_state: Option<&tree::TreeState>,
 ) -> IndexerResult<()> {
     let committed = events_committer.handle_event(event.clone()).await?;
 
     // After a DB commit, sync the in-memory tree from DB
-    if sync_tree && committed {
-        if let Err(e) = cached_tree::sync_from_db(db).await {
-            tracing::error!(?e, "failed to sync tree from DB after commit");
+    if let Some(tree_state) = tree_state {
+        if committed {
+            if let Err(e) = tree::cached_tree::sync_from_db(db, tree_state).await {
+                tracing::error!(?e, "failed to sync tree from DB after commit");
+            }
         }
     }
 
@@ -378,7 +371,7 @@ pub async fn stream_logs(
     blockchain: &Blockchain,
     db: &DB,
     start_from: u64,
-    sync_tree: bool,
+    tree_state: Option<&tree::TreeState>,
 ) -> IndexerResult<()> {
     let mut stream = blockchain.stream_world_tree_events(start_from).await?;
     let mut events_committer = EventsCommitter::new(db);
@@ -390,8 +383,7 @@ pub async fn stream_logs(
                 tracing::info!(?event, "decoded live registry event");
 
                 if let Err(e) =
-                    handle_registry_event(db, &mut events_committer, &event, sync_tree)
-                        .await
+                    handle_registry_event(db, &mut events_committer, &event, tree_state).await
                 {
                     tracing::error!(?e, ?event, "failed to handle registry event");
                 }
