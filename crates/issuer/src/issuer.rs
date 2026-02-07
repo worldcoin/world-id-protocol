@@ -1,9 +1,17 @@
-use alloy::{network::EthereumWallet, providers::ProviderBuilder, sol};
+use alloy::{
+    network::EthereumWallet,
+    primitives::Address,
+    providers::{DynProvider, ProviderBuilder},
+    sol,
+};
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
-use world_id_primitives::{Config, PrimitiveError};
+use url::Url;
+use world_id_primitives::PrimitiveError;
 use world_id_signer::Signer;
+
+use crate::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance;
 
 sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
@@ -25,8 +33,7 @@ impl From<EdDSAPublicKey> for ICredentialSchemaIssuerRegistry::Pubkey {
 #[derive(Debug)]
 pub struct Issuer {
     signer: Signer,
-    /// General configuration for the Protocol.
-    pub config: Config,
+    issuer_registry: CredentialSchemaIssuerRegistryInstance<DynProvider>,
 }
 
 impl Issuer {
@@ -34,10 +41,35 @@ impl Issuer {
     ///
     /// # Errors
     /// Will error if the provided seed is not valid.
-    pub fn new(seed: &[u8], config: Config) -> Result<Self, IssuerError> {
-        let signer = Signer::from_seed_bytes(seed)?;
+    pub fn new(
+        seed: &[u8],
+        rpc_url: String,
+        issuer_registry_address: Address,
+    ) -> Result<Self, IssuerError> {
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .map_err(|_| IssuerError::Generic("error initializing TLS provider".to_string()))?;
 
-        Ok(Self { signer, config })
+        let mut signer = Signer::from_seed_bytes(seed)?;
+
+        let rpc_url = Url::parse(&rpc_url).map_err(|e| PrimitiveError::InvalidInput {
+            reason: e.to_string(),
+            attribute: "rpc_url".to_string(),
+        })?;
+
+        // Create a wallet from the signer and set up provider with wallet
+        let wallet = EthereumWallet::from(signer.onchain_signer().clone());
+        let provider = ProviderBuilder::new().wallet(wallet).connect_http(rpc_url);
+
+        let issuer_registry = CredentialSchemaIssuerRegistry::new(
+            issuer_registry_address,
+            alloy::providers::Provider::erased(provider),
+        );
+
+        Ok(Self {
+            signer,
+            issuer_registry,
+        })
     }
 
     /// Registers a new credential schema on-chain with the provided ID.
@@ -45,21 +77,8 @@ impl Issuer {
     /// # Errors
     /// Will error if the transaction fails or if the event is not found in the receipt.
     pub async fn register_schema(&mut self, issuer_schema_id: u64) -> Result<(), IssuerError> {
-        let rpc_url = self
-            .config
-            .rpc_url()
-            .ok_or(IssuerError::ConfigError("RPC URL must be set.".to_string()))?;
-
-        // Create a wallet from the signer and set up provider with wallet
-        let wallet = EthereumWallet::from(self.signer.onchain_signer().clone());
-        let provider = ProviderBuilder::new()
-            .wallet(wallet)
-            .connect_http(rpc_url.clone());
-
-        let contract =
-            CredentialSchemaIssuerRegistry::new(*self.config.registry_address(), provider);
-
-        let receipt = contract
+        let receipt = self
+            .issuer_registry
             .register(
                 issuer_schema_id,
                 self.signer.offchain_signer_pubkey().into(),
