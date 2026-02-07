@@ -106,10 +106,6 @@ pub enum IssuerError {
     #[error(transparent)]
     PrimitiveError(#[from] PrimitiveError),
 
-    /// Config is not correctly defined
-    #[error("Configuration error: {0}")]
-    ConfigError(String),
-
     /// Alloy pending transaction error
     #[error(transparent)]
     PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
