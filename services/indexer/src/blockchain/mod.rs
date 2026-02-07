@@ -121,7 +121,7 @@ impl Blockchain {
         let last_block = Arc::new(AtomicU64::new(from_block.saturating_sub(1)));
 
         let backfill = self.backfill_stream(from_block, batch_size, last_block.clone());
-        let ws = self.websocket_stream(last_block.load(Ordering::Relaxed), batch_size);
+        let ws = self.websocket_stream(last_block, batch_size);
 
         Ok(backfill
             .chain(ws)
@@ -145,18 +145,21 @@ impl Blockchain {
     ///
     /// # Arguments
     ///
-    /// * `backfill_to_block` - The block number to stop the backfill stage at.
+    /// * `backfill_to_block` - Shared atomic holding the last block the backfill
+    ///   stage processed. Loaded lazily when the stream is first polled so the
+    ///   backfill has time to update it.
     /// * `batch_size` - The batch size to use for the websocket stage.
     ///
     /// # Returns
     ///
     /// A stream of [`BlockchainResult<alloy::rpc::types::Log>`].
-    pub fn websocket_stream(
+    fn websocket_stream(
         &self,
-        backfill_to_block: u64,
+        backfill_to_block: Arc<AtomicU64>,
         batch_size: u64,
     ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin + '_ {
         stream::once(async move {
+            let backfill_to_block = backfill_to_block.load(Ordering::Relaxed);
             let filter = Filter::new()
                 .address(self.world_id_registry)
                 .event_signature(RegistryEvent::signatures());
@@ -213,7 +216,7 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of [`BlockchainResult<alloy::rpc::types::Log>`].
-    pub fn backfill_stream(
+    fn backfill_stream(
         &self,
         from_block: u64,
         batch_size: u64,
@@ -246,7 +249,7 @@ impl Blockchain {
         .boxed()
     }
 
-    pub async fn get_block_number(&self) -> BlockchainResult<u64> {
+    async fn get_block_number(&self) -> BlockchainResult<u64> {
         self.http_provider
             .get_block_number()
             .await
@@ -266,7 +269,7 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of [`BlockchainResult<alloy::rpc::types::Log>`].
-    pub fn fetch_logs_in_batches(
+    fn fetch_logs_in_batches(
         &self,
         from_block: u64,
         to_block: u64,
