@@ -136,6 +136,8 @@ pub struct Credential {
     #[serde(default)]
     pub signature: Option<EdDSASignature>,
     /// The public component of the issuer's key which signed the Credential.
+    #[serde(serialize_with = "serialize_public_key")]
+    #[serde(deserialize_with = "deserialize_public_key")]
     pub issuer: EdDSAPublicKey,
 }
 
@@ -368,7 +370,7 @@ impl Default for Credential {
 
 /// Serializes the signature as compressed bytes (encoding r and s concatenated)
 /// where `r` is compressed to a single coordinate. Result is hex-encoded.
-#[allow(clippy::ref_option)]
+#[expect(clippy::ref_option)]
 fn serialize_signature<S>(
     signature: &Option<EdDSASignature>,
     serializer: S,
@@ -382,25 +384,71 @@ where
     let sig = signature
         .to_compressed_bytes()
         .map_err(serde::ser::Error::custom)?;
-    serializer.serialize_str(&hex::encode(sig))
+    if serializer.is_human_readable() {
+        serializer.serialize_str(&hex::encode(sig))
+    } else {
+        serializer.serialize_bytes(&sig)
+    }
 }
 
 fn deserialize_signature<'de, D>(deserializer: D) -> Result<Option<EdDSASignature>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let maybe_str = Option::<String>::deserialize(deserializer)?;
+    let bytes: Option<Vec<u8>> = if deserializer.is_human_readable() {
+        Option::<String>::deserialize(deserializer)?
+            .map(|s| hex::decode(s).map_err(de::Error::custom))
+            .transpose()?
+    } else {
+        Option::<Vec<u8>>::deserialize(deserializer)?
+    };
 
-    let Some(s) = maybe_str else { return Ok(None) };
+    let Some(bytes) = bytes else {
+        return Ok(None);
+    };
 
-    let bytes = hex::decode(s).map_err(de::Error::custom)?;
     if bytes.len() != 64 {
         return Err(de::Error::custom("Invalid signature. Expected 64 bytes."));
     }
+
     let mut arr = [0u8; 64];
     arr.copy_from_slice(&bytes);
-    let signature = EdDSASignature::from_compressed_bytes(arr).map_err(de::Error::custom)?;
-    Ok(Some(signature))
+    EdDSASignature::from_compressed_bytes(arr)
+        .map(Some)
+        .map_err(de::Error::custom)
+}
+
+fn serialize_public_key<S>(public_key: &EdDSAPublicKey, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let pk = public_key
+        .to_compressed_bytes()
+        .map_err(serde::ser::Error::custom)?;
+    if serializer.is_human_readable() {
+        serializer.serialize_str(&hex::encode(pk))
+    } else {
+        serializer.serialize_bytes(&pk)
+    }
+}
+
+fn deserialize_public_key<'de, D>(deserializer: D) -> Result<EdDSAPublicKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let bytes: Vec<u8> = if deserializer.is_human_readable() {
+        hex::decode(String::deserialize(deserializer)?).map_err(de::Error::custom)?
+    } else {
+        Vec::<u8>::deserialize(deserializer)?
+    };
+
+    if bytes.len() != 32 {
+        return Err(de::Error::custom("Invalid public key. Expected 32 bytes."));
+    }
+
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    EdDSAPublicKey::from_compressed_bytes(arr).map_err(de::Error::custom)
 }
 
 #[cfg(test)]
