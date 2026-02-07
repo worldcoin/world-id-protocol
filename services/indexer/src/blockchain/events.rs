@@ -1,3 +1,4 @@
+//! Provides types for WorldID registry events.
 use alloy::{
     primitives::{Address, FixedBytes, Log, U256},
     sol_types::SolEvent,
