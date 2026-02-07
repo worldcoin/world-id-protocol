@@ -111,7 +111,7 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of [`BlockchainEvent<RegistryEvent>`].
-    pub async fn stream_world_tree_events(
+    pub fn stream_world_tree_events(
         &self,
         from_block: u64,
         batch_size: u64,
