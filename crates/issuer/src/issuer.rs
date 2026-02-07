@@ -46,9 +46,7 @@ impl Issuer {
         rpc_url: String,
         issuer_registry_address: Address,
     ) -> Result<Self, IssuerError> {
-        rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .map_err(|_| IssuerError::Generic("error initializing TLS provider".to_string()))?;
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let mut signer = Signer::from_seed_bytes(seed)?;
 
