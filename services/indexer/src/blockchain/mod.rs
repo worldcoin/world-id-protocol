@@ -1,4 +1,9 @@
-use std::future;
+//! Provides a streaming interface for WorldID registry events.
+//! Backfills historic events and streams live events.
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use alloy::{
     primitives::{Address, FixedBytes},
@@ -50,6 +55,17 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
+    /// Creates a new [`Blockchain`] instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_rpc_url` - The HTTP RPC URL to use for the blockchain.
+    /// * `ws_rpc_url` - The WebSocket RPC URL to use for the blockchain.
+    /// * `world_id_registry` - The address of the World ID registry.
+    ///
+    /// # Returns
+    ///
+    /// A new [`Blockchain`] instance.
     pub async fn new(
         http_rpc_url: &str,
         ws_rpc_url: &str,
@@ -82,58 +98,33 @@ impl Blockchain {
 
     /// Streams World Tree events from the blockchain.
     ///
-    /// This function ensures that no events are missed by combining historical
-    /// events (from `from_block` to the latest block) with new events from a
-    /// WebSocket subscription. The WebSocket subscription only returns new logs,
-    /// so we backfill historical data. Additionally, it filters out duplicates
-    /// by only including new events that occur after the latest block number
-    /// at the time of the query. It is crucial to first create a subscription
-    /// and then check for last block number to not miss any logs between the
-    /// call for last block number and subscription creation.
+    /// Concatenates [`Self::backfill`] with [`Self::websocket_stream`] and
+    /// decodes each log into a [`BlockchainEvent<RegistryEvent>`]. The last
+    /// block number seen during backfill is tracked via a shared atomic counter
+    /// so that [`Self::websocket_stream`] knows where to pick up.
     ///
-    /// The `backfill_batch_size` parameter controls how many blocks are queried
-    /// at once during the backfill process. This is necessary because RPC providers
-    /// typically have a maximum range limit per query.
+    /// # Arguments
+    ///
+    /// * `from_block` - The block number to start streaming from.
+    /// * `batch_size` - The batch size to use for the backfill stage.
+    ///
+    /// # Returns
+    ///
+    /// A stream of [`BlockchainEvent<RegistryEvent>`].
     pub async fn stream_world_tree_events(
         &self,
         from_block: u64,
-        backfill_batch_size: u64,
+        batch_size: u64,
     ) -> BlockchainResult<
-        impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin,
+        impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin + '_,
     > {
-        let filter = Filter::new()
-            .address(self.world_id_registry)
-            .event_signature(RegistryEvent::signatures());
+        let last_block = Arc::new(AtomicU64::new(from_block.saturating_sub(1)));
 
-        let logs = self
-            .ws_provider
-            .subscribe_logs(&filter)
-            .await
-            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
+        let backfill = self.backfill_stream(from_block, batch_size, last_block.clone());
+        let ws = self.websocket_stream(last_block.load(Ordering::Relaxed), batch_size);
 
-        let new_events = logs.into_stream();
-
-        let latest_block_number = self
-            .http_provider
-            .get_block_number()
-            .await
-            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
-
-        let backfill_stream =
-            self.fetch_logs_in_batches(from_block, latest_block_number, backfill_batch_size);
-
-        Ok(backfill_stream
-            .chain(
-                new_events
-                    .filter(move |v| {
-                        future::ready({
-                            v.block_number
-                                .map(|block_number| block_number > latest_block_number)
-                                .unwrap_or(false)
-                        })
-                    })
-                    .map(Ok),
-            )
+        Ok(backfill
+            .chain(ws)
             .map(|log_result| log_result.and_then(|log| RegistryEvent::decode(&log)))
             .boxed())
     }
@@ -151,6 +142,15 @@ impl Blockchain {
     /// All errors (including setup failures) are emitted as stream items rather
     /// than returned as an outer `Result`, consistent with how
     /// [`Self::fetch_logs_in_batches`] emits RPC errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `backfill_to_block` - The block number to stop the backfill stage at.
+    /// * `batch_size` - The batch size to use for the websocket stage.
+    ///
+    /// # Returns
+    ///
+    /// A stream of [`BlockchainResult<alloy::rpc::types::Log>`].
     pub fn websocket_stream(
         &self,
         backfill_to_block: u64,
@@ -199,25 +199,47 @@ impl Blockchain {
     ///
     /// The idea here is that while we fetch logs, the head of the chain moves.
     /// To prevent having to buffer a lot of incoming logs from the websocket,
-    /// we try to get within batch size distance from the head of the chain before in the backfill stage.
-    pub async fn backfill(
+    /// we try to get within batch size distance from the head of the chain
+    /// before switching to the websocket stage. When we reach that point, we
+    /// fetch one final range covering the remaining blocks, store the last
+    /// fetched block in `last_block`, and then terminate.
+    ///
+    /// # Arguments
+    ///
+    /// * `from_block` - The block number to start backfilling from.
+    /// * `batch_size` - The batch size to use for the backfill stage.
+    /// * `last_block` - A shared atomic counter to store the last fetched block.
+    ///
+    /// # Returns
+    ///
+    /// A stream of [`BlockchainResult<alloy::rpc::types::Log>`].
+    pub fn backfill_stream(
         &self,
         from_block: u64,
         batch_size: u64,
+        last_block: Arc<AtomicU64>,
     ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin {
         tracing::info!(?from_block, "backfilling from block");
 
-        stream::try_unfold(from_block, move |current_from| async move {
-            let latest_block_number = self.get_block_number().await?;
-            // Stop when we are within batch size distance from the head of the chain
-            if latest_block_number.saturating_sub(current_from) < batch_size {
-                return Ok::<_, BlockchainError>(None);
-            }
+        stream::try_unfold((from_block, false), move |(current_from, done)| {
+            let last_block = last_block.clone();
+            async move {
+                if done {
+                    return Ok::<_, BlockchainError>(None);
+                }
 
-            Ok(Some((
-                (current_from, latest_block_number),
-                latest_block_number + 1,
-            )))
+                let latest_block_number = self.get_block_number().await?;
+                // We emit one more range here
+                let is_last = latest_block_number.saturating_sub(current_from) < batch_size;
+                if is_last {
+                    last_block.store(latest_block_number, Ordering::Relaxed);
+                }
+
+                Ok(Some((
+                    (current_from, latest_block_number),
+                    (latest_block_number + 1, is_last),
+                )))
+            }
         })
         .map_ok(move |(from, to)| self.fetch_logs_in_batches(from, to, batch_size))
         .try_flatten()
@@ -235,7 +257,16 @@ impl Blockchain {
     ///
     /// This function chunks the block range into smaller batches and streams logs
     /// for each batch sequentially, yielding logs as they're fetched.
-    fn fetch_logs_in_batches(
+    ///
+    /// # Arguments
+    /// * `from_block` - The block number to start fetching logs from.
+    /// * `to_block` - The block number to stop fetching logs at.
+    /// * `batch_size` - The batch size to use for the fetch stage.
+    ///
+    /// # Returns
+    ///
+    /// A stream of [`BlockchainResult<alloy::rpc::types::Log>`].
+    pub fn fetch_logs_in_batches(
         &self,
         from_block: u64,
         to_block: u64,
