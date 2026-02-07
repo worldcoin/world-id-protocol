@@ -7,6 +7,9 @@ use alloy::{
 use futures_util::StreamExt;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
+#[cfg(feature = "integration-tests")]
+pub mod blockchain;
+#[cfg(not(feature = "integration-tests"))]
 mod blockchain;
 pub mod config;
 pub mod db;
@@ -477,8 +480,7 @@ pub async fn stream_logs(
     tree_cache_params: Option<&TreeCacheParams>,
 ) -> IndexerResult<()> {
     let mut stream = blockchain
-        .stream_world_tree_events(start_from, backfill_batch_size)
-        .await?;
+        .stream_world_tree_events(start_from, backfill_batch_size)?;
     let mut events_committer = EventsCommitter::new(db);
 
     while let Some(log) = stream.next().await {

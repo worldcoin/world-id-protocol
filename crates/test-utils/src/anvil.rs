@@ -145,6 +145,15 @@ impl TestAnvil {
         Self::spawn_from_builder(Anvil::new().fork(fork_url))
     }
 
+    /// Spawns a fresh `anvil` instance in automine mode (mines instantly per transaction).
+    ///
+    /// Unlike [`Self::spawn`], this does **not** set a block time, so blocks are
+    /// produced immediately when a transaction is submitted. This is useful for
+    /// tests that don't need timed block production and benefit from faster execution.
+    pub fn spawn_automine() -> Result<Self> {
+        Self::spawn_from_builder_raw(Anvil::new())
+    }
+
     /// Spawns a fresh anvil instance with Multicall3 deployed at the canonical address.
     /// This avoids the need to fork from mainnet just to get Multicall3.
     pub async fn spawn_with_multicall3() -> Result<Self> {
@@ -171,9 +180,12 @@ impl TestAnvil {
     }
 
     fn spawn_from_builder(builder: Anvil) -> Result<Self> {
+        Self::spawn_from_builder_raw(builder.block_time(1))
+    }
+
+    fn spawn_from_builder_raw(builder: Anvil) -> Result<Self> {
         let instance = builder
             .mnemonic(Self::MNEMONIC)
-            .block_time(1)
             .try_spawn()
             .context("failed to start anvil")?;
 
