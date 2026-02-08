@@ -2,9 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     AppState,
-    api_error::GatewayErrorBody,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
+    error::GatewayErrorBody,
     error::GatewayResult,
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request::GatewayContext,

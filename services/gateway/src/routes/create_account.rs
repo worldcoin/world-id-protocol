@@ -1,6 +1,6 @@
 //! Create account handler.
 
-use crate::api_error::GatewayErrorResponse;
+use crate::error::GatewayErrorResponse;
 use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;

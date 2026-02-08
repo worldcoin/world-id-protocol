@@ -1,6 +1,6 @@
 use tokio::sync::OnceCell;
 
-use crate::api_error::GatewayErrorResponse;
+use crate::error::GatewayErrorResponse;
 use alloy::{
     primitives::{Address, Bytes, Signature, U256},
     providers::Provider,

@@ -16,7 +16,6 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 pub use config::GlobalConfig;
 pub use error::{IndexerError, IndexerResult};
 
-mod api_error;
 pub mod blockchain;
 pub mod config;
 pub mod db;

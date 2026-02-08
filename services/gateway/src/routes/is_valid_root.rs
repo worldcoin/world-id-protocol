@@ -1,5 +1,5 @@
 use crate::{
-    api_error::GatewayErrorResponse,
+    error::GatewayErrorResponse,
     metrics::{METRICS_ROOT_CACHE_HITS, METRICS_ROOT_CACHE_MISSES},
     request::Registry,
     types::AppState,

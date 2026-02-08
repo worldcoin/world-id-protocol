@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::{
-    api_error::GatewayErrorResponse,
     batcher::{
         BatcherHandle, Command,
         defaults::{
@@ -10,6 +9,7 @@ use crate::{
             DEFAULT_UPDATE_AUTHENTICATOR_GAS,
         },
     },
+    error::GatewayErrorResponse,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
 };
