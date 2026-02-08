@@ -10,8 +10,7 @@ use world_id_core::{
 };
 
 use alloy::sol_types::SolError;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::{http::StatusCode, response::IntoResponse};
 
 pub type GatewayResult<T> = Result<T, GatewayError>;
 

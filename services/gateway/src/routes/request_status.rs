@@ -1,7 +1,6 @@
 //! Request status handler.
 
-use crate::error::GatewayErrorResponse;
-use crate::types::AppState;
+use crate::{error::GatewayErrorResponse, types::AppState};
 use axum::{
     Json,
     extract::{Path, State},
