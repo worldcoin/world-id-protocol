@@ -1,4 +1,3 @@
-use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use world_id_core::types::{
     IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
@@ -25,7 +24,7 @@ pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerQueryRequest>,
 ) -> Result<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
-    if req.leaf_index == U256::ZERO {
+    if req.leaf_index == 0 {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
             "Account index cannot be zero".to_string(),

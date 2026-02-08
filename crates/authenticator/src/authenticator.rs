@@ -48,7 +48,7 @@ static MASK_RECOVERY_COUNTER: U256 =
 static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
-    uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
+    uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 pub struct Authenticator {
@@ -351,23 +351,18 @@ impl Authenticator {
     /// - The `leaf_index` is generally not exposed outside Authenticators. It is not a secret because
     ///   it's not exposed to RPs outside ZK-circuits, but it should not be shared outside the Protocol
     ///   boundaries or it may create a pseudonymous identifier.
-    /// - The `leaf_index` is technically a `uint256`. However, for storage optimizations and to ensure it
-    ///   always fits in the field, the contract in practice enforces it must fit in `uint192`, i.e. the last
-    ///   64 bits are always 0.
+    /// - The `leaf_index` is stored as a `uint64` inside packed account data.
     #[must_use]
-    pub fn leaf_index(&self) -> U256 {
-        self.packed_account_data & MASK_LEAF_INDEX
+    pub fn leaf_index(&self) -> u64 {
+        (self.packed_account_data & MASK_LEAF_INDEX).to::<u64>()
     }
 
     /// Returns the World ID's leaf index as a field element.
     ///
     /// # Panics
-    /// This does not panic as even though the leaf index is U256, the `WorldIDRegistry` contract
-    /// enforces it must fit in 192 bits (see `PackedAccountData.sol`) which is always below the modulo of BN254.
+    /// This does not panic as the leaf index is a `u64`, which always fits in BN254.
     pub fn leaf_index_as_field_element(&self) -> FieldElement {
-        Fq::try_from(self.leaf_index())
-            .expect("leaf_index must always fit in field")
-            .into()
+        Fq::from(self.leaf_index()).into()
     }
 
     /// Returns the recovery counter for the holder's World ID.

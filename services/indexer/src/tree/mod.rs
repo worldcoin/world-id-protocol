@@ -124,11 +124,11 @@ pub async fn set_leaf_at_index(leaf_index: usize, value: U256) -> TreeResult<()>
     Ok(())
 }
 
-pub async fn update_tree_with_commitment(leaf_index: U256, new_commitment: U256) -> TreeResult<()> {
-    if leaf_index == U256::ZERO {
+pub async fn update_tree_with_commitment(leaf_index: u64, new_commitment: U256) -> TreeResult<()> {
+    if leaf_index == 0 {
         return Err(TreeError::ZeroLeafIndex);
     }
-    let leaf_index = leaf_index.as_limbs()[0] as usize;
+    let leaf_index = leaf_index as usize;
     set_leaf_at_index(leaf_index, new_commitment).await?;
     Ok(())
 }

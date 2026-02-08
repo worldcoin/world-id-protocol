@@ -187,14 +187,8 @@ impl Credential {
 
     /// Set the `sub` for the credential computed from `leaf_index` and a `blinding_factor`.
     #[must_use]
-    pub fn sub(mut self, leaf_index: U256, blinding_factor: FieldElement) -> Self {
-        let mut input = [
-            *self.get_sub_ds(),
-            leaf_index
-                .try_into()
-                .expect("leaf_index must always fit in field"),
-            *blinding_factor,
-        ];
+    pub fn sub(mut self, leaf_index: u64, blinding_factor: FieldElement) -> Self {
+        let mut input = [*self.get_sub_ds(), leaf_index.into(), *blinding_factor];
         poseidon2::bn254::t3::permutation_in_place(&mut input);
         self.sub = input[1].into();
         self

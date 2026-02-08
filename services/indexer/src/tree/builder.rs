@@ -263,7 +263,7 @@ impl TreeBuilder {
         let mut total_events = 0;
 
         // HashMap to track final state of each leaf (deduplication)
-        let mut leaf_final_states: HashMap<U256, U256> = HashMap::new();
+        let mut leaf_final_states: HashMap<u64, U256> = HashMap::new();
 
         info!(
             from_event_id = ?from_event_id,
@@ -325,7 +325,7 @@ impl TreeBuilder {
         );
 
         for (leaf_index, value) in &leaf_final_states {
-            let leaf_index = leaf_index.as_limbs()[0] as usize;
+            let leaf_index = *leaf_index as usize;
             tree = tree.update_with_mutation(leaf_index, value);
         }
 

@@ -127,14 +127,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         SystemTime::now().duration_since(start).unwrap().as_millis(),
     );
 
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
     let authenticator = Authenticator::init(&seed, creation_config)
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), 1);
 
     // Local indexer stub serving inclusion proof.
     let leaf_index = authenticator.leaf_index();
@@ -242,7 +242,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let authenticator = Authenticator::init(&seed, proof_config)
         .await
         .wrap_err("failed to reinitialize authenticator with proof config")?;
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), 1);
 
     let leaf_index = authenticator.leaf_index();
     let credential_sub_blinding_factor = authenticator

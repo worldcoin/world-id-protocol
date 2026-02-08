@@ -1,8 +1,5 @@
-use crate::{
-    FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u256,
-};
+use crate::{FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet};
 use ark_babyjubjub::Fq;
-use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 /// Helper module for serializing/deserializing fixed-size arrays.
@@ -43,8 +40,7 @@ pub struct MerkleInclusionProof<const TREE_DEPTH: usize> {
     /// The World ID's leaf position in the Merkle tree of the `WorldIDRegistry` contract.
     ///
     /// This is the main internal identifier for a World ID.
-    #[serde(with = "hex_u256")]
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     /// The sibling path up to the Merkle root.
     #[serde(with = "array_serde")]
     pub siblings: [FieldElement; TREE_DEPTH],
@@ -55,7 +51,7 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
     #[must_use]
     pub const fn new(
         root: FieldElement,
-        leaf_index: U256,
+        leaf_index: u64,
         siblings: [FieldElement; TREE_DEPTH],
     ) -> Self {
         Self {
@@ -66,14 +62,9 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
     }
 
     /// Returns the World ID's leaf index as a field element.
-    ///
-    /// # Panics
-    /// This does not panic as even though the leaf index is U256, the `WorldIDRegistry` contract
-    /// enforces it must fit in 192 bits (see `PackedAccountData.sol`) which is always below the modulo of BN254.
+    #[must_use]
     pub fn leaf_index_as_field_element(&self) -> FieldElement {
-        Fq::try_from(self.leaf_index)
-            .expect("leaf_index must always fit in field")
-            .into()
+        Fq::from(self.leaf_index).into()
     }
 }
 

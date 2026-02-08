@@ -140,7 +140,7 @@ fn create_and_sign_credential(
     issuer_schema_id: u64,
     issuer_pk: EdDSAPublicKey,
     issuer_sk: EdDSAPrivateKey,
-    leaf_index: U256,
+    leaf_index: u64,
     credential_sub_blinding_factor: FieldElement,
 ) -> eyre::Result<Credential> {
     let now = SystemTime::now()

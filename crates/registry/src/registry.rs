@@ -17,7 +17,7 @@ sol!(
 
 sol! {
     struct UpdateAuthenticator {
-        uint256 leafIndex;
+        uint64 leafIndex;
         address oldAuthenticatorAddress;
         address newAuthenticatorAddress;
         uint32 pubkeyId;
@@ -27,7 +27,7 @@ sol! {
     }
 
     struct InsertAuthenticator {
-        uint256 leafIndex;
+        uint64 leafIndex;
         address newAuthenticatorAddress;
         uint32 pubkeyId;
         uint256 newAuthenticatorPubkey;
@@ -36,7 +36,7 @@ sol! {
     }
 
     struct RemoveAuthenticator {
-        uint256 leafIndex;
+        uint64 leafIndex;
         address authenticatorAddress;
         uint32 pubkeyId;
         uint256 authenticatorPubkey;
@@ -45,7 +45,7 @@ sol! {
     }
 
     struct RecoverAccount {
-        uint256 leafIndex;
+        uint64 leafIndex;
         address newAuthenticatorAddress;
         uint256 newAuthenticatorPubkey;
         uint256 newOffchainSignerCommitment;
@@ -72,7 +72,7 @@ pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain 
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_update_authenticator<S: Signer + Sync>(
     signer: &S,
-    leaf_index: U256,
+    leaf_index: u64,
     old_authenticator_address: Address,
     new_authenticator_address: Address,
     pubkey_id: u32,
@@ -101,7 +101,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_insert_authenticator<S: Signer + Sync>(
     signer: &S,
-    leaf_index: U256,
+    leaf_index: u64,
     new_authenticator_address: Address,
     pubkey_id: u32,
     new_authenticator_pubkey: U256,
@@ -128,7 +128,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_remove_authenticator<S: Signer + Sync>(
     signer: &S,
-    leaf_index: U256,
+    leaf_index: u64,
     authenticator_address: Address,
     pubkey_id: u32,
     authenticator_pubkey: U256,
@@ -154,7 +154,7 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
 /// Will error if the signer unexpectedly fails to sign the hash.
 pub async fn sign_recover_account<S: Signer + Sync>(
     signer: &S,
-    leaf_index: U256,
+    leaf_index: u64,
     new_authenticator_address: Address,
     new_authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,

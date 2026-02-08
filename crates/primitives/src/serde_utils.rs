@@ -147,6 +147,29 @@ pub mod hex_u32_opt {
     }
 }
 
+/// Serialize/deserialize `u64` as a `0x`-prefixed hex string.
+pub mod hex_u64 {
+    use super::*;
+
+    /// Serialize a `u64` as a `0x`-prefixed hex string.
+    pub fn serialize<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{value:#x}"))
+    }
+
+    /// Deserialize a `u64` from a hex string (with or without `0x` prefix).
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let s = s.trim_start_matches("0x");
+        u64::from_str_radix(s, 16).map_err(|e| D::Error::custom(format!("invalid hex u64: {e}")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

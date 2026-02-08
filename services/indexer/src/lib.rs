@@ -448,13 +448,25 @@ pub async fn poll_db_changes(db: DB, poll_interval_secs: u64) -> IndexerResult<(
                     tracing::info!(count = updates.len(), "Found account updates from DB");
 
                     for (leaf_index, commitment) in updates {
+                        let leaf_index_u64 = match u64::try_from(leaf_index) {
+                            Ok(v) => v,
+                            Err(_) => {
+                                tracing::error!(
+                                    leaf_index = %leaf_index,
+                                    "Skipping DB poll update with leaf_index that does not fit u64"
+                                );
+                                continue;
+                            }
+                        };
                         tracing::debug!(
                             leaf_index = %leaf_index,
                             commitment = %commitment,
                             "Updating tree from DB poll"
                         );
 
-                        if let Err(e) = update_tree_with_commitment(leaf_index, commitment).await {
+                        if let Err(e) =
+                            update_tree_with_commitment(leaf_index_u64, commitment).await
+                        {
                             tracing::error!(
                                 ?e,
                                 leaf_index = %leaf_index,

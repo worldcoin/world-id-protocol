@@ -7,7 +7,6 @@ use ark_babyjubjub::{EdwardsAffine, Fq};
 use ark_ff::{AdditiveGroup, PrimeField as _};
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
-use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 
 use crate::{FieldElement, PrimitiveError};
@@ -30,13 +29,13 @@ const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 /// * `query_origin_id` - The `RpId` or `issuer_schema_id`.
 #[must_use]
 pub fn oprf_query_digest(
-    leaf_index: U256,
+    leaf_index: u64,
     action: FieldElement,
     query_origin_id: FieldElement,
 ) -> FieldElement {
     let input = [
         ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
-        ark_babyjubjub::Fq::try_from(leaf_index).unwrap(), // FIXME
+        leaf_index.into(),
         *query_origin_id,
         *action,
     ];

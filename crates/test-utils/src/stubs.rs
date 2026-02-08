@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::Address;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
@@ -15,13 +15,13 @@ use std::sync::RwLock;
 
 #[derive(Clone)]
 struct IndexerState {
-    leaf_index: U256,
+    leaf_index: u64,
     proof: AccountInclusionProof<{ TREE_DEPTH }>,
 }
 
 /// Spawns a minimal HTTP server that serves the provided inclusion proof.
 pub async fn spawn_indexer_stub(
-    leaf_index: U256,
+    leaf_index: u64,
     proof: AccountInclusionProof<{ TREE_DEPTH }>,
 ) -> Result<(String, JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -39,7 +39,7 @@ pub async fn spawn_indexer_stub(
                     |State(state): State<IndexerState>, Json(body): Json<serde_json::Value>| async move {
                         let requested_leaf_index = body.get("leaf_index")
                             .and_then(|v| v.as_str())
-                            .and_then(|s| s.parse::<U256>().ok())
+                            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
                             .ok_or(StatusCode::BAD_REQUEST)?;
 
                         if requested_leaf_index != state.leaf_index {
@@ -68,7 +68,7 @@ pub struct MutableIndexerStub {
 impl MutableIndexerStub {
     /// Spawns a new mutable indexer stub server.
     pub async fn spawn(
-        leaf_index: U256,
+        leaf_index: u64,
         proof: AccountInclusionProof<{ TREE_DEPTH }>,
     ) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -91,7 +91,9 @@ impl MutableIndexerStub {
                             let requested_leaf_index = body
                                 .get("leaf_index")
                                 .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse::<U256>().ok())
+                                .and_then(|s| {
+                                    u64::from_str_radix(s.trim_start_matches("0x"), 16).ok()
+                                })
                                 .ok_or(StatusCode::BAD_REQUEST)?;
 
                             let guard = state
