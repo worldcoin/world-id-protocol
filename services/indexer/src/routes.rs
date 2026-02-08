@@ -1,4 +1,4 @@
-use crate::api_error::IndexerErrorBody;
+use crate::error::IndexerErrorBody;
 use axum::{Json, Router, response::IntoResponse};
 use utoipa::OpenApi;
 use world_id_core::api_types::{

@@ -1,4 +1,4 @@
-use crate::api_error::IndexerErrorResponse;
+use crate::error::IndexerErrorResponse;
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use world_id_core::api_types::{

@@ -1,4 +1,4 @@
-use crate::{api_error::IndexerErrorResponse, config::AppState};
+use crate::{config::AppState, error::IndexerErrorResponse};
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;

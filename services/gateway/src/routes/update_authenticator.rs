@@ -1,7 +1,7 @@
 //! Update authenticator handler.
 
 use crate::{
-    api_error::GatewayErrorResponse, request::IntoRequest, routes::middleware::RequestId,
+    error::GatewayErrorResponse, request::IntoRequest, routes::middleware::RequestId,
     types::AppState,
 };
 use axum::{Extension, Json, extract::State};

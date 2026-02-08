@@ -5,7 +5,6 @@ use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
-mod api_error;
 mod batcher;
 mod config;
 mod create_batcher;
