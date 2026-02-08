@@ -1,11 +1,12 @@
 //! Insert authenticator handler.
 
-use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use crate::{
+    error::GatewayErrorResponse, request::IntoRequest, routes::middleware::RequestId,
+    types::AppState,
+};
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::api_types::{
-    GatewayErrorResponse, GatewayStatusResponse, InsertAuthenticatorRequest,
-};
+use world_id_core::api_types::{GatewayStatusResponse, InsertAuthenticatorRequest};
 
 /// POST /v1/authenticators/insert
 ///

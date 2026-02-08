@@ -1,8 +1,8 @@
+use crate::error::{IndexerErrorBody, IndexerErrorResponse};
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use world_id_core::api_types::{
-    IndexerErrorBody, IndexerErrorCode, IndexerErrorResponse, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse,
+    IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
 };
 
 use crate::config::AppState;

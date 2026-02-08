@@ -44,7 +44,7 @@ issuer = [
 rp = ["dep:world-id-request"]
 
 # OpenAPI/Swagger docs
-openapi = ["authenticator", "world-id-authenticator/openapi"]
+openapi = ["authenticator", "world-id-primitives/openapi"]
 
 [dependencies]
 eddsa-babyjubjub = { workspace = true }

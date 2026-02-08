@@ -19,6 +19,9 @@ sol!(
 );
 
 sol! {
+    /// EIP-712 typed-data payload for `updateAuthenticator`.
+    ///
+    /// This is used only for signature hashing/recovery, not as the Solidity call signature.
     struct UpdateAuthenticator {
         uint256 leafIndex;
         address oldAuthenticatorAddress;
@@ -29,6 +32,9 @@ sol! {
         uint256 nonce;
     }
 
+    /// EIP-712 typed-data payload for `insertAuthenticator`.
+    ///
+    /// This is used only for signature hashing/recovery, not as the Solidity call signature.
     struct InsertAuthenticator {
         uint256 leafIndex;
         address newAuthenticatorAddress;
@@ -38,6 +44,9 @@ sol! {
         uint256 nonce;
     }
 
+    /// EIP-712 typed-data payload for `removeAuthenticator`.
+    ///
+    /// This is used only for signature hashing/recovery, not as the Solidity call signature.
     struct RemoveAuthenticator {
         uint256 leafIndex;
         address authenticatorAddress;
@@ -47,6 +56,9 @@ sol! {
         uint256 nonce;
     }
 
+    /// EIP-712 typed-data payload for `recoverAccount`.
+    ///
+    /// This is used only for signature hashing/recovery, not as the Solidity call signature.
     struct RecoverAccount {
         uint256 leafIndex;
         address newAuthenticatorAddress;
@@ -55,6 +67,15 @@ sol! {
         uint256 nonce;
     }
 }
+
+/// Alias for the EIP-712 payload used by `updateAuthenticator`.
+pub type UpdateAuthenticatorTypedData = UpdateAuthenticator;
+/// Alias for the EIP-712 payload used by `insertAuthenticator`.
+pub type InsertAuthenticatorTypedData = InsertAuthenticator;
+/// Alias for the EIP-712 payload used by `removeAuthenticator`.
+pub type RemoveAuthenticatorTypedData = RemoveAuthenticator;
+/// Alias for the EIP-712 payload used by `recoverAccount`.
+pub type RecoverAccountTypedData = RecoverAccount;
 
 /// Returns the EIP-712 domain used by the `[WorldIdRegistry]` contract
 /// for a given `chain_id` and `verifying_contract` address.
@@ -68,7 +89,7 @@ pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain 
     )
 }
 
-/// Signs `UpdateAuthenticator` contract call.
+/// Signs the EIP-712 payload for an `updateAuthenticator` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
@@ -84,7 +105,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
-    let payload = UpdateAuthenticator {
+    let payload = UpdateAuthenticatorTypedData {
         leafIndex: leaf_index,
         oldAuthenticatorAddress: old_authenticator_address,
         newAuthenticatorAddress: new_authenticator_address,
@@ -97,7 +118,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
-/// Signs `InsertAuthenticator` contract call.
+/// Signs the EIP-712 payload for an `insertAuthenticator` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
@@ -112,7 +133,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
-    let payload = InsertAuthenticator {
+    let payload = InsertAuthenticatorTypedData {
         leafIndex: leaf_index,
         newAuthenticatorAddress: new_authenticator_address,
         pubkeyId: pubkey_id,
@@ -124,7 +145,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
-/// Signs `RemoveAuthenticator` contract call.
+/// Signs the EIP-712 payload for a `removeAuthenticator` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
@@ -139,7 +160,7 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
-    let payload = RemoveAuthenticator {
+    let payload = RemoveAuthenticatorTypedData {
         leafIndex: leaf_index,
         authenticatorAddress: authenticator_address,
         pubkeyId: pubkey_id,
@@ -151,7 +172,7 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
-/// Signs `RecoverAccount` contract call.
+/// Signs the EIP-712 payload for a `recoverAccount` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
@@ -164,7 +185,7 @@ pub async fn sign_recover_account<S: Signer + Sync>(
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
-    let payload = RecoverAccount {
+    let payload = RecoverAccountTypedData {
         leafIndex: leaf_index,
         newAuthenticatorAddress: new_authenticator_address,
         newAuthenticatorPubkey: new_authenticator_pubkey,

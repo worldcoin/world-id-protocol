@@ -46,6 +46,9 @@ pub use credential::{Credential, CredentialVersion};
 /// Contains base types for operations with Merkle trees.
 pub mod merkle;
 
+/// Contains API request/response types and shared API enums.
+pub mod api_types;
+
 /// Contains types specifically related to the OPRF services.
 /// Requires the `circuits` feature (not available in WASM builds).
 #[cfg(feature = "circuits")]
