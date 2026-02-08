@@ -19,9 +19,10 @@ sol!(
 );
 
 sol! {
-    /// EIP-712 typed-data payload for `updateAuthenticator`.
+    /// EIP-712 typed-data payload for `updateAuthenticator`. See `UPDATE_AUTHENTICATOR_TYPEHASH`
     ///
     /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+    #[sol(rename = "UpdateAuthenticator")]
     struct UpdateAuthenticatorTypedData {
         uint256 leafIndex;
         address oldAuthenticatorAddress;
@@ -35,6 +36,7 @@ sol! {
     /// EIP-712 typed-data payload for `insertAuthenticator`.
     ///
     /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+    #[sol(rename = "InsertAuthenticator")]
     struct InsertAuthenticatorTypedData {
         uint256 leafIndex;
         address newAuthenticatorAddress;
@@ -47,6 +49,7 @@ sol! {
     /// EIP-712 typed-data payload for `removeAuthenticator`.
     ///
     /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+    #[sol(rename = "RemoveAuthenticator")]
     struct RemoveAuthenticatorTypedData {
         uint256 leafIndex;
         address authenticatorAddress;
@@ -59,6 +62,7 @@ sol! {
     /// EIP-712 typed-data payload for `recoverAccount`.
     ///
     /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+    #[sol(rename = "RecoverAccount")]
     struct RecoverAccountTypedData {
         uint256 leafIndex;
         address newAuthenticatorAddress;
