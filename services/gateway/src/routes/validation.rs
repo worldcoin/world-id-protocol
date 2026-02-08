@@ -1,5 +1,6 @@
 use tokio::sync::OnceCell;
 
+use crate::api_error::GatewayErrorResponse;
 use alloy::{
     primitives::{Address, Bytes, Signature, U256},
     providers::Provider,
@@ -7,8 +8,8 @@ use alloy::{
 };
 use world_id_core::{
     api_types::{
-        CreateAccountRequest, GatewayErrorResponse, InsertAuthenticatorRequest,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
     world_id_registry::{
         InsertAuthenticator, RecoverAccount, RemoveAuthenticator, UpdateAuthenticator,

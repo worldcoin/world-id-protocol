@@ -1,9 +1,10 @@
 //! Create account handler.
 
+use crate::api_error::GatewayErrorResponse;
 use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::api_types::{CreateAccountRequest, GatewayErrorResponse, GatewayStatusResponse};
+use world_id_core::api_types::{CreateAccountRequest, GatewayStatusResponse};
 
 /// POST /v1/accounts
 ///

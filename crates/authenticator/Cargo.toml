@@ -19,7 +19,7 @@ embed-zkeys = [
   "dep:webpki-roots",
   "dep:backon",
 ]
-openapi = ["dep:utoipa", "dep:axum"]
+openapi = ["world-id-primitives/openapi"]
 
 [dependencies]
 alloy = { workspace = true }
@@ -40,15 +40,10 @@ rand = { workspace = true }
 backon = { workspace = true, optional = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-strum = { workspace = true, features = ["derive"] }
-hex = { workspace = true }
-http = { workspace = true }
 
 # Optional
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
-utoipa = { workspace = true, optional = true }
-axum = { workspace = true, optional = true }
 
 # Internal
 world-id-signer = { workspace = true }

@@ -1,12 +1,13 @@
 //! Request status handler.
 
+use crate::api_error::GatewayErrorResponse;
 use crate::types::AppState;
 use axum::{
     Json,
     extract::{Path, State},
 };
 use tracing::instrument;
-use world_id_core::api_types::{GatewayErrorResponse, GatewayStatusResponse};
+use world_id_core::api_types::GatewayStatusResponse;
 
 /// GET /v1/requests/:id
 ///

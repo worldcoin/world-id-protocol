@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    api_error::GatewayErrorResponse,
     batcher::{
         BatcherHandle, Command,
         defaults::{
@@ -20,9 +21,9 @@ use moka::future::Cache;
 use uuid::Uuid;
 use world_id_core::{
     api_types::{
-        CreateAccountRequest, GatewayErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
+        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };

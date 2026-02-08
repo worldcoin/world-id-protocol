@@ -1,11 +1,12 @@
 //! Remove authenticator handler.
 
-use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use crate::{
+    api_error::GatewayErrorResponse, request::IntoRequest, routes::middleware::RequestId,
+    types::AppState,
+};
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::api_types::{
-    GatewayErrorResponse, GatewayStatusResponse, RemoveAuthenticatorRequest,
-};
+use world_id_core::api_types::{GatewayStatusResponse, RemoveAuthenticatorRequest};
 
 /// POST /v1/authenticators/remove
 ///

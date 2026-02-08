@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     AppState,
+    api_error::GatewayErrorBody,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::GatewayResult,
@@ -33,9 +34,9 @@ use tokio::sync::mpsc;
 use utoipa::OpenApi;
 use world_id_core::{
     api_types::{
-        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
-        IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
+        GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
+        IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
         UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,

@@ -1,13 +1,11 @@
-use crate::config::AppState;
+use crate::{api_error::IndexerErrorResponse, config::AppState};
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;
 use semaphore_rs_trees::{Branch, proof::InclusionProof};
 use world_id_core::{
     EdDSAPublicKey,
-    api_types::{
-        AccountInclusionProof, IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest,
-    },
+    api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest},
 };
 use world_id_primitives::{
     FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
