@@ -4,6 +4,7 @@ use crate::{
     db::DB,
     events_committer::EventsCommitter,
 };
+use tracing::instrument;
 use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
@@ -26,6 +27,7 @@ mod routes;
 mod sanity_check;
 mod tree;
 
+#[instrument(level = "info", skip_all)]
 async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
@@ -52,6 +54,7 @@ async fn initialize_tree_with_config(
 
 /// Background task: periodically sync the in-memory tree with DB events.
 /// Used in HttpOnly mode (where an external indexer writes to DB).
+#[instrument(level = "info", skip_all, fields(interval_secs))]
 async fn tree_sync_loop(
     db: DB,
     interval_secs: u64,
@@ -75,6 +78,7 @@ async fn tree_sync_loop(
     }
 }
 
+#[instrument(level = "info", skip_all, fields(%addr))]
 async fn start_http_server(
     rpc_url: &str,
     registry_address: Address,
@@ -101,6 +105,7 @@ async fn start_http_server(
     Ok(())
 }
 
+#[instrument(level = "info", skip_all)]
 pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
     tracing::info!("Creating DB...");
     let db = DB::new(&cfg.db_url, None).await?;
@@ -158,6 +163,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
     }
 }
 
+#[instrument(level = "info", skip_all)]
 async fn run_indexer_only(
     blockchain: &Blockchain,
     db: DB,
@@ -174,6 +180,7 @@ async fn run_indexer_only(
     Ok(())
 }
 
+#[instrument(level = "info", skip_all)]
 async fn run_http_only(
     db: DB,
     rpc_url: &str,
@@ -227,6 +234,7 @@ async fn run_http_only(
     http_result
 }
 
+#[instrument(level = "info", skip_all)]
 async fn run_both(
     blockchain: &Blockchain,
     db: DB,
@@ -362,6 +370,7 @@ async fn save_events(db: &DB, raw_logs: Vec<Log>) -> IndexerResult<usize> {
     Ok(committed_batches)
 }
 
+#[instrument(level = "info", skip_all, fields(start_from))]
 pub async fn stream_logs(
     blockchain: &Blockchain,
     db: &DB,

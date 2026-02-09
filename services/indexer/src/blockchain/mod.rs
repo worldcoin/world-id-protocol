@@ -6,6 +6,7 @@ use alloy::{
     rpc::types::Filter,
 };
 use futures_util::{Stream, StreamExt, stream};
+use tracing::instrument;
 use thiserror::Error;
 use url::Url;
 
@@ -81,6 +82,7 @@ impl Blockchain {
     /// at the time of the query. It is crucial to first create a subscription
     /// and then check for last block number to not miss any logs between the
     /// call for last block number and subscription creation.
+    #[instrument(level = "info", skip(self), fields(from_block))]
     pub async fn stream_world_tree_events(
         &self,
         from_block: u64,
@@ -128,6 +130,7 @@ impl Blockchain {
 
     /// Fetch all historical events from `from_block` to the current latest block.
     /// Returns the logs and the block number they were fetched up to (inclusive).
+    #[instrument(level = "info", skip(self), fields(from_block))]
     pub async fn get_backfill_events(
         &self,
         from_block: u64,

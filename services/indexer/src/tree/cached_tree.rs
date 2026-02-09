@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 use alloy::primitives::U256;
 use semaphore_rs_trees::lazy::{Canonical, LazyMerkleTree as MerkleTree};
-use tracing::info;
+use tracing::{info, instrument};
 
 use super::{PoseidonHasher, TreeError, TreeResult, TreeState};
 use crate::db::{DB, WorldTreeEventId, fetch_leaves_batch};
@@ -20,6 +20,7 @@ const LOG_CHUNK_SIZE: u64 = 500_000;
 ///
 /// Returns a `TreeState` with the sync cursor set so `sync_from_db()` can pick
 /// up any future events incrementally.
+#[instrument(level = "info", skip_all, fields(tree_depth, dense_prefix_depth))]
 pub async fn init_tree(
     db: &DB,
     cache_path: &Path,
@@ -35,7 +36,7 @@ pub async fn init_tree(
             }
         }
     } else {
-        info!("init_tree: no cache file, building from database");
+        info!("no cache file, building from database");
         build_from_db_with_cache(db, cache_path, tree_depth, dense_prefix_depth).await?
     };
 
@@ -46,6 +47,7 @@ pub async fn init_tree(
 /// since the last sync point.
 ///
 /// Returns the number of raw events processed (before deduplication).
+#[instrument(level = "info", skip_all)]
 pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> {
     const BATCH_SIZE: u64 = 10_000;
 
@@ -88,7 +90,7 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     info!(
         total_events = total,
         unique_leaves = leaf_final_states.len(),
-        "sync_from_db: applying updates"
+        "applying updates"
     );
 
     // Apply all under a single write lock
@@ -107,7 +109,7 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
         total_events = total,
         unique_leaves = leaf_final_states.len(),
         ?cursor,
-        "sync_from_db: done"
+        "done"
     );
 
     Ok(total)
@@ -119,6 +121,7 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
 
 /// Try to restore from mmap cache + replay missed events.
 /// Returns the tree and last event ID on success.
+#[instrument(level = "info", skip_all)]
 async fn try_restore(
     db: &DB,
     cache_path: &Path,
@@ -131,7 +134,7 @@ async fn try_restore(
 
     info!(
         root = %format!("0x{:x}", restored_root),
-        "try_restore: loaded mmap"
+        "loaded mmap"
     );
 
     // 2. Validate root exists in world_tree_roots
@@ -146,7 +149,7 @@ async fn try_restore(
     info!(
         block_number = root_entry.id.block_number,
         log_index = root_entry.id.log_index,
-        "try_restore: root found in DB"
+        "root found in DB"
     );
 
     // 3. Replay events after that root's position
@@ -160,7 +163,7 @@ async fn try_restore(
     info!(
         root = %format!("0x{:x}", tree.root()),
         ?last_event_id,
-        "try_restore: replay complete"
+        "replay complete"
     );
 
     Ok((tree, last_event_id))
@@ -196,6 +199,7 @@ fn restore_from_cache(
 /// Two-pass approach:
 /// 1. First pass: Build dense prefix by processing leaves in chunks
 /// 2. Second pass: Apply sparse leaves (beyond dense prefix) incrementally
+#[instrument(level = "info", skip_all)]
 async fn build_from_db_with_cache(
     db: &DB,
     cache_path: &Path,
@@ -344,6 +348,7 @@ async fn build_from_db_with_cache(
 
 /// Replay events onto an existing tree with deduplication.
 /// Uses event ID-based pagination to efficiently handle large replays.
+#[instrument(level = "info", skip_all, fields(?from_event_id))]
 async fn replay_events(
     mut tree: MerkleTree<PoseidonHasher, Canonical>,
     db: &DB,

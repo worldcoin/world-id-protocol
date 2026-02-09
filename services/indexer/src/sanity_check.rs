@@ -6,9 +6,12 @@ use alloy::{
 };
 use world_id_core::world_id_registry::WorldIdRegistry;
 
+use tracing::instrument;
+
 use crate::{error::IndexerResult, tree::TreeState};
 
 /// Periodically checks that the local in-memory Merkle root remains valid on-chain.
+#[instrument(level = "info", skip_all, fields(%registry, interval_secs))]
 pub async fn root_sanity_check_loop(
     rpc_url: String,
     registry: Address,
