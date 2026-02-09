@@ -159,7 +159,7 @@ mod tests {
                 rp_registry,
                 credential_registry: credential_schema_issuer_registry,
                 ..
-            } = RegistryTestContext::new().await?;
+            } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
 
             let deployer = anvil.signer(0)?;
 
