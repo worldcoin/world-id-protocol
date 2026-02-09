@@ -25,7 +25,7 @@ mod error;
 pub mod events_committer;
 mod routes;
 mod sanity_check;
-mod tree;
+pub mod tree;
 
 #[instrument(level = "info", skip_all)]
 async fn initialize_tree_with_config(
