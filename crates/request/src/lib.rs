@@ -347,12 +347,15 @@ impl ProofRequest {
     }
 
     /// Gets the action value to use in the proof.
+    ///
+    /// When an explicit action is provided, it is returned directly.
+    /// For session proofs (action is `None`), a deterministic action is derived
+    /// from the request nonce via keccak256 hashing.
     #[must_use]
     pub fn computed_action(&self) -> FieldElement {
-        // if session_id -> compute differently
         match self.action {
             Some(action) => action,
-            None => todo!("Not ready"),
+            None => FieldElement::from_arbitrary_raw_bytes(self.nonce.to_string().as_bytes()),
         }
     }
 
@@ -1675,5 +1678,55 @@ mod tests {
             assert_eq!(expected, custom_expires_at);
             assert_eq!(got, request_created_at);
         }
+    }
+
+    #[test]
+    fn computed_action_returns_explicit_action() {
+        let action = test_field_element(42);
+        let request = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_700_000_000,
+            expires_at: 1_700_100_000,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None,
+            action: Some(action),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![],
+            constraints: None,
+        };
+        assert_eq!(request.computed_action(), action);
+    }
+
+    #[test]
+    fn computed_action_derives_from_nonce_when_none() {
+        let request = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_700_000_000,
+            expires_at: 1_700_100_000,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: Some(test_field_element(99)),
+            action: None,
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![],
+            constraints: None,
+        };
+
+        // Should not panic (was previously todo!)
+        let action = request.computed_action();
+        // Deterministic: same nonce → same result
+        assert_eq!(action, request.computed_action());
+
+        // Different nonce → different action
+        let request2 = ProofRequest {
+            nonce: test_field_element(999),
+            ..request
+        };
+        assert_ne!(action, request2.computed_action());
     }
 }
