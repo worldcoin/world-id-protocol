@@ -246,10 +246,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let leaf_index = authenticator.leaf_index();
     let credential_sub_blinding_factor = authenticator
-        .generate_credential_blinding_factor(
-            issuer_schema_id,
-            OprfKeyId::new(U160::from(issuer_schema_id)),
-        )
+        .generate_credential_blinding_factor(issuer_schema_id)
         .await?;
 
     // Create and sign credential.

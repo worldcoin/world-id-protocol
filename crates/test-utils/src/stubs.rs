@@ -8,6 +8,7 @@ use taceo_oprf::service::secret_manager::postgres::PostgresSecretManager as Oprf
 use taceo_oprf_key_gen::secret_manager::postgres::PostgresSecretManager as KeyGenSecretManager;
 use taceo_oprf_test_utils::PEER_PRIVATE_KEYS;
 use tokio::{net::TcpListener, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 use world_id_primitives::{TREE_DEPTH, merkle::AccountInclusionProof};
 
@@ -179,10 +180,20 @@ async fn spawn_orpf_node(
             db_schema,
         },
     };
-    let never = async { futures::future::pending::<()>().await };
 
     tokio::spawn(async move {
-        let res = world_id_oprf_node::start(config, Arc::new(secret_manager), never).await;
+        let bind_addr = config.bind_addr;
+        let cancellation_token = CancellationToken::new();
+        let (router, _) =
+            world_id_oprf_node::start(config, Arc::new(secret_manager), cancellation_token.clone())
+                .await
+                .expect("Can start");
+        let listener = tokio::net::TcpListener::bind(bind_addr)
+            .await
+            .expect("Can bind listener");
+        let res = axum::serve(listener, router)
+            .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
+            .await;
         eprintln!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI

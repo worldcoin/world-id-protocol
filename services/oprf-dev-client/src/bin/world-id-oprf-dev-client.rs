@@ -26,7 +26,7 @@ use secrecy::{ExposeSecret, SecretString};
 use taceo_oprf::{
     client::Connector,
     core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor},
-    dev_client::{Command, StressTestCommand},
+    dev_client::{Command, StressTestOprfCommand},
     types::{OprfKeyId, ShareEpoch, api::OprfRequest, crypto::OprfPublicKey},
 };
 use taceo_oprf_test_utils::health_checks;
@@ -214,13 +214,12 @@ async fn run_nullifier(
     rp_id: RpId,
     rp_oprf_key_id: OprfKeyId,
     issuer_schema_id: u64,
-    issuer_oprf_key_id: OprfKeyId,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
     let credential_sub_blinding_factor = authenticator
-        .generate_credential_blinding_factor(issuer_schema_id, issuer_oprf_key_id)
+        .generate_credential_blinding_factor(issuer_schema_id)
         .await?;
 
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
@@ -376,7 +375,6 @@ fn prepare_nullifier_stress_test_oprf_request(
     let oprf_request = OprfRequest {
         request_id,
         blinded_query: blinded_request.blinded_query(),
-        oprf_key_id,
         auth: oprf_request_auth,
     };
 
@@ -402,7 +400,7 @@ async fn stress_test(
     rp_oprf_key_id: OprfKeyId,
     rp_oprf_public_key: OprfPublicKey,
     issuer_schema_id: u64,
-    cmd: StressTestCommand,
+    cmd: StressTestOprfCommand,
     connector: Connector,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
@@ -591,7 +589,7 @@ async fn main() -> eyre::Result<()> {
         (rp_id, oprf_key_id, oprf_public_key)
     };
 
-    let (issuer_schema_id, issuer_oprf_key_id, _issuer_oprf_public_key) =
+    let (issuer_schema_id, _issuer_oprf_public_key) =
         if let Some(issuer_schema_id) = config.issuer_schema_id {
             // TODO should maybe check if the oprf key id matches the registered one in case it was changed
             // in case they are not the same, we return them both
@@ -604,7 +602,7 @@ async fn main() -> eyre::Result<()> {
                 Duration::from_secs(10), // should already be there
             )
             .await?;
-            (issuer_schema_id, oprf_key_id, oprf_public_key)
+            (issuer_schema_id, oprf_public_key)
         } else {
             tracing::info!("registering new credential schema issuer");
             let credential_schema_issuer_registry = CredentialSchemaIssuerRegistry::new(
@@ -637,7 +635,7 @@ async fn main() -> eyre::Result<()> {
                 config.max_wait_time,
             )
             .await?;
-            (issuer_schema_id, oprf_key_id, oprf_public_key)
+            (issuer_schema_id, oprf_public_key)
         };
 
     let (gateway_url, _gateway_handle) = if let Some(gateway_url) = &config.gateway_url {
@@ -740,13 +738,12 @@ async fn main() -> eyre::Result<()> {
                 rp_id,
                 rp_oprf_key_id,
                 issuer_schema_id,
-                issuer_oprf_key_id,
                 &private_key,
             )
             .await?;
             tracing::info!("nullifier successful");
         }
-        Command::StressTest(cmd) => {
+        Command::StressTestOprf(cmd) => {
             tracing::info!("running stress-test");
             stress_test(
                 &authenticator,
@@ -761,6 +758,9 @@ async fn main() -> eyre::Result<()> {
             )
             .await?;
             tracing::info!("stress-test successful");
+        }
+        Command::StressTestKeyGen(_) => {
+            todo!()
         }
         Command::ReshareTest(_) => {
             todo!()

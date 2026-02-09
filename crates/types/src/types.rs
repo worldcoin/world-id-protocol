@@ -211,7 +211,7 @@ pub struct GatewayStatusResponse {
 }
 
 /// Kind of request tracked by the registry gateway.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayRequestKind {

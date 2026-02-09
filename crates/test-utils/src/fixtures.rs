@@ -88,6 +88,41 @@ impl RegistryTestContext {
             world_id_verifier,
         })
     }
+
+    /// Spawns Anvil and deploys protocol registries with a lightweight mock OPRF key registry.
+    ///
+    /// This variant is useful for auth tests that need issuer removal without running OPRF key-gen rounds.
+    pub async fn new_with_mock_oprf_key_registry() -> Result<Self> {
+        let anvil = TestAnvil::spawn().wrap_err("failed to spawn anvil")?;
+        let deployer = anvil
+            .signer(0)
+            .wrap_err("failed to acquire default anvil signer")?;
+        let world_id_registry = anvil
+            .deploy_world_id_registry(deployer.clone())
+            .await
+            .wrap_err("failed to deploy WorldIDRegistry")?;
+        let oprf_key_registry = anvil
+            .deploy_mock_oprf_key_registry(deployer.clone())
+            .await
+            .wrap_err("failed to deploy mock OprfKeyRegistry")?;
+        let credential_registry = anvil
+            .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
+            .await
+            .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
+        let rp_registry = anvil
+            .deploy_rp_registry(deployer.clone(), oprf_key_registry)
+            .await
+            .wrap_err("failed to deploy RpRegistry")?;
+
+        Ok(Self {
+            anvil,
+            world_id_registry,
+            oprf_key_registry,
+            credential_registry,
+            rp_registry,
+            world_id_verifier: Address::ZERO,
+        })
+    }
 }
 
 /// Helper for building a minimal credential used in tests.
@@ -130,6 +165,7 @@ pub fn single_leaf_merkle_fixture(
     })
 }
 
+#[derive(Clone)]
 pub struct RpFixture {
     pub world_rp_id: WorldRpId,
     pub oprf_key_id: OprfKeyId,

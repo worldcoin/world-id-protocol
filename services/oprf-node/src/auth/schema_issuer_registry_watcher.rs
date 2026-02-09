@@ -69,7 +69,7 @@ impl SchemaIssuerRegistryWatcher {
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
-    ) -> eyre::Result<Self> {
+    ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
         tracing::info!("creating provider for issuer-schema-registry-watcher...");
         let ws = WsConnect::new(ws_rpc_url);
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
@@ -89,12 +89,22 @@ impl SchemaIssuerRegistryWatcher {
         let issuer_schema_store: Cache<u64, ()> = Cache::builder()
             .max_capacity(max_issuer_registry_store_size)
             .build();
-        tokio::task::spawn({
+        let subscribe_task = tokio::task::spawn({
             let issuer_schema_store = issuer_schema_store.clone();
             async move {
                 // shutdown service if issuer registry watcher encounters an error and drops this guard
-                let _drop_guard = cancellation_token.drop_guard();
-                while let Some(log) = stream.next().await {
+                let _drop_guard = cancellation_token.clone().drop_guard();
+
+                loop {
+                    let log = tokio::select! {
+                        log = stream.next() => {
+                            log.ok_or_else(||eyre::eyre!("SchemaIssuerRegistryWatcher subscribe stream was closed"))?
+                        }
+                        _ = cancellation_token.cancelled() => {
+                            break;
+                        }
+                    };
+
                     match IssuerSchemaRemoved::decode_log(log.as_ref()) {
                         Ok(event) => {
                             let issuer_schema_id = event.issuerSchemaId;
@@ -110,6 +120,8 @@ impl SchemaIssuerRegistryWatcher {
                         }
                     }
                 }
+                tracing::info!("Successfully shutdown SchemaIssuerRegistryWatcher");
+                eyre::Ok(())
             }
         });
 
@@ -127,12 +139,12 @@ impl SchemaIssuerRegistryWatcher {
                 }
             }
         });
-
-        Ok(Self {
+        let schema_issuer_registry = Self {
             issuer_schema_store,
             provider: provider.erased(),
             contract_address,
-        })
+        };
+        Ok((schema_issuer_registry, subscribe_task))
     }
 
     pub(crate) async fn is_valid_issuer(
