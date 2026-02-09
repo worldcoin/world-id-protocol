@@ -9080,6 +9080,7 @@ name = "world-id-authenticator"
 version = "0.3.0"
 dependencies = [
  "alloy",
+ "anyhow",
  "ark-serialize 0.5.0",
  "backon",
  "eyre",
@@ -9089,6 +9090,7 @@ dependencies = [
  "ruint",
  "rustls 0.23.36",
  "secrecy",
+ "serde",
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
@@ -9100,10 +9102,8 @@ dependencies = [
  "webpki-roots 1.0.5",
  "world-id-primitives",
  "world-id-proof",
- "world-id-registry",
  "world-id-request",
  "world-id-signer",
- "world-id-types",
 ]
 
 [[package]]
@@ -9130,10 +9130,8 @@ dependencies = [
  "world-id-issuer",
  "world-id-primitives",
  "world-id-proof",
- "world-id-registry",
  "world-id-request",
  "world-id-signer",
- "world-id-types",
 ]
 
 [[package]]
@@ -9326,6 +9324,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha3",
+ "strum",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
  "taceo-circom-types",
@@ -9335,6 +9334,7 @@ dependencies = [
  "taceo-poseidon2",
  "thiserror 1.0.69",
  "url",
+ "utoipa",
 ]
 
 [[package]]
@@ -9362,17 +9362,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "world-id-registry"
-version = "0.3.0"
-dependencies = [
- "alloy",
- "anyhow",
- "rand 0.8.5",
- "ruint",
- "serde_json",
-]
-
-[[package]]
 name = "world-id-request"
 version = "0.3.0"
 dependencies = [
@@ -9393,23 +9382,6 @@ dependencies = [
  "secrecy",
  "taceo-eddsa-babyjubjub",
  "world-id-primitives",
-]
-
-[[package]]
-name = "world-id-types"
-version = "0.3.0"
-dependencies = [
- "alloy",
- "axum",
- "hex",
- "rand 0.8.5",
- "ruint",
- "serde",
- "serde_json",
- "strum",
- "utoipa",
- "world-id-primitives",
- "world-id-registry",
 ]
 
 [[package]]

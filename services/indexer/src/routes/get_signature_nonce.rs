@@ -1,6 +1,7 @@
+use crate::error::IndexerErrorResponse;
 use axum::{Json, extract::State};
-use world_id_core::types::{
-    IndexerErrorCode, IndexerErrorResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+use world_id_core::api_types::{
+    IndexerErrorCode, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
 
 use crate::config::AppState;

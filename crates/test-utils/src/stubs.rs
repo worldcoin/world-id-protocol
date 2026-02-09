@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
@@ -40,10 +40,10 @@ pub async fn spawn_indexer_stub(
                     |State(state): State<IndexerState>, Json(body): Json<serde_json::Value>| async move {
                         let requested_leaf_index = body.get("leaf_index")
                             .and_then(|v| v.as_str())
-                            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                            .and_then(|s| s.parse::<U256>().ok())
                             .ok_or(StatusCode::BAD_REQUEST)?;
 
-                        if requested_leaf_index != state.leaf_index {
+                        if requested_leaf_index.as_limbs()[0] != state.leaf_index {
                             return Err(StatusCode::NOT_FOUND);
                         }
                         Ok::<_, StatusCode>(Json(state.proof.clone()))
@@ -92,15 +92,13 @@ impl MutableIndexerStub {
                             let requested_leaf_index = body
                                 .get("leaf_index")
                                 .and_then(|v| v.as_str())
-                                .and_then(|s| {
-                                    u64::from_str_radix(s.trim_start_matches("0x"), 16).ok()
-                                })
+                                .and_then(|s| s.parse::<U256>().ok())
                                 .ok_or(StatusCode::BAD_REQUEST)?;
 
                             let guard = state
                                 .read()
                                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                            if requested_leaf_index != guard.leaf_index {
+                            if requested_leaf_index.as_limbs()[0] != guard.leaf_index {
                                 return Err(StatusCode::NOT_FOUND);
                             }
                             Ok::<_, StatusCode>(Json(guard.proof.clone()))

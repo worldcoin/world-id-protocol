@@ -1,8 +1,9 @@
+use crate::error::IndexerErrorBody;
 use axum::{Json, Router, response::IntoResponse};
 use utoipa::OpenApi;
-use world_id_core::types::{
-    AccountInclusionProofSchema, IndexerErrorBody, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+use world_id_core::api_types::{
+    AccountInclusionProofSchema, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+    IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
 
 use crate::config::AppState;

@@ -28,7 +28,6 @@ authenticator = [
     "dep:world-id-signer",
     "dep:world-id-proof",
     "dep:world-id-request",
-    "dep:world-id-registry",
     "dep:world-id-authenticator",
 ]
 
@@ -45,7 +44,7 @@ issuer = [
 rp = ["dep:world-id-request"]
 
 # OpenAPI/Swagger docs
-openapi = ["world-id-types/openapi"]
+openapi = ["authenticator", "world-id-primitives/openapi"]
 
 [dependencies]
 eddsa-babyjubjub = { workspace = true }
@@ -56,9 +55,7 @@ world-id-proof = { workspace = true, optional = true }
 world-id-request = { workspace = true, optional = true }
 world-id-signer = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
-world-id-registry = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
-world-id-types = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true }

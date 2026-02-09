@@ -6,6 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     RequestTracker,
+    error::parse_contract_error,
     metrics::{
         METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
         METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
@@ -17,7 +18,7 @@ use alloy::{
 };
 use tokio::sync::mpsc;
 use world_id_core::{
-    types::{GatewayErrorCode, GatewayRequestState, parse_contract_error},
+    api_types::{GatewayErrorCode, GatewayRequestState},
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 

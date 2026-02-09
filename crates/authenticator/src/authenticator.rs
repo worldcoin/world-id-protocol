@@ -4,14 +4,14 @@
 
 use std::sync::Arc;
 
-use world_id_primitives::{Credential, FieldElement, SessionNullifier};
-use world_id_signer::Signer;
-use world_id_types::{
+use crate::api_types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
     IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
+use world_id_primitives::{Credential, FieldElement, SessionNullifier};
+use world_id_signer::Signer;
 
 use world_id_proof::{
     AuthenticatorProofInput,
@@ -21,6 +21,10 @@ use world_id_proof::{
 };
 use world_id_request::{ProofRequest, RequestItem, ResponseItem};
 
+use crate::registry::{
+    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
+    sign_remove_authenticator, sign_update_authenticator,
+};
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
@@ -37,10 +41,6 @@ pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner}
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
     merkle::MerkleInclusionProof,
-};
-use world_id_registry::{
-    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
-    sign_remove_authenticator, sign_update_authenticator,
 };
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -96,7 +96,7 @@ impl Authenticator {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(world_id_registry::WorldIdRegistry::new(
+                Some(crate::registry::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))

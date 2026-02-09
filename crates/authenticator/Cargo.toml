@@ -22,6 +22,7 @@ embed-zkeys = [
 
 [dependencies]
 alloy = { workspace = true }
+anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
 groth16-material = { workspace = true }
@@ -36,15 +37,15 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 rand = { workspace = true }
 backon = { workspace = true, optional = true }
+ruint = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 # Optional
 rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
 
 # Internal
-world-id-registry = { workspace = true }
 world-id-signer = { workspace = true }
-world-id-types = { workspace = true }
 world-id-request = { workspace = true }
 world-id-proof = { workspace = true }
 

@@ -1,5 +1,5 @@
 use axum::Json;
-use world_id_core::types::HealthResponse;
+use world_id_core::api_types::HealthResponse;
 
 #[utoipa::path(
     get,
