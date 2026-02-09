@@ -7,6 +7,7 @@ use alloy::{
 };
 use futures_util::{Stream, StreamExt, stream};
 use thiserror::Error;
+use tracing::instrument;
 use url::Url;
 
 pub use crate::blockchain::events::{
@@ -81,6 +82,7 @@ impl Blockchain {
     /// at the time of the query. It is crucial to first create a subscription
     /// and then check for last block number to not miss any logs between the
     /// call for last block number and subscription creation.
+    #[instrument(level = "info", skip(self), fields(from_block))]
     pub async fn stream_world_tree_events(
         &self,
         from_block: u64,
@@ -124,6 +126,38 @@ impl Blockchain {
                 })
             }))
             .map(|log| RegistryEvent::decode(&log)))
+    }
+
+    /// Fetch all historical events from `from_block` to the current latest block.
+    /// Returns the logs and the block number they were fetched up to (inclusive).
+    #[instrument(level = "info", skip(self), fields(from_block))]
+    pub async fn get_backfill_events(
+        &self,
+        from_block: u64,
+    ) -> BlockchainResult<(Vec<alloy::rpc::types::Log>, u64)> {
+        let filter = Filter::new()
+            .address(self.world_id_registry)
+            .event_signature(RegistryEvent::signatures());
+
+        let latest_block_number = self
+            .http_provider
+            .get_block_number()
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
+
+        if from_block > latest_block_number {
+            return Ok((vec![], latest_block_number));
+        }
+
+        let range_filter = filter.from_block(from_block).to_block(latest_block_number);
+
+        let logs = self
+            .http_provider
+            .get_logs(&range_filter)
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
+
+        Ok((logs, latest_block_number))
     }
 
     pub async fn get_block_number(&self) -> BlockchainResult<u64> {

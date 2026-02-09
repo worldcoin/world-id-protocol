@@ -5,7 +5,7 @@ This document describes how the indexer manages the memory-mapped (mmap) merkle 
 ## Table of Contents
 
 - [Operational Modes](#operational-modes)
-- [Mmap Tree Files](#mmap-tree-files)
+- [Mmap Tree File](#mmap-tree-file)
 - [Tree Initialization](#tree-initialization)
 - [Tree Updates](#tree-updates)
 - [Cache Synchronization](#cache-synchronization)
@@ -24,7 +24,7 @@ The indexer supports three operational modes configured via `RUN_MODE` environme
 
 **Behavior**:
 - Listens to blockchain events via WebSocket or batched HTTP requests
-- Writes events to `commitment_update_events` table
+- Writes events to `world_tree_events` table
 - Updates `accounts` table with latest state
 - **Does not** initialize or maintain the merkle tree
 - **Does not** create or update mmap cache files
@@ -50,16 +50,11 @@ The indexer supports three operational modes configured via `RUN_MODE` environme
 - Performs all IndexerOnly operations (event indexing)
 - Performs all HttpOnly operations (API serving)
 - Updates tree in real-time as events are indexed
-- Writes metadata after each batch of events
 - Most efficient for single-node deployments
 
 ---
 
-## Mmap Tree Files
-
-The tree cache consists of two files:
-
-### 1. Tree Cache File (`.mmap`)
+## Mmap Tree File
 
 **Location**: Configured via `TREE_CACHE_FILE` environment variable (e.g., `/data/tree.mmap`)
 
@@ -80,41 +75,6 @@ The tree cache consists of two files:
 └─────────────────────────────────────┘
 ```
 
-### 2. Metadata File (`.mmap.meta`)
-
-**Location**: Same directory as tree file, with `.mmap.meta` extension
-
-**Contents**: JSON file with synchronization metadata
-```json
-{
-  "root_hash": "0x1234...",
-  "last_block_number": 12345678,
-  "last_event_id": 98765,
-  "active_leaf_count": 50000,
-  "tree_depth": 30,
-  "dense_prefix_depth": 26,
-  "created_at": 1234567890,
-  "cache_version": 1
-}
-```
-
-**Key Fields**:
-- `root_hash`: Tree root at time of last cache write (for validation)
-- `last_block_number`: Last blockchain block processed (informational)
-- `last_event_id`: **Primary sync cursor** - auto-incrementing ID from `commitment_update_events` table
-- `active_leaf_count`: Number of non-zero leaves (accounts created)
-- `tree_depth`: Tree configuration (default: 30)
-- `dense_prefix_depth`: Dense storage optimization depth (default: 26)
-- `cache_version`: Format version for future compatibility
-
-**Why Event ID as Cursor?**
-
-The `last_event_id` field uses the auto-incrementing primary key from the `commitment_update_events` table rather than `block_number`. This handles blockchain reorganizations correctly:
-
-- During a reorg, events may be inserted with older block numbers after newer ones
-- Event IDs always increase monotonically regardless of block_number
-- Replaying from `last_event_id` ensures all events are captured
-
 ---
 
 ## Tree Initialization
@@ -123,79 +83,60 @@ The `last_event_id` field uses the auto-incrementing primary key from the `commi
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. Check Cache Files                                        │
-│    - Does .mmap file exist?                                 │
-│    - Does .mmap.meta file exist?                            │
+│ 1. Check if .mmap cache file exists                         │
 └──────────┬──────────────────────────────────────────────────┘
            │
-           ├─ Both Missing ────────┐
-           │                       ▼
-           │              ┌──────────────────────┐
-           │              │ Full Rebuild         │
-           │              │ - Fetch all accounts │
-           │              │ - Create new tree    │
-           │              │ - Write both files   │
-           │              └──────────────────────┘
+           ├─ Missing ──────────────┐
+           │                        ▼
+           │               ┌──────────────────────┐
+           │               │ Full Rebuild         │
+           │               │ - Fetch all accounts │
+           │               │ - Create new tree    │
+           │               └──────────────────────┘
            │
-           ├─ One Missing ─────────┐
-           │                       │
-           │                       ▼
-           │              ┌──────────────────────┐
-           │              │ Full Rebuild         │
-           │              │ (cache corrupted)    │
-           │              └──────────────────────┘
-           │
-           └─ Both Present ────────┐
-                                   ▼
-                          ┌──────────────────────┐
-                          │ Restore & Replay     │
-                          │ - Restore from mmap  │
-                          │ - Verify root hash   │
-                          │ - Replay new events  │
-                          └──────────────────────┘
+           └─ Present ──────────────┐
+                                    ▼
+                           ┌──────────────────────┐
+                           │ Restore & Replay     │
+                           │ - Restore from mmap  │
+                           │ - Validate root in DB│
+                           │ - Replay new events  │
+                           │                      │
+                           │ On failure → Full    │
+                           │ Rebuild (fallback)   │
+                           └──────────────────────┘
 ```
 
 ### Restore & Replay Process
 
-1. **Read Metadata**
-   - Parse `.mmap.meta` JSON file
-   - Extract `last_event_id` and `root_hash`
-
-2. **Restore Tree from Mmap**
+1. **Restore Tree from Mmap**
    - Memory-map the tree file into process address space
    - OS loads pages on-demand
    - Most pages already in OS page cache if recently used
 
-3. **Verify Root Hash**
+2. **Validate Root Against DB**
    - Compute tree root from restored tree
-   - Compare with `root_hash` from metadata
-   - If mismatch: fall back to full rebuild
+   - Look up the root in `world_tree_roots` table
+   - If root not found: cache is stale, fall back to full rebuild
 
-4. **Check for New Events**
-   - Query: `SELECT MAX(id) FROM commitment_update_events`
-   - Compare with `last_event_id` from metadata
-   - If equal: tree is up-to-date
-
-5. **Replay Events**
-   - Fetch events in batches: `SELECT * FROM commitment_update_events WHERE id > $1 ORDER BY id LIMIT 10000`
+3. **Replay Events**
+   - Fetch events after the root's position: `SELECT * FROM world_tree_events WHERE (block_number, log_index) > ($1, $2) ORDER BY block_number, log_index LIMIT 10000`
    - Deduplicate in memory (multiple updates to same leaf → keep final state)
    - Apply updates to tree: `tree.update_with_mutation(leaf_index, value)`
-   - Update metadata with new `last_event_id`
 
 ### Full Rebuild Process
 
 1. **Fetch All Accounts**
    - Query: `SELECT leaf_index, offchain_signer_commitment FROM accounts ORDER BY leaf_index`
-   - Load all account data into memory
+   - Process in batches of 100,000
 
-2. **Create New Mmap Tree**
+2. **Two-Pass Tree Construction**
+   - Pass 1: Build dense prefix from leaves within dense prefix range
+   - Pass 2: Apply sparse leaves (beyond dense prefix) incrementally
+
+3. **Create Mmap File**
    - Allocate/create `.mmap` file
    - Initialize with dense prefix optimization
-   - Insert all account commitments at their leaf indices
-
-3. **Write Metadata**
-   - Create `.mmap.meta.tmp` with current state
-   - Atomic rename to `.mmap.meta` (prevents torn writes)
 
 ---
 
@@ -206,7 +147,7 @@ The `last_event_id` field uses the auto-incrementing primary key from the `commi
 When blockchain events are indexed in Both mode:
 
 ```
-Event Received → Decode → Update DB → Update Tree → Write Metadata
+Event Received → Decode → Buffer → RootRecorded? → Commit to DB → Sync Tree from DB
 ```
 
 **Step-by-Step**:
@@ -215,57 +156,48 @@ Event Received → Decode → Update DB → Update Tree → Write Metadata
    - WebSocket: immediate notification
    - HTTP Batch: polled at regular intervals
 
-2. **Decode Event**
+2. **Decode & Buffer Event**
    - Parse `AccountCreated`, `AccountUpdated`, etc.
-   - Extract leaf index and new commitment value
+   - Buffer events until `RootRecorded` event is seen
 
-3. **Update Database** (single transaction)
-   - Insert into `commitment_update_events` (append-only)
+3. **Commit to Database** (single serializable transaction)
+   - Insert into `world_tree_events` (append-only)
    - Upsert into `accounts` (current state)
+   - Insert root into `world_tree_roots`
 
-4. **Update Tree in Memory**
-   - Acquire write lock on `GLOBAL_TREE`
-   - Call `tree.update_with_mutation(leaf_index, value)`
-   - Release write lock
-   - **Mmap pages are marked dirty by OS**
-
-5. **Write Metadata** (after batch)
-   - Create temporary file with updated state
-   - Atomic rename to `.mmap.meta`
+4. **Sync Tree from DB**
+   - Fetch new events since last sync cursor
+   - Deduplicate (keep final state per leaf)
+   - Acquire write lock on tree
+   - Apply all updates under single lock
+   - Advance sync cursor
 
 **What Gets Written to Disk**:
 - Modified tree nodes (OS writes dirty mmap pages automatically)
-- New metadata file (after each batch)
 
 **When It Gets Written**:
 - Tree data: OS decides based on memory pressure and sync intervals
-- Metadata: Immediately after each batch completes
 
 ### Periodic Sync (HttpOnly Mode)
 
 HttpOnly nodes check for updates every `TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS`:
 
 ```
-Timer Tick → Check Metadata → Compare DB State → Sync If Needed
+Timer Tick → Query DB for new events → Apply to tree if needed
 ```
 
 **Step-by-Step**:
 
-1. **Check Cache Metadata**
-   - Read `.mmap.meta` file
-   - Extract `last_event_id`
+1. **Read sync cursor** from tree state (last synced event ID)
 
-2. **Query Database State**
-   - Get current max event ID: `SELECT MAX(id) FROM commitment_update_events`
-   - Calculate events behind: `current_id - last_event_id`
+2. **Query Database** for events after cursor
 
-3. **If Behind**:
-   - Restore tree from mmap (separate instance)
-   - Replay missing events
-   - Replace `GLOBAL_TREE` with updated tree
-   - Write new metadata
+3. **If new events exist**:
+   - Deduplicate to final leaf states
+   - Apply under write lock
+   - Advance cursor
 
-4. **If Up-to-Date**:
+4. **If no new events**:
    - No action taken
    - Next check scheduled
 
@@ -273,54 +205,29 @@ Timer Tick → Check Metadata → Compare DB State → Sync If Needed
 
 ## Cache Synchronization
 
-### sync_with_db() Method
+### sync_from_db() Function
 
-The `sync_with_db()` method provides efficient incremental updates without full reinitialization:
+The `sync_from_db()` function provides efficient incremental updates:
 
-```rust
-pub async fn sync_with_db(&self, pool: &PgPool) -> Result<u64>
-```
-
-**Returns**: Number of events applied
+**Returns**: Number of events processed
 
 **Process**:
 
-1. **Read Current State**
-   - Read `.mmap.meta` to get `last_event_id`
-   - Query DB for current max event ID
+1. **Read sync cursor** from `TreeState.last_synced_event_id`
 
-2. **Early Exit If Current**
-   - If `events_behind == 0`, return immediately
-   - No disk I/O, no tree operations
+2. **Batch-fetch pending events** from `world_tree_events` table (10,000 per batch)
 
-3. **Restore Separate Tree Instance**
-   - Restore from mmap into new tree object
-   - **GLOBAL_TREE continues serving requests**
-   - No interruption to API availability
+3. **Deduplicate in memory** using HashMap (keeps final state per leaf)
 
-4. **Validate Root Hash**
-   - Compute root from restored tree
-   - Compare with metadata `root_hash`
-   - **If mismatch**: trigger full rebuild (corruption recovery)
+4. **Apply all updates** under a single write lock
 
-5. **Replay Events**
-   - Fetch events in batches (10,000 per batch)
-   - Deduplicate in memory (HashMap of final leaf states)
-   - Apply to restored tree
-
-6. **Atomic Replacement**
-   - Acquire write lock on `GLOBAL_TREE`
-   - Assign updated tree: `*tree = updated_tree`
-   - Release write lock
-
-7. **Update Metadata**
-   - Write new `.mmap.meta` with updated cursor
+5. **Advance cursor** to latest event ID
 
 **Concurrency Guarantees**:
-- `GLOBAL_TREE` is always in valid state
+- Tree is always in a valid state
 - API requests never see incomplete updates
-- Write lock held only during pointer swap
-- No torn reads possible
+- Write lock held only during batch application
+- Multiple concurrent readers allowed
 
 ---
 
@@ -331,7 +238,6 @@ pub async fn sync_with_db(&self, pool: &PgPool) -> Result<u64>
 1. **Tree Structure** (~100 bytes per tree object)
    - Pointer to mmap region
    - Tree configuration (depth, dense prefix depth)
-   - Metadata fields
 
 2. **Mmap Mapping** (Virtual Memory)
    - Tree file mapped into process address space
@@ -339,8 +245,8 @@ pub async fn sync_with_db(&self, pool: &PgPool) -> Result<u64>
    - Hot pages stay in RAM (page cache)
    - Cold pages evicted when memory pressure increases
 
-3. **Deduplication Buffer** (During Replay)
-   - HashMap of leaf updates: `HashMap<usize, U256>`
+3. **Deduplication Buffer** (During Replay/Sync)
+   - HashMap of leaf updates: `HashMap<U256, U256>`
    - Size: O(unique leaves updated)
    - Cleared after batch applied
 
@@ -352,12 +258,6 @@ pub async fn sync_with_db(&self, pool: &PgPool) -> Result<u64>
    - No explicit `write()` calls needed
    - Happens asynchronously in background
 
-2. **Metadata** (Explicit)
-   - Written after each event batch (Both mode)
-   - Written after sync operation (HttpOnly mode)
-   - Atomic write via temp file + rename
-   - ~1KB JSON file
-
 ### Disk I/O Patterns
 
 **Startup (Cold Cache)**:
@@ -367,18 +267,16 @@ pub async fn sync_with_db(&self, pool: &PgPool) -> Result<u64>
 
 **Startup (Warm Cache)**:
 - Most pages already in OS page cache
-- Minimal disk I/O (just metadata read)
+- Minimal disk I/O
 - ~100ms restore time
 
 **Runtime (Both Mode)**:
 - Tree updates: dirty pages written by OS kernel
 - Write pattern: scattered updates (tree structure)
-- Metadata: small sequential writes (~1KB)
 
 **Runtime (HttpOnly Mode)**:
-- Sync operation: restore from mmap (uses page cache)
-- Replay: tree updates similar to Both mode
-- Metadata: written after sync
+- Sync operation: fetches events from DB, applies to tree
+- Tree updates similar to Both mode
 
 ---
 
@@ -402,7 +300,7 @@ TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS=30   # HttpOnly mode sync interval
 
 ### Thread Safety
 
-- `GLOBAL_TREE` protected by async `RwLock`
+- Tree protected by async `RwLock` in `TreeState`
 - Multiple concurrent readers allowed
 - Exclusive writer access during updates
 - No internal mutability beyond RwLock
@@ -410,21 +308,16 @@ TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS=30   # HttpOnly mode sync interval
 ### Error Handling & Cache Corruption Recovery
 
 **Validation on Restore:**
-- Tree root hash is validated against metadata after mmap restore
-- Detects cache corruption from disk errors, partial writes, or tampering
+- Tree root hash is validated against the `world_tree_roots` DB table after mmap restore
+- Detects stale cache from disk errors, partial writes, or process crashes
 
 **Automatic Recovery:**
-- `initialize()`: Falls back to full rebuild on validation failure
-- `sync_with_db()`: Triggers full rebuild and replaces GLOBAL_TREE atomically
-- HttpOnly mode checks cache integrity on startup and during periodic refresh
+- `init_tree()`: Falls back to full rebuild on validation failure
+- Mmap restore failure → full rebuild
+- Root not found in DB → full rebuild (stale cache)
+- Event replay errors → propagate to caller
 
 **Recovery Flow:**
 ```
-Root Mismatch → Log Warning → Full Rebuild from DB → Replace GLOBAL_TREE → Write New Metadata
+Root Not In DB → Log Warning → Full Rebuild from DB → Return new TreeState
 ```
-
-**Error Scenarios:**
-- Metadata read failures → full rebuild
-- Mmap restore failures → full rebuild
-- Root hash mismatch → full rebuild (automatic recovery)
-- Event replay errors → propagate to caller

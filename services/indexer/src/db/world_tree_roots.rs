@@ -126,6 +126,40 @@ where
         result.map(|row| Self::map_root_id(&row)).transpose()
     }
 
+    pub async fn get_latest_block(self) -> DBResult<Option<u64>> {
+        let rec: Option<(Option<i64>,)> = sqlx::query_as(&format!(
+            "SELECT MAX(block_number) FROM {}",
+            self.table_name
+        ))
+        .fetch_optional(self.executor)
+        .await?;
+        Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
+    }
+
+    /// Look up a root by its value (for restore validation).
+    pub async fn get_root_by_value(self, root: &U256) -> DBResult<Option<WorldTreeRoot>> {
+        let table_name = self.table_name;
+        let result = sqlx::query(&format!(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    event_type,
+                    tx_hash,
+                    root,
+                    root_timestamp
+                FROM {}
+                WHERE root = $1
+            "#,
+            table_name
+        ))
+        .bind(root)
+        .fetch_optional(self.executor)
+        .await?;
+
+        result.map(|row| Self::map_root(&row)).transpose()
+    }
+
     #[instrument(level = "info", skip(self))]
     pub async fn insert_event(
         self,

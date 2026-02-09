@@ -79,8 +79,6 @@ pub(crate) async fn handler(
         IndexerErrorResponse::internal_server_error()
     })?;
 
-    let tree = state.tree_state.read().await;
-
     let index_as_usize = leaf_index.as_limbs()[0] as usize;
     let capacity = state.tree_state.capacity();
     if index_as_usize >= capacity {
@@ -90,7 +88,7 @@ pub(crate) async fn handler(
         ));
     }
 
-    let leaf = tree.get_leaf(index_as_usize);
+    let (leaf, proof, root) = state.tree_state.leaf_proof_and_root(index_as_usize).await;
 
     if leaf == U256::ZERO {
         return Err(IndexerErrorResponse::new(
@@ -110,8 +108,6 @@ pub(crate) async fn handler(
         return Err(IndexerErrorResponse::internal_server_error());
     }
 
-    let proof = tree.proof(index_as_usize);
-
     // Convert proof siblings to FieldElement array
     let siblings_vec: Vec<FieldElement> = proof_to_vec(&proof)
         .into_iter()
@@ -128,11 +124,8 @@ pub(crate) async fn handler(
         }
     }
 
-    let merkle_proof = MerkleInclusionProof::new(
-        tree.root().try_into().unwrap(),
-        leaf_index.as_limbs()[0],
-        siblings,
-    );
+    let merkle_proof =
+        MerkleInclusionProof::new(root.try_into().unwrap(), leaf_index.as_limbs()[0], siblings);
 
     let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
         .expect("authenticator_pubkeys already validated");
