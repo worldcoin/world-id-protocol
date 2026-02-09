@@ -43,6 +43,7 @@ world-id-core = { workspace = true, features = [
   "openapi",
 ] }
 world-id-primitives = { workspace = true }
+backon = { workspace = true }
 
 [dev-dependencies]
 test-utils = { workspace = true }

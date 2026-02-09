@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use alloy::{
     primitives::{Address, FixedBytes},
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
 };
+use backon::{ExponentialBuilder, Retryable};
 use futures_util::{Stream, StreamExt, TryStreamExt, stream};
 use thiserror::Error;
 
@@ -19,6 +21,10 @@ pub use crate::blockchain::events::{
 mod events;
 
 static WS_BUFFER_SIZE: usize = 1024;
+
+static RPC_RETRY_MIN_DELAY: Duration = Duration::from_millis(100);
+static RPC_RETRY_MAX_TIMES: usize = 5;
+static RPC_RETRY_FACTOR: f32 = 2.0;
 
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 
@@ -216,11 +222,7 @@ impl Blockchain {
                 .address(self.world_id_registry)
                 .event_signature(RegistryEvent::signatures());
 
-            let sub = self
-                .ws_provider
-                .subscribe_logs(&filter)
-                .await
-                .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
+            let sub = self.subscribe_logs(&filter).await?;
 
             let mut ws_stream = sub.into_stream();
 
@@ -329,18 +331,13 @@ impl Blockchain {
         from_block: u64,
         to_block: u64,
         batch_size: u64,
-    ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin {
-        let http_provider = self.http_provider.clone();
-        let world_id_registry = self.world_id_registry;
-
+    ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin + '_ {
         let initial_state = (
             from_block, // start block
             0usize,     // total logs fetched; we keep this only for logging
         );
 
         stream::try_unfold(initial_state, move |(current_from, total_logs)| {
-            let http_provider = http_provider.clone();
-
             async move {
                 if current_from > to_block {
                     tracing::info!(
@@ -361,15 +358,12 @@ impl Blockchain {
                 );
 
                 let batch_filter = Filter::new()
-                    .address(world_id_registry)
+                    .address(self.world_id_registry)
                     .event_signature(RegistryEvent::signatures())
                     .from_block(current_from)
                     .to_block(current_to);
 
-                let logs = http_provider
-                    .get_logs(&batch_filter)
-                    .await
-                    .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
+                let logs = self.get_logs(&batch_filter).await?;
 
                 tracing::debug!("Fetched {} logs in batch", logs.len());
 
@@ -386,10 +380,63 @@ impl Blockchain {
         .boxed()
     }
 
-    async fn get_block_number(&self) -> BlockchainResult<u64> {
-        self.http_provider
-            .get_block_number()
+    // ── RPC helpers ──────────────────────────────────────────────────────
+
+    /// Generic retry wrapper for any RPC call.
+    ///
+    /// Retries `f` with exponential backoff using the module-level
+    /// `RPC_RETRY_*` constants. Every failed attempt is logged at `warn`
+    /// level together with the operation `name`.
+    async fn rpc<T, F, Fut>(&self, name: &str, f: F) -> BlockchainResult<T>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = BlockchainResult<T>>,
+    {
+        let backoff = ExponentialBuilder::default()
+            .with_min_delay(RPC_RETRY_MIN_DELAY)
+            .with_max_times(RPC_RETRY_MAX_TIMES)
+            .with_factor(RPC_RETRY_FACTOR);
+
+        f.retry(backoff)
+            .notify(|err, dur| {
+                tracing::warn!(?err, ?dur, "rpc call '{}' failed, retrying", name);
+            })
             .await
-            .map_err(|err| BlockchainError::Rpc(Box::new(err)))
+    }
+
+    async fn get_block_number(&self) -> BlockchainResult<u64> {
+        self.rpc("get_block_number", || async {
+            self.http_provider
+                .get_block_number()
+                .await
+                .map_err(|err| BlockchainError::Rpc(Box::new(err)))
+        })
+        .await
+    }
+
+    async fn get_logs(
+        &self,
+        filter: &Filter,
+    ) -> BlockchainResult<Vec<alloy::rpc::types::Log>> {
+        self.rpc("get_logs", || async {
+            self.http_provider
+                .get_logs(filter)
+                .await
+                .map_err(|err| BlockchainError::Rpc(Box::new(err)))
+        })
+        .await
+    }
+
+    async fn subscribe_logs(
+        &self,
+        filter: &Filter,
+    ) -> BlockchainResult<alloy::pubsub::Subscription<alloy::rpc::types::Log>> {
+        self.rpc("subscribe_logs", || async {
+            self.ws_provider
+                .subscribe_logs(filter)
+                .await
+                .map_err(|err| BlockchainError::Rpc(Box::new(err)))
+        })
+        .await
     }
 }
