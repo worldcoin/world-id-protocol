@@ -17,6 +17,8 @@ library PackedAccountData {
      * @return The recovery counter (top 32 bits) which counts the number of recoveries.
      */
     function recoveryCounter(uint256 packed) public pure returns (uint32) {
+        // casting to 'uint64' is safe because the recoveryCounter occupies the top 32 bits by design.
+        // forge-lint: disable-next-line(unsafe-typecast)
         return uint32(packed >> 224);
     }
 
@@ -27,6 +29,8 @@ library PackedAccountData {
      * specific authenticator for this World ID.
      */
     function pubkeyId(uint256 packed) public pure returns (uint32) {
+        // casting to 'uint64' is safe because the pubkeyId occupies bits [192..223]
+        // forge-lint: disable-next-line(unsafe-typecast)
         return uint32(packed >> 192);
     }
 
@@ -36,6 +40,8 @@ library PackedAccountData {
      * @return The leaf index (bottom 192 bits).
      */
     function leafIndex(uint256 packed) public pure returns (uint64) {
+        // casting to 'uint64' is safe because the leafIndex occupies the lowest 64 bits by design
+        // forge-lint: disable-next-line(unsafe-typecast)
         return uint64(packed);
     }
 

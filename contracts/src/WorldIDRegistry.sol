@@ -4,8 +4,6 @@ pragma solidity ^0.8.13;
 import {BinaryIMT, BinaryIMTData} from "./libraries/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
 import {WorldIDBase} from "./abstract/WorldIDBase.sol";

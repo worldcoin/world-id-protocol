@@ -26,7 +26,7 @@ use alloy::{
     providers::DynProvider,
     uint,
 };
-use ark_babyjubjub::{EdwardsAffine, Fq};
+use ark_babyjubjub::EdwardsAffine;
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;

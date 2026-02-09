@@ -1,7 +1,6 @@
 use crate::{
     FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u64,
 };
-use ark_babyjubjub::Fq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 /// Helper module for serializing/deserializing fixed-size arrays.
