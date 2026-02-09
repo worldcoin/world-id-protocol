@@ -1,0 +1,29 @@
+name: Circom Tests
+
+on:
+  push:
+    branches:
+      - main
+    tags-ignore:
+      - v*
+  pull_request:
+  
+permissions:
+  contents: read
+  
+jobs:
+  test:
+    name: Circuit Unit/KAT Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./circom/tests
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: wget https://github.com/iden3/circom/releases/download/v2.2.2/circom-linux-amd64 -O circom && chmod +x circom && sudo mv circom /usr/local/bin/
+      - run: npm ci
+      - run: npm test
+

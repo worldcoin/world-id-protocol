@@ -58,6 +58,10 @@ sol-test:
 sol-fmt:
 	cd contracts && forge fmt
 
+circom-test:
+	cd circom/tests && npm ci && npm test
+
 test:
 	$(MAKE) rust-test
 	$(MAKE) sol-test
+	$(MAKE) circom-test
