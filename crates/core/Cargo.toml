@@ -39,6 +39,8 @@ issuer = [
     "dep:world-id-issuer",
 ]
 
+rp = []
+
 # OpenAPI/Swagger docs
 openapi = ["world-id-types/openapi"]
 
