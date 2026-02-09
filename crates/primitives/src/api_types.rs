@@ -34,9 +34,9 @@ pub struct CreateAccountRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateAuthenticatorRequest {
     /// The account index.
-    #[serde(with = "hex_u256")]
+    #[serde(with = "hex_u64")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     /// The old authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub old_authenticator_address: Address,
@@ -77,9 +77,9 @@ pub struct UpdateAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InsertAuthenticatorRequest {
     /// The account index.
-    #[serde(with = "hex_u256")]
+    #[serde(with = "hex_u64")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     /// The new authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
@@ -117,9 +117,9 @@ pub struct InsertAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RemoveAuthenticatorRequest {
     /// The account index.
-    #[serde(with = "hex_u256")]
+    #[serde(with = "hex_u64")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     /// The authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub authenticator_address: Address,
@@ -157,9 +157,9 @@ pub struct RemoveAuthenticatorRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RecoverAccountRequest {
     /// The account index.
-    #[serde(with = "hex_u256")]
+    #[serde(with = "hex_u64")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     /// The new authenticator address.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_authenticator_address: Address,
@@ -291,9 +291,9 @@ pub struct IndexerPackedAccountResponse {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerQueryRequest {
     /// The leaf index to query (from the `WorldIDRegistry`)
-    #[serde(with = "hex_u256")]
+    #[serde(with = "hex_u64")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x1"))]
-    pub leaf_index: U256,
+    pub leaf_index: u64,
 }
 
 /// Response containing the signature nonce from the indexer.

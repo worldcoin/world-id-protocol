@@ -74,7 +74,7 @@ contract WorldIDRegistryTest is Test {
         return proof;
     }
 
-    function updateAuthenticatorProofAndSignature(uint256 leafIndex, uint32 pubkeyId, uint256 newLeaf, uint256 nonce)
+    function updateAuthenticatorProofAndSignature(uint64 leafIndex, uint32 pubkeyId, uint256 newLeaf, uint256 nonce)
         private
         view
         returns (bytes memory, uint256[] memory)
@@ -88,7 +88,7 @@ contract WorldIDRegistryTest is Test {
         return (signature, emptyProof());
     }
 
-    function updateRecoveryAddressSignature(uint256 leafIndex, address newRecoveryAddress, uint256 nonce)
+    function updateRecoveryAddressSignature(uint64 leafIndex, address newRecoveryAddress, uint256 nonce)
         private
         view
         returns (bytes memory)
@@ -155,7 +155,7 @@ contract WorldIDRegistryTest is Test {
         );
 
         uint256 nonce = 0;
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // authenticatorAddress1 is assigned to account 1
@@ -198,7 +198,7 @@ contract WorldIDRegistryTest is Test {
         );
 
         uint256 nonce = 0;
-        uint256 leafIndex = 2;
+        uint64 leafIndex = 2;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         (bytes memory signature, uint256[] memory proof) =
@@ -230,7 +230,7 @@ contract WorldIDRegistryTest is Test {
         );
 
         uint256 nonce = 1;
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
         // authenticatorAddress1 is assigned to account 1
@@ -265,7 +265,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
@@ -304,7 +304,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
 
         uint256[] memory siblingNodes = new uint256[](30);
@@ -334,7 +334,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
         address newAuthenticatorAddress = address(0x4);
 
@@ -365,7 +365,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
@@ -401,7 +401,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
         address newRecovery = recoveryAddress;
 
@@ -423,7 +423,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 1;
         address newRecovery = recoveryAddress;
 
@@ -449,7 +449,7 @@ contract WorldIDRegistryTest is Test {
             recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
         address newAuthenticatorAddress = address(0xBEEF);
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
@@ -533,7 +533,7 @@ contract WorldIDRegistryTest is Test {
             address(wallet), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
         address newAuthenticatorAddress = address(0xBEEF);
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
@@ -743,7 +743,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = worldIDRegistry.getSignatureNonce(leafIndex);
         assertEq(nonce, 0, "Initial nonce should be 0");
 
@@ -779,7 +779,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 counter = worldIDRegistry.getRecoveryCounter(leafIndex);
         assertEq(counter, 0, "Initial recovery counter should be 0");
     }

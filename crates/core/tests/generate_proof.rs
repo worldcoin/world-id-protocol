@@ -127,33 +127,30 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         SystemTime::now().duration_since(start).unwrap().as_millis(),
     );
 
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
     let authenticator = Authenticator::init(&seed, creation_config)
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), 1);
 
     // Local indexer stub serving inclusion proof.
-    let leaf_index_u64: u64 = authenticator
-        .leaf_index()
-        .try_into()
-        .expect("account id fits in u64");
+    let leaf_index = authenticator.leaf_index();
     let MerkleFixture {
         key_set,
         inclusion_proof: merkle_inclusion_proof,
         root: _,
         ..
-    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index_u64)
+    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index)
         .wrap_err("failed to construct merkle fixture")?;
 
     let inclusion_proof =
         AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
             .wrap_err("failed to build inclusion proof")?;
 
-    let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index_u64, inclusion_proof.clone())
+    let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index, inclusion_proof.clone())
         .await
         .wrap_err("failed to start indexer stub")?;
 
@@ -245,8 +242,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let authenticator = Authenticator::init(&seed, proof_config)
         .await
         .wrap_err("failed to reinitialize authenticator with proof config")?;
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), 1);
 
+    let leaf_index = authenticator.leaf_index();
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(issuer_schema_id)
         .await?;
@@ -258,7 +256,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .as_secs();
     let mut credential = build_base_credential(
         issuer_schema_id,
-        leaf_index_u64,
+        leaf_index,
         now,
         now + 60,
         credential_sub_blinding_factor,
@@ -313,14 +311,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         proof_request.created_at,
     )?;
 
-    assert_eq!(response_item.nullifier, raw_nullifier);
+    assert_eq!(response_item.nullifier, Some(raw_nullifier));
 
     // verify proof with verifier contract
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
         WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
-            response_item.nullifier.into(),
+            response_item
+                .nullifier
+                .expect("uniqueness proof should have nullifier")
+                .into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
             rp_fixture.nonce.into(),

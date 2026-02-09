@@ -26,7 +26,7 @@ pub struct WorldTreeEvent {
     pub id: WorldTreeEventId,
     pub tx_hash: U256,
     pub event_type: WorldTreeEventType,
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     pub offchain_signer_commitment: U256,
 }
 
@@ -230,7 +230,9 @@ where
             id: Self::map_event_id(row)?,
             tx_hash: row.get::<U256, _>("tx_hash"),
             event_type: WorldTreeEventType::try_from(row.get::<&str, _>("event_type"))?,
-            leaf_index: row.get::<U256, _>("leaf_index"),
+            leaf_index: u64::try_from(row.get::<U256, _>("leaf_index")).map_err(|_| {
+                DBError::InvalidEventType("leaf_index does not fit into u64".to_string())
+            })?,
             offchain_signer_commitment: row.get::<U256, _>("offchain_signer_commitment"),
         })
     }

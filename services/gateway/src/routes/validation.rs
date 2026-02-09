@@ -229,7 +229,7 @@ impl RequestValidation for InsertAuthenticatorRequest {
                 "pubkey_id must be less than {MAX_AUTHENTICATORS}"
             )));
         }
-        if self.leaf_index.is_zero() {
+        if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
             ));
@@ -303,7 +303,7 @@ impl RequestValidation for UpdateAuthenticatorRequest {
         chain_id: u64,
         verifying_contract: Address,
     ) -> Result<(), GatewayErrorResponse> {
-        if self.leaf_index.is_zero() {
+        if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
             ));
@@ -399,7 +399,7 @@ impl RequestValidation for RemoveAuthenticatorRequest {
         let pubkey_id = self.pubkey_id.unwrap_or(0);
         let authenticator_pubkey = self.authenticator_pubkey.unwrap_or(U256::ZERO);
 
-        if self.leaf_index.is_zero() {
+        if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
             ));
@@ -493,7 +493,7 @@ impl RequestValidation for RecoverAccountRequest {
     ) -> Result<(), GatewayErrorResponse> {
         let new_pubkey = self.new_authenticator_pubkey.unwrap_or(U256::ZERO);
 
-        if self.leaf_index.is_zero() {
+        if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
             ));
