@@ -426,9 +426,10 @@ mod tests {
         setup
             .setup
             .anvil
-            .update_rp_unchecked(
+            .update_rp(
                 setup.setup.rp_registry,
                 deployer,
+                rp_signer.clone(),
                 rp_fixture.world_rp_id,
                 rp_fixture.oprf_key_id,
                 true,
