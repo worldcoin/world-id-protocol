@@ -162,15 +162,12 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 mod tests {
     use std::{path::PathBuf, time::Duration};
 
-    use alloy::{primitives::U160, signers::local::LocalSigner};
+    use alloy::signers::local::LocalSigner;
     use secrecy::ExposeSecret as _;
     use taceo_oprf::{
         core::oprf::BlindingFactor,
         service::StartedServices,
-        types::{
-            OprfKeyId,
-            api::{OprfRequest, OprfRequestAuthenticator as _},
-        },
+        types::api::{OprfRequest, OprfRequestAuthenticator as _},
     };
     use uuid::Uuid;
     use world_id_core::FieldElement;
@@ -204,11 +201,11 @@ mod tests {
 
             let max_cache_size = 100;
             let cache_maintenance_interval = Duration::from_secs(60);
-            let mut started_services = StartedServices::default();
+            let started_services = StartedServices::default();
             let cancellation_token = tokio_util::sync::CancellationToken::new();
             let current_time_stamp_max_difference = Duration::from_secs(300);
 
-            let merkle_watcher = MerkleWatcher::init(
+            let (merkle_watcher, _) = MerkleWatcher::init(
                 setup.world_id_registry,
                 setup.anvil.ws_endpoint(),
                 max_cache_size,
@@ -218,7 +215,7 @@ mod tests {
             )
             .await?;
 
-            let rp_registry_watcher = RpRegistryWatcher::init(
+            let (rp_registry_watcher, _) = RpRegistryWatcher::init(
                 setup.rp_registry,
                 setup.anvil.ws_endpoint(),
                 max_cache_size,
@@ -301,7 +298,6 @@ mod tests {
                 request_id,
                 blinded_query: blinded_request.blinded_query(),
                 auth: nullifier_auth,
-                oprf_key_id: OprfKeyId::new(U160::from(setup.rp_fixture.world_rp_id.into_inner())),
             };
 
             Ok(Self {
@@ -315,7 +311,10 @@ mod tests {
     #[tokio::test]
     async fn test_nullifier_oprf_req_auth_success() -> eyre::Result<()> {
         let setup = NullifierOprfRequestAuthTestSetup::new().await?;
-        setup.request_authenticator.verify(&setup.request).await?;
+        setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await?;
         Ok(())
     }
 
@@ -325,7 +324,7 @@ mod tests {
         setup.request.auth.current_time_stamp = u64::MAX;
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -341,28 +340,12 @@ mod tests {
         setup.request.auth.merkle_root = rand::random();
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidMerkleRoot)
-        ));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_nullifier_oprf_req_auth_invalid_oprf_key_id() -> eyre::Result<()> {
-        let mut setup = NullifierOprfRequestAuthTestSetup::new().await?;
-        setup.request.oprf_key_id = OprfKeyId::new(rand::random());
-        let err = setup
-            .request_authenticator
-            .verify(&setup.request)
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            NullifierOprfRequestAuthError::OprfKeyIdMismatch
         ));
         Ok(())
     }
@@ -374,7 +357,7 @@ mod tests {
         setup.request.auth.rp_id = unknown_rp_id;
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -392,7 +375,7 @@ mod tests {
         setup.request.auth.nonce = rand::random();
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(err, NullifierOprfRequestAuthError::InvalidSigner));
@@ -405,7 +388,7 @@ mod tests {
         setup.request.auth.proof.pi_a = rand::random();
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -418,10 +401,13 @@ mod tests {
     #[tokio::test]
     async fn test_nullifier_oprf_req_auth_replay() -> eyre::Result<()> {
         let setup = NullifierOprfRequestAuthTestSetup::new().await?;
-        setup.request_authenticator.verify(&setup.request).await?;
+        setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await?;
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -453,7 +439,7 @@ mod tests {
             .await?;
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(

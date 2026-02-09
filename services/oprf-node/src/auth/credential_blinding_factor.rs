@@ -123,15 +123,11 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
 mod tests {
     use std::{path::PathBuf, time::Duration};
 
-    use alloy::primitives::U160;
     use secrecy::ExposeSecret as _;
     use taceo_oprf::{
         core::oprf::BlindingFactor,
         service::StartedServices,
-        types::{
-            OprfKeyId,
-            api::{OprfRequest, OprfRequestAuthenticator as _},
-        },
+        types::api::{OprfRequest, OprfRequestAuthenticator as _},
     };
     use uuid::Uuid;
     use world_id_core::FieldElement;
@@ -166,10 +162,10 @@ mod tests {
 
             let max_cache_size = 100;
             let cache_maintenance_interval = Duration::from_secs(60);
-            let mut started_services = StartedServices::default();
+            let started_services = StartedServices::default();
             let cancellation_token = tokio_util::sync::CancellationToken::new();
 
-            let merkle_watcher = MerkleWatcher::init(
+            let (merkle_watcher, _) = MerkleWatcher::init(
                 setup.world_id_registry,
                 setup.anvil.ws_endpoint(),
                 max_cache_size,
@@ -179,7 +175,7 @@ mod tests {
             )
             .await?;
 
-            let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
+            let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
                 setup.credential_schema_issuer_registry,
                 setup.anvil.ws_endpoint(),
                 max_cache_size,
@@ -253,7 +249,6 @@ mod tests {
                 request_id,
                 blinded_query: blinded_request.blinded_query(),
                 auth: credential_blinding_factor_auth,
-                oprf_key_id: OprfKeyId::new(U160::from(setup.issuer_schema_id)),
             };
 
             Ok(Self {
@@ -267,7 +262,10 @@ mod tests {
     #[tokio::test]
     async fn test_credential_blinding_factor_oprf_req_auth_success() -> eyre::Result<()> {
         let setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
-        setup.request_authenticator.verify(&setup.request).await?;
+        setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await?;
         Ok(())
     }
 
@@ -278,7 +276,7 @@ mod tests {
         setup.request.auth.merkle_root = rand::random();
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -291,32 +289,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_credential_blinding_factor_oprf_req_auth_invalid_oprf_key_id() -> eyre::Result<()>
-    {
-        let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
-        setup.request.oprf_key_id = OprfKeyId::new(rand::random());
-        let err = setup
-            .request_authenticator
-            .verify(&setup.request)
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            CredentialBlindingFactorOprfRequestAuthError::OprfKeyIdMismatch
-        ));
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_credential_blinding_factor_oprf_req_auth_invalid_schema_issuer_id()
     -> eyre::Result<()> {
         let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
         let unknown_issuer_schema_id = rand::random();
         setup.request.auth.issuer_schema_id = unknown_issuer_schema_id;
-        setup.request.oprf_key_id = OprfKeyId::new(U160::from(unknown_issuer_schema_id));
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -334,7 +314,7 @@ mod tests {
         setup.request.auth.action = rand::random();
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -350,7 +330,7 @@ mod tests {
         setup.request.auth.proof.pi_a = rand::random();
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -377,7 +357,7 @@ mod tests {
             .await?;
         let err = setup
             .request_authenticator
-            .verify(&setup.request)
+            .authenticate(&setup.request)
             .await
             .unwrap_err();
         assert!(matches!(
