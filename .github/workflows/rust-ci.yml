@@ -155,7 +155,7 @@ jobs:
         run: |
           docker compose down
 
-  test:
+  setup-test:
     name: Local Setup Test
     runs-on:
       group: arc-public-8xlarge-amd64-runner
