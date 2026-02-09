@@ -2,7 +2,6 @@ mod authenticator;
 pub use authenticator::*;
 
 pub mod api_types;
-pub use api_types::*;
 
 pub mod registry;
 pub use registry::{

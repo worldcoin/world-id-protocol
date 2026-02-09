@@ -1,6 +1,6 @@
 #![allow(clippy::option_if_let_else)]
 pub use crate::merkle::AccountInclusionProof;
-use crate::serde_utils::{hex_u32, hex_u32_opt, hex_u256, hex_u256_opt, hex_u256_vec};
+use crate::serde_utils::{hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_vec};
 use alloy_primitives::Address;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
