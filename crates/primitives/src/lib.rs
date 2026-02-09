@@ -51,6 +51,10 @@ pub mod merkle;
 #[cfg(feature = "circuits")]
 pub mod oprf;
 
+/// Contains the session nullifier type for session proof responses.
+pub mod nullifier;
+pub use nullifier::SessionNullifier;
+
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
 pub use proof::ZeroKnowledgeProof;

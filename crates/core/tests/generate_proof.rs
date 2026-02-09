@@ -311,14 +311,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         proof_request.created_at,
     )?;
 
-    assert_eq!(response_item.nullifier, raw_nullifier);
+    assert_eq!(response_item.nullifier, Some(raw_nullifier));
 
     // verify proof with verifier contract
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
         WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
-            response_item.nullifier.into(),
+            response_item
+                .nullifier
+                .expect("uniqueness proof should have nullifier")
+                .into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
             rp_fixture.nonce.into(),
