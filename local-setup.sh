@@ -107,7 +107,7 @@ run_indexer_and_gateway() {
 }
 
 teardown() {
-    docker compose down
+    docker compose down || true
     killall -9 world-id-oprf-node 2>/dev/null || true
     killall -9 world-id-indexer 2>/dev/null || true
     killall -9 world-id-gateway 2>/dev/null || true
