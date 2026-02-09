@@ -6,8 +6,8 @@ use alloy::{
     rpc::types::Filter,
 };
 use futures_util::{Stream, StreamExt, stream};
-use tracing::instrument;
 use thiserror::Error;
+use tracing::instrument;
 use url::Url;
 
 pub use crate::blockchain::events::{

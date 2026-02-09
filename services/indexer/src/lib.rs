@@ -4,7 +4,6 @@ use crate::{
     db::DB,
     events_committer::EventsCommitter,
 };
-use tracing::instrument;
 use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
@@ -12,6 +11,7 @@ use alloy::{
 };
 use futures_util::StreamExt;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
+use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
 // re-exports
