@@ -7,6 +7,8 @@ use tracing::info;
 use super::{PoseidonHasher, TreeError, TreeResult, TreeState};
 use crate::db::{DB, WorldTreeEventId, fetch_leaves_batch};
 
+const LOG_CHUNK_SIZE: u64 = 500_000;
+
 // =============================================================================
 // Public API
 // =============================================================================
@@ -236,7 +238,7 @@ async fn build_from_db_with_cache(
             last_cursor = *last_idx;
         }
 
-        if total_leaves.is_multiple_of(500_000) {
+        if total_leaves.is_multiple_of(LOG_CHUNK_SIZE) {
             info!(progress = total_leaves, "Processing leaves (first pass)");
         }
     }
@@ -287,7 +289,7 @@ async fn build_from_db_with_cache(
                 last_cursor = *last_idx;
             }
 
-            if sparse_updates.len().is_multiple_of(500_000) {
+            if sparse_updates.len().is_multiple_of(LOG_CHUNK_SIZE as usize) {
                 info!(
                     sparse_collected = sparse_updates.len(),
                     "Collecting sparse leaves (second pass)"
