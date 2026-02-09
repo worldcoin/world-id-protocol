@@ -558,10 +558,11 @@ impl Authenticator {
         let mut rng = rand::rngs::OsRng;
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+        let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
 
         let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
-        let (proof, public_inputs, nullifier) = generate_nullifier_proof(
+        let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
             &self.nullifier_material,
             &mut rng,
             credential,
@@ -578,9 +579,7 @@ impl Authenticator {
         // Construct the appropriate response item based on proof type
         let nullifier_fe: FieldElement = nullifier.into();
         let response_item = if session_id.is_some() {
-            // Session proof: extract action from public_inputs[9]
-            let action: FieldElement = public_inputs[9].into();
-            let session_nullifier = SessionNullifier::new(nullifier_fe, action);
+            let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query);
             ResponseItem::new_session(
                 request_item.identifier.clone(),
                 request_item.issuer_schema_id,

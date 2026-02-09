@@ -1353,27 +1353,32 @@ mod tests {
         assert_eq!(ok.successful_credentials(), vec![100]);
         assert!(ok.responses[0].is_uniqueness());
 
-        // Success with Session nullifier (2-element array [nullifier, action])
-        let sess_json = r#"{
+        // Canonical session nullifier representation (prefixed hex bytes).
+        let canonical_session_nullifier = serde_json::to_string(&SessionNullifier::new(
+            test_field_element(1001),
+            test_field_element(42),
+        ))
+        .unwrap();
+        let sess_json_canonical = format!(
+            r#"{{
   "id": "req_18c0f7f03e7d",
   "version": 1,
   "session_id": "0x00000000000000000000000000000000000000000000000000000000000003ea",
   "responses": [
-    {
+    {{
       "identifier": "orb",
       "issuer_schema_id": 100,
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
-      "session_nullifier": ["0x00000000000000000000000000000000000000000000000000000000000003e9", "0x000000000000000000000000000000000000000000000000000000000000002a"],
+      "session_nullifier": {canonical_session_nullifier},
       "expires_at_min": 1725381192
-    }
+    }}
   ]
-}"#;
-        let sess = ProofResponse::from_json(sess_json).unwrap();
-        assert_eq!(sess.successful_credentials(), vec![100]);
-        assert!(sess.session_id.is_some());
-        assert!(sess.responses[0].is_session());
+}}"#
+        );
+        let sess_canonical = ProofResponse::from_json(&sess_json_canonical).unwrap();
+        assert_eq!(sess_canonical.successful_credentials(), vec![100]);
+        assert!(sess_canonical.responses[0].is_session());
     }
-
     /// Test duplicate detection by creating a serialized `ProofRequest` with duplicates
     /// and then trying to parse it with `from_json` which should detect the duplicates
     #[test]

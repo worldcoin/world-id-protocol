@@ -5,19 +5,30 @@ use crate::FieldElement;
 
 /// A session nullifier for World ID Session proofs.
 ///
-/// Internally represented as a pair of field elements (nullifier, action)
+/// Session nullifiers intentionally allow RP-local linkability across interactions while
+/// preserving unlinkability across RPs.
+///
+/// They are an adaptation that reuses the same proof system inputs for session flows:
+/// - the nullifier component lets RPs detect replayed submissions for the same proof context
+/// - the action component is randomized for session verification semantics
+///
+/// Together they include:
+/// - the nullifier used as the proof output
+/// - a random action bound to the same proof
 ///
 /// The `WorldIDVerifier.sol` contract expects this as a `uint256[2]` array
 /// use `as_ethereum_representation()` for conversion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionNullifier {
-    /// The nullifier value derived from (user, rpId, sessionId).
+    /// The nullifier value for this proof.
     nullifier: FieldElement,
-    /// The action value bound to this session proof.
+    /// The random action value bound to this session proof.
     action: FieldElement,
 }
 
 impl SessionNullifier {
+    const JSON_PREFIX: &str = "snil_";
+
     /// Creates a new session nullifier.
     #[must_use]
     pub const fn new(nullifier: FieldElement, action: FieldElement) -> Self {
@@ -56,14 +67,19 @@ impl SessionNullifier {
         Ok(Self { nullifier, action })
     }
 
-    /// Converts to compressed bytes (64 bytes total: 2 x 32 bytes, big-endian).
-    #[must_use]
-    pub fn to_compressed_bytes(&self) -> Vec<u8> {
-        let repr = self.as_ethereum_representation();
+    /// Converts to compressed bytes (64 bytes total: 2 x 32-byte field elements).
+    ///
+    /// # Errors
+    /// Returns an error if field element serialization fails.
+    pub fn to_compressed_bytes(&self) -> Result<Vec<u8>, String> {
         let mut bytes = Vec::with_capacity(64);
-        bytes.extend_from_slice(&repr[0].to_be_bytes::<32>());
-        bytes.extend_from_slice(&repr[1].to_be_bytes::<32>());
-        bytes
+        self.nullifier
+            .serialize_as_bytes(&mut bytes)
+            .map_err(|e| format!("failed to serialize nullifier: {e}"))?;
+        self.action
+            .serialize_as_bytes(&mut bytes)
+            .map_err(|e| format!("failed to serialize action: {e}"))?;
+        Ok(bytes)
     }
 
     /// Constructs from compressed bytes (must be exactly 64 bytes).
@@ -78,13 +94,12 @@ impl SessionNullifier {
             ));
         }
 
-        let nullifier_bytes: [u8; 32] = bytes[..32].try_into().unwrap();
-        let action_bytes: [u8; 32] = bytes[32..].try_into().unwrap();
+        let nullifier = FieldElement::deserialize_from_bytes(&mut &bytes[..32])
+            .map_err(|e| format!("invalid nullifier: {e}"))?;
+        let action = FieldElement::deserialize_from_bytes(&mut &bytes[32..])
+            .map_err(|e| format!("invalid action: {e}"))?;
 
-        let nullifier_u256 = U256::from_be_bytes(nullifier_bytes);
-        let action_u256 = U256::from_be_bytes(action_bytes);
-
-        Self::from_ethereum_representation([nullifier_u256, action_u256])
+        Ok(Self { nullifier, action })
     }
 }
 
@@ -102,16 +117,15 @@ impl Serialize for SessionNullifier {
     where
         S: Serializer,
     {
+        let bytes = self
+            .to_compressed_bytes()
+            .map_err(serde::ser::Error::custom)?;
         if serializer.is_human_readable() {
-            // JSON: 2-element array [nullifier, action] matching contract's uint256[2]
-            use serde::ser::SerializeTuple;
-            let mut tuple = serializer.serialize_tuple(2)?;
-            tuple.serialize_element(&self.nullifier)?;
-            tuple.serialize_element(&self.action)?;
-            tuple.end()
+            // JSON: prefixed hex-encoded compressed bytes for explicit typing.
+            serializer.serialize_str(&format!("{}{}", Self::JSON_PREFIX, hex::encode(&bytes)))
         } else {
             // Binary: compressed bytes
-            serializer.serialize_bytes(&self.to_compressed_bytes())
+            serializer.serialize_bytes(&bytes)
         }
     }
 }
@@ -121,18 +135,20 @@ impl<'de> Deserialize<'de> for SessionNullifier {
     where
         D: Deserializer<'de>,
     {
-        if deserializer.is_human_readable() {
-            // JSON: 2-element array [nullifier, action]
-            let arr: [FieldElement; 2] = Deserialize::deserialize(deserializer)?;
-            Ok(Self {
-                nullifier: arr[0],
-                action: arr[1],
-            })
+        let bytes = if deserializer.is_human_readable() {
+            let value = String::deserialize(deserializer)?;
+            let hex_str = value.strip_prefix(Self::JSON_PREFIX).ok_or_else(|| {
+                D::Error::custom(format!(
+                    "session nullifier must start with '{}'",
+                    Self::JSON_PREFIX
+                ))
+            })?;
+            hex::decode(hex_str).map_err(D::Error::custom)?
         } else {
-            // Binary: compressed bytes
-            let bytes = Vec::<u8>::deserialize(deserializer)?;
-            Self::from_compressed_bytes(&bytes).map_err(D::Error::custom)
-        }
+            Vec::deserialize(deserializer)?
+        };
+
+        Self::from_compressed_bytes(&bytes).map_err(D::Error::custom)
     }
 }
 
@@ -191,9 +207,9 @@ mod tests {
         let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
         let json = serde_json::to_string(&session).unwrap();
 
-        // Verify JSON is an array format
-        assert!(json.starts_with('['));
-        assert!(json.ends_with(']'));
+        // Verify JSON uses the prefixed compact representation
+        assert!(json.starts_with("\"snil_"));
+        assert!(json.ends_with('"'));
 
         // Verify roundtrip
         let decoded: SessionNullifier = serde_json::from_str(&json).unwrap();
@@ -205,25 +221,36 @@ mod tests {
         let session = SessionNullifier::new(test_field_element(1), test_field_element(2));
         let json = serde_json::to_string(&session).unwrap();
 
-        // Should be a 2-element array [nullifier, action]
+        // Should be a prefixed compact string
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert!(parsed.is_array());
-        let arr = parsed.as_array().unwrap();
-        assert_eq!(arr.len(), 2);
-        // Index 0 = nullifier, Index 1 = action
-        assert!(arr[0].is_string());
-        assert!(arr[1].is_string());
+        assert!(parsed.is_string());
+        let value = parsed.as_str().unwrap();
+        assert!(value.starts_with("snil_"));
     }
 
     #[test]
     fn test_compressed_bytes_roundtrip() {
         let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
-        let bytes = session.to_compressed_bytes();
+        let bytes = session.to_compressed_bytes().unwrap();
 
         assert_eq!(bytes.len(), 64); // 32 + 32 bytes
 
         let decoded = SessionNullifier::from_compressed_bytes(&bytes).unwrap();
         assert_eq!(session, decoded);
+    }
+
+    #[test]
+    fn test_compressed_bytes_use_field_element_encoding() {
+        let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
+        let bytes = session.to_compressed_bytes().unwrap();
+
+        let mut expected = Vec::new();
+        session
+            .nullifier()
+            .serialize_as_bytes(&mut expected)
+            .unwrap();
+        session.action().serialize_as_bytes(&mut expected).unwrap();
+        assert_eq!(bytes, expected);
     }
 
     #[test]
