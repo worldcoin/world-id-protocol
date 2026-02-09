@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help build fmt lint rust-build rust-test rust-fmt rust-clippy run-indexer run-gateway sol-build sol-test sol-fmt test
+.PHONY: help build fmt lint rust-build rust-test rust-fmt rust-clippy run-indexer run-gateway sol-build sol-test sol-fmt test setup-test run-setup run-dev-client
 
 help:
 	@echo "Targets:"
