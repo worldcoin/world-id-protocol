@@ -170,7 +170,7 @@ async fn run_indexer_only(
     indexer_cfg: IndexerConfig,
 ) -> IndexerResult<()> {
     let from = match db.world_tree_events().get_latest_block().await? {
-        Some(block) => block + 1,
+        Some(block) => block,
         None => indexer_cfg.start_block,
     };
 
