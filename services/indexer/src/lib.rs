@@ -1,5 +1,5 @@
 use crate::{
-    blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
+    blockchain::{Blockchain, BlockchainEvent, BlockchainResult, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
@@ -7,10 +7,14 @@ use crate::{
 use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
-    rpc::types::Log,
 };
-use futures_util::StreamExt;
-use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
+use futures_util::{Stream, StreamExt};
+use std::{
+    backtrace::Backtrace,
+    net::SocketAddr,
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
@@ -175,7 +179,7 @@ async fn run_indexer_only(
     };
 
     tracing::info!("switching to websocket live follow");
-    stream_logs(blockchain, &db, from, None).await?;
+    stream_logs(blockchain, &db, from, indexer_cfg.batch_size, None).await?;
 
     Ok(())
 }
@@ -251,20 +255,21 @@ async fn run_both(
         None => indexer_cfg.start_block,
     };
 
-    tracing::info!(from_block = from, "Phase 1: starting historical backfill");
-
-    let (raw_logs, backfill_up_to_block) = blockchain.get_backfill_events(from).await?;
+    let batch_size = indexer_cfg.batch_size;
 
     tracing::info!(
-        log_count = raw_logs.len(),
-        backfill_up_to_block,
-        "Phase 1: fetched historical logs, processing..."
+        from_block = from,
+        batch_size,
+        "Phase 1: starting historical backfill"
     );
 
-    let committed_batches = save_events(&db, raw_logs).await?;
+    let (backfill_stream, last_block) = blockchain.backfill_events(from, batch_size);
+    let committed_batches = save_events(&db, backfill_stream).await?;
+    let backfill_up_to_block = last_block.load(Ordering::Relaxed);
 
     tracing::info!(
         committed_batches,
+        backfill_up_to_block,
         "Phase 1: backfill complete, all historical events stored in DB"
     );
 
@@ -318,7 +323,14 @@ async fn run_both(
         "Phase 4: starting live event stream with tree sync"
     );
 
-    stream_logs(blockchain, &db, backfill_up_to_block + 1, Some(&tree_state)).await?;
+    stream_logs(
+        blockchain,
+        &db,
+        backfill_up_to_block + 1,
+        batch_size,
+        Some(&tree_state),
+    )
+    .await?;
 
     http_handle.abort();
     if let Some(handle) = sanity_handle {
@@ -346,24 +358,21 @@ pub async fn handle_registry_event<'a>(
     Ok(())
 }
 
-/// Process backfill logs from HTTP get_logs, writing to DB only (no tree sync).
+/// Process decoded backfill events from a stream, writing to DB only (no tree sync).
 /// Returns the number of committed batches.
-async fn save_events(db: &DB, raw_logs: Vec<Log>) -> IndexerResult<usize> {
+async fn save_events(
+    db: &DB,
+    mut stream: impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin,
+) -> IndexerResult<usize> {
     let mut events_committer = EventsCommitter::new(db);
     let mut committed_batches = 0usize;
 
-    for log in raw_logs {
-        match RegistryEvent::decode(&log) {
-            Ok(event) => {
-                tracing::info!(?event, "processing backfill event");
-                let committed = events_committer.handle_event(event).await?;
-                if committed {
-                    committed_batches += 1;
-                }
-            }
-            Err(e) => {
-                tracing::warn!(?e, "failed to decode backfill event");
-            }
+    while let Some(event_result) = stream.next().await {
+        let event = event_result?;
+        tracing::info!(?event, "processing backfill event");
+        let committed = events_committer.handle_event(event).await?;
+        if committed {
+            committed_batches += 1;
         }
     }
 
@@ -375,9 +384,10 @@ pub async fn stream_logs(
     blockchain: &Blockchain,
     db: &DB,
     start_from: u64,
+    batch_size: u64,
     tree_state: Option<&tree::TreeState>,
 ) -> IndexerResult<()> {
-    let mut stream = blockchain.stream_world_tree_events(start_from).await?;
+    let mut stream = blockchain.stream_events_with_backfill(start_from, batch_size)?;
     let mut events_committer = EventsCommitter::new(db);
 
     while let Some(log) = stream.next().await {
