@@ -13,3 +13,5 @@ This folder includes supporting documentation for World ID, particularly point-i
 ### Index
 
 - `world-id-4-specs`: High level product and technical specs of the World ID 4.0 Upgrade.
+- `world-id-4-trusted-setup`: High level explanation of what a trusted setup is and how to contribute to it for World ID 4.0. After the trusted setup is done it will also contain a step by step guide to verify the provenance of the `.zkey` files used to power World ID ZK circuits.
+
