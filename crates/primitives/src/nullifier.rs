@@ -5,9 +5,6 @@ use crate::FieldElement;
 
 /// A session nullifier for World ID Session proofs.
 ///
-/// Session nullifiers intentionally allow RP-local linkability across interactions while
-/// preserving unlinkability across RPs.
-///
 /// They are an adaptation that reuses the same proof system inputs for session flows:
 /// - the nullifier component lets RPs detect replayed submissions for the same proof context
 /// - the action component is randomized for session verification semantics
