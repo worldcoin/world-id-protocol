@@ -9137,6 +9137,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-faux-issuer"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "dotenvy",
+ "hex",
+ "ruint",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "taceo-eddsa-babyjubjub",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+ "world-id-primitives",
+ "world-id-signer",
+]
+
+[[package]]
 name = "world-id-gateway"
 version = "0.1.0"
 dependencies = [
@@ -9215,8 +9234,10 @@ dependencies = [
  "alloy",
  "ark-ff 0.5.0",
  "ruint",
+ "rustls 0.23.36",
  "taceo-eddsa-babyjubjub",
  "thiserror 1.0.69",
+ "url",
  "world-id-primitives",
  "world-id-signer",
 ]
