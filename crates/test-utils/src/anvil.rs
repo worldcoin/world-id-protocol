@@ -12,6 +12,7 @@ use alloy_node_bindings::{Anvil, AnvilInstance};
 use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
+use taceo_oprf::types::OprfKeyId;
 use taceo_oprf_test_utils::TestOprfKeyRegistry;
 use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
@@ -26,7 +27,7 @@ sol!(
     CredentialSchemaIssuerRegistry,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistry.json"
+        "/../../contracts/out/TestCredentialSchemaIssuerRegistry.sol/TestCredentialSchemaIssuerRegistry.json"
     )
 );
 
@@ -68,16 +69,6 @@ sol!(
 );
 
 sol!(
-    #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
-    VerifierKeyGen13,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/VerifierKeyGen13.sol/Verifier.json"
-    )
-);
-
-sol!(
     #[sol(rpc)]
     ERC1967Proxy,
     concat!(
@@ -92,7 +83,7 @@ sol!(
     RpRegistry,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/RpRegistry.sol/RpRegistry.json"
+        "/../../contracts/out/TestRpRegistry.sol/TestRpRegistry.json"
     )
 );
 
@@ -518,6 +509,43 @@ impl TestAnvil {
         Ok(())
     }
 
+    /// Update an existing `RP` at the `RpRegistry` contract using the supplied signer.
+    #[expect(clippy::too_many_arguments)]
+    pub async fn update_rp_unchecked(
+        &self,
+        rp_registry_contract: Address,
+        signer: PrivateKeySigner,
+        rp_id: RpId,
+        oprf_key_id: OprfKeyId,
+        toggle_active: bool,
+        rp_manager: Address,
+        rp_signer: Address,
+        rp_domain: String,
+    ) -> Result<()> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let rp_registry = RpRegistry::new(rp_registry_contract, provider);
+        let receipt = rp_registry
+            .updateRpUnchecked(
+                rp_id.into_inner(),
+                oprf_key_id.into_inner(),
+                rp_manager,
+                rp_signer,
+                toggle_active,
+                rp_domain.clone(),
+            )
+            .gas(10000000) // FIXME
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+        if !receipt.status() {
+            eyre::bail!("failed to update RP");
+        }
+        Ok(())
+    }
+
     /// Register a new issuer at the `CredentialSchemaIssuerRegistry` contract using the supplied signer.
     pub async fn register_issuer(
         &self,
@@ -565,13 +593,39 @@ impl TestAnvil {
         Ok(())
     }
 
+    /// Removes an issuer at the `CredentialSchemaIssuerRegistry` contract using the supplied signer.
+    pub async fn remove_issuer_unchecked(
+        &self,
+        schema_issuer_registry_contract: Address,
+        signer: PrivateKeySigner,
+        issuer_schema_id: u64,
+    ) -> Result<()> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let issuer_registry =
+            CredentialSchemaIssuerRegistry::new(schema_issuer_registry_contract, provider);
+        let receipt = issuer_registry
+            .removeUnchecked(issuer_schema_id)
+            .send()
+            .await
+            .wrap_err("failed to submit issuer removeUnchecked")?
+            .get_receipt()
+            .await
+            .wrap_err("failed to fetch issuer removeUnchecked receipt")?;
+        if !receipt.status() {
+            eyre::bail!("failed to remove issuer");
+        }
+        Ok(())
+    }
+
     pub async fn create_account(
         &self,
         world_id_registry: Address,
         signer: PrivateKeySigner,
         auth_addr: Address,
         pubkey: U256,
-        commitment: u64,
+        commitment: U256,
     ) -> FieldElement {
         let registry = WorldIDRegistry::new(
             world_id_registry,
@@ -582,12 +636,7 @@ impl TestAnvil {
                 .unwrap(),
         );
         registry
-            .createAccount(
-                Address::ZERO,
-                vec![auth_addr],
-                vec![pubkey],
-                U256::from(commitment),
-            )
+            .createAccount(Address::ZERO, vec![auth_addr], vec![pubkey], commitment)
             .send()
             .await
             .expect("failed to submit createAccount transaction")

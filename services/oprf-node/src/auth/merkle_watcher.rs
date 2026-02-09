@@ -467,7 +467,7 @@ mod tests {
                 signer.clone(),
                 address!("0x0000000000000000000000000000000000000011"),
                 U256::from(11),
-                1,
+                U256::from(1),
             )
             .await;
 
@@ -534,7 +534,7 @@ mod tests {
                 signer.clone(),
                 address!("0x0000000000000000000000000000000000000011"),
                 U256::from(11),
-                1,
+                U256::from(1),
             )
             .await;
 
