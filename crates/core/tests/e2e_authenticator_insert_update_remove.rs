@@ -151,10 +151,10 @@ async fn e2e_authenticator_insert_update_remove() {
             .await
             .unwrap();
 
-    assert_eq!(primary.leaf_index(), U256::from(1));
+    assert_eq!(primary.leaf_index(), 1);
     assert_eq!(primary.signing_nonce().await.unwrap(), U256::from(0));
 
-    let leaf_index: u64 = primary.leaf_index().try_into().unwrap();
+    let leaf_index = primary.leaf_index();
 
     // Prepare secondary authenticator keys (will be inserted at index 1)
     let secondary_seed = [43u8; 32];
@@ -228,11 +228,7 @@ async fn e2e_authenticator_insert_update_remove() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Primary authenticator is now invalid, query contract directly
-    let nonce = contract
-        .getSignatureNonce(U256::from(1))
-        .call()
-        .await
-        .unwrap();
+    let nonce = contract.getSignatureNonce(1).call().await.unwrap();
     assert_eq!(nonce, U256::from(2));
 
     // Verify updated authenticator is registered and old primary is cleared

@@ -228,10 +228,7 @@ async fn run_nullifier(
         issuer_schema_id,
         issuer_pk,
         issuer_sk,
-        authenticator
-            .leaf_index()
-            .try_into()
-            .expect("leaf_index fits into u64"),
+        authenticator.leaf_index(),
         credential_sub_blinding_factor,
     )?;
 
@@ -339,10 +336,7 @@ fn prepare_nullifier_stress_test_oprf_request(
 
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
     let issuer_pk = issuer_sk.public();
-    let leaf_index = authenticator
-        .leaf_index()
-        .try_into()
-        .expect("leaf_index fits into u64");
+    let leaf_index = authenticator.leaf_index();
     // Generate a random credential sub blinding factor for stress test
     let credential_sub_blinding_factor = FieldElement::random(&mut rng);
     let credential = create_and_sign_credential(
@@ -692,10 +686,7 @@ async fn main() -> eyre::Result<()> {
         (indexer_url.clone(), None)
     } else {
         // Local indexer stub serving inclusion proof.
-        let leaf_index_u64: u64 = authenticator
-            .leaf_index()
-            .try_into()
-            .expect("account id fits in u64");
+        let leaf_index = authenticator.leaf_index();
         let MerkleFixture {
             key_set,
             inclusion_proof: merkle_inclusion_proof,
@@ -703,7 +694,7 @@ async fn main() -> eyre::Result<()> {
             ..
         } = test_utils::fixtures::single_leaf_merkle_fixture(
             vec![authenticator.offchain_pubkey()],
-            leaf_index_u64,
+            leaf_index,
         )
         .wrap_err("failed to construct merkle fixture")?;
 
@@ -712,7 +703,7 @@ async fn main() -> eyre::Result<()> {
                 .wrap_err("failed to build inclusion proof")?;
 
         let (indexer_url, indexer_handle) =
-            test_utils::stubs::spawn_indexer_stub(leaf_index_u64, inclusion_proof.clone())
+            test_utils::stubs::spawn_indexer_stub(leaf_index, inclusion_proof.clone())
                 .await
                 .wrap_err("failed to start indexer stub")?;
         (indexer_url, Some(indexer_handle))

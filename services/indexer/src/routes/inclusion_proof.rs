@@ -50,17 +50,18 @@ pub(crate) async fn handler(
 ) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, IndexerErrorResponse> {
     let leaf_index = req.leaf_index;
 
-    if leaf_index == U256::ZERO {
+    if leaf_index == 0 {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
             "Leaf index cannot be 0.".to_string(),
         ));
     }
 
+    let leaf_index_u256 = U256::from(leaf_index);
     let (offchain_signer_commitment, pubkeys) = state
         .db
         .accounts()
-        .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(&leaf_index)
+        .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(&leaf_index_u256)
         .await
         .map_err(|_err| IndexerErrorResponse::internal_server_error())?
         .ok_or(IndexerErrorResponse::not_found())?;
@@ -79,7 +80,7 @@ pub(crate) async fn handler(
         IndexerErrorResponse::internal_server_error()
     })?;
 
-    let index_as_usize = leaf_index.as_limbs()[0] as usize;
+    let index_as_usize = leaf_index as usize;
     let capacity = state.tree_state.capacity();
     if index_as_usize >= capacity {
         return Err(IndexerErrorResponse::bad_request(
@@ -124,8 +125,7 @@ pub(crate) async fn handler(
         }
     }
 
-    let merkle_proof =
-        MerkleInclusionProof::new(root.try_into().unwrap(), leaf_index.as_limbs()[0], siblings);
+    let merkle_proof = MerkleInclusionProof::new(root.try_into().unwrap(), leaf_index, siblings);
 
     let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
         .expect("authenticator_pubkeys already validated");
