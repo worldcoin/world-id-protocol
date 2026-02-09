@@ -9264,7 +9264,6 @@ dependencies = [
  "uuid",
  "webpki-roots 1.0.5",
  "world-id-core",
- "world-id-gateway",
  "world-id-primitives",
 ]
 
