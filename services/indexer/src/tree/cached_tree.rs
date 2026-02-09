@@ -249,7 +249,10 @@ async fn build_from_db_with_cache(
     );
 
     // Step 2: Create mmap tree with dense portion
-    info!(dense_leaves_len = dense_leaves.len(), "Built dense prefix vector");
+    info!(
+        dense_leaves_len = dense_leaves.len(),
+        "Built dense prefix vector"
+    );
 
     let mut tree =
         MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
