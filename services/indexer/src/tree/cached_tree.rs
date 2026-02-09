@@ -98,7 +98,7 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
         let mut tree = tree_state.write().await;
         for (leaf_index, value) in &leaf_final_states {
             take_mut::take(&mut *tree, |t| {
-                t.update_with_mutation(leaf_index.clone() as usize, value)
+                t.update_with_mutation(*leaf_index as usize, value)
             });
         }
     }
@@ -415,7 +415,7 @@ async fn replay_events(
     );
 
     for (leaf_index, value) in &leaf_final_states {
-        tree = tree.update_with_mutation(leaf_index.clone() as usize, value);
+        tree = tree.update_with_mutation(*leaf_index as usize, value);
     }
 
     info!(
