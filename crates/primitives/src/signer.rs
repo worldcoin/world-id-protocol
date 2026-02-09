@@ -1,7 +1,7 @@
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use secrecy::{ExposeSecret, SecretBox};
-use world_id_primitives::PrimitiveError;
+use crate::PrimitiveError;
 
 /// The inner signer which can sign requests for both on-chain and off-chain operations. Both issuers and authenticators use this.
 ///

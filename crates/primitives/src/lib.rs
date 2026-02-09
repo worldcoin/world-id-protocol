@@ -58,6 +58,13 @@ pub use proof::ZeroKnowledgeProof;
 /// Contains types specifically related to relying parties.
 pub mod rp;
 
+/// Types for RP proof requests/responses and constraint expressions.
+pub mod request;
+
+/// Key material wrapper used by issuer/authenticator for on-chain and off-chain signatures.
+pub mod signer;
+pub use signer::Signer;
+
 /// The scalar field used in the World ID Protocol.
 ///
 /// This is the scalar field of the `BabyJubJub` curve.

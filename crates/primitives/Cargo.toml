@@ -16,6 +16,7 @@ default = ["circuits"]
 circuits = ["dep:circom-types", "dep:groth16-material", "dep:ark-serde-compat"]
 
 [dependencies]
+alloy = { workspace = true, features = ["signer-local"] }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
     "std",
@@ -41,6 +42,9 @@ url = { workspace = true, features = ["serde"] }
 poseidon2 = { workspace = true }
 sha3 = { workspace = true, default-features = false }
 rand = { workspace = true }
+k256 = { workspace = true, features = ["ecdsa", "serde"] }
+taceo-oprf = { workspace = true, features = ["client"] }
+secrecy = { workspace = true }
 
 # WASM support: getrandom needs 'js' feature to work in browsers
 [target.'cfg(target_arch = "wasm32")'.dependencies]

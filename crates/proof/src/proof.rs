@@ -17,8 +17,8 @@ use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{
     Credential, FieldElement, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
+    request::RequestItem,
 };
-use world_id_request::RequestItem;
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,

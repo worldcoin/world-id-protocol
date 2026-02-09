@@ -32,6 +32,3 @@ ruint = { workspace = true }
 thiserror = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 world-id-primitives = { workspace = true }
-
-# Internal
-world-id-signer = { workspace = true }

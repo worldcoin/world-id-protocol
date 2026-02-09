@@ -2,15 +2,13 @@
 //!
 //! Enables an RP to create a Proof request or a Session Proof request, and provides base functionality
 //! for Authenticators to handle such requests.
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
-
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::OprfKeyId;
-use world_id_primitives::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
+use crate::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -338,7 +336,7 @@ impl ProofRequest {
     /// performed in test fixtures and the OPRF stub.
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
         use k256::sha2::{Digest, Sha256};
-        use world_id_primitives::rp::compute_rp_signature_msg;
+        use crate::rp::compute_rp_signature_msg;
 
         let msg = compute_rp_signature_msg(*self.nonce, self.created_at, self.expires_at);
         let mut hasher = Sha256::new();

@@ -9101,8 +9101,6 @@ dependencies = [
  "world-id-primitives",
  "world-id-proof",
  "world-id-registry",
- "world-id-request",
- "world-id-signer",
  "world-id-types",
 ]
 
@@ -9131,8 +9129,6 @@ dependencies = [
  "world-id-primitives",
  "world-id-proof",
  "world-id-registry",
- "world-id-request",
- "world-id-signer",
  "world-id-types",
 ]
 
@@ -9218,7 +9214,6 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "thiserror 1.0.69",
  "world-id-primitives",
- "world-id-signer",
 ]
 
 [[package]]
@@ -9288,6 +9283,7 @@ dependencies = [
 name = "world-id-primitives"
 version = "0.3.0"
 dependencies = [
+ "alloy",
  "alloy-primitives",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -9298,8 +9294,10 @@ dependencies = [
  "eyre",
  "getrandom 0.2.17",
  "hex",
+ "k256",
  "rand 0.8.5",
  "ruint",
+ "secrecy",
  "serde",
  "serde_json",
  "sha3",
@@ -9309,6 +9307,7 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-groth16-sol",
+ "taceo-oprf",
  "taceo-poseidon2",
  "thiserror 1.0.69",
  "url",
@@ -9334,7 +9333,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "world-id-primitives",
- "world-id-request",
  "zeroize",
 ]
 
@@ -9347,29 +9345,6 @@ dependencies = [
  "rand 0.8.5",
  "ruint",
  "serde_json",
-]
-
-[[package]]
-name = "world-id-request"
-version = "0.3.0"
-dependencies = [
- "alloy",
- "k256",
- "serde",
- "serde_json",
- "taceo-oprf",
- "thiserror 1.0.69",
- "world-id-primitives",
-]
-
-[[package]]
-name = "world-id-signer"
-version = "0.3.0"
-dependencies = [
- "alloy",
- "secrecy",
- "taceo-eddsa-babyjubjub",
- "world-id-primitives",
 ]
 
 [[package]]

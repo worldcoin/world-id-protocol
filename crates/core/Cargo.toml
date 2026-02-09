@@ -25,9 +25,7 @@ required-features = ["issuer"]
 default = ["authenticator", "embed-zkeys"]
 
 authenticator = [
-    "dep:world-id-signer",
     "dep:world-id-proof",
-    "dep:world-id-request",
     "dep:world-id-registry",
     "dep:world-id-authenticator",
 ]
@@ -39,10 +37,7 @@ compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/compress-zkeys
 
 issuer = [
     "dep:world-id-issuer",
-    "dep:world-id-signer",
 ]
-
-rp = ["dep:world-id-request"]
 
 # OpenAPI/Swagger docs
 openapi = ["world-id-types/openapi"]
@@ -53,8 +48,6 @@ eddsa-babyjubjub = { workspace = true }
 # Internal
 world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
-world-id-request = { workspace = true, optional = true }
-world-id-signer = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
 world-id-registry = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }

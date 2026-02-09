@@ -12,8 +12,8 @@ use world_id_primitives::{
     FieldElement, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
+    request::ProofRequest,
 };
-use world_id_request::ProofRequest;
 
 use crate::{
     AuthenticatorProofInput,

@@ -2,9 +2,7 @@
 members = [
   "crates/core",
   "crates/issuer",
-  "crates/signer",
   "crates/proof",
-  "crates/request",
   "crates/primitives",
   "crates/test-utils",
   "services/indexer",
@@ -120,9 +118,7 @@ tower = "0.5.3"
 # Internal
 world-id-core = { version = "0.3.0", default-features = false, path = "crates/core" }
 world-id-issuer = { version = "0.3.0", path = "crates/issuer" }
-world-id-signer = { version = "0.3.0", path = "crates/signer" }
 world-id-types = { version = "0.3.0", path = "crates/types" }
-world-id-request = { version = "0.3.0", path = "crates/request" }
 world-id-registry = { version = "0.3.0", path = "crates/registry" }
 world-id-proof = { version = "0.3.0", path = "crates/proof" }
 world-id-authenticator = { version = "0.3.0", path = "crates/authenticator" }
