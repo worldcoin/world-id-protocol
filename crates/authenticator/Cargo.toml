@@ -19,7 +19,6 @@ embed-zkeys = [
   "dep:webpki-roots",
   "dep:backon",
 ]
-openapi = ["world-id-primitives/openapi"]
 
 [dependencies]
 alloy = { workspace = true }

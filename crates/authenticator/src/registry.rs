@@ -18,64 +18,71 @@ sol!(
     "../../contracts/abi/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
 );
 
-sol! {
-    /// EIP-712 typed-data payload for `updateAuthenticator`.
-    ///
-    /// This is used only for signature hashing/recovery, not as the Solidity call signature.
-    struct UpdateAuthenticator {
-        uint256 leafIndex;
-        address oldAuthenticatorAddress;
-        address newAuthenticatorAddress;
-        uint32 pubkeyId;
-        uint256 newAuthenticatorPubkey;
-        uint256 newOffchainSignerCommitment;
-        uint256 nonce;
-    }
+/// These structs are created in a private module to avoid confusion with their exports.
+///
+/// They are only used to compute the EIP-712 typed data for signature.
+mod sol_types {
+    use alloy::sol;
 
-    /// EIP-712 typed-data payload for `insertAuthenticator`.
-    ///
-    /// This is used only for signature hashing/recovery, not as the Solidity call signature.
-    struct InsertAuthenticator {
-        uint256 leafIndex;
-        address newAuthenticatorAddress;
-        uint32 pubkeyId;
-        uint256 newAuthenticatorPubkey;
-        uint256 newOffchainSignerCommitment;
-        uint256 nonce;
-    }
+    sol! {
+        /// EIP-712 typed-data payload for `updateAuthenticator`.
+        ///
+        /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+        struct UpdateAuthenticator {
+            uint256 leafIndex;
+            address oldAuthenticatorAddress;
+            address newAuthenticatorAddress;
+            uint32 pubkeyId;
+            uint256 newAuthenticatorPubkey;
+            uint256 newOffchainSignerCommitment;
+            uint256 nonce;
+        }
 
-    /// EIP-712 typed-data payload for `removeAuthenticator`.
-    ///
-    /// This is used only for signature hashing/recovery, not as the Solidity call signature.
-    struct RemoveAuthenticator {
-        uint256 leafIndex;
-        address authenticatorAddress;
-        uint32 pubkeyId;
-        uint256 authenticatorPubkey;
-        uint256 newOffchainSignerCommitment;
-        uint256 nonce;
-    }
+        /// EIP-712 typed-data payload for `insertAuthenticator`.
+        ///
+        /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+        struct InsertAuthenticator {
+            uint256 leafIndex;
+            address newAuthenticatorAddress;
+            uint32 pubkeyId;
+            uint256 newAuthenticatorPubkey;
+            uint256 newOffchainSignerCommitment;
+            uint256 nonce;
+        }
 
-    /// EIP-712 typed-data payload for `recoverAccount`.
-    ///
-    /// This is used only for signature hashing/recovery, not as the Solidity call signature.
-    struct RecoverAccount {
-        uint256 leafIndex;
-        address newAuthenticatorAddress;
-        uint256 newAuthenticatorPubkey;
-        uint256 newOffchainSignerCommitment;
-        uint256 nonce;
+        /// EIP-712 typed-data payload for `removeAuthenticator`.
+        ///
+        /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+        struct RemoveAuthenticator {
+            uint256 leafIndex;
+            address authenticatorAddress;
+            uint32 pubkeyId;
+            uint256 authenticatorPubkey;
+            uint256 newOffchainSignerCommitment;
+            uint256 nonce;
+        }
+
+        /// EIP-712 typed-data payload for `recoverAccount`.
+        ///
+        /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+        struct RecoverAccount {
+            uint256 leafIndex;
+            address newAuthenticatorAddress;
+            uint256 newAuthenticatorPubkey;
+            uint256 newOffchainSignerCommitment;
+            uint256 nonce;
+        }
     }
 }
 
-/// Alias for the EIP-712 payload used by `updateAuthenticator`.
-pub type UpdateAuthenticatorTypedData = UpdateAuthenticator;
-/// Alias for the EIP-712 payload used by `insertAuthenticator`.
-pub type InsertAuthenticatorTypedData = InsertAuthenticator;
-/// Alias for the EIP-712 payload used by `removeAuthenticator`.
-pub type RemoveAuthenticatorTypedData = RemoveAuthenticator;
-/// Alias for the EIP-712 payload used by `recoverAccount`.
-pub type RecoverAccountTypedData = RecoverAccount;
+/// EIP-712 typed-data signature payload for `updateAuthenticator`.
+pub type UpdateAuthenticatorTypedData = sol_types::UpdateAuthenticator;
+/// EIP-712 typed-data signature payload for `insertAuthenticator`.
+pub type InsertAuthenticatorTypedData = sol_types::InsertAuthenticator;
+/// EIP-712 typed-data signature payload for `removeAuthenticator`.
+pub type RemoveAuthenticatorTypedData = sol_types::RemoveAuthenticator;
+/// EIP-712 typed-data signature payload for `recoverAccount`.
+pub type RecoverAccountTypedData = sol_types::RecoverAccount;
 
 /// Returns the EIP-712 domain used by the `[WorldIdRegistry]` contract
 /// for a given `chain_id` and `verifying_contract` address.
