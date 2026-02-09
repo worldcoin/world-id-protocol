@@ -4,8 +4,7 @@
 
 use std::sync::Arc;
 
-use world_id_primitives::{Credential, FieldElement};
-use world_id_primitives::Signer;
+use world_id_primitives::{Credential, FieldElement, Signer};
 use world_id_types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
@@ -13,13 +12,13 @@ use world_id_types::{
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
 
+use world_id_primitives::request::{ProofRequest, RequestItem, ResponseItem};
 use world_id_proof::{
     AuthenticatorProofInput,
     credential_blinding_factor::OprfCredentialBlindingFactor,
     nullifier::OprfNullifier,
     proof::{ProofError, generate_nullifier_proof},
 };
-use world_id_primitives::request::{ProofRequest, RequestItem, ResponseItem};
 
 use alloy::{
     primitives::{Address, U256},

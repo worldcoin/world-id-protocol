@@ -5,10 +5,10 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
+use crate::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::OprfKeyId;
-use crate::{FieldElement, PrimitiveError, ZeroKnowledgeProof, rp::RpId};
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -335,8 +335,8 @@ impl ProofRequest {
     /// Note: the timestamp is encoded as big-endian to mirror the RP-side signing
     /// performed in test fixtures and the OPRF stub.
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
-        use k256::sha2::{Digest, Sha256};
         use crate::rp::compute_rp_signature_msg;
+        use k256::sha2::{Digest, Sha256};
 
         let msg = compute_rp_signature_msg(*self.nonce, self.created_at, self.expires_at);
         let mut hasher = Sha256::new();
