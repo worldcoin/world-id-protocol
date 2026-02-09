@@ -208,7 +208,7 @@ async fn build_from_db_with_cache(
 
     // Step 1: Build dense prefix by processing chunks
     info!("First pass: building dense prefix");
-    let mut dense_leaves: Vec<Option<U256>> = vec![None; dense_prefix_size];
+    let mut dense_leaves: Vec<U256> = vec![U256::ZERO; dense_prefix_size];
     let mut total_leaves = 0u64;
     let mut max_leaf_index = 0usize;
     let mut last_cursor = 0usize;
@@ -228,7 +228,7 @@ async fn build_from_db_with_cache(
             }
 
             if *leaf_index < dense_prefix_size {
-                dense_leaves[*leaf_index] = Some(*leaf_value);
+                dense_leaves[*leaf_index] = *leaf_value;
             }
         }
 
@@ -246,21 +246,15 @@ async fn build_from_db_with_cache(
         max_leaf_index, dense_prefix_size, "First pass complete"
     );
 
-    // Step 2: Convert dense leaves to vector for mmap creation
-    let dense_vec: Vec<U256> = dense_leaves
-        .iter()
-        .map(|opt| opt.unwrap_or(U256::ZERO))
-        .collect();
+    // Step 2: Create mmap tree with dense portion
+    info!(dense_leaves_len = dense_leaves.len(), "Built dense prefix vector");
 
-    info!(dense_vec_len = dense_vec.len(), "Built dense prefix vector");
-
-    // Step 3: Create mmap tree with dense portion
     let mut tree =
         MerkleTree::<PoseidonHasher, Canonical>::new_mmapped_with_dense_prefix_with_init_values(
             tree_depth,
             dense_prefix_depth,
             &U256::ZERO,
-            &dense_vec,
+            &dense_leaves,
             cache_path_str,
         )
         .map_err(|e| TreeError::CacheCreate(Box::new(e)))?;
