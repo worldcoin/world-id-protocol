@@ -79,9 +79,7 @@ impl OprfNullifier {
             r: signature.r,
             merkle_root: *authenticator_input.inclusion_proof.root,
             depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-            mt_index: *authenticator_input
-                .inclusion_proof
-                .leaf_index_as_field_element(),
+            mt_index: authenticator_input.inclusion_proof.leaf_index.into(),
             siblings,
             beta: query_blinding_factor.beta(),
             rp_id: *FieldElement::from(proof_request.rp_id),

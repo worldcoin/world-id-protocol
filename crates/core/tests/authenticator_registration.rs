@@ -1,5 +1,6 @@
 #![cfg(feature = "authenticator")]
 
+use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use test_utils::anvil::TestAnvil;
 use world_id_core::{Authenticator, AuthenticatorError, types::GatewayRequestState};
@@ -92,4 +93,3 @@ async fn test_authenticator_registration() {
     let authenticator = Authenticator::init(&seed, config).await.unwrap();
     assert_eq!(authenticator.leaf_index(), 1);
 }
-use alloy::primitives::U256;

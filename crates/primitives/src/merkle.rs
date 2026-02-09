@@ -1,4 +1,6 @@
-use crate::{FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet};
+use crate::{
+    FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u64,
+};
 use ark_babyjubjub::Fq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
@@ -40,6 +42,7 @@ pub struct MerkleInclusionProof<const TREE_DEPTH: usize> {
     /// The World ID's leaf position in the Merkle tree of the `WorldIDRegistry` contract.
     ///
     /// This is the main internal identifier for a World ID.
+    #[serde(with = "hex_u64")]
     pub leaf_index: u64,
     /// The sibling path up to the Merkle root.
     #[serde(with = "array_serde")]
@@ -59,12 +62,6 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
             leaf_index,
             siblings,
         }
-    }
-
-    /// Returns the World ID's leaf index as a field element.
-    #[must_use]
-    pub fn leaf_index_as_field_element(&self) -> FieldElement {
-        Fq::from(self.leaf_index).into()
     }
 }
 

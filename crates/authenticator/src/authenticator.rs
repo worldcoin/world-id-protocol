@@ -349,20 +349,12 @@ impl Authenticator {
     /// - The `leaf_index` is used as input in the nullifier generation, ensuring a nullifier
     ///   will always be the same for the same RP context and the same World ID (allowing for uniqueness).
     /// - The `leaf_index` is generally not exposed outside Authenticators. It is not a secret because
-    ///   it's not exposed to RPs outside ZK-circuits, but it should not be shared outside the Protocol
-    ///   boundaries or it may create a pseudonymous identifier.
+    ///   it's not exposed to RPs outside ZK-circuits, but the only acceptable exposure outside an Authenticator
+    ///   is to fetch Merkle inclusion proofs from an indexer or it may create a pseudonymous identifier.
     /// - The `leaf_index` is stored as a `uint64` inside packed account data.
     #[must_use]
     pub fn leaf_index(&self) -> u64 {
         (self.packed_account_data & MASK_LEAF_INDEX).to::<u64>()
-    }
-
-    /// Returns the World ID's leaf index as a field element.
-    ///
-    /// # Panics
-    /// This does not panic as the leaf index is a `u64`, which always fits in BN254.
-    pub fn leaf_index_as_field_element(&self) -> FieldElement {
-        Fq::from(self.leaf_index()).into()
     }
 
     /// Returns the recovery counter for the holder's World ID.

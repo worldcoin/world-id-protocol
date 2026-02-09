@@ -293,7 +293,7 @@ fn generate_oprf_auth_request(
         r: authenticator_signature.r,
         merkle_root: *inclusion_proof.root,
         depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-        mt_index: *inclusion_proof.leaf_index_as_field_element(),
+        mt_index: inclusion_proof.leaf_index.into(),
         siblings,
         beta: blinding_factor.beta(),
         rp_id: *FieldElement::from(proof_request.rp_id),

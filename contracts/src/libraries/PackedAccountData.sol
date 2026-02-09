@@ -11,8 +11,6 @@ pragma solidity ^0.8.13;
  * @custom:format _recoveryCounter bits [224, 256); _pubKeyId bits [192, 224); _leafIndex bits [0, 64)
  */
 library PackedAccountData {
-    error LeafIndexOverflow();
-
     /**
      * @dev Extracts the recovery counter from a `PackedAccountData`.
      * @param packed The `PackedAccountData` to parse
