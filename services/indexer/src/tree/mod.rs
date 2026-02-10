@@ -4,15 +4,9 @@ use semaphore_rs_hasher::Hasher;
 pub use semaphore_rs_trees::lazy::LazyMerkleTree as MerkleTree;
 use thiserror::Error;
 
-pub mod builder;
-pub mod initializer;
-pub mod metadata;
+pub mod cached_tree;
 pub mod state;
 
-#[cfg(test)]
-mod tests;
-
-pub use initializer::TreeInitializer;
 pub use state::TreeState;
 
 pub type TreeResult<T> = Result<T, TreeError>;
@@ -32,37 +26,10 @@ pub enum TreeError {
     CacheRestore(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("failed to create mmap tree: {0}")]
     CacheCreate(#[source] Box<dyn std::error::Error + Send + Sync>),
-    #[error("metadata file does not exist: {path}")]
-    MetadataMissing { path: std::path::PathBuf },
-    #[error("failed to read metadata file: {path}")]
-    MetadataRead {
-        path: std::path::PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to parse metadata file: {path}")]
-    MetadataParse {
-        path: std::path::PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
-    #[error("failed to serialize metadata")]
-    MetadataSerialize(#[source] serde_json::Error),
-    #[error("failed to write metadata file: {path}")]
-    MetadataWrite {
-        path: std::path::PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to rename metadata file: {from} -> {to}")]
-    MetadataRename {
-        from: std::path::PathBuf,
-        to: std::path::PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
     #[error("root mismatch - actual: {actual}, expected: {expected}")]
     RootMismatch { actual: String, expected: String },
+    #[error("restored root not found in DB: {root}")]
+    StaleCache { root: String },
     #[error(transparent)]
     Db(#[from] crate::db::DBError),
 }

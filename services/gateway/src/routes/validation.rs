@@ -1,17 +1,19 @@
 use tokio::sync::OnceCell;
 
+use crate::error::GatewayErrorResponse;
 use alloy::{
     primitives::{Address, Bytes, Signature, U256},
     providers::Provider,
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
 use world_id_core::{
-    types::{
-        CreateAccountRequest, GatewayErrorResponse, InsertAuthenticatorRequest,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    api_types::{
+        CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
     world_id_registry::{
-        InsertAuthenticator, RecoverAccount, RemoveAuthenticator, UpdateAuthenticator,
+        InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
+        UpdateAuthenticatorTypedData,
     },
 };
 
@@ -227,7 +229,7 @@ impl RequestValidation for InsertAuthenticatorRequest {
                 "pubkey_id must be less than {MAX_AUTHENTICATORS}"
             )));
         }
-        if self.leaf_index.is_zero() {
+        if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
             ));
@@ -241,7 +243,7 @@ impl RequestValidation for InsertAuthenticatorRequest {
         }
 
         // Verify ECDSA signature
-        let typed_data = InsertAuthenticator {
+        let typed_data = InsertAuthenticatorTypedData {
             leafIndex: self.leaf_index,
             newAuthenticatorAddress: self.new_authenticator_address,
             pubkeyId: self.pubkey_id,
@@ -301,7 +303,7 @@ impl RequestValidation for UpdateAuthenticatorRequest {
         chain_id: u64,
         verifying_contract: Address,
     ) -> Result<(), GatewayErrorResponse> {
-        if self.leaf_index.is_zero() {
+        if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
             ));
@@ -325,7 +327,7 @@ impl RequestValidation for UpdateAuthenticatorRequest {
         }
 
         // Verify ECDSA signature is from the authenticator being replaced
-        let typed_data = UpdateAuthenticator {
+        let typed_data = UpdateAuthenticatorTypedData {
             leafIndex: self.leaf_index,
             oldAuthenticatorAddress: self.old_authenticator_address,
             newAuthenticatorAddress: self.new_authenticator_address,
@@ -397,7 +399,7 @@ impl RequestValidation for RemoveAuthenticatorRequest {
         let pubkey_id = self.pubkey_id.unwrap_or(0);
         let authenticator_pubkey = self.authenticator_pubkey.unwrap_or(U256::ZERO);
 
-        if self.leaf_index.is_zero() {
+        if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
             ));
@@ -423,7 +425,7 @@ impl RequestValidation for RemoveAuthenticatorRequest {
         // Verify ECDSA signature format and recoverability
         // Note: Any authenticator on the account can authorize removal, not just the one being removed.
         // Full authorization is verified by the contract during simulation.
-        let typed_data = RemoveAuthenticator {
+        let typed_data = RemoveAuthenticatorTypedData {
             leafIndex: self.leaf_index,
             authenticatorAddress: self.authenticator_address,
             pubkeyId: pubkey_id,
@@ -491,7 +493,7 @@ impl RequestValidation for RecoverAccountRequest {
     ) -> Result<(), GatewayErrorResponse> {
         let new_pubkey = self.new_authenticator_pubkey.unwrap_or(U256::ZERO);
 
-        if self.leaf_index.is_zero() {
+        if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
             ));
@@ -510,7 +512,7 @@ impl RequestValidation for RecoverAccountRequest {
         }
 
         // Verify ECDSA signature
-        let typed_data = RecoverAccount {
+        let typed_data = RecoverAccountTypedData {
             leafIndex: self.leaf_index,
             newAuthenticatorAddress: self.new_authenticator_address,
             newAuthenticatorPubkey: new_pubkey,

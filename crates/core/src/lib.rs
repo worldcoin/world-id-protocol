@@ -9,12 +9,15 @@
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]
-pub use world_id_registry;
-
-#[cfg(feature = "authenticator")]
 pub use world_id_authenticator::{
     Authenticator, AuthenticatorError, InitializingAuthenticator, OnchainKeyRepresentable,
 };
+
+/// Re-export registry from authenticator for convenience
+#[cfg(feature = "authenticator")]
+pub mod world_id_registry {
+    pub use world_id_authenticator::registry::*;
+}
 
 pub use world_id_primitives::{Credential, CredentialVersion};
 
@@ -35,9 +38,12 @@ pub use world_id_request as requests;
 
 pub use world_id_primitives::FieldElement;
 
-pub use world_id_types as types;
-
 /// Re-export of all the World ID primitives
 pub mod primitives {
     pub use world_id_primitives::*;
+}
+
+/// Re-export api_types for convenience
+pub mod api_types {
+    pub use world_id_primitives::api_types::*;
 }

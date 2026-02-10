@@ -14,6 +14,8 @@ repository.workspace = true
 default = ["circuits"]
 # Enable circuit-related types (requires C++ toolchain, not WASM compatible)
 circuits = ["dep:circom-types", "dep:groth16-material", "dep:ark-serde-compat"]
+# Enable OpenAPI schema derives for API types.
+openapi = ["dep:utoipa"]
 
 [dependencies]
 alloy-primitives = { workspace = true, default-features = false, features = [
@@ -41,6 +43,8 @@ url = { workspace = true, features = ["serde"] }
 poseidon2 = { workspace = true }
 sha3 = { workspace = true, default-features = false }
 rand = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+utoipa = { workspace = true, optional = true }
 
 # WASM support: getrandom needs 'js' feature to work in browsers
 [target.'cfg(target_arch = "wasm32")'.dependencies]

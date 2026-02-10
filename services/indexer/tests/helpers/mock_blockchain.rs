@@ -7,7 +7,7 @@ use world_id_indexer::blockchain::{BlockchainEvent, RegistryEvent};
 pub fn mock_account_created_event(
     block_number: u64,
     log_index: u64,
-    leaf_index: U256,
+    leaf_index: u64,
     recovery_address: Address,
     commitment: U256,
 ) -> BlockchainEvent<RegistryEvent> {
@@ -26,7 +26,7 @@ pub fn mock_account_created_event(
 pub fn mock_account_created_event_with_authenticators(
     block_number: u64,
     log_index: u64,
-    leaf_index: U256,
+    leaf_index: u64,
     recovery_address: Address,
     authenticator_addresses: Vec<Address>,
     authenticator_pubkeys: Vec<U256>,
@@ -51,7 +51,7 @@ pub fn mock_account_created_event_with_authenticators(
 pub fn mock_account_updated_event(
     block_number: u64,
     log_index: u64,
-    leaf_index: U256,
+    leaf_index: u64,
     pubkey_id: u32,
     new_address: Address,
     new_pubkey: U256,
@@ -79,7 +79,7 @@ pub fn mock_account_updated_event(
 pub fn mock_authenticator_inserted_event(
     block_number: u64,
     log_index: u64,
-    leaf_index: U256,
+    leaf_index: u64,
     pubkey_id: u32,
     authenticator_address: Address,
     new_pubkey: U256,
@@ -108,7 +108,7 @@ pub fn mock_authenticator_inserted_event(
 pub fn mock_authenticator_removed_event(
     block_number: u64,
     log_index: u64,
-    leaf_index: U256,
+    leaf_index: u64,
     pubkey_id: u32,
     authenticator_address: Address,
     pubkey: U256,
@@ -136,7 +136,7 @@ pub fn mock_authenticator_removed_event(
 pub fn mock_account_recovered_event(
     block_number: u64,
     log_index: u64,
-    leaf_index: U256,
+    leaf_index: u64,
     new_address: Address,
     new_pubkey: U256,
     old_commitment: U256,

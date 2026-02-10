@@ -2,11 +2,11 @@ use alloy::primitives::{Address, U160, U256};
 use sqlx::{Postgres, Row, postgres::PgRow, types::Json};
 use tracing::instrument;
 
-use crate::db::DBResult;
+use crate::db::{DBError, DBResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     pub recovery_address: Address,
     pub authenticator_addresses: Vec<Address>,
     pub authenticator_pubkeys: Vec<U256>,
@@ -259,8 +259,13 @@ where
         })
     }
 
-    fn map_leaf_index(row: &PgRow) -> DBResult<U256> {
-        Ok(row.get::<U256, _>("leaf_index"))
+    fn map_leaf_index(row: &PgRow) -> DBResult<u64> {
+        let leaf_index = row.get::<U256, _>("leaf_index");
+        u64::try_from(leaf_index).map_err(|_| {
+            DBError::Sqlx(sqlx::Error::Decode(
+                format!("leaf_index {leaf_index} does not fit into u64").into(),
+            ))
+        })
     }
 
     fn map_recovery_address(row: &PgRow) -> DBResult<Address> {

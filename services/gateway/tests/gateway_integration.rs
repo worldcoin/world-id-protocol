@@ -9,7 +9,7 @@ use alloy::{
 use reqwest::{Client, StatusCode};
 use test_utils::anvil::TestAnvil;
 use world_id_core::{
-    types::{
+    api_types::{
         GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
         RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
@@ -202,7 +202,7 @@ async fn e2e_gateway_full_flow() {
     let new_auth2: Address = address!("0x00000000000000000000000000000000000000a2");
     let sig_ins = sign_insert_authenticator(
         &signer,
-        U256::from(1),
+        1,
         new_auth2,
         1,
         U256::from(200),
@@ -213,7 +213,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_ins = InsertAuthenticatorRequest {
-        leaf_index: U256::from(1),
+        leaf_index: 1,
         new_authenticator_address: new_auth2,
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
@@ -271,7 +271,7 @@ async fn e2e_gateway_full_flow() {
     // remove-authenticator (remove the one we inserted)
     let sig_rem = sign_remove_authenticator(
         &signer,
-        U256::from(1),
+        1,
         new_auth2,
         1,
         U256::from(200),
@@ -282,7 +282,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_rem = RemoveAuthenticatorRequest {
-        leaf_index: U256::from(1),
+        leaf_index: 1,
         authenticator_address: new_auth2,
         old_offchain_signer_commitment: U256::from(2),
         new_offchain_signer_commitment: U256::from(3),
@@ -338,7 +338,7 @@ async fn e2e_gateway_full_flow() {
     // recover-account (signed by recovery address == wallet)
     let sig_rec = sign_recover_account(
         &signer,
-        U256::from(1),
+        1,
         wallet_addr_new,
         U256::from(300),
         U256::from(4),
@@ -348,7 +348,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_rec = RecoverAccountRequest {
-        leaf_index: U256::from(1),
+        leaf_index: 1,
         new_authenticator_address: wallet_addr_new,
         old_offchain_signer_commitment: U256::from(3),
         new_offchain_signer_commitment: U256::from(4),
@@ -405,7 +405,7 @@ async fn e2e_gateway_full_flow() {
     let new_auth4: Address = address!("0x00000000000000000000000000000000000000a4");
     let sig_upd = sign_update_authenticator(
         &signer_new,
-        U256::from(1),
+        1,
         wallet_addr_new,
         new_auth4,
         0,
@@ -417,7 +417,7 @@ async fn e2e_gateway_full_flow() {
     .await
     .unwrap();
     let body_upd = UpdateAuthenticatorRequest {
-        leaf_index: U256::from(1),
+        leaf_index: 1,
         old_authenticator_address: wallet_addr_new,
         new_authenticator_address: new_auth4,
         old_offchain_signer_commitment: U256::from(4),
@@ -530,7 +530,7 @@ async fn test_authenticator_already_exists_error_code() {
     let nonce = U256::from(0);
     let sig_ins = sign_insert_authenticator(
         &signer,
-        U256::from(1),
+        1,
         wallet_addr, // Same address that's already an authenticator for account 1
         0,
         U256::from(100),
@@ -541,7 +541,7 @@ async fn test_authenticator_already_exists_error_code() {
     .await
     .unwrap();
     let body_ins = InsertAuthenticatorRequest {
-        leaf_index: U256::from(1),
+        leaf_index: 1,
         new_authenticator_address: wallet_addr,
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),

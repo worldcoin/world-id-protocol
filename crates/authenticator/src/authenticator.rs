@@ -4,14 +4,14 @@
 
 use std::sync::Arc;
 
-use world_id_primitives::{Credential, FieldElement};
-use world_id_signer::Signer;
-use world_id_types::{
+use crate::api_types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
     IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
     IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
+use world_id_primitives::{Credential, FieldElement, SessionNullifier};
+use world_id_signer::Signer;
 
 use world_id_proof::{
     AuthenticatorProofInput,
@@ -21,6 +21,10 @@ use world_id_proof::{
 };
 use world_id_request::{ProofRequest, RequestItem, ResponseItem};
 
+use crate::registry::{
+    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
+    sign_remove_authenticator, sign_update_authenticator,
+};
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
@@ -38,17 +42,13 @@ use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
     merkle::MerkleInclusionProof,
 };
-use world_id_registry::{
-    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
-    sign_remove_authenticator, sign_update_authenticator,
-};
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
 static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
-    uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
+    uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 pub struct Authenticator {
@@ -96,7 +96,7 @@ impl Authenticator {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(world_id_registry::WorldIdRegistry::new(
+                Some(crate::registry::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
@@ -337,12 +337,24 @@ impl Authenticator {
         self.registry.clone()
     }
 
-    /// Returns the account index for the holder's World ID.
+    /// Returns the index for the holder's World ID.
     ///
-    /// This is the index at the Merkle tree where the holder's World ID account is registered.
+    /// # Definition
+    ///
+    /// The `leaf_index` is the main (internal) identifier of a World ID. It is registered in
+    /// the `WorldIDRegistry` and represents the index at the Merkle tree where the World ID
+    /// resides.
+    ///
+    /// # Notes
+    /// - The `leaf_index` is used as input in the nullifier generation, ensuring a nullifier
+    ///   will always be the same for the same RP context and the same World ID (allowing for uniqueness).
+    /// - The `leaf_index` is generally not exposed outside Authenticators. It is not a secret because
+    ///   it's not exposed to RPs outside ZK-circuits, but the only acceptable exposure outside an Authenticator
+    ///   is to fetch Merkle inclusion proofs from an indexer or it may create a pseudonymous identifier.
+    /// - The `leaf_index` is stored as a `uint64` inside packed account data.
     #[must_use]
-    pub fn leaf_index(&self) -> U256 {
-        self.packed_account_data & MASK_LEAF_INDEX
+    pub fn leaf_index(&self) -> u64 {
+        (self.packed_account_data & MASK_LEAF_INDEX).to::<u64>()
     }
 
     /// Returns the recovery counter for the holder's World ID.
@@ -558,6 +570,7 @@ impl Authenticator {
         let mut rng = rand::rngs::OsRng;
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+        let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
 
         let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
@@ -575,13 +588,26 @@ impl Authenticator {
 
         let proof = ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root);
 
-        let response_item = ResponseItem::new(
-            request_item.identifier.clone(),
-            request_item.issuer_schema_id,
-            proof,
-            nullifier.into(),
-            expires_at_min,
-        );
+        // Construct the appropriate response item based on proof type
+        let nullifier_fe: FieldElement = nullifier.into();
+        let response_item = if session_id.is_some() {
+            let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query);
+            ResponseItem::new_session(
+                request_item.identifier.clone(),
+                request_item.issuer_schema_id,
+                proof,
+                session_nullifier,
+                expires_at_min,
+            )
+        } else {
+            ResponseItem::new_uniqueness(
+                request_item.identifier.clone(),
+                request_item.issuer_schema_id,
+                proof,
+                nullifier_fe,
+                expires_at_min,
+            )
+        };
 
         Ok(response_item)
     }
