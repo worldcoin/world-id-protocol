@@ -31,7 +31,11 @@ repository = "https://github.com/worldcoin/world-id-protocol"
 rust-version = "1.87"
 
 [workspace.dependencies]
-alloy = { version = "1.5", default-features = false }
+# alloy
+alloy = { version = "1.6.3", default-features = false }
+alloy-primitives = { version = "1.5.4", default-features = false }
+alloy-node-bindings = "1.0.38"
+
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
@@ -89,8 +93,6 @@ metrics = "0.24"
 secrecy = "0.10"
 mockito = "1"
 ciborium = "0.2"
-alloy-node-bindings = "1.0.38"
-alloy-primitives = { version = "1", default-features = false }
 arrayvec = "0.7"
 async-trait = "0.1"
 aws-config = "1"
