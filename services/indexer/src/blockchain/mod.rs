@@ -64,7 +64,8 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
-    /// Creates a new [`Blockchain`] instance.
+    /// Creates a new [`Blockchain`] instance is used to stream events from the blockchain.
+    /// Note: We consider any errors as fatal and stop the stream.
     ///
     /// # Arguments
     ///
@@ -138,7 +139,7 @@ impl Blockchain {
         let backfill = self.backfill_stream(from_block, batch_size, last_block.clone());
         let ws = self.websocket_stream(last_block, batch_size);
 
-        backfill.chain(ws).boxed()
+        backfill.chain(ws).stop_after_first_error()
     }
 
     /// Returns a decoded backfill event stream and a shared atomic holding the
@@ -166,7 +167,9 @@ impl Blockchain {
         Arc<AtomicU64>,
     ) {
         let last_block = Arc::new(AtomicU64::new(from_block.saturating_sub(1)));
-        let stream = self.backfill_stream(from_block, batch_size, last_block.clone());
+        let stream = self
+            .backfill_stream(from_block, batch_size, last_block.clone())
+            .stop_after_first_error();
         (stream, last_block)
     }
 
@@ -194,8 +197,8 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of decoded [`BlockchainResult<BlockchainEvent<RegistryEvent>>`].
-    /// Returns [`BlockchainError::WsSubscriptionClosed`] if the websocket subscription is closed.
-    /// The stream terminates after the first error.
+    /// WARNING: Due to the internal reconnectoin logic of alloy, there might be dropped websocket events in rare cases.
+    /// Returns [`BlockchainError::WsSubscriptionClosed`] and stops in case the websocket is dropped.
     fn websocket_stream(
         &self,
         backfill_to_block: Arc<AtomicU64>,
@@ -266,7 +269,6 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of decoded [`BlockchainResult<BlockchainEvent<RegistryEvent>>`].
-    /// The stream terminates after the first error.
     fn backfill_stream(
         &self,
         from_block: u64,
@@ -376,9 +378,8 @@ impl Blockchain {
 
     /// Generic retry wrapper for any RPC call.
     ///
-    /// Retries `f` with exponential backoff using the module-level
-    /// `RPC_RETRY_*` constants. Every failed attempt is logged at `warn`
-    /// level together with the operation `name`.
+    /// Retries `f` with exponential backoff. Every failed attempt is logged
+    /// at `warn` level together with the operation `name`.
     async fn rpc<T, F, Fut>(&self, name: &str, f: F) -> BlockchainResult<T>
     where
         F: FnMut() -> Fut,
@@ -386,7 +387,7 @@ impl Blockchain {
     {
         let backoff = ExponentialBuilder::default()
             .with_min_delay(RPC_RETRY_MIN_DELAY)
-            .with_max_delay(RPC_RETRY_MAX_DELAY)
+            .with_max_delay(self.rpc_retry_max_delay)
             .with_factor(RPC_RETRY_FACTOR);
 
         f.retry(backoff)
@@ -424,5 +425,29 @@ impl Blockchain {
                 .map_err(|err| BlockchainError::Rpc(Box::new(err)))
         })
         .await
+    }
+}
+
+/// Small extension trait to stop a stream after the first error.
+pub trait StopAfterFirstErrorExt<T, E>: Stream<Item = Result<T, E>> + Sized {
+    fn stop_after_first_error(self) -> impl Stream<Item = Result<T, E>> + Unpin;
+}
+
+impl<S, T, E> StopAfterFirstErrorExt<T, E> for S
+where
+    S: Stream<Item = Result<T, E>> + Sized + Unpin,
+{
+    fn stop_after_first_error(self) -> impl Stream<Item = Result<T, E>> + Unpin {
+        self.scan(false, |seen_err, item| {
+            if *seen_err {
+                return std::future::ready(None);
+            }
+
+            if item.is_err() {
+                *seen_err = true;
+            }
+
+            std::future::ready(Some(item))
+        })
     }
 }
