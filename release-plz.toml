@@ -1,49 +1,56 @@
 [workspace]
 # Automatically create GitHub releases for each package
 # This creates tags like: world-id-core-v0.1.4, world-id-primitives-v0.1.2
-# Services can have their own release process with tags like: indexer-v1.0.0
 git_release_enable = true
 git_release_type = "auto"
 # Don't update workspace-level changelog - each package has its own
 changelog_update = false
 pr_labels = ["release"]
+release = false # only process specifically defined packages
 
 # Publish only specific packages to crates.io
 # Services (indexer, gateway) are not published to crates.io
 [[package]]
 name = "world-id-core"
 publish = true
-# Each crate maintains its own changelog
-changelog_update = true
+changelog_update = true # each crate maintains its own changelog
 changelog_path = "CHANGELOG.md"
 
 [[package]]
 name = "world-id-primitives"
 publish = true
-# Each crate maintains its own changelog
-changelog_update = true
+changelog_update = true # each crate maintains its own changelog
 changelog_path = "CHANGELOG.md"
 
 [[package]]
-name = "test-utils"
-publish = false
+name = "world-id-test-utils"
+publish = false # this crate is not published, it's only used for testing
+
+
+## SECTION: Services
+# All services are published with a different scheme. `release-plz` does not manage
+# the release of services
 
 [[package]]
 name = "world-id-indexer"
-publish = false
+release = false
 
 [[package]]
 name = "world-id-gateway"
-publish = false
+release = false
 
 [[package]]
 name = "world-id-oprf-node"
-publish = false
+release = false
 
 [[package]]
 name = "world-id-oprf-dev-client"
-publish = false
+release = false
 
 [[package]]
-name = "common"
-publish = false
+name = "world-id-services-common"
+release = false
+
+[[package]]
+name = "world-id-faux-issuer"
+release = false

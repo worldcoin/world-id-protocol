@@ -1,5 +1,5 @@
 [package]
-name = "test-utils"
+name = "world-id-test-utils"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
