@@ -6,7 +6,7 @@ use crate::{
 };
 use alloy::primitives::Bytes;
 use uuid::Uuid;
-use world_id_core::types::CreateAccountRequest;
+use world_id_core::api_types::CreateAccountRequest;
 
 /// Default gas estimates for operation types.
 pub(super) mod defaults {

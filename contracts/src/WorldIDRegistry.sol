@@ -4,8 +4,6 @@ pragma solidity ^0.8.13;
 import {BinaryIMT, BinaryIMTData} from "./libraries/BinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
 import {WorldIDBase} from "./abstract/WorldIDBase.sol";
@@ -30,22 +28,22 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @dev leafIndex -> [96 bits pubkeyId bitmap][160 bits recoveryAddress]
     /// Note that while 96 bits are reserved for the pubkeyId bitmap, only `_maxAuthenticators` bits are used in practice.
-    mapping(uint256 => uint256) internal _leafIndexToRecoveryAddressPacked;
+    mapping(uint64 => uint256) internal _leafIndexToRecoveryAddressPacked;
 
     /// @dev authenticatorAddress -> packed account data (leafIndex, recoveryCounter, pubkeyId)
     mapping(address => uint256) internal _authenticatorAddressToPackedAccountData;
 
     /// @dev leafIndex -> signature nonce for replay protection
-    mapping(uint256 => uint256) internal _leafIndexToSignatureNonce;
+    mapping(uint64 => uint256) internal _leafIndexToSignatureNonce;
 
     /// @dev leafIndex -> recovery counter (incremented on each recovery)
-    mapping(uint256 => uint256) internal _leafIndexToRecoveryCounter;
+    mapping(uint64 => uint256) internal _leafIndexToRecoveryCounter;
 
     /// @dev Binary Merkle tree storing account commitments
     BinaryIMTData internal _tree;
 
     /// @dev Next available leaf index for new accounts
-    uint256 internal _nextLeafIndex;
+    uint64 internal _nextLeafIndex;
 
     /// @dev Depth of the Merkle tree
     uint256 internal _treeDepth;
@@ -73,21 +71,21 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     ////////////////////////////////////////////////////////////
 
     bytes32 public constant UPDATE_AUTHENTICATOR_TYPEHASH = keccak256(
-        "UpdateAuthenticator(uint256 leafIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint32 pubkeyId,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
+        "UpdateAuthenticator(uint64 leafIndex,address oldAuthenticatorAddress,address newAuthenticatorAddress,uint32 pubkeyId,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
     );
     bytes32 public constant INSERT_AUTHENTICATOR_TYPEHASH = keccak256(
-        "InsertAuthenticator(uint256 leafIndex,address newAuthenticatorAddress,uint32 pubkeyId,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
+        "InsertAuthenticator(uint64 leafIndex,address newAuthenticatorAddress,uint32 pubkeyId,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
     );
     bytes32 public constant REMOVE_AUTHENTICATOR_TYPEHASH = keccak256(
-        "RemoveAuthenticator(uint256 leafIndex,address authenticatorAddress,uint32 pubkeyId,uint256 authenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
+        "RemoveAuthenticator(uint64 leafIndex,address authenticatorAddress,uint32 pubkeyId,uint256 authenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
     );
     bytes32 public constant RECOVER_ACCOUNT_TYPEHASH = keccak256(
-        "RecoverAccount(uint256 leafIndex,address newAuthenticatorAddress,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
+        "RecoverAccount(uint64 leafIndex,address newAuthenticatorAddress,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
     );
     bytes32 public constant INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH =
-        keccak256("InitiateRecoveryAgentUpdate(uint256 leafIndex,address newRecoveryAgent,uint256 nonce)");
+        keccak256("InitiateRecoveryAgentUpdate(uint64 leafIndex,address newRecoveryAgent,uint256 nonce)");
     bytes32 public constant CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH =
-        keccak256("CancelRecoveryAgentUpdate(uint256 leafIndex,uint256 nonce)");
+        keccak256("CancelRecoveryAgentUpdate(uint64 leafIndex,uint256 nonce)");
 
     string public constant EIP712_NAME = "WorldIDRegistry";
     string public constant EIP712_VERSION = "1.0";
@@ -147,7 +145,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function getRecoveryAgent(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
+    function getRecoveryAgent(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
         return _getRecoveryAgent(leafIndex);
     }
 
@@ -174,17 +172,17 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function getSignatureNonce(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getSignatureNonce(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return _leafIndexToSignatureNonce[leafIndex];
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function getRecoveryCounter(uint256 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getRecoveryCounter(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256) {
         return _leafIndexToRecoveryCounter[leafIndex];
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getNextLeafIndex() external view virtual onlyProxy onlyInitialized returns (uint64) {
         return _nextLeafIndex;
     }
 
@@ -240,7 +238,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
      * @param leafIndex The leaf index of the account.
      * @return The recovery agent for the account.
      */
-    function _getRecoveryAgent(uint256 leafIndex) internal view returns (address) {
+    function _getRecoveryAgent(uint64 leafIndex) internal view returns (address) {
         return address(uint160(_leafIndexToRecoveryAddressPacked[leafIndex]));
     }
 
@@ -249,7 +247,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
      * @param leafIndex The leaf index of the account.
      * @return The pubkey bitmap for the account.
      */
-    function _getPubkeyBitmap(uint256 leafIndex) internal view returns (uint256) {
+    function _getPubkeyBitmap(uint64 leafIndex) internal view returns (uint256) {
         return _leafIndexToRecoveryAddressPacked[leafIndex] >> 160;
     }
 
@@ -274,7 +272,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (packedAccountData == 0) {
             revert AuthenticatorDoesNotExist(signer);
         }
-        uint256 leafIndex = PackedAccountData.leafIndex(packedAccountData);
+        uint64 leafIndex = PackedAccountData.leafIndex(packedAccountData);
         uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
         uint256 expectedRecoveryCounter = _leafIndexToRecoveryCounter[leafIndex];
         if (actualRecoveryCounter != expectedRecoveryCounter) {
@@ -295,7 +293,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
         // leafIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
         if (packedAccountData != 0) {
-            uint256 existingLeafIndex = PackedAccountData.leafIndex(packedAccountData);
+            uint64 existingLeafIndex = PackedAccountData.leafIndex(packedAccountData);
             uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
             if (existingRecoveryCounter >= _leafIndexToRecoveryCounter[existingLeafIndex]) {
                 revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
@@ -313,7 +311,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
      * @param leafIndex The leaf index of the account.
      * @param bitmap The new pubkey bitmap to set.
      */
-    function _setPubkeyBitmap(uint256 leafIndex, uint256 bitmap) internal {
+    function _setPubkeyBitmap(uint64 leafIndex, uint256 bitmap) internal {
         if (bitmap >> 96 != 0) {
             revert BitmapOverflow();
         }
@@ -331,7 +329,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
      * @param recoveryAddress The recovery address to set.
      * @param bitmap The pubkey bitmap to set.
      */
-    function _setRecoveryAddressAndBitmap(uint256 leafIndex, address recoveryAddress, uint256 bitmap) internal {
+    function _setRecoveryAddressAndBitmap(uint64 leafIndex, address recoveryAddress, uint256 bitmap) internal {
         if (bitmap >> 96 != 0) {
             revert BitmapOverflow();
         }
@@ -356,12 +354,12 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
      * @param siblingNodes The Merkle proof sibling nodes.
      */
     function _updateLeafAndRecord(
-        uint256 leafIndex,
+        uint64 leafIndex,
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         uint256[] calldata siblingNodes
     ) internal virtual {
-        _tree.update(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _tree.update(uint256(leafIndex), oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
         _recordCurrentRoot();
     }
 
@@ -391,7 +389,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert MismatchingArrayLengths();
         }
 
-        uint256 leafIndex = _nextLeafIndex;
+        uint64 leafIndex = _nextLeafIndex;
 
         for (uint32 i = 0; i < authenticatorAddresses.length; i++) {
             address authenticatorAddress = authenticatorAddresses[i];
@@ -495,7 +493,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     function updateAuthenticator(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address oldAuthenticatorAddress,
         address newAuthenticatorAddress,
         uint32 pubkeyId,
@@ -534,7 +532,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         );
 
         (address signer, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
+        uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
@@ -582,7 +580,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     function insertAuthenticator(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address newAuthenticatorAddress,
         uint32 pubkeyId,
         uint256 newAuthenticatorPubkey,
@@ -618,7 +616,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         );
 
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
+        uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
@@ -651,7 +649,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     function removeAuthenticator(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address authenticatorAddress,
         uint32 pubkeyId,
         uint256 authenticatorPubkey,
@@ -680,7 +678,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         );
 
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
+        uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
@@ -695,7 +693,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (packedToRemove == 0) {
             revert AuthenticatorDoesNotExist(authenticatorAddress);
         }
-        uint256 actualLeafIndex = PackedAccountData.leafIndex(packedToRemove);
+        uint64 actualLeafIndex = PackedAccountData.leafIndex(packedToRemove);
         if (actualLeafIndex != leafIndex) {
             revert AuthenticatorDoesNotBelongToAccount(leafIndex, actualLeafIndex);
         }
@@ -722,7 +720,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     function recoverAccount(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address newAuthenticatorAddress,
         uint256 newAuthenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
@@ -794,7 +792,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     function initiateRecoveryAgentUpdate(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address newRecoveryAgent,
         bytes memory signature,
         uint256 nonce
@@ -808,7 +806,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         );
 
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
+        uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }

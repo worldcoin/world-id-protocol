@@ -7,17 +7,18 @@ pragma solidity ^0.8.13;
  * is identified primarily by its `leaf_index` which is the index of the
  * leaf of the Merkle tree where it is stored. Additional metadata is encoded
  * in the packed format to support recovery and off-chain public key management.
- * @custom:format Packed format: [32 bits recoveryCounter][32 bits pubkeyId][192 bits leafIndex]
+ * @custom:format Packed format: [32 bits recoveryCounter][32 bits pubkeyId][128 bits reserved][64 bits leafIndex]
+ * @custom:format _recoveryCounter bits [224, 256); _pubKeyId bits [192, 224); _leafIndex bits [0, 64)
  */
 library PackedAccountData {
-    error LeafIndexOverflow();
-
     /**
      * @dev Extracts the recovery counter from a `PackedAccountData`.
      * @param packed The `PackedAccountData` to parse
      * @return The recovery counter (top 32 bits) which counts the number of recoveries.
      */
     function recoveryCounter(uint256 packed) public pure returns (uint32) {
+        // casting to 'uint32' is safe because the recoveryCounter occupies the top 32 bits by design.
+        // forge-lint: disable-next-line(unsafe-typecast)
         return uint32(packed >> 224);
     }
 
@@ -28,6 +29,8 @@ library PackedAccountData {
      * specific authenticator for this World ID.
      */
     function pubkeyId(uint256 packed) public pure returns (uint32) {
+        // casting to 'uint32' is safe because the pubkeyId occupies bits [192..223]
+        // forge-lint: disable-next-line(unsafe-typecast)
         return uint32(packed >> 192);
     }
 
@@ -36,21 +39,19 @@ library PackedAccountData {
      * @param packed The PackedAccountData
      * @return The leaf index (bottom 192 bits).
      */
-    function leafIndex(uint256 packed) public pure returns (uint256) {
-        return uint256(uint192(packed));
+    function leafIndex(uint256 packed) public pure returns (uint64) {
+        // casting to 'uint64' is safe because the leafIndex occupies the lowest 64 bits by design
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint64(packed);
     }
 
     /**
      * @dev Packs the leaf index, recovery counter, and pubkey ID into a single `uint256` for storage.
-     * @param _leafIndex The leaf index (192 bits).
+     * @param _leafIndex The leaf index (64 bits).
      * @param _recoveryCounter The recovery counter (32 bits).
      * @param _pubkeyId The pubkey ID (32 bits).
-     * @return The packed value: [32 bits recoveryCounter][32 bits pubkeyId][192 bits leafIndex].
      */
-    function pack(uint256 _leafIndex, uint32 _recoveryCounter, uint32 _pubkeyId) public pure returns (uint256) {
-        if (_leafIndex >> 192 != 0) {
-            revert LeafIndexOverflow();
-        }
-        return (uint256(_recoveryCounter) << 224) | (uint256(_pubkeyId) << 192) | _leafIndex;
+    function pack(uint64 _leafIndex, uint32 _recoveryCounter, uint32 _pubkeyId) public pure returns (uint256) {
+        return (uint256(_recoveryCounter) << 224) | (uint256(_pubkeyId) << 192) | uint256(_leafIndex);
     }
 }

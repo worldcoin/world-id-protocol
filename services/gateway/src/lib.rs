@@ -18,7 +18,7 @@ mod types;
 
 // Re-export common types
 pub use crate::error::{GatewayError, GatewayResult};
-pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};
+pub use world_id_services_common::{ProviderArgs, SignerArgs, SignerConfig};
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -89,10 +89,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env();
     let provider = Arc::new(cfg.provider.http().await?);
-    let registry = Arc::new(WorldIdRegistryInstance::new(
-        cfg.registry_addr,
-        provider.clone(),
-    ));
+    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!("Config is ready. Building app...");
     let app = build_app(

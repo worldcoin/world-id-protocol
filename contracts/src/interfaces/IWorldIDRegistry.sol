@@ -57,7 +57,7 @@ interface IWorldIDRegistry {
     /**
      * @dev Thrown when a requested leaf index does not exist.
      */
-    error AccountDoesNotExist(uint256 leafIndex);
+    error AccountDoesNotExist(uint64 leafIndex);
 
     /**
      * @dev Thrown when a recovered signature address is the zero address.
@@ -92,7 +92,7 @@ interface IWorldIDRegistry {
     /**
      * @dev Thrown when the leaf index does not match the expected value.
      */
-    error MismatchedLeafIndex(uint256 expectedLeafIndex, uint256 actualLeafIndex);
+    error MismatchedLeafIndex(uint64 expectedLeafIndex, uint64 actualLeafIndex);
 
     /**
      * @dev Thrown when the recovered signature does not match the expected authenticator address.
@@ -107,12 +107,12 @@ interface IWorldIDRegistry {
     /**
      * @dev Thrown when a nonce does not match the expected value.
      */
-    error MismatchedSignatureNonce(uint256 leafIndex, uint256 expectedNonce, uint256 actualNonce);
+    error MismatchedSignatureNonce(uint64 leafIndex, uint256 expectedNonce, uint256 actualNonce);
 
     /**
      * @dev Thrown when a recovery counter does not match the expected value.
      */
-    error MismatchedRecoveryCounter(uint256 leafIndex, uint256 expectedRecoveryCounter, uint256 actualRecoveryCounter);
+    error MismatchedRecoveryCounter(uint64 leafIndex, uint256 expectedRecoveryCounter, uint256 actualRecoveryCounter);
 
     /**
      * @dev Thrown when a pubkey ID overflows its uint32 limit.
@@ -122,7 +122,7 @@ interface IWorldIDRegistry {
     /**
      * @dev Thrown when a recovery address is not set for an account.
      */
-    error RecoveryAddressNotSet(uint256 leafIndex);
+    error RecoveryAddressNotSet(uint64 leafIndex);
 
     /**
      * @dev Thrown when an authenticator does not exist.
@@ -132,7 +132,7 @@ interface IWorldIDRegistry {
     /**
      * @dev Thrown when an authenticator does not belong to the specified account.
      */
-    error AuthenticatorDoesNotBelongToAccount(uint256 expectedLeafIndex, uint256 actualLeafIndex);
+    error AuthenticatorDoesNotBelongToAccount(uint64 expectedLeafIndex, uint64 actualLeafIndex);
 
     /**
      * @dev Thrown when trying to update max authenticators beyond the natural limit.
@@ -172,7 +172,7 @@ interface IWorldIDRegistry {
      * @param offchainSignerCommitment The offchain signer commitment for the account.
      */
     event AccountCreated(
-        uint256 indexed leafIndex,
+        uint64 indexed leafIndex,
         address indexed recoveryAddress,
         address[] authenticatorAddresses,
         uint256[] authenticatorPubkeys,
@@ -190,7 +190,7 @@ interface IWorldIDRegistry {
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      */
     event AccountUpdated(
-        uint256 indexed leafIndex,
+        uint64 indexed leafIndex,
         uint32 pubkeyId,
         uint256 newAuthenticatorPubkey,
         address indexed oldAuthenticatorAddress,
@@ -208,7 +208,7 @@ interface IWorldIDRegistry {
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      */
     event AccountRecovered(
-        uint256 indexed leafIndex,
+        uint64 indexed leafIndex,
         address indexed newAuthenticatorAddress,
         uint256 indexed newAuthenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
@@ -216,6 +216,19 @@ interface IWorldIDRegistry {
     );
 
     /**
+     * <<<<<<< HEAD
+     * =======
+     * @dev Emitted when the recovery address for a World ID account is updated.
+     * @param leafIndex The leaf index of the account in the Merkle tree.
+     * @param oldRecoveryAddress The previous recovery address.
+     * @param newRecoveryAddress The new recovery address.
+     */
+    event RecoveryAddressUpdated(
+        uint64 indexed leafIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
+    );
+
+    /**
+     * >>>>>>> main
      * @dev Emitted when a new authenticator is inserted (added) to a World ID account.
      * @param leafIndex The leaf index of the account in the Merkle tree.
      * @param pubkeyId The pubkey ID assigned to the new authenticator.
@@ -225,7 +238,7 @@ interface IWorldIDRegistry {
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      */
     event AuthenticatorInserted(
-        uint256 indexed leafIndex,
+        uint64 indexed leafIndex,
         uint32 pubkeyId,
         address indexed authenticatorAddress,
         uint256 indexed newAuthenticatorPubkey,
@@ -243,7 +256,7 @@ interface IWorldIDRegistry {
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      */
     event AuthenticatorRemoved(
-        uint256 indexed leafIndex,
+        uint64 indexed leafIndex,
         uint32 pubkeyId,
         address indexed authenticatorAddress,
         uint256 indexed authenticatorPubkey,
@@ -354,7 +367,7 @@ interface IWorldIDRegistry {
      * @param nonce The signature nonce for replay protection.
      */
     function updateAuthenticator(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address oldAuthenticatorAddress,
         address newAuthenticatorAddress,
         uint32 pubkeyId,
@@ -379,7 +392,7 @@ interface IWorldIDRegistry {
      * @param nonce The signature nonce for replay protection.
      */
     function insertAuthenticator(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address newAuthenticatorAddress,
         uint32 pubkeyId,
         uint256 newAuthenticatorPubkey,
@@ -403,7 +416,7 @@ interface IWorldIDRegistry {
      * @param nonce The signature nonce for replay protection.
      */
     function removeAuthenticator(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address authenticatorAddress,
         uint32 pubkeyId,
         uint256 authenticatorPubkey,
@@ -426,7 +439,7 @@ interface IWorldIDRegistry {
      * @param nonce The signature nonce for replay protection.
      */
     function recoverAccount(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address newAuthenticatorAddress,
         uint256 newAuthenticatorPubkey,
         uint256 oldOffchainSignerCommitment,
@@ -444,7 +457,7 @@ interface IWorldIDRegistry {
      * @param nonce The signature nonce for replay protection.
      */
     function initiateRecoveryAgentUpdate(
-        uint256 leafIndex,
+        uint64 leafIndex,
         address newRecoveryAgent,
         bytes memory signature,
         uint256 nonce
@@ -455,7 +468,7 @@ interface IWorldIDRegistry {
      *   function does not require a signature.
      * @param leafIndex The leaf index of the World ID account.
      */
-    function executeRecoveryAgentUpdate(uint256 leafIndex) external;
+    function executeRecoveryAgentUpdate(uint64 leafIndex) external;
 
     /**
      * @dev Cancels a pending recovery agent update. Can be called by any valid authenticator.
@@ -463,7 +476,7 @@ interface IWorldIDRegistry {
      * @param signature The signature from an existing authenticator authorizing the cancellation.
      * @param nonce The signature nonce for replay protection.
      */
-    function cancelRecoveryAgentUpdate(uint256 leafIndex, bytes memory signature, uint256 nonce) external;
+    function cancelRecoveryAgentUpdate(uint64 leafIndex, bytes memory signature, uint256 nonce) external;
 
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
@@ -483,7 +496,7 @@ interface IWorldIDRegistry {
      * @dev Returns the recovery agent for the given World ID (based on its leaf index).
      * @param leafIndex The index of the leaf.
      */
-    function getRecoveryAgent(uint256 leafIndex) external view returns (address);
+    function getRecoveryAgent(uint64 leafIndex) external view returns (address);
 
     /**
      * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
@@ -500,18 +513,18 @@ interface IWorldIDRegistry {
      * @dev Returns the signature nonce for a leaf index.
      * @param leafIndex The leaf index to query.
      */
-    function getSignatureNonce(uint256 leafIndex) external view returns (uint256);
+    function getSignatureNonce(uint64 leafIndex) external view returns (uint256);
 
     /**
      * @dev Returns the recovery counter for a leaf index.
      * @param leafIndex The leaf index to query.
      */
-    function getRecoveryCounter(uint256 leafIndex) external view returns (uint256);
+    function getRecoveryCounter(uint64 leafIndex) external view returns (uint256);
 
     /**
      * @dev Returns the next available leaf index.
      */
-    function getNextLeafIndex() external view returns (uint256);
+    function getNextLeafIndex() external view returns (uint64);
 
     /**
      * @dev Returns the depth of the Merkle tree.

@@ -4,17 +4,26 @@ use alloy::{primitives::Address, providers::DynProvider};
 use thiserror::Error;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
-use crate::db::DB;
+use crate::{db::DB, tree::state::TreeState};
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: DB,
     pub registry: Arc<WorldIdRegistryInstance<DynProvider>>,
+    pub tree_state: TreeState,
 }
 
 impl AppState {
-    pub fn new(db: DB, registry: Arc<WorldIdRegistryInstance<DynProvider>>) -> Self {
-        Self { db, registry }
+    pub fn new(
+        db: DB,
+        registry: Arc<WorldIdRegistryInstance<DynProvider>>,
+        tree_state: TreeState,
+    ) -> Self {
+        Self {
+            db,
+            registry,
+            tree_state,
+        }
     }
 }
 

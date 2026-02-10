@@ -39,7 +39,7 @@ contract Deploy is Script {
     function _run(string memory config) internal virtual {
         deployWorldIdRegistry(config);
         deployCredentialSchemaIssuerRegistry(config);
-        deployWorldIdRegistry(config);
+        deployRpRegistry(config);
         deployWorldIdVerifier(config);
     }
 

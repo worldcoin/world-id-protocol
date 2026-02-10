@@ -26,23 +26,17 @@ use secrecy::{ExposeSecret, SecretString};
 use taceo_oprf::{
     client::Connector,
     core::oprf::{BlindedOprfRequest, BlindedOprfResponse, BlindingFactor},
-    dev_client::{Command, StressTestCommand},
+    dev_client::{Command, StressTestOprfCommand},
     types::{OprfKeyId, ShareEpoch, api::OprfRequest, crypto::OprfPublicKey},
 };
 use taceo_oprf_test_utils::health_checks;
-use test_utils::{
-    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, RpRegistry},
-    fixtures::{MerkleFixture, build_base_credential},
-};
 use uuid::Uuid;
 use world_id_core::{
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature,
     FieldElement,
     proof::CircomGroth16Material,
     requests::{ProofRequest, RequestItem, RequestVersion},
-    types::AccountInclusionProof,
 };
-use world_id_gateway::{GatewayConfig, ProviderArgs, SignerArgs};
 use world_id_primitives::{
     Config, TREE_DEPTH,
     authenticator::AuthenticatorPublicKeySet,
@@ -50,6 +44,10 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,
+};
+use world_id_test_utils::{
+    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, RpRegistry},
+    fixtures::build_base_credential,
 };
 
 /// The configuration for the OPRF client.
@@ -108,12 +106,20 @@ pub struct OprfDevClientConfig {
     pub taceo_private_key: SecretString,
 
     /// Indexer address
-    #[clap(long, env = "OPRF_DEV_CLIENT_INDEXER_URL")]
-    pub indexer_url: Option<String>,
+    #[clap(
+        long,
+        env = "OPRF_DEV_CLIENT_INDEXER_URL",
+        default_value = "http://localhost:8080"
+    )]
+    pub indexer_url: String,
 
     /// Gateway address
-    #[clap(long, env = "OPRF_DEV_CLIENT_GATEWAY_URL")]
-    pub gateway_url: Option<String>,
+    #[clap(
+        long,
+        env = "OPRF_DEV_CLIENT_GATEWAY_URL",
+        default_value = "http://localhost:8081"
+    )]
+    pub gateway_url: String,
 
     /// rp id of already registered rp
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
@@ -214,13 +220,12 @@ async fn run_nullifier(
     rp_id: RpId,
     rp_oprf_key_id: OprfKeyId,
     issuer_schema_id: u64,
-    issuer_oprf_key_id: OprfKeyId,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
     let mut rng = rand_chacha::ChaCha12Rng::from_entropy();
 
     let credential_sub_blinding_factor = authenticator
-        .generate_credential_blinding_factor(issuer_schema_id, issuer_oprf_key_id)
+        .generate_credential_blinding_factor(issuer_schema_id)
         .await?;
 
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
@@ -229,10 +234,7 @@ async fn run_nullifier(
         issuer_schema_id,
         issuer_pk,
         issuer_sk,
-        authenticator
-            .leaf_index()
-            .try_into()
-            .expect("leaf_index fits into u64"),
+        authenticator.leaf_index(),
         credential_sub_blinding_factor,
     )?;
 
@@ -340,10 +342,7 @@ fn prepare_nullifier_stress_test_oprf_request(
 
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
     let issuer_pk = issuer_sk.public();
-    let leaf_index = authenticator
-        .leaf_index()
-        .try_into()
-        .expect("leaf_index fits into u64");
+    let leaf_index = authenticator.leaf_index();
     // Generate a random credential sub blinding factor for stress test
     let credential_sub_blinding_factor = FieldElement::random(&mut rng);
     let credential = create_and_sign_credential(
@@ -382,7 +381,6 @@ fn prepare_nullifier_stress_test_oprf_request(
     let oprf_request = OprfRequest {
         request_id,
         blinded_query: blinded_request.blinded_query(),
-        oprf_key_id,
         auth: oprf_request_auth,
     };
 
@@ -408,7 +406,7 @@ async fn stress_test(
     rp_oprf_key_id: OprfKeyId,
     rp_oprf_public_key: OprfPublicKey,
     issuer_schema_id: u64,
-    cmd: StressTestCommand,
+    cmd: StressTestOprfCommand,
     connector: Connector,
     signer: &LocalSigner<SigningKey>,
 ) -> eyre::Result<()> {
@@ -597,7 +595,7 @@ async fn main() -> eyre::Result<()> {
         (rp_id, oprf_key_id, oprf_public_key)
     };
 
-    let (issuer_schema_id, issuer_oprf_key_id, _issuer_oprf_public_key) =
+    let (issuer_schema_id, _issuer_oprf_public_key) =
         if let Some(issuer_schema_id) = config.issuer_schema_id {
             // TODO should maybe check if the oprf key id matches the registered one in case it was changed
             // in case they are not the same, we return them both
@@ -610,7 +608,7 @@ async fn main() -> eyre::Result<()> {
                 Duration::from_secs(10), // should already be there
             )
             .await?;
-            (issuer_schema_id, oprf_key_id, oprf_public_key)
+            (issuer_schema_id, oprf_public_key)
         } else {
             tracing::info!("registering new credential schema issuer");
             let credential_schema_issuer_registry = CredentialSchemaIssuerRegistry::new(
@@ -643,43 +641,15 @@ async fn main() -> eyre::Result<()> {
                 config.max_wait_time,
             )
             .await?;
-            (issuer_schema_id, oprf_key_id, oprf_public_key)
+            (issuer_schema_id, oprf_public_key)
         };
-
-    let (gateway_url, _gateway_handle) = if let Some(gateway_url) = &config.gateway_url {
-        (gateway_url.clone(), None)
-    } else {
-        // anvil wallet 0, only used for local tests
-        let signer_args = SignerArgs::from_wallet(
-            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string(),
-        );
-        let gateway_config = GatewayConfig {
-            registry_addr: config.world_id_registry_contract,
-            provider: ProviderArgs {
-                http: Some(vec![
-                    config.chain_rpc_url.expose_secret().to_string().parse()?,
-                ]),
-                signer: Some(signer_args.clone()),
-                ..Default::default()
-            },
-            batch_ms: 200,
-            listen_addr: (std::net::Ipv4Addr::LOCALHOST, 8081).into(),
-            max_create_batch_size: 10,
-            max_ops_batch_size: 10,
-            redis_url: None,
-        };
-        let gateway_handle = world_id_gateway::spawn_gateway_for_tests(gateway_config)
-            .await
-            .map_err(|e| eyre::eyre!("failed to spawn gateway for tests: {e}"))?;
-        ("http://localhost:8081".to_string(), Some(gateway_handle))
-    };
 
     let world_config = Config::new(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         31_337, // anvil hardhat chain id
         config.world_id_registry_contract,
-        "http://localhost:8080".to_string(), // stub indexer url - will be replaced later
-        gateway_url.clone(),
+        config.indexer_url,
+        config.gateway_url,
         config.nodes.clone(),
         config.threshold,
     )
@@ -689,49 +659,6 @@ async fn main() -> eyre::Result<()> {
     let seed = [7u8; 32];
     let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None).await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
-
-    let (indexer_url, _indexer_handle) = if let Some(indexer_url) = &config.indexer_url {
-        (indexer_url.clone(), None)
-    } else {
-        // Local indexer stub serving inclusion proof.
-        let leaf_index_u64: u64 = authenticator
-            .leaf_index()
-            .try_into()
-            .expect("account id fits in u64");
-        let MerkleFixture {
-            key_set,
-            inclusion_proof: merkle_inclusion_proof,
-            root: _,
-            ..
-        } = test_utils::fixtures::single_leaf_merkle_fixture(
-            vec![authenticator.offchain_pubkey()],
-            leaf_index_u64,
-        )
-        .wrap_err("failed to construct merkle fixture")?;
-
-        let inclusion_proof =
-            AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
-                .wrap_err("failed to build inclusion proof")?;
-
-        let (indexer_url, indexer_handle) =
-            test_utils::stubs::spawn_indexer_stub(leaf_index_u64, inclusion_proof.clone())
-                .await
-                .wrap_err("failed to start indexer stub")?;
-        (indexer_url, Some(indexer_handle))
-    };
-
-    let world_config = Config::new(
-        Some(config.chain_rpc_url.expose_secret().to_string()),
-        31_337, // anvil hardhat chain id
-        config.world_id_registry_contract,
-        indexer_url,
-        gateway_url,
-        config.nodes.clone(),
-        config.threshold,
-    )
-    .unwrap();
-
-    let authenticator = Authenticator::init(&seed, world_config.clone()).await?;
 
     // setup TLS config - even if we are http
     let mut root_store = RootCertStore::empty();
@@ -749,13 +676,12 @@ async fn main() -> eyre::Result<()> {
                 rp_id,
                 rp_oprf_key_id,
                 issuer_schema_id,
-                issuer_oprf_key_id,
                 &private_key,
             )
             .await?;
             tracing::info!("nullifier successful");
         }
-        Command::StressTest(cmd) => {
+        Command::StressTestOprf(cmd) => {
             tracing::info!("running stress-test");
             stress_test(
                 &authenticator,
@@ -771,10 +697,16 @@ async fn main() -> eyre::Result<()> {
             .await?;
             tracing::info!("stress-test successful");
         }
+        Command::StressTestKeyGen(_) => {
+            todo!()
+        }
         Command::ReshareTest(_) => {
             todo!()
             // tracing::info!("running reshare test");
             // tracing::info!("reshare test successful");
+        }
+        Command::DeleteTest => {
+            todo!()
         }
     }
 

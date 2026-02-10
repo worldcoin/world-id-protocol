@@ -1,8 +1,9 @@
+use crate::error::IndexerErrorBody;
 use axum::{Json, Router, response::IntoResponse};
 use utoipa::OpenApi;
-use world_id_core::types::{
-    AccountInclusionProofSchema, IndexerErrorBody, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+use world_id_core::api_types::{
+    AccountInclusionProofSchema, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+    IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
 
 use crate::config::AppState;
@@ -53,5 +54,5 @@ pub(crate) fn handler(state: AppState) -> Router {
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
         .with_state(state)
-        .layer(common::trace_layer())
+        .layer(world_id_services_common::trace_layer())
 }
