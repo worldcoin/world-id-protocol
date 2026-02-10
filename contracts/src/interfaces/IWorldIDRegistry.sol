@@ -152,12 +152,12 @@ interface IWorldIDRegistry {
     /**
      * @dev Thrown when there is no pending recovery agent update for the specified account.
      */
-    error NoPendingRecoveryAgentUpdate(uint256 leafIndex);
+    error NoPendingRecoveryAgentUpdate(uint64 leafIndex);
 
     /**
      * @dev Thrown when trying to execute a recovery agent update before the cooldown period has elapsed.
      */
-    error RecoveryAgentUpdateStillInCooldown(uint256 leafIndex, uint256 executeAfter);
+    error RecoveryAgentUpdateStillInCooldown(uint64 leafIndex, uint256 executeAfter);
 
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
@@ -555,7 +555,7 @@ interface IWorldIDRegistry {
      * @return newRecoveryAgent The new recovery agent address.
      * @return executeAfter The timestamp after which the update can be executed.
      */
-    function getPendingRecoveryAgentUpdate(uint256 leafIndex)
+    function getPendingRecoveryAgentUpdate(uint64 leafIndex)
         external
         view
         returns (address newRecoveryAgent, uint256 executeAfter);

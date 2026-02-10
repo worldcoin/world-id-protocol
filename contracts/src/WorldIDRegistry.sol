@@ -212,7 +212,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function getPendingRecoveryAgentUpdate(uint256 leafIndex)
+    function getPendingRecoveryAgentUpdate(uint64 leafIndex)
         external
         view
         virtual
