@@ -22,6 +22,12 @@ use crate::{
 ///
 /// Returns a `TreeState` with the sync cursor set so `sync_from_db()` can pick
 /// up any future events incrementally.
+///
+/// # Safety
+///
+/// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+/// The caller must ensure that the cache file is not concurrently accessed or modified
+/// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all, fields(tree_depth, dense_prefix_depth))]
 pub async unsafe fn init_tree(
     db: &DB,

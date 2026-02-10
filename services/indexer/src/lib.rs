@@ -27,6 +27,13 @@ mod routes;
 mod sanity_check;
 mod tree;
 
+/// Initializes the in-memory tree from a cache file if it exists, otherwise builds from DB.
+///
+/// # Safety
+///
+/// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+/// The caller must ensure that the cache file is not concurrently accessed or modified
+/// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all)]
 async unsafe fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
@@ -100,6 +107,13 @@ async fn start_http_server(
     Ok(())
 }
 
+/// Runs the indexer
+///
+/// # Safety
+///
+/// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+/// The caller must ensure that the cache file is not concurrently accessed or modified
+/// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all)]
 pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     tracing::info!("Creating DB...");
@@ -145,14 +159,16 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
                 Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
             tracing::info!("Connection to blockchain successful.");
 
-            run_both(
-                &blockchain,
-                db,
-                &cfg.http_rpc_url,
-                cfg.registry_address,
-                indexer_config,
-                http_config,
-            )
+            unsafe {
+                run_both(
+                    &blockchain,
+                    db,
+                    &cfg.http_rpc_url,
+                    cfg.registry_address,
+                    indexer_config,
+                    http_config,
+                )
+            }
             .await
         }
     }
@@ -229,8 +245,15 @@ async fn run_http_only(
     http_result
 }
 
+/// Runs both the indexer and HTTP server in the same process, sharing the same DB and in-memory tree.
+///
+/// # Safety
+///
+/// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+/// The caller must ensure that the cache file is not concurrently accessed or modified
+/// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all)]
-async fn run_both(
+async unsafe fn run_both(
     blockchain: &Blockchain,
     db: DB,
     rpc_url: &str,

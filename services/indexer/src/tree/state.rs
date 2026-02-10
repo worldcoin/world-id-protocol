@@ -39,6 +39,12 @@ impl TreeState {
     }
 
     /// Create a new `TreeState` with an empty tree of the given depth.
+    ///
+    /// # Safety
+    ///
+    /// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+    /// The caller must ensure that the cache file is not concurrently accessed or modified
+    /// by other processes while the tree is using it.
     pub unsafe fn new_empty(tree_depth: usize, path: impl AsRef<Path>) -> eyre::Result<Self> {
         let storage = unsafe { MmapVec::create_from_path(path)? };
         let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
