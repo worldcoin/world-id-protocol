@@ -33,7 +33,6 @@ axum = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
 tokio-util = { workspace = true }
 world-id-oprf-node = { workspace = true }
-futures = { workspace = true }
 reqwest = { workspace = true }
 semver = { workspace = true }
 world-id-primitives = { workspace = true }

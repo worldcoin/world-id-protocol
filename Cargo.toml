@@ -58,8 +58,8 @@ k256 = { version = "0.13" }
 num-bigint = "0.4"
 taceo-groth16-sol = { version = "0.2.2" }
 taceo-oprf = { version = "0.4", default-features = false }
-taceo-oprf-test-utils = "0.2"
-taceo-oprf-key-gen = "0.2"
+taceo-oprf-test-utils = "0.3"
+taceo-oprf-key-gen = "0.4"
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
