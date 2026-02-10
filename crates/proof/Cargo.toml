@@ -12,7 +12,6 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
-    "../../contracts/abi/*",
     "build.rs",
     "Cargo.toml",
     "README.md",

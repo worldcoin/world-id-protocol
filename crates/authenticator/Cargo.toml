@@ -9,7 +9,13 @@ authors.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
+include = [
+    "src/**/*",
+    "tests/**/*",
+    "abi/*",
+    "Cargo.toml",
+    "README.md",
+]
 
 [features]
 default = ["embed-zkeys"]

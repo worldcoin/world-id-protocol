@@ -15,7 +15,7 @@ sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     WorldIdRegistry,
-    "../../contracts/abi/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
+    "abi/WorldIDRegistryAbi.json"
 );
 
 /// These structs are created in a private module to avoid confusion with their exports.
