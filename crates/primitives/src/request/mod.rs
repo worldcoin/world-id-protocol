@@ -5,11 +5,11 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
+use crate::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf_types::OprfKeyId;
 // The uuid crate is needed for wasm compatibility
-use crate::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
 use uuid as _;
 
 /// Protocol schema version for proof requests and responses.
