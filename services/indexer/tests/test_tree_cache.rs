@@ -75,7 +75,7 @@ async fn test_cache_creation_and_restoration() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     // Wait for indexer to process accounts
@@ -146,7 +146,7 @@ async fn test_incremental_replay() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg1).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg1).await }.unwrap();
     });
 
     // Wait for accounts to be indexed
@@ -202,7 +202,7 @@ async fn test_incremental_replay() {
     };
 
     let indexer_task2 = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg2).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
     });
 
     // Wait for new account to be indexed
@@ -273,7 +273,7 @@ async fn test_missing_cache_creates_new() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     // Wait for account to be indexed
@@ -335,7 +335,7 @@ async fn test_http_only_cache_refresh() {
     };
 
     let both_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(both_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(both_config).await }.unwrap();
     });
 
     // Wait for initial account
@@ -371,7 +371,7 @@ async fn test_http_only_cache_refresh() {
     };
 
     let http_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(http_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(http_config).await }.unwrap();
     });
 
     // Wait for HttpOnly to start
@@ -453,7 +453,7 @@ async fn test_authenticator_removed_replay() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg1).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg1).await }.unwrap();
     });
 
     // Wait for account to be indexed
@@ -538,7 +538,7 @@ async fn test_authenticator_removed_replay() {
     };
 
     let indexer_task2 = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg2).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
     });
 
     // Wait for indexer to process the replay
@@ -567,7 +567,7 @@ async fn test_authenticator_removed_replay() {
     };
 
     let indexer_task3 = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg_fresh).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg_fresh).await }.unwrap();
     });
 
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -635,7 +635,7 @@ async fn test_init_root_matches_contract() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     // Wait for accounts to be indexed
@@ -712,7 +712,7 @@ async fn test_replay_root_matches_contract() {
     };
 
     let indexer_task1 = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg1).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg1).await }.unwrap();
     });
 
     // Wait for initial account
@@ -773,7 +773,7 @@ async fn test_replay_root_matches_contract() {
     };
 
     let indexer_task2 = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg2).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
     });
 
     // Wait for all accounts to be indexed
@@ -858,7 +858,7 @@ async fn test_corrupted_cache_triggers_rebuild() {
     };
 
     let indexer_task1 = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg1).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg1).await }.unwrap();
     });
 
     // Wait for accounts to be indexed
@@ -900,7 +900,7 @@ async fn test_corrupted_cache_triggers_rebuild() {
     };
 
     let indexer_task2 = tokio::spawn(async move {
-        world_id_indexer::run_indexer(cfg2).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
     });
 
     // Wait for HttpOnly to start (proves rebuild succeeded)

@@ -67,7 +67,7 @@ async fn test_backfill_and_live_sync() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
@@ -196,7 +196,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     };
 
     let http_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     TestSetup::wait_for_health("http://127.0.0.1:8082").await;

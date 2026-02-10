@@ -98,7 +98,7 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     {
         let mut tree = tree_state.write().await;
         for (leaf_index, value) in &leaf_final_states {
-            tree.set_leaf(*leaf_index as usize, *value);
+            set_arbitrary_leaf(&mut tree, *leaf_index as usize, *value);
         }
     }
 
@@ -300,7 +300,7 @@ async fn replay_events(
     );
 
     for (leaf_index, value) in &leaf_final_states {
-        tree.set_leaf(*leaf_index as usize, *value);
+        set_arbitrary_leaf(&mut tree, *leaf_index as usize, *value);
     }
 
     info!(
@@ -314,4 +314,18 @@ async fn replay_events(
     );
 
     Ok((tree, last_event_id))
+}
+
+/// Set a leaf value at the given index, extending the tree if necessary.
+pub(crate) fn set_arbitrary_leaf(tree: &mut MerkleTree, leaf_index: usize, value: U256) {
+    let num_leaves = tree.num_leaves();
+    if leaf_index >= num_leaves {
+        let num_zeros = leaf_index - num_leaves;
+        let mut new = Vec::with_capacity(num_zeros + 1);
+        new.resize(num_zeros, U256::ZERO);
+        new.push(value);
+        tree.extend_from_slice(&new);
+    } else {
+        tree.set_leaf(leaf_index, value);
+    }
 }

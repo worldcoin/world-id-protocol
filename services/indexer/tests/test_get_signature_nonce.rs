@@ -53,7 +53,7 @@ async fn test_signature_nonce_endpoint() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     // Wait for account to be indexed

@@ -7,7 +7,7 @@ use semaphore_rs_trees::proof::InclusionProof;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
-use crate::db::WorldTreeEventId;
+use crate::{db::WorldTreeEventId, tree::cached_tree::set_arbitrary_leaf};
 
 /// Thread-safe wrapper around the Merkle tree and its configuration.
 #[derive(Clone)]
@@ -108,7 +108,7 @@ impl TreeState {
         }
 
         let mut tree = self.write().await;
-        tree.set_leaf(leaf_index, value);
+        set_arbitrary_leaf(&mut tree, leaf_index, value);
         Ok(())
     }
 
@@ -148,34 +148,45 @@ impl TreeState {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_new_empty() {
-        let state = TreeState::new_empty(6);
-        assert_eq!(state.depth(), 6);
-        assert_eq!(state.capacity(), 64);
+    fn tmp_file() -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("tree_state_test_{}.tmp", uuid::Uuid::new_v4()));
+        path
     }
 
     #[tokio::test]
-    async fn test_set_leaf_at_index() {
-        let state = TreeState::new_empty(6);
+    async fn test_new_empty() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
+        assert_eq!(state.depth(), 6);
+        assert_eq!(state.capacity(), 64);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_set_leaf_at_index() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let value = U256::from(42u64);
 
         state.set_leaf_at_index(1, value).await.unwrap();
 
         let tree = state.read().await;
         assert_eq!(tree.get_leaf(1), value);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_set_leaf_out_of_range() {
-        let state = TreeState::new_empty(6);
+    async fn test_set_leaf_out_of_range() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let result = state.set_leaf_at_index(100, U256::from(1u64)).await;
         assert!(matches!(result, Err(TreeError::LeafIndexOutOfRange { .. })));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_commitment() {
-        let state = TreeState::new_empty(6);
+    async fn test_update_commitment() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let commitment = U256::from(123u64);
 
         state
@@ -185,39 +196,29 @@ mod tests {
 
         let tree = state.read().await;
         assert_eq!(tree.get_leaf(5), commitment);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_tree_with_zero_index() {
-        let state = TreeState::new_empty(6);
+    async fn test_update_tree_with_zero_index() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let result = state.update_commitment(U256::ZERO, U256::from(1u64)).await;
         assert!(matches!(result, Err(TreeError::ZeroLeafIndex)));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_replace() {
-        let state = TreeState::new_empty(6);
-        let initial_root = state.root().await;
-
-        // Create a new tree with a different value
-        let mut new_tree = MerkleTree::<PoseidonHasher>::new(vec![], 6, &U256::ZERO);
-        new_tree.set_leaf(1, U256::from(999u64));
-        let new_root = new_tree.root();
-
-        state.replace(new_tree).await;
-
-        assert_ne!(initial_root, state.root().await);
-        assert_eq!(new_root, state.root().await);
-    }
-
-    #[tokio::test]
-    async fn test_leaf_proof_and_root() {
-        let state = TreeState::new_empty(6);
+    async fn test_leaf_proof_and_root() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let value = U256::from(42u64);
         state.set_leaf_at_index(3, value).await.unwrap();
 
         let (leaf, _proof, root) = state.leaf_proof_and_root(3).await;
         assert_eq!(leaf, value);
         assert_eq!(root, state.root().await);
+
+        Ok(())
     }
 }
