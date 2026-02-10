@@ -100,7 +100,7 @@ contract WorldIDRegistryTest is Test {
         );
     }
 
-    function cancelRecoveryAgentUpdateSignature(uint256 leafIndex, uint256 nonce) private view returns (bytes memory) {
+    function cancelRecoveryAgentUpdateSignature(uint64 leafIndex, uint256 nonce) private view returns (bytes memory) {
         return eip712Sign(
             worldIDRegistry.CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH(), abi.encode(leafIndex, nonce), AUTH1_PRIVATE_KEY
         );
@@ -1259,7 +1259,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
         address newRecovery = alternateRecoveryAddress;
 
@@ -1314,7 +1314,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 1;
         address newRecovery = alternateRecoveryAddress;
 
@@ -1334,7 +1334,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
         address newRecoveryAgent = alternateRecoveryAddress;
 
@@ -1363,7 +1363,7 @@ contract WorldIDRegistryTest is Test {
     }
 
     function test_InitiateRecoveryAgentUpdate_InvalidLeafIndex() public {
-        uint256 leafIndex = 999;
+        uint64 leafIndex = 999;
         uint256 nonce = 0;
         bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, nonce);
 
@@ -1381,7 +1381,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         uint256 nonce = 0;
 
         // Sign with authenticator3 which is NOT part of this account
@@ -1407,7 +1407,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         bytes memory signature1 = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature1, 0);
 
@@ -1461,7 +1461,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
 
@@ -1486,7 +1486,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
 
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.NoPendingRecoveryAgentUpdate.selector, leafIndex));
         worldIDRegistry.executeRecoveryAgentUpdate(leafIndex);
@@ -1504,7 +1504,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
 
@@ -1538,7 +1538,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         bytes memory signature = cancelRecoveryAgentUpdateSignature(leafIndex, 0);
 
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.NoPendingRecoveryAgentUpdate.selector, leafIndex));
@@ -1554,7 +1554,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
 
@@ -1575,7 +1575,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
 
@@ -1605,7 +1605,7 @@ contract WorldIDRegistryTest is Test {
             recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
 
         // Initiate recovery agent update
         bytes memory initiateSignature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
@@ -1661,7 +1661,7 @@ contract WorldIDRegistryTest is Test {
             recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
 
         // Initiate recovery agent update
         bytes memory initiateSignature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
@@ -1728,7 +1728,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
 
@@ -1751,7 +1751,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
         assertEq(pendingAgent, address(0));
         assertEq(executeAfter, 0);
@@ -1766,7 +1766,7 @@ contract WorldIDRegistryTest is Test {
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
         bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
 
@@ -1788,7 +1788,7 @@ contract WorldIDRegistryTest is Test {
             recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256 leafIndex = 1;
+        uint64 leafIndex = 1;
 
         // Initiate recovery agent update to alternateRecoveryAddress
         bytes memory initiateSignature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);

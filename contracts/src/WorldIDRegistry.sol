@@ -413,7 +413,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     /**
      * @dev Updates the state to execute a pending recovery agent change.
      */
-    function _executeRecoveryAgentUpdate(uint256 leafIndex, PendingRecoveryAgentUpdate memory pendingUpdate)
+    function _executeRecoveryAgentUpdate(uint64 leafIndex, PendingRecoveryAgentUpdate memory pendingUpdate)
         internal
         virtual
     {
@@ -828,13 +828,13 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function executeRecoveryAgentUpdate(uint256 leafIndex) external virtual onlyProxy onlyInitialized {
+    function executeRecoveryAgentUpdate(uint64 leafIndex) external virtual onlyProxy onlyInitialized {
         PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
         _executeRecoveryAgentUpdate(leafIndex, pending);
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function cancelRecoveryAgentUpdate(uint256 leafIndex, bytes memory signature, uint256 nonce)
+    function cancelRecoveryAgentUpdate(uint64 leafIndex, bytes memory signature, uint256 nonce)
         external
         virtual
         onlyProxy
@@ -853,7 +853,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             _hashTypedDataV4(keccak256(abi.encode(CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, nonce)));
 
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
-        uint256 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
+        uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
         }
