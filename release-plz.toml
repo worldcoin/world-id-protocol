@@ -48,19 +48,3 @@ release = true
 publish = true
 changelog_update = true # each crate maintains its own changelog
 changelog_path = "CHANGELOG.md"
-
-
-[[package]]
-name = "world-id-request" # FIXME: Remove, awaiting https://github.com/worldcoin/world-id-protocol/issues/373
-release = true
-publish = true
-changelog_update = true # each crate maintains its own changelog
-changelog_path = "CHANGELOG.md"
-
-
-[[package]]
-name = "world-id-signer" # FIXME: Remove, awaiting https://github.com/worldcoin/world-id-protocol/issues/373
-release = true
-publish = true
-changelog_update = true # each crate maintains its own changelog
-changelog_path = "CHANGELOG.md"
