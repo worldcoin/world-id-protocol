@@ -1,7 +1,6 @@
 #![cfg(feature = "integration-tests")]
 
-use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::{sync::atomic::Ordering, time::Duration};
 
 use alloy::{
     network::EthereumWallet,

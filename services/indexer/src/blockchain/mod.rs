@@ -1,13 +1,16 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
-use alloy::pubsub::Subscription;
-use alloy::rpc::types::Log;
 use alloy::{
     primitives::{Address, FixedBytes},
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
-    rpc::types::Filter,
+    pubsub::Subscription,
+    rpc::types::{Filter, Log},
 };
 use backon::{ExponentialBuilder, Retryable};
 use futures_util::{Stream, StreamExt, TryStreamExt, stream};
