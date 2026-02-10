@@ -21,7 +21,15 @@ embed-zkeys = [
 ]
 
 [dependencies]
-alloy = { workspace = true }
+alloy = { workspace = true, features = [
+  "sol-types",
+  "reqwest",
+  "reqwest-rustls-tls",
+  "json",
+  "network",
+  "providers",
+  "contract",
+] }
 anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
