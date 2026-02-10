@@ -12,7 +12,6 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
-    "../../contracts/abi/*",
     "build.rs",
     "Cargo.toml",
     "README.md",
@@ -37,12 +36,11 @@ tracing = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 rand = { workspace = true }
 groth16-material = { workspace = true }
-taceo-oprf = { workspace = true }
+taceo-oprf = { workspace = true, features = ["client"] }
 eyre = { workspace = true }
 zeroize = { workspace = true }
 
 # Internal
-world-id-request = { workspace = true }
 world-id-primitives = { workspace = true, features = ["circuits"] }
 
 [build-dependencies]

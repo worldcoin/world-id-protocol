@@ -12,7 +12,7 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
-    "../../contracts/abi/*",
+    "abi/*",
     "Cargo.toml",
     "README.md",
 ]
@@ -37,4 +37,3 @@ url = { workspace = true }
 rustls = { workspace = true }
 
 # Internal
-world-id-signer = { workspace = true }

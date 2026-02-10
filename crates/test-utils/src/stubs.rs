@@ -5,7 +5,12 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
 use taceo_oprf::service::secret_manager::postgres::PostgresSecretManager as OprfServiceSercretManager;
-use taceo_oprf_key_gen::secret_manager::postgres::PostgresSecretManager as KeyGenSecretManager;
+use taceo_oprf_key_gen::{
+    StartedServices,
+    secret_manager::postgres::{
+        PostgresSecretManager as KeyGenSecretManager, PostgresSecretManagerArgs,
+    },
+};
 use taceo_oprf_test_utils::PEER_PRIVATE_KEYS;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -147,10 +152,19 @@ async fn spawn_orpf_node(
 ) -> String {
     let db_schema = "oprf".to_string();
     let db_max_connections = 3.try_into().unwrap();
-    let secret_manager =
-        OprfServiceSercretManager::init(&postgres_url.into(), &db_schema, db_max_connections)
-            .await
-            .expect("can init secret manager");
+    let db_acquire_timeout = Duration::from_secs(60);
+    let db_max_retries = 5.try_into().expect("Is NonZero");
+    let db_retry_delay = Duration::from_millis(500);
+    let secret_manager = OprfServiceSercretManager::init(
+        &postgres_url.into(),
+        &db_schema,
+        db_max_connections,
+        db_acquire_timeout,
+        db_max_retries,
+        db_retry_delay,
+    )
+    .await
+    .expect("can init secret manager");
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
     let config = WorldOprfNodeConfig {
         bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
@@ -176,6 +190,10 @@ async fn spawn_orpf_node(
             db_connection_string: postgres_url.into(),
             db_max_connections,
             db_schema,
+            reload_key_material_interval: Duration::from_secs(3600),
+            db_acquire_timeout,
+            db_retry_delay,
+            db_max_retries,
         },
     };
 
@@ -274,7 +292,7 @@ async fn spawn_key_gen(
     rp_registry_contract: Address,
 ) -> String {
     let wallet_private_key_secret_id = format!("wallet/privatekey/n{id}");
-    let (client, config) = taceo_oprf_test_utils::localstack_client(localstack_url).await;
+    let (client, aws_config) = taceo_oprf_test_utils::localstack_client(localstack_url).await;
     client
         .create_secret()
         .name(wallet_private_key_secret_id.clone())
@@ -283,12 +301,20 @@ async fn spawn_key_gen(
         .await
         .expect("can create wallet secret");
     let db_schema = "oprf".to_string();
-    let secret_manager = KeyGenSecretManager::init(
-        &postgres_url.into(),
-        &db_schema,
-        config,
-        &wallet_private_key_secret_id,
-    )
+    let db_max_connections = 3.try_into().unwrap();
+    let db_acquire_timeout = Duration::from_secs(60);
+    let db_max_retries = 5.try_into().expect("Is NonZero");
+    let db_retry_delay = Duration::from_millis(500);
+    let secret_manager = KeyGenSecretManager::init(PostgresSecretManagerArgs {
+        connection_string: postgres_url.into(),
+        schema: db_schema.clone(),
+        max_connections: db_max_connections,
+        acquire_timeout: db_acquire_timeout,
+        max_retries: db_max_retries,
+        retry_delay: db_retry_delay,
+        aws_config,
+        wallet_private_key_secret_id: wallet_private_key_secret_id.clone(),
+    })
     .await
     .expect("can init secret manager");
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -309,16 +335,41 @@ async fn spawn_key_gen(
         confirmations_for_transaction: 1, // must be 1 for anvil
         db_connection_string: postgres_url.into(),
         db_schema,
+        max_db_connections: db_max_connections,
+        db_acquire_timeout,
+        db_retry_delay,
+        db_max_retries,
     };
-    let never = async { futures::future::pending::<()>().await };
     tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind(config.bind_addr)
+        let bind_addr = config.bind_addr;
+        let cancellation_token = CancellationToken::new();
+        let (router, _) = taceo_oprf_key_gen::start(
+            config,
+            Arc::new(secret_manager),
+            StartedServices::new(),
+            cancellation_token.clone(),
+        )
+        .await
+        .expect("Can start");
+        let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
-            .expect("failed to bind key-gen listener");
-        let res =
-            taceo_oprf_key_gen::start(config, Arc::new(secret_manager), listener, never).await;
-        eprintln!("key-gen failed to start: {res:?}");
+            .expect("Can bind listener");
+        let res = axum::serve(listener, router)
+            .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
+            .await;
+        eprintln!("service failed to start: {res:?}");
     });
+    // very graceful timeout for CI
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if reqwest::get(url.clone() + "/health").await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    })
+    .await
+    .expect("can start");
     url
 }
 

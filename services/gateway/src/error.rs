@@ -1,4 +1,3 @@
-use common::ProviderError;
 use std::backtrace::Backtrace;
 use thiserror::Error;
 use world_id_core::{
@@ -8,6 +7,7 @@ use world_id_core::{
         AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
     },
 };
+use world_id_services_common::ProviderError;
 
 use alloy::sol_types::SolError;
 use axum::{http::StatusCode, response::IntoResponse};

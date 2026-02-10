@@ -9,7 +9,13 @@ authors.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
+include = [
+    "src/**/*",
+    "tests/**/*",
+    "abi/*",
+    "Cargo.toml",
+    "README.md",
+]
 
 [features]
 default = ["embed-zkeys"]
@@ -40,7 +46,7 @@ eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 world-id-primitives = { workspace = true }
 secrecy = { workspace = true }
-taceo-oprf = { workspace = true }
+taceo-oprf = { workspace = true, features = ["client"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 rand = { workspace = true }
@@ -53,8 +59,6 @@ rustls = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
 
 # Internal
-world-id-signer = { workspace = true }
-world-id-request = { workspace = true }
 world-id-proof = { workspace = true }
 
 [dev-dependencies]
