@@ -21,7 +21,15 @@ embed-zkeys = [
 ]
 
 [dependencies]
-alloy = { workspace = true }
+alloy = { workspace = true, features = [
+  "sol-types",
+  "reqwest",
+  "reqwest-rustls-tls",
+  "json",
+  "network",
+  "providers",
+  "contract",
+] }
 anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
@@ -32,7 +40,7 @@ eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 world-id-primitives = { workspace = true }
 secrecy = { workspace = true }
-taceo-oprf = { workspace = true }
+taceo-oprf = { workspace = true, features = ["client"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 rand = { workspace = true }

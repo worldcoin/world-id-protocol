@@ -13,8 +13,6 @@ include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
 [dependencies]
 alloy = { workspace = true, features = [
-    "sol-types",
-    "reqwest",
     "signer-local",
 ] }
 eddsa-babyjubjub = { workspace = true }
