@@ -1,13 +1,11 @@
 use std::time::Duration;
 
-use ::common::ProviderArgs;
 use alloy::{
     primitives::{Address, U256, address},
     providers::Provider,
     signers::local::PrivateKeySigner,
 };
 use reqwest::{Client, StatusCode};
-use test_utils::anvil::TestAnvil;
 use world_id_core::{
     api_types::{
         GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
@@ -19,6 +17,8 @@ use world_id_core::{
     },
 };
 use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_services_common::ProviderArgs;
+use world_id_test_utils::anvil::TestAnvil;
 
 use crate::common::{wait_for_finalized, wait_http_ready};
 

@@ -30,10 +30,6 @@ use taceo_oprf::{
     types::{OprfKeyId, ShareEpoch, api::OprfRequest, crypto::OprfPublicKey},
 };
 use taceo_oprf_test_utils::health_checks;
-use test_utils::{
-    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, RpRegistry},
-    fixtures::{MerkleFixture, build_base_credential},
-};
 use uuid::Uuid;
 use world_id_core::{
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature,
@@ -50,6 +46,10 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,
+};
+use world_id_test_utils::{
+    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, RpRegistry},
+    fixtures::{MerkleFixture, build_base_credential},
 };
 
 /// The configuration for the OPRF client.
@@ -692,7 +692,7 @@ async fn main() -> eyre::Result<()> {
             inclusion_proof: merkle_inclusion_proof,
             root: _,
             ..
-        } = test_utils::fixtures::single_leaf_merkle_fixture(
+        } = world_id_test_utils::fixtures::single_leaf_merkle_fixture(
             vec![authenticator.offchain_pubkey()],
             leaf_index,
         )
@@ -703,7 +703,7 @@ async fn main() -> eyre::Result<()> {
                 .wrap_err("failed to build inclusion proof")?;
 
         let (indexer_url, indexer_handle) =
-            test_utils::stubs::spawn_indexer_stub(leaf_index, inclusion_proof.clone())
+            world_id_test_utils::stubs::spawn_indexer_stub(leaf_index, inclusion_proof.clone())
                 .await
                 .wrap_err("failed to start indexer stub")?;
         (indexer_url, Some(indexer_handle))
