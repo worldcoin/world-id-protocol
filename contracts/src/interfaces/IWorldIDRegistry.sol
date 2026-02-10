@@ -228,7 +228,6 @@ interface IWorldIDRegistry {
     );
 
     /**
-     * >>>>>>> main
      * @dev Emitted when a new authenticator is inserted (added) to a World ID account.
      * @param leafIndex The leaf index of the account in the Merkle tree.
      * @param pubkeyId The pubkey ID assigned to the new authenticator.
