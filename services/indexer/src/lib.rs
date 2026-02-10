@@ -8,10 +8,9 @@ use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
 };
-use futures_util::{Stream, StreamExt, TryStreamExt};
+use futures_util::{Stream, StreamExt};
 use std::{
     backtrace::Backtrace,
-    error::Error,
     net::SocketAddr,
     sync::{Arc, atomic::Ordering},
     time::Duration,
@@ -406,13 +405,11 @@ pub async fn process_registry_events(
             None => indexer_cfg.start_block,
         };
 
-        let mut err: Option<Box<dyn Error>> = None;
-
-        let mut stream = blockchain
-            .backfill_and_stream_events(from, indexer_cfg.batch_size)
-            .inspect_err(|e| tracing::error!(?e, "error retrieving event"));
+        let mut stream = blockchain.backfill_and_stream_events(from, indexer_cfg.batch_size);
 
         let mut events_committer = EventsCommitter::new(db);
+
+        let mut event_error = false;
 
         while let Some(event) = stream.next().await {
             match event {
@@ -420,20 +417,20 @@ pub async fn process_registry_events(
                     if let Err(e) =
                         handle_registry_event(db, &mut events_committer, &event, tree_state).await
                     {
-                        err = Some(Box::new(e));
+                        tracing::error!(?e, "error processing registry event");
+                        event_error = true;
                         break;
                     }
                 }
                 Err(e) => {
-                    err = Some(Box::new(e));
+                    tracing::error!(?e, "blockchain event stream error");
+                    event_error = true;
                     break;
                 }
             }
         }
 
-        if let Some(err) = err {
-            tracing::error!(?err, "error processing registry event");
-        } else {
+        if !event_error {
             tracing::warn!("websocket event stream dropped");
         }
 

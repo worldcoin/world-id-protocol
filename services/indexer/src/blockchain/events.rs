@@ -6,7 +6,7 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 
 use super::{BlockchainError, BlockchainResult};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlockchainEvent<T: Clone> {
     pub block_number: u64,
     pub tx_hash: U256,
@@ -14,7 +14,7 @@ pub struct BlockchainEvent<T: Clone> {
     pub details: T,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccountCreatedEvent {
     pub leaf_index: U256,
     pub recovery_address: Address,
@@ -23,7 +23,7 @@ pub struct AccountCreatedEvent {
     pub offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccountUpdatedEvent {
     pub leaf_index: U256,
     pub pubkey_id: u32,
@@ -34,7 +34,7 @@ pub struct AccountUpdatedEvent {
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AuthenticatorInsertedEvent {
     pub leaf_index: U256,
     pub pubkey_id: u32,
@@ -44,7 +44,7 @@ pub struct AuthenticatorInsertedEvent {
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AuthenticatorRemovedEvent {
     pub leaf_index: U256,
     pub pubkey_id: u32,
@@ -54,7 +54,7 @@ pub struct AuthenticatorRemovedEvent {
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccountRecoveredEvent {
     pub leaf_index: U256,
     pub new_authenticator_address: Address,
@@ -63,13 +63,13 @@ pub struct AccountRecoveredEvent {
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RootRecordedEvent {
     pub root: U256,
     pub timestamp: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RegistryEvent {
     AccountCreated(AccountCreatedEvent),
     AccountUpdated(AccountUpdatedEvent),
