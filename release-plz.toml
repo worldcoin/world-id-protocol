@@ -3,54 +3,64 @@
 # This creates tags like: world-id-core-v0.1.4, world-id-primitives-v0.1.2
 git_release_enable = true
 git_release_type = "auto"
-# Don't update workspace-level changelog - each package has its own
 changelog_update = false
 pr_labels = ["release"]
 release = false # only process specifically defined packages
+publish = false # only process specifically defined packages
 
 # Publish only specific packages to crates.io
-# Services (indexer, gateway) are not published to crates.io
-[[package]]
-name = "world-id-core"
-publish = true
-changelog_update = true # each crate maintains its own changelog
-changelog_path = "CHANGELOG.md"
-
+# Services (indexer, gateway, ...) are not published to crates.io
 [[package]]
 name = "world-id-primitives"
+release = true
+publish = true
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+
+
+[[package]]
+name = "world-id-core"
+release = true
+publish = true
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+
+
+[[package]]
+name = "world-id-authenticator"
+release = true
+publish = true
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+
+
+[[package]]
+name = "world-id-issuer"
+release = true
+publish = true
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+
+
+[[package]]
+name = "world-id-proof"
+release = true
 publish = true
 changelog_update = true # each crate maintains its own changelog
 changelog_path = "CHANGELOG.md"
 
-[[package]]
-name = "world-id-test-utils"
-publish = false # this crate is not published, it's only used for testing
-
-
-## SECTION: Services
-# All services are published with a different scheme. `release-plz` does not manage
-# the release of services
 
 [[package]]
-name = "world-id-indexer"
-release = false
+name = "world-id-request" # FIXME: Remove, awaiting https://github.com/worldcoin/world-id-protocol/issues/373
+release = true
+publish = true
+changelog_update = true # each crate maintains its own changelog
+changelog_path = "CHANGELOG.md"
+
 
 [[package]]
-name = "world-id-gateway"
-release = false
-
-[[package]]
-name = "world-id-oprf-node"
-release = false
-
-[[package]]
-name = "world-id-oprf-dev-client"
-release = false
-
-[[package]]
-name = "world-id-services-common"
-release = false
-
-[[package]]
-name = "world-id-faux-issuer"
-release = false
+name = "world-id-signer" # FIXME: Remove, awaiting https://github.com/worldcoin/world-id-protocol/issues/373
+release = true
+publish = true
+changelog_update = true # each crate maintains its own changelog
+changelog_path = "CHANGELOG.md"
