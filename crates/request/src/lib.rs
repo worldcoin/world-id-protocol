@@ -404,10 +404,9 @@ impl ProofRequest {
 
     /// Gets the action value to use in the proof.
     ///
-    /// When an explicit action is provided, it is returned directly.
-    /// For session proofs (action is `None`), a random action is generated.
-    /// Callers must cache the result when the `None` branch may be hit,
-    /// since each call produces a different random value.
+    /// - When an explicit action is provided, it is returned directly.
+    /// - For session proofs (action is `None`), a random action is generated.
+    ///  Callers should cache the action during proof generation to ensure consistency across proof steps.
     #[must_use]
     pub fn computed_action<R: rand::CryptoRng + rand::RngCore>(&self, rng: &mut R) -> FieldElement {
         match self.action {
