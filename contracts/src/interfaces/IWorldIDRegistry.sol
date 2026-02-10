@@ -290,7 +290,7 @@ interface IWorldIDRegistry {
      * @param executeAfter The timestamp after which the update can be executed.
      */
     event RecoveryAgentUpdateInitiated(
-        uint256 indexed leafIndex,
+        uint64 indexed leafIndex,
         address indexed oldRecoveryAgent,
         address indexed newRecoveryAgent,
         uint256 executeAfter
@@ -303,7 +303,7 @@ interface IWorldIDRegistry {
      * @param newRecoveryAgent The new recovery agent that was set.
      */
     event RecoveryAgentUpdateExecuted(
-        uint256 indexed leafIndex, address indexed oldRecoveryAgent, address indexed newRecoveryAgent
+        uint64 indexed leafIndex, address indexed oldRecoveryAgent, address indexed newRecoveryAgent
     );
 
     /**
@@ -311,7 +311,7 @@ interface IWorldIDRegistry {
      * @param leafIndex The leaf index of the account.
      * @param cancelledRecoveryAgent The recovery agent update that was cancelled.
      */
-    event RecoveryAgentUpdateCancelled(uint256 indexed leafIndex, address indexed cancelledRecoveryAgent);
+    event RecoveryAgentUpdateCancelled(uint64 indexed leafIndex, address indexed cancelledRecoveryAgent);
 
     /**
      * @dev Emitted when the recovery agent update cooldown period is updated.

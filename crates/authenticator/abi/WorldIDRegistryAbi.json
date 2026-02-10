@@ -1334,9 +1334,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "cancelledRecoveryAgent",
@@ -1372,9 +1372,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "oldRecoveryAgent",
@@ -1397,9 +1397,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "oldRecoveryAgent",
