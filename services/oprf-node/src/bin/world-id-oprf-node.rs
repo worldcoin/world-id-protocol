@@ -32,6 +32,9 @@ async fn main() -> eyre::Result<ExitCode> {
             &config.node_config.db_connection_string,
             &config.node_config.db_schema,
             config.node_config.db_max_connections,
+            config.node_config.db_acquire_timeout,
+            config.node_config.db_max_retries,
+            config.node_config.db_retry_delay,
         )
         .await
         .context("while initializing Postgres secret manager")?,

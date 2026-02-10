@@ -7353,15 +7353,15 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0b72bf18a6887c4ebb8b6ab26caa7c7efbdbb1493efd6e64f3b5c76580a5aae"
+checksum = "900c46c7c5c7d95db48fc2feb3eb1fcddf39ea0ddda90f20482a51bfabbbbb58"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
  "taceo-oprf-dev-client",
  "taceo-oprf-service",
- "taceo-oprf-types 0.7.0",
+ "taceo-oprf-types",
 ]
 
 [[package]]
@@ -7376,7 +7376,7 @@ dependencies = [
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-oprf-core",
- "taceo-oprf-types 0.7.0",
+ "taceo-oprf-types",
  "taceo-poseidon2",
  "thiserror 2.0.17",
  "tokio",
@@ -7409,29 +7409,33 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-dev-client"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6aa71b6ce3fdb030ffbb87a5627bd4ad79fa4455ed8bb82c7fc4c708d8ba437"
+checksum = "f565bf705c6f9ca82e196d7645a891aea7a21447579036a9eb69af589018f275"
 dependencies = [
  "alloy",
+ "ark-ff 0.5.0",
  "clap",
  "eyre",
  "rand 0.8.5",
+ "rustls 0.23.36",
  "serde",
+ "taceo-ark-babyjubjub",
  "taceo-oprf-client",
  "taceo-oprf-core",
  "taceo-oprf-test-utils",
- "taceo-oprf-types 0.7.0",
+ "taceo-oprf-types",
  "tokio",
  "tracing",
  "uuid",
+ "webpki-roots 1.0.5",
 ]
 
 [[package]]
 name = "taceo-oprf-key-gen"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aace01c4c9cf89abb9fa2d48dc7b5b52b0ea7cef5c57f19c40350f0b93dbfde"
+checksum = "2dedb48a992e13942542d152c922a840e777dc3893319c34451351becae8c16b"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -7442,6 +7446,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-secretsmanager",
  "axum",
+ "backon",
  "clap",
  "eyre",
  "futures",
@@ -7459,7 +7464,7 @@ dependencies = [
  "taceo-nodes-common",
  "taceo-nodes-observability",
  "taceo-oprf-core",
- "taceo-oprf-types 0.6.0",
+ "taceo-oprf-types",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
@@ -7470,9 +7475,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bdd697d3fe814bba82d8f764423b5e705ed5e6843aafce53fd7a00e94596703"
+checksum = "343335e5197913a9e609b979785f56c03cea109a801303287eb15489de9c9825"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -7481,6 +7486,7 @@ dependencies = [
  "aws-sdk-secretsmanager",
  "axum",
  "axum-extra",
+ "backon",
  "ciborium",
  "clap",
  "eyre",
@@ -7498,7 +7504,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-nodes-common",
  "taceo-oprf-core",
- "taceo-oprf-types 0.7.0",
+ "taceo-oprf-types",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
@@ -7511,9 +7517,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-test-utils"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d883bb46e06a126657ff654aa6c00484d5242d60c059f9713179e38f4a772aba"
+checksum = "fbe1720e0b71b9db344b800e43de0756742a3ec2f8c8039aa6dc62f345d1057b"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -7528,38 +7534,15 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "reqwest",
- "secrecy",
  "serde_json",
  "sqlx",
  "taceo-ark-babyjubjub",
  "taceo-oprf-core",
- "taceo-oprf-types 0.7.0",
+ "taceo-oprf-types",
  "testcontainers-modules",
  "tokio",
  "tokio-util",
  "tracing",
-]
-
-[[package]]
-name = "taceo-oprf-types"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91b01a7fef47bdd15cf3cfc3af4cfbb52378fd3105097d860ac2d96f08f94f2b"
-dependencies = [
- "alloy",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "async-trait",
- "eyre",
- "http 1.4.0",
- "serde",
- "taceo-ark-babyjubjub",
- "taceo-ark-serde-compat",
- "taceo-circom-types",
- "taceo-groth16-sol",
- "taceo-oprf-core",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -7712,7 +7695,6 @@ dependencies = [
  "ark-ff 0.5.0",
  "axum",
  "eyre",
- "futures",
  "hex",
  "k256",
  "rand 0.8.5",
@@ -9327,7 +9309,7 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-groth16-sol",
- "taceo-oprf-types 0.7.0",
+ "taceo-oprf-types",
  "taceo-poseidon2",
  "thiserror 1.0.69",
  "url",

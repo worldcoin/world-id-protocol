@@ -705,6 +705,9 @@ async fn main() -> eyre::Result<()> {
             // tracing::info!("running reshare test");
             // tracing::info!("reshare test successful");
         }
+        Command::DeleteTest => {
+            todo!()
+        }
     }
 
     Ok(())
