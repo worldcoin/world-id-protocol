@@ -36,6 +36,7 @@ eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
 taceo-groth16-sol = { workspace = true }
+taceo-oprf = { workspace = true }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
@@ -46,7 +47,6 @@ sha3 = { workspace = true, default-features = false }
 rand = { workspace = true }
 secrecy = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
-taceo-oprf-types = { workspace = true }
 utoipa = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["js"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }

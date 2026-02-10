@@ -147,10 +147,19 @@ async fn spawn_orpf_node(
 ) -> String {
     let db_schema = "oprf".to_string();
     let db_max_connections = 3.try_into().unwrap();
-    let secret_manager =
-        OprfServiceSercretManager::init(&postgres_url.into(), &db_schema, db_max_connections)
-            .await
-            .expect("can init secret manager");
+    let db_acquire_timeout = Duration::from_secs(60);
+    let db_max_retries = 5.try_into().expect("Is NonZero");
+    let db_retry_delay = Duration::from_millis(500);
+    let secret_manager = OprfServiceSercretManager::init(
+        &postgres_url.into(),
+        &db_schema,
+        db_max_connections,
+        db_acquire_timeout,
+        db_max_retries,
+        db_retry_delay,
+    )
+    .await
+    .expect("can init secret manager");
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
     let config = WorldOprfNodeConfig {
         bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
@@ -176,6 +185,10 @@ async fn spawn_orpf_node(
             db_connection_string: postgres_url.into(),
             db_max_connections,
             db_schema,
+            reload_key_material_interval: Duration::from_secs(3600),
+            db_acquire_timeout,
+            db_retry_delay,
+            db_max_retries,
         },
     };
 
