@@ -60,6 +60,7 @@ k256 = { version = "0.13" }
 num-bigint = "0.4"
 taceo-groth16-sol = { version = "0.2.2" }
 taceo-oprf = { version = "0.3", default-features = false }
+taceo-oprf-types = "0.7"
 taceo-oprf-test-utils = "0.2"
 taceo-oprf-key-gen = "0.2"
 telemetry-batteries = "0.2"
