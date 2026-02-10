@@ -6,7 +6,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-common = { workspace = true }
+world-id-services-common = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
@@ -46,7 +46,7 @@ world-id-primitives = { workspace = true }
 backon = { workspace = true }
 
 [dev-dependencies]
-test-utils = { workspace = true }
+world-id-test-utils = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 serial_test = { workspace = true }
@@ -55,5 +55,4 @@ uuid = { workspace = true, features = ["v4"] }
 regex = { workspace = true }
 
 [features]
-integration-tests = [
-] # running integration tests requires running external services (i.e. Postgres)
+integration-tests = [] # running integration tests requires running external services (i.e. Postgres)

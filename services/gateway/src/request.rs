@@ -9,6 +9,7 @@ use crate::{
             DEFAULT_UPDATE_AUTHENTICATOR_GAS,
         },
     },
+    error::GatewayErrorResponse,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
 };
@@ -19,10 +20,10 @@ use alloy::{
 use moka::future::Cache;
 use uuid::Uuid;
 use world_id_core::{
-    types::{
-        CreateAccountRequest, GatewayErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    api_types::{
+        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
+        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };

@@ -10,19 +10,33 @@ async fn test_max_u256_values() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
+    let max_leaf_index = u64::MAX;
     let max_u256 = U256::MAX;
 
     // Insert account with max values
     db.accounts()
-        .insert(&max_u256, &Address::ZERO, &[], &[], &max_u256)
+        .insert(
+            &U256::from(max_leaf_index),
+            &Address::ZERO,
+            &[],
+            &[],
+            &max_u256,
+        )
         .await
         .unwrap();
 
     // Verify account was created with MAX values
-    let account = db.accounts().get_account(&max_u256).await.unwrap();
+    let account = db
+        .accounts()
+        .get_account(&U256::from(max_leaf_index))
+        .await
+        .unwrap();
     assert!(account.is_some(), "Account should exist");
     let account = account.unwrap();
-    assert_eq!(account.leaf_index, max_u256, "Leaf index should be MAX");
+    assert_eq!(
+        account.leaf_index, max_leaf_index,
+        "Leaf index should be MAX"
+    );
     assert_eq!(
         account.offchain_signer_commitment, max_u256,
         "Commitment should be MAX"
@@ -45,7 +59,7 @@ async fn test_zero_values() {
     let account = db.accounts().get_account(&U256::ZERO).await.unwrap();
     assert!(account.is_some(), "Account should exist");
     let account = account.unwrap();
-    assert_eq!(account.leaf_index, U256::ZERO, "Leaf index should be ZERO");
+    assert_eq!(account.leaf_index, 0, "Leaf index should be ZERO");
     assert_eq!(
         account.recovery_address,
         Address::ZERO,

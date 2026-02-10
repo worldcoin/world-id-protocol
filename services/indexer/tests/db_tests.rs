@@ -32,7 +32,7 @@ async fn test_insert_account() {
     assert!(account.is_some(), "Account should exist");
 
     let account = account.unwrap();
-    assert_eq!(account.leaf_index, leaf_index);
+    assert_eq!(account.leaf_index, u64::try_from(leaf_index).unwrap());
     assert_eq!(account.recovery_address, recovery_address);
     assert_eq!(account.authenticator_addresses, auth_addresses);
     assert_eq!(account.authenticator_pubkeys, auth_pubkeys);
@@ -298,7 +298,7 @@ async fn test_insert_world_tree_event() {
     let event = event.unwrap();
     assert_eq!(event.id.block_number, block_number);
     assert_eq!(event.id.log_index, log_index);
-    assert_eq!(event.leaf_index, leaf_index);
+    assert_eq!(event.leaf_index, u64::try_from(leaf_index).unwrap());
     assert_eq!(event.event_type, WorldTreeEventType::AccountCreated);
     assert_eq!(event.offchain_signer_commitment, commitment);
     assert_eq!(event.tx_hash, tx_hash);
@@ -387,7 +387,7 @@ async fn test_get_world_tree_event() {
     let event = event.unwrap();
     assert_eq!(event.id.block_number, block_number);
     assert_eq!(event.id.log_index, log_index);
-    assert_eq!(event.leaf_index, leaf_index);
+    assert_eq!(event.leaf_index, u64::try_from(leaf_index).unwrap());
     assert_eq!(event.event_type, WorldTreeEventType::AccountCreated);
 }
 
@@ -428,7 +428,7 @@ async fn test_get_latest_world_tree_events() {
         let event = event.unwrap();
         assert_eq!(event.id.block_number, 100 + i);
         assert_eq!(event.id.log_index, i);
-        assert_eq!(event.leaf_index, U256::from(i));
+        assert_eq!(event.leaf_index, i);
         assert_eq!(event.offchain_signer_commitment, U256::from(i * 100));
         assert_eq!(event.tx_hash, U256::from(999));
     }

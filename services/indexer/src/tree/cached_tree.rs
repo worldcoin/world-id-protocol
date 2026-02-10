@@ -82,7 +82,7 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     let total = all_events.len();
 
     // Deduplicate: keep only the final state per leaf
-    let mut leaf_final_states: HashMap<U256, U256> = HashMap::new();
+    let mut leaf_final_states: HashMap<u64, U256> = HashMap::new();
     for event in &all_events {
         leaf_final_states.insert(event.leaf_index, event.offchain_signer_commitment);
     }
@@ -97,8 +97,9 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     {
         let mut tree = tree_state.write().await;
         for (leaf_index, value) in &leaf_final_states {
-            let idx = leaf_index.as_limbs()[0] as usize;
-            take_mut::take(&mut *tree, |t| t.update_with_mutation(idx, value));
+            take_mut::take(&mut *tree, |t| {
+                t.update_with_mutation(*leaf_index as usize, value)
+            });
         }
     }
 
@@ -359,7 +360,7 @@ async fn replay_events(
     let mut last_event_id = from_event_id;
     let mut total_events = 0;
 
-    let mut leaf_final_states: HashMap<U256, U256> = HashMap::new();
+    let mut leaf_final_states: HashMap<u64, U256> = HashMap::new();
 
     info!(
         from_event_id = ?from_event_id,
@@ -414,8 +415,7 @@ async fn replay_events(
     );
 
     for (leaf_index, value) in &leaf_final_states {
-        let leaf_index = leaf_index.as_limbs()[0] as usize;
-        tree = tree.update_with_mutation(leaf_index, value);
+        tree = tree.update_with_mutation(*leaf_index as usize, value);
     }
 
     info!(
