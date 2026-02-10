@@ -9,7 +9,9 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
-use taceo_oprf::types::OprfKeyId;
+use taceo_oprf_types::OprfKeyId;
+// The uuid crate is needed for wasm compatibility
+use uuid as _;
 use world_id_primitives::{
     FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId,
 };

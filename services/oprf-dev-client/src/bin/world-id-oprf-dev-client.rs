@@ -32,17 +32,15 @@ use taceo_oprf::{
 use taceo_oprf_test_utils::health_checks;
 use test_utils::{
     anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, RpRegistry},
-    fixtures::{MerkleFixture, build_base_credential},
+    fixtures::build_base_credential,
 };
 use uuid::Uuid;
 use world_id_core::{
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature,
     FieldElement,
-    api_types::AccountInclusionProof,
     proof::CircomGroth16Material,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
-use world_id_gateway::{GatewayConfig, ProviderArgs, SignerArgs};
 use world_id_primitives::{
     Config, TREE_DEPTH,
     authenticator::AuthenticatorPublicKeySet,
@@ -108,12 +106,20 @@ pub struct OprfDevClientConfig {
     pub taceo_private_key: SecretString,
 
     /// Indexer address
-    #[clap(long, env = "OPRF_DEV_CLIENT_INDEXER_URL")]
-    pub indexer_url: Option<String>,
+    #[clap(
+        long,
+        env = "OPRF_DEV_CLIENT_INDEXER_URL",
+        default_value = "http://localhost:8080"
+    )]
+    pub indexer_url: String,
 
     /// Gateway address
-    #[clap(long, env = "OPRF_DEV_CLIENT_GATEWAY_URL")]
-    pub gateway_url: Option<String>,
+    #[clap(
+        long,
+        env = "OPRF_DEV_CLIENT_GATEWAY_URL",
+        default_value = "http://localhost:8081"
+    )]
+    pub gateway_url: String,
 
     /// rp id of already registered rp
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
@@ -642,40 +648,12 @@ async fn main() -> eyre::Result<()> {
             (issuer_schema_id, oprf_public_key)
         };
 
-    let (gateway_url, _gateway_handle) = if let Some(gateway_url) = &config.gateway_url {
-        (gateway_url.clone(), None)
-    } else {
-        // anvil wallet 0, only used for local tests
-        let signer_args = SignerArgs::from_wallet(
-            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string(),
-        );
-        let gateway_config = GatewayConfig {
-            registry_addr: config.world_id_registry_contract,
-            provider: ProviderArgs {
-                http: Some(vec![
-                    config.chain_rpc_url.expose_secret().to_string().parse()?,
-                ]),
-                signer: Some(signer_args.clone()),
-                ..Default::default()
-            },
-            batch_ms: 200,
-            listen_addr: (std::net::Ipv4Addr::LOCALHOST, 8081).into(),
-            max_create_batch_size: 10,
-            max_ops_batch_size: 10,
-            redis_url: None,
-        };
-        let gateway_handle = world_id_gateway::spawn_gateway_for_tests(gateway_config)
-            .await
-            .map_err(|e| eyre::eyre!("failed to spawn gateway for tests: {e}"))?;
-        ("http://localhost:8081".to_string(), Some(gateway_handle))
-    };
-
     let world_config = Config::new(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         31_337, // anvil hardhat chain id
         config.world_id_registry_contract,
-        "http://localhost:8080".to_string(), // stub indexer url - will be replaced later
-        gateway_url.clone(),
+        config.indexer_url,
+        config.gateway_url,
         config.nodes.clone(),
         config.threshold,
     )
@@ -685,46 +663,6 @@ async fn main() -> eyre::Result<()> {
     let seed = [7u8; 32];
     let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None).await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
-
-    let (indexer_url, _indexer_handle) = if let Some(indexer_url) = &config.indexer_url {
-        (indexer_url.clone(), None)
-    } else {
-        // Local indexer stub serving inclusion proof.
-        let leaf_index = authenticator.leaf_index();
-        let MerkleFixture {
-            key_set,
-            inclusion_proof: merkle_inclusion_proof,
-            root: _,
-            ..
-        } = test_utils::fixtures::single_leaf_merkle_fixture(
-            vec![authenticator.offchain_pubkey()],
-            leaf_index,
-        )
-        .wrap_err("failed to construct merkle fixture")?;
-
-        let inclusion_proof =
-            AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
-                .wrap_err("failed to build inclusion proof")?;
-
-        let (indexer_url, indexer_handle) =
-            test_utils::stubs::spawn_indexer_stub(leaf_index, inclusion_proof.clone())
-                .await
-                .wrap_err("failed to start indexer stub")?;
-        (indexer_url, Some(indexer_handle))
-    };
-
-    let world_config = Config::new(
-        Some(config.chain_rpc_url.expose_secret().to_string()),
-        31_337, // anvil hardhat chain id
-        config.world_id_registry_contract,
-        indexer_url,
-        gateway_url,
-        config.nodes.clone(),
-        config.threshold,
-    )
-    .unwrap();
-
-    let authenticator = Authenticator::init(&seed, world_config.clone()).await?;
 
     // setup TLS config - even if we are http
     let mut root_store = RootCertStore::empty();
