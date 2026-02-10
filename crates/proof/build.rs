@@ -170,7 +170,6 @@ fn is_up_to_date(input: &Path, output: &Path) -> bool {
     output_modified >= input_modified
 }
 
-#[allow(dead_code)]
 fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     use rayon::prelude::*;
 
@@ -215,7 +214,6 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
 fn compress_zkey(input: &Path, output: &Path) -> eyre::Result<()> {
     use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
     use circom_types::{ark_bn254::Bn254, groth16::ArkZkey};
