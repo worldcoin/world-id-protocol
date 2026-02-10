@@ -14,7 +14,11 @@ telemetry-batteries = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 poseidon2 = { workspace = true }
-alloy = { workspace = true, default-features = true, features = ["rpc-types", "provider-ws"] }
+alloy = { workspace = true, default-features = true, features = [
+  "rpc-types",
+  "provider-ws",
+] }
+eyre = { workspace = true }
 dotenvy = { workspace = true }
 url = { workspace = true }
 hex = { workspace = true }
@@ -31,6 +35,7 @@ sqlx = { workspace = true, features = [
 ] }
 semaphore-rs-trees = { workspace = true }
 semaphore-rs-hasher = { workspace = true }
+semaphore-rs-storage = { workspace = true }
 ark-ff = { workspace = true }
 ark-bn254 = { workspace = true }
 axum = { workspace = true, features = ["macros", "json"] }
@@ -54,4 +59,5 @@ uuid = { workspace = true, features = ["v4"] }
 regex = { workspace = true }
 
 [features]
-integration-tests = [] # running integration tests requires running external services (i.e. Postgres)
+integration-tests = [
+] # running integration tests requires running external services (i.e. Postgres)

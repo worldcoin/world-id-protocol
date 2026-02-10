@@ -1,5 +1,8 @@
 use alloy::primitives::U256;
-use sqlx::{Acquire, PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+use futures_util::{Stream, StreamExt as _};
+use sqlx::{
+    Acquire, Executor, PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions,
+};
 use thiserror::Error;
 
 mod accounts;
@@ -160,31 +163,21 @@ impl<'a> PostgresDBTransaction<'a> {
 // Tree-related DB queries (extracted from tree module)
 // =============================================================================
 
-pub async fn fetch_leaves_batch<'a, E>(
-    executor: E,
-    last_cursor: &U256,
-    batch_size: i64,
-) -> DBResult<Vec<(U256, U256)>>
+pub fn stream_leaves<'a, E>(executor: E) -> impl Stream<Item = DBResult<(u64, U256)>> + 'a
 where
-    E: sqlx::Executor<'a, Database = Postgres>,
+    E: Executor<'a, Database = Postgres> + 'a,
 {
-    let rows = sqlx::query(
+    sqlx::query(
         "SELECT leaf_index, offchain_signer_commitment
          FROM accounts
-         WHERE leaf_index > $1
-         ORDER BY leaf_index ASC
-         LIMIT $2",
+         ORDER BY leaf_index ASC",
     )
-    .bind(last_cursor)
-    .bind(batch_size)
-    .fetch_all(executor)
-    .await?;
-
-    rows.iter()
-        .map(|row| {
-            let leaf_index = row.get::<U256, _>("leaf_index");
-            let commitment = row.get::<U256, _>("offchain_signer_commitment");
-            Ok((leaf_index, commitment))
-        })
-        .collect()
+    .fetch(executor)
+    .map(|row_result| {
+        let row = row_result?;
+        let leaf_index = row.get::<U256, _>("leaf_index");
+        let leaf_index = leaf_index.as_limbs()[0] as u64;
+        let commitment = row.get::<U256, _>("offchain_signer_commitment");
+        Ok((leaf_index, commitment))
+    })
 }

@@ -1,7 +1,9 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use alloy::primitives::U256;
-use semaphore_rs_trees::{lazy::Canonical, proof::InclusionProof};
+use semaphore_rs_storage::MmapVec;
+use semaphore_rs_trees::cascading::CascadingMerkleTree;
+use semaphore_rs_trees::proof::InclusionProof;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
@@ -14,15 +16,23 @@ pub struct TreeState {
 }
 
 struct TreeStateInner {
-    tree: RwLock<MerkleTree<PoseidonHasher, Canonical>>,
+    tree: RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>>,
     tree_depth: usize,
     last_synced_event_id: RwLock<WorldTreeEventId>,
+}
+
+impl std::fmt::Debug for TreeStateInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>> as std::fmt::Debug>::fmt(
+            &self.tree, f,
+        )
+    }
 }
 
 impl TreeState {
     /// Create a new `TreeState` with an existing tree, depth, and sync cursor.
     pub fn new(
-        tree: MerkleTree<PoseidonHasher, Canonical>,
+        tree: CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>,
         tree_depth: usize,
         last_synced_event_id: WorldTreeEventId,
     ) -> Self {
@@ -36,9 +46,10 @@ impl TreeState {
     }
 
     /// Create a new `TreeState` with an empty tree of the given depth.
-    pub fn new_empty(tree_depth: usize) -> Self {
-        let tree = MerkleTree::<PoseidonHasher>::new(tree_depth, U256::ZERO);
-        Self::new(tree, tree_depth, WorldTreeEventId::default())
+    pub unsafe fn new_empty(tree_depth: usize, path: impl AsRef<Path>) -> eyre::Result<Self> {
+        let storage = unsafe { MmapVec::create_from_path(path)? };
+        let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
+        Ok(Self::new(tree, tree_depth, WorldTreeEventId::default()))
     }
 
     /// Returns the configured depth.
@@ -52,12 +63,16 @@ impl TreeState {
     }
 
     /// Acquire a read lock on the tree.
-    pub async fn read(&self) -> RwLockReadGuard<'_, MerkleTree<PoseidonHasher, Canonical>> {
+    pub async fn read(
+        &self,
+    ) -> RwLockReadGuard<'_, CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>> {
         self.inner.tree.read().await
     }
 
     /// Acquire a write lock on the tree.
-    pub async fn write(&self) -> RwLockWriteGuard<'_, MerkleTree<PoseidonHasher, Canonical>> {
+    pub async fn write(
+        &self,
+    ) -> RwLockWriteGuard<'_, CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>> {
         self.inner.tree.write().await
     }
 
@@ -93,9 +108,7 @@ impl TreeState {
         }
 
         let mut tree = self.write().await;
-        take_mut::take(&mut *tree, |tree| {
-            tree.update_with_mutation(leaf_index, &value)
-        });
+        tree.set_leaf(leaf_index, value);
         Ok(())
     }
 
@@ -115,7 +128,7 @@ impl TreeState {
     }
 
     /// Atomically replace the entire tree.
-    pub async fn replace(&self, new_tree: MerkleTree<PoseidonHasher, Canonical>) {
+    pub async fn replace(&self, new_tree: MerkleTree) {
         let mut tree = self.write().await;
         *tree = new_tree;
     }
@@ -187,8 +200,8 @@ mod tests {
         let initial_root = state.root().await;
 
         // Create a new tree with a different value
-        let mut new_tree = MerkleTree::<PoseidonHasher>::new(6, U256::ZERO);
-        new_tree = new_tree.update_with_mutation(1, &U256::from(999u64));
+        let mut new_tree = MerkleTree::<PoseidonHasher>::new(vec![], 6, &U256::ZERO);
+        new_tree.set_leaf(1, U256::from(999u64));
         let new_root = new_tree.root();
 
         state.replace(new_tree).await;
