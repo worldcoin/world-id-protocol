@@ -392,8 +392,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "outputs": [
@@ -1742,8 +1742,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },
@@ -1822,8 +1822,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "executeAfter",
