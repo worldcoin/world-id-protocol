@@ -13,9 +13,11 @@ pub enum ConstraintKind {
     All,
     /// Any of the children must be satisfied
     Any,
+    /// All satisfiable children should be selected
+    Enumerate,
 }
 
-/// Constraint expression tree: either a list of types/expressions under `all` or `any`.
+/// Constraint expression tree: a list of types/expressions under `all`, `any`, or `enumerate`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(untagged)]
@@ -29,6 +31,11 @@ pub enum ConstraintExpr<'a> {
     Any {
         /// Children nodes where any one must be satisfied
         any: Vec<ConstraintNode<'a>>,
+    },
+    /// All satisfiable children should be selected
+    Enumerate {
+        /// Children nodes to evaluate and collect if satisfiable
+        enumerate: Vec<ConstraintNode<'a>>,
     },
 }
 
@@ -52,6 +59,9 @@ impl ConstraintExpr<'_> {
         match self {
             ConstraintExpr::All { all } => all.iter().all(|n| n.evaluate(has_type)),
             ConstraintExpr::Any { any } => any.iter().any(|n| n.evaluate(has_type)),
+            ConstraintExpr::Enumerate { enumerate } => {
+                enumerate.iter().any(|n| n.evaluate(has_type))
+            }
         }
     }
 
@@ -69,6 +79,9 @@ impl ConstraintExpr<'_> {
                 }
                 ConstraintExpr::Any { any } => {
                     any.iter().all(|n| validate_node(n, depth, max_depth))
+                }
+                ConstraintExpr::Enumerate { enumerate } => {
+                    enumerate.iter().all(|n| validate_node(n, depth, max_depth))
                 }
             }
         }
@@ -103,6 +116,14 @@ impl ConstraintExpr<'_> {
                 }
                 ConstraintExpr::Any { any } => {
                     for n in any {
+                        if !count_node(n, count, max_nodes) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                ConstraintExpr::Enumerate { enumerate } => {
+                    for n in enumerate {
                         if !count_node(n, count, max_nodes) {
                             return false;
                         }
