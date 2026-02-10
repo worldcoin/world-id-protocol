@@ -9368,8 +9368,9 @@ dependencies = [
  "k256",
  "serde",
  "serde_json",
- "taceo-oprf",
+ "taceo-oprf-types 0.7.0",
  "thiserror 1.0.69",
+ "uuid",
  "world-id-primitives",
 ]
 
