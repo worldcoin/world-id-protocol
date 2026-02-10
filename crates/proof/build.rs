@@ -65,11 +65,7 @@ fn main() -> eyre::Result<()> {
     // Collect files: use .compressed zkeys if ARK compression active, raw otherwise
     let mut files_to_bundle: Vec<(&str, PathBuf)> = Vec::new();
     for path_str in CIRCUIT_FILES {
-        let file_name = Path::new(path_str)
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
+        let file_name = Path::new(path_str).file_name().unwrap().to_str().unwrap();
         if is_arks_zkey(Path::new(file_name)) && use_ark {
             files_to_bundle.push((file_name, out_dir.join(format!("{file_name}.compressed"))));
         } else {

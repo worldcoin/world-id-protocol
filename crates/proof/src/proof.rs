@@ -99,8 +99,10 @@ pub fn load_embedded_nullifier_material(
     cache_dir: Option<impl AsRef<Path>>,
 ) -> eyre::Result<CircomGroth16Material> {
     let files = get_circuit_files(cache_dir.as_ref().map(|p| p.as_ref()));
-    Ok(build_nullifier_builder()
-        .build_from_bytes(&files.nullifier_zkey, &files.nullifier_graph)?)
+    Ok(
+        build_nullifier_builder()
+            .build_from_bytes(&files.nullifier_zkey, &files.nullifier_graph)?,
+    )
 }
 
 /// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also query proof)
@@ -215,18 +217,23 @@ fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
         }
     }
 
-    let query_graph = query_graph.ok_or_else(|| eyre::eyre!("OPRFQueryGraph.bin not found in archive"))?;
-    let nullifier_graph = nullifier_graph.ok_or_else(|| eyre::eyre!("OPRFNullifierGraph.bin not found in archive"))?;
+    let query_graph =
+        query_graph.ok_or_else(|| eyre::eyre!("OPRFQueryGraph.bin not found in archive"))?;
+    let nullifier_graph = nullifier_graph
+        .ok_or_else(|| eyre::eyre!("OPRFNullifierGraph.bin not found in archive"))?;
     #[allow(unused_mut)]
-    let mut query_zkey = query_zkey.ok_or_else(|| eyre::eyre!("OPRFQuery zkey not found in archive"))?;
+    let mut query_zkey =
+        query_zkey.ok_or_else(|| eyre::eyre!("OPRFQuery zkey not found in archive"))?;
     #[allow(unused_mut)]
-    let mut nullifier_zkey = nullifier_zkey.ok_or_else(|| eyre::eyre!("OPRFNullifier zkey not found in archive"))?;
+    let mut nullifier_zkey =
+        nullifier_zkey.ok_or_else(|| eyre::eyre!("OPRFNullifier zkey not found in archive"))?;
 
     // Step 3: ARK decompress zkeys if compress-zkeys is active (with disk caching)
     #[cfg(feature = "compress-zkeys")]
     {
         query_zkey = ark_decompress_zkey(cache_dir, "OPRFQuery.arks.zkey", &query_zkey)?;
-        nullifier_zkey = ark_decompress_zkey(cache_dir, "OPRFNullifier.arks.zkey", &nullifier_zkey)?;
+        nullifier_zkey =
+            ark_decompress_zkey(cache_dir, "OPRFNullifier.arks.zkey", &nullifier_zkey)?;
     }
 
     #[cfg(not(feature = "compress-zkeys"))]
