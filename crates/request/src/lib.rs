@@ -406,7 +406,8 @@ impl ProofRequest {
     ///
     /// - When an explicit action is provided, it is returned directly.
     /// - For session proofs (action is `None`), a random action is generated.
-    ///  Callers should cache the action during proof generation to ensure consistency across proof steps.
+    ///
+    /// Callers should cache the action during proof generation to ensure consistency across proof steps.
     #[must_use]
     pub fn computed_action<R: rand::CryptoRng + rand::RngCore>(&self, rng: &mut R) -> FieldElement {
         match self.action {
