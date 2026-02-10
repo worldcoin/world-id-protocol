@@ -10,23 +10,16 @@ use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
 use crate::{db::WorldTreeEventId, tree::cached_tree::set_arbitrary_leaf};
 
 /// Thread-safe wrapper around the Merkle tree and its configuration.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TreeState {
     inner: Arc<TreeStateInner>,
 }
 
+#[derive(Debug)]
 struct TreeStateInner {
     tree: RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>>,
     tree_depth: usize,
     last_synced_event_id: RwLock<WorldTreeEventId>,
-}
-
-impl std::fmt::Debug for TreeStateInner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>> as std::fmt::Debug>::fmt(
-            &self.tree, f,
-        )
-    }
 }
 
 impl TreeState {

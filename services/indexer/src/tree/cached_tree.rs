@@ -215,7 +215,6 @@ async fn build_from_db_with_cache(
 
     let storage = unsafe { MmapVec::<U256>::create_from_path(cache_path_str)? };
 
-    // TODO: verify required mem for this call
     let tree = MerkleTree::new_with_leaves(storage, tree_depth, &U256::ZERO, &leaves);
 
     info!(
