@@ -9309,7 +9309,7 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-groth16-sol",
- "taceo-oprf",
+ "taceo-oprf-types",
  "taceo-poseidon2",
  "thiserror 1.0.69",
  "url",

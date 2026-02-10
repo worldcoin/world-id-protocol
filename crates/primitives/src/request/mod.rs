@@ -4,11 +4,12 @@
 //! for Authenticators to handle such requests.
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
-use taceo_oprf::types::OprfKeyId;
 
 use crate::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
+// we want to use taceo_oprf_types explicitly over the umbrella taceo_oprf create for WASM compatibility
+use taceo_oprf_types::OprfKeyId;
 // The uuid crate is needed for wasm compatibility
 use uuid as _;
 
