@@ -9,9 +9,9 @@ use alloy::{
     providers::ProviderBuilder,
 };
 use sqlx::PgPool;
-use test_utils::anvil::TestAnvil;
 use world_id_core::world_id_registry::WorldIdRegistry;
 use world_id_primitives::TREE_DEPTH;
+use world_id_test_utils::anvil::TestAnvil;
 
 pub const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 
