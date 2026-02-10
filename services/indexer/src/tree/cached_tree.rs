@@ -494,8 +494,8 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
 
-            let cache_path = std::env::temp_dir()
-                .join(format!("test_perms_{}.mmap", uuid::Uuid::new_v4()));
+            let cache_path =
+                std::env::temp_dir().join(format!("test_perms_{}.mmap", uuid::Uuid::new_v4()));
             std::fs::write(&cache_path, b"some data").unwrap();
             std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o000)).unwrap();
 
