@@ -35,5 +35,4 @@ tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 webpki-roots = { workspace = true }
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
-world-id-gateway = { workspace = true }
 world-id-primitives = { workspace = true }
