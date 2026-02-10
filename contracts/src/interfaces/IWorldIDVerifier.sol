@@ -169,58 +169,6 @@ interface IWorldIDVerifier {
         uint256[5] calldata zeroKnowledgeProof
     ) external view;
 
-    ////////////////////////////////////////////////////////////
-    //                    OWNER FUNCTIONS                     //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @notice Updates the credential schema issuer registry address.
-     * @param newCredentialSchemaIssuerRegistry The new credential schema issuer registry address.
-     */
-    function updateCredentialSchemaIssuerRegistry(address newCredentialSchemaIssuerRegistry) external;
-
-    /**
-     * @notice Updates the World ID registry address.
-     * @param newWorldIDRegistry The new World ID registry address.
-     */
-    function updateWorldIDRegistry(address newWorldIDRegistry) external;
-
-    /**
-     * @notice Updates the OPRF key registry address.
-     * @param newOprfKeyRegistry The new OPRF key registry address.
-     */
-    function updateOprfKeyRegistry(address newOprfKeyRegistry) external;
-
-    /**
-     * @notice Updates the Verifier address.
-     * @param newVerifier The new verifier address.
-     */
-    function updateVerifier(address newVerifier) external;
-
-    /**
-     * @notice Updates the minimum expiration threshold.
-     * @param newMinExpirationThreshold The new minimum expiration threshold value in seconds.
-     */
-    function updateMinExpirationThreshold(uint64 newMinExpirationThreshold) external;
-
-    /**
-     * @notice Returns the credential schema issuer registry address.
-     * @return The address of the CredentialSchemaIssuerRegistry contract.
-     */
-    function getCredentialSchemaIssuerRegistry() external view returns (address);
-
-    /**
-     * @notice Returns the World ID registry address.
-     * @return The address of the WorldIDRegistry contract.
-     */
-    function getWorldIDRegistry() external view returns (address);
-
-    /**
-     * @notice Returns the OPRF key registry address.
-     * @return The address of the OprfKeyRegistry contract.
-     */
-    function getOprfKeyRegistry() external view returns (address);
-
     /**
      * @notice Returns the verifier contract address.
      * @return The address of the Verifier contract.

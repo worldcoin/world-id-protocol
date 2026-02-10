@@ -6,29 +6,20 @@ import {RLPReader} from "../vendored/optimism/rlp/RLPReader.sol";
 
 /// @title MptVerifier
 /// @author World Contributors
-/// @notice Library for verifying Ethereum MPT account and storage proofs and computing World Chain
-///   registry storage slots. Extracted from `WorldIDStateBridgeBase` for reuse across adapters.
+/// @notice Library for verifying Ethereum MPT account and storage proofs. Extracted from the
+///   bridge adapters for reuse across WorldChain, L1, and bridged destination chains.
 library MptVerifier {
     ////////////////////////////////////////////////////////////
     //                  STORAGE SLOT CONSTANTS                //
     ////////////////////////////////////////////////////////////
 
-    /// @dev Storage slot for `_latestRoot` in WorldIDRegistry.
-    bytes32 internal constant LATEST_ROOT_SLOT = bytes32(uint256(0x11));
+    /// @dev Slot for `_validChainHeads` mapping in WorldIdStateBridge (slot 8).
+    ///   Shared by all adapters (WorldChain, L1, Bridged) since they all inherit the same base.
+    bytes32 internal constant VALID_CHAIN_HEADS_SLOT = bytes32(uint256(8));
 
-    /// @dev Storage slot base for `_rootToTimestamp` mapping in WorldIDRegistry.
-    ///   Actual slot: `keccak256(abi.encode(root, ROOT_TO_TIMESTAMP_SLOT_BASE))`.
-    bytes32 internal constant ROOT_TO_TIMESTAMP_SLOT_BASE = bytes32(uint256(0x10));
-
-    /// @dev Storage slot for `_treeDepth` in WorldIDRegistry.
-    bytes32 internal constant TREE_DEPTH_SLOT = bytes32(uint256(0x0e));
-
-    /// @dev Storage slot base for `_idToPubkey` mapping in CredentialSchemaIssuerRegistry.
-    ///   Pubkey.x is at `keccak256(abi.encode(id, SLOT_BASE))`, Pubkey.y is at `+1`.
-    bytes32 internal constant ISSUER_PUBKEY_SLOT_BASE = bytes32(uint256(0x03));
-
-    /// @dev Storage slot base for OPRF public keys in OprfKeyRegistry.
-    bytes32 internal constant OPRF_PUBKEY_SLOT_BASE = bytes32(uint256(0x07));
+    ////////////////////////////////////////////////////////////
+    //                  PROOF VERIFICATION                    //
+    ////////////////////////////////////////////////////////////
 
     /// @notice Verifies an MPT account proof and extracts the account's storage root.
     /// @param account The account address to verify.
@@ -40,38 +31,33 @@ library MptVerifier {
         pure
         returns (bytes32 storageRoot)
     {
-        // Get account RLP from the trie
         bytes memory accountRlp = SecureMerkleTrie.get(abi.encodePacked(account), proof, stateRoot);
         require(accountRlp.length > 0, "MptVerifier: empty account proof");
 
-        // Parse account RLP: [nonce, balance, storageRoot, codeHash]
         RLPReader.RLPItem[] memory accountFields = RLPReader.readList(accountRlp);
         require(accountFields.length == 4, "MptVerifier: invalid account fields");
 
-        // Storage root is at index 2
         storageRoot = bytes32(RLPReader.readBytes(accountFields[2]));
     }
 
-    function storageFromProof(bytes[] calldata proof, bytes32 storageRoot, bytes32 slot)
+    /// @notice Proves a storage value via MPT proof and returns it as uint256.
+    /// @dev The storage trie stores RLP-encoded values with leading zeros stripped.
+    ///   This function handles the full decode: verify proof → RLP decode → right-align → uint256.
+    function storageFromProof(bytes[] memory proof, bytes32 storageRoot, bytes32 slot)
         internal
         pure
-        returns (bytes memory value)
+        returns (uint256 value)
     {
-        bytes[] memory memProof = _toMemory(proof);
-
-        // Get value RLP from the trie (slot is hashed by SecureMerkleTrie)
-        value = SecureMerkleTrie.get(abi.encodePacked(slot), memProof, storageRoot);
-    }
-
-    /// @dev Copies a calldata bytes array to memory. Required because SecureMerkleTrie expects
-    ///   `bytes[] memory` but our interface uses `bytes[] calldata`.
-    function _toMemory(bytes[] calldata calldataArr) private pure returns (bytes[] memory memArr) {
-        memArr = new bytes[](calldataArr.length);
-        for (uint256 i = 0; i < calldataArr.length;) {
-            memArr[i] = calldataArr[i];
-            unchecked {
-                ++i;
-            }
+        bytes memory rlpValue = SecureMerkleTrie.get(abi.encodePacked(slot), proof, storageRoot);
+        bytes memory decoded = RLPReader.readBytes(rlpValue);
+        uint256 len = decoded.length;
+        require(len <= 32, "MptVerifier: storage value exceeds 32 bytes");
+        assembly {
+            // Load 32 bytes from the data pointer. For len < 32, the high bytes
+            // contain our data and the low bytes are garbage from adjacent memory.
+            // Shift right by (32 - len) * 8 bits to right-align and discard garbage.
+            // For len == 0 the shift is 256 which yields 0 per EVM spec.
+            value := shr(mul(sub(32, len), 8), mload(add(decoded, 0x20)))
         }
     }
 
@@ -81,7 +67,36 @@ library MptVerifier {
             let ptr := mload(0x40)
             mstore(ptr, key)
             mstore(add(ptr, 0x20), slot)
-            mstore(mappingSlot, keccak256(ptr, 0x40))
+            mappingSlot := keccak256(ptr, 0x40)
+        }
+    }
+
+    /// @notice Verifies an L1 block header against its expected hash and extracts the state root.
+    /// @param headerRlp The RLP-encoded block header.
+    /// @param expectedHash The expected block hash (`keccak256(headerRlp)`).
+    /// @return stateRoot The state root from the block header (RLP index 3).
+    function extractStateRootFromHeader(bytes memory headerRlp, bytes32 expectedHash)
+        internal
+        pure
+        returns (bytes32 stateRoot)
+    {
+        require(keccak256(headerRlp) == expectedHash, "MptVerifier: block hash mismatch");
+
+        RLPReader.RLPItem[] memory fields = RLPReader.readList(headerRlp);
+        require(fields.length >= 4, "MptVerifier: invalid block header");
+
+        stateRoot = bytes32(RLPReader.readBytes(fields[3]));
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                  UTILITY                               //
+    ////////////////////////////////////////////////////////////
+
+    /// @dev Copies a calldata bytes[] array to memory for use with SecureMerkleTrie.
+    function toMemory(bytes[] calldata arr) internal pure returns (bytes[] memory out) {
+        out = new bytes[](arr.length);
+        for (uint256 i; i < arr.length; ++i) {
+            out[i] = arr[i];
         }
     }
 }

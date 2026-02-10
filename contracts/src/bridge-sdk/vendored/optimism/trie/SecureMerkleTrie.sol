@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// Vendored from optimism/packages/contracts-bedrock/src/libraries/trie/SecureMerkleTrie.sol
-// Only import paths have been modified.
+/// @notice Vendored from optimism/packages/contracts-bedrock/src/libraries/trie/SecureMerkleTrie.sol
+/// @notice Only import paths have been modified.
 
 // Libraries
 import {MerkleTrie} from "./MerkleTrie.sol";

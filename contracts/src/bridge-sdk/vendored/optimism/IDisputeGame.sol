@@ -14,4 +14,7 @@ interface IDisputeGame {
     /// @notice Returns the root claim of the dispute game — the output root being disputed.
     /// @return The root claim as a `Claim` (bytes32).
     function rootClaim() external pure returns (Claim);
+
+    /// @notice Returns the L2 block number that this game's output root covers.
+    function l2BlockNumber() external pure returns (uint256);
 }
