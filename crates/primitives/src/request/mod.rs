@@ -267,7 +267,7 @@ impl ProofResponse {
 impl ResponseItem {
     /// Create a new response item for a Uniqueness proof.
     #[must_use]
-    pub fn new_uniqueness(
+    pub const fn new_uniqueness(
         identifier: String,
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
@@ -286,7 +286,7 @@ impl ResponseItem {
 
     /// Create a new response item for a Session proof.
     #[must_use]
-    pub fn new_session(
+    pub const fn new_session(
         identifier: String,
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
