@@ -12,10 +12,6 @@ import {MptVerifier} from "../libraries/MptVerifier.sol";
 /// @author World Contributors
 /// @notice Abstract base for cross-chain for World ID state bridges
 abstract contract WorldIdStateBridge is IWorldIdStateBridge {
-    ////////////////////////////////////////////////////////////
-    //                         STATE                          //
-    ////////////////////////////////////////////////////////////
-
     /// @dev Action: a new Merkle root was proven. Data: `abi.encode(root, timestamp, proofId)`.
     bytes4 internal constant UPDATE_ROOT_SELECTOR = bytes4(keccak256("updateRoot(uint256,uint256,bytes32)"));
 
@@ -30,7 +26,7 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
     /// @dev Action: a proof ID was invalidated. Data: `abi.encode(proofId)`.
     bytes4 internal constant INVALIDATE_PROOF_ID_SELECTOR = bytes4(keccak256("invalidateProofId(bytes32)"));
 
-    /// A commitment to the chained updates.
+    /// @dev A commitment to the sequence of updates.
     struct Commitment {
         bytes32 blockHash;
         bytes data;
@@ -48,7 +44,8 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
     ///     Updated with each new commitment.
     bytes32 public keccakChain;
 
-
+    /// @dev Holds a mapping of invalidated Proof IDs.
+    ///      Any root or pubkey relying on an invalidated proof ID is rejected by `isValidRoot` and WorldIDVerifier functions.
     mapping(bytes32 => bool) internal _invalidatedProofIds; // slot 0
 
     uint256 public latestRoot; // slot 1
@@ -98,34 +95,20 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
     }
 
     /// @notice Commits a sequence of state transitions to the bridge's keccak chain, verifies the new head against L1, and dispatches to adapters.
-    /// @dev Each commit in `commitWithProof.commits` is applied in order to
+    /// @dev Each commit in `commitWithProof.commits` is applied in order.
     function commitChained(CommitmentWithProof memory commitWithProof) public virtual {
         if (commitWithProof.commits.length == 0) revert EmptyChainedCommits();
 
-        bytes32 _keccakChain = keccakChain;
-
         for (uint256 i; i < commitWithProof.commits.length; ++i) {
-            _keccakChain = commitChain(commitWithProof.commits[i]);
+            keccakChain = commitChain(commitWithProof.commits[i]);
         }
 
-        verifyChainedCommitment(_keccakChain, commitWithProof.mptProof);
-
-        keccakChain = _keccakChain;
+        verifyChainedCommitment(keccakChain, commitWithProof.mptProof);
     }
 
     /// @notice Commits a transition to the hash chain. _Does not verify the commitment's validity_
     function commitChain(Commitment memory commit) internal returns (bytes32 chainedHead) {
-        assembly ("memory-safe") {
-            let fmp := mload(0x40) // free memory pointer
-            let dataLength := mload(add(commit, 0x20)) // length of commit.data
-            mstore(fmp, add(commit, 0x20)) // copy commit data to memory
-
-            chainedHead := keccak256(
-                fmp,
-                sload(keccakChain.slot) // previous keccakChain value
-            )
-        }
-
+        chainedHead = keccak256(abi.encodePacked(keccakChain, commit.blockHash, commit.data));
         applyCommitment(commit);
     }
 
@@ -155,40 +138,69 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
 
     /// @dev Applies a single chained commit's state change based on its action type.
     function applyCommitment(Commitment memory commit) internal virtual {
-        assembly ("memory-safe") {
-            let fmp := mload(0x40) // free memory pointer
-            let dataLength := mload(add(commit, 0x20)) // length of commit.data
+        bytes memory data = commit.data;
+        bytes4 sel;
+        assembly {
+            sel := mload(add(data, 0x20))
+        }
 
-            mstore(fmp, add(commit, 0x20)) // copy commit data to memory
-
-            let success := staticcall(gas(), address(), fmp, dataLength, 0, 0)
-
-            if eq(success, 0) {
-                // bubble up revert reason if call failed
-                returndatacopy(fmp, 0, returndatasize())
-                revert(fmp, returndatasize())
+        if (sel == UPDATE_ROOT_SELECTOR) {
+            uint256 root;
+            uint256 timestamp_;
+            bytes32 proofId;
+            assembly {
+                let d := add(data, 0x24)
+                root := mload(d)
+                timestamp_ := mload(add(d, 0x20))
+                proofId := mload(add(d, 0x40))
             }
+            updateRoot(root, timestamp_, proofId);
+        } else if (sel == SET_ISSUER_PUBKEY_SELECTOR) {
+            uint64 schemaId;
+            uint256 x;
+            uint256 y;
+            bytes32 proofId;
+            assembly {
+                let d := add(data, 0x24)
+                schemaId := mload(d)
+                x := mload(add(d, 0x20))
+                y := mload(add(d, 0x40))
+                proofId := mload(add(d, 0x60))
+            }
+            setIssuerPubkey(schemaId, x, y, proofId);
+        } else if (sel == SET_OPRF_KEY_SELECTOR) {
+            uint160 oprfKeyId;
+            uint256 x;
+            uint256 y;
+            bytes32 proofId;
+            assembly {
+                let d := add(data, 0x24)
+                oprfKeyId := mload(d)
+                x := mload(add(d, 0x20))
+                y := mload(add(d, 0x40))
+                proofId := mload(add(d, 0x60))
+            }
+            setOprfKey(oprfKeyId, x, y, proofId);
+        } else if (sel == INVALIDATE_PROOF_ID_SELECTOR) {
+            bytes32 proofId;
+            assembly {
+                proofId := mload(add(data, 0x24))
+            }
+            invalidateProofId(proofId);
+        } else {
+            revert IWorldIdStateBridge.UnknownAction(uint8(uint32(sel)));
         }
     }
 
-    function hashChainedCommitment(Commitment[] memory commit, bytes32 head)
+    /// @notice Hashes a sequence of commitments with a given chain head
+    function hashChainedCommitment(Commitment[] memory commits, bytes32 _chain)
         internal
         pure
-        returns (bytes32 chainedHash)
+        returns (bytes32 _chained)
     {
-        assembly ("memory-safe") {
-            let fmp := mload(0x40) // free memory pointer
-            for {
-                let ptr := fmp
-            } lt(ptr, add(fmp, calldatasize())) {
-                ptr := add(ptr, 0x40)
-            } {
-                let lengthOffset := add(commit, ptr)
-                mstore(fmp, head) // prepend head to commit data
-                calldatacopy(add(fmp, 0x20), add(lengthOffset, 0x20), lengthOffset) // copy commit.data to memory
-            }
-
-            chainedHash := head
+        _chained = _chain;
+        for (uint256 i; i < commits.length; ++i) {
+            _chained = keccak256(abi.encodePacked(_chained, commits[i].blockHash, commits[i].data));
         }
     }
 
@@ -209,14 +221,14 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
         bytes32 l1StateRoot = MptVerifier.extractStateRootFromHeader(l1HeaderRlp, l1BlockHash);
         bytes32 storageRoot = MptVerifier.verifyAccountAndGetStorageRoot(L1_BRIDGE, l1AccountProof, l1StateRoot);
 
-        bytes32 validitySlot = MptVerifier._computeMappingSlot(MptVerifier.VALID_CHAIN_HEADS_SLOT, keccakChain_);
+        bytes32 validitySlot = MptVerifier._computeMappingSlot(MptVerifier._VALID_CHAIN_KECCAK_CHAIN_SLOT, keccakChain_);
         uint256 isValid = MptVerifier.storageFromProof(chainHeadValidityProof, storageRoot, validitySlot);
 
         if (isValid != 1) revert InvalidChainHead();
     }
 
     /// @inheritdoc IWorldIdStateBridge
-    function isValidRoot(uint256 root) external view virtual returns (bool) {
+    function isValidRoot(uint256 root) public view virtual returns (bool) {
         bytes32 proofId = _rootToTimestampAndProofId[bytes32(root)].proofId;
         if (_invalidatedProofIds[proofId]) return false;
 

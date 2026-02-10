@@ -14,16 +14,14 @@ import {IWorldIdStateBridge} from "../interfaces/IWorldIdStateBridge.sol";
 
 /// @title L1StateAdapter
 /// @author World Contributors
-/// @notice L1 adapter for the World ID state bridge. Proves WC chain heads are valid via
-///   DisputeGame + MPT storage proofs, processes chained commits to populate L1 state, and can
-///   dispatch invalidation chained commits to destination chains.
-/// @dev Inherits WorldIdStateBridge directly. `_validChainHeads` (slot 8) is populated by
-///   `proveChainHead` and checked in `_verifyChainHead` for `processChainedCommits`.
+/// @notice L1 adapter for the World ID state bridge.
+///
+///  This contract Verifies Proofs against the state root of World Chain stored in the DisputeGameFactory's game contract.
+///  Every update to the WorldIdRegistry, CredentialSchemaIssuerRegistry, or OprfKeyRegistry on is committed to via a rolling hash accumulator.
+///  This allows us to amortize verifying the full correctness of order _or_ invalidity over a single MPT proof against the Ethereum Block hash.
 contract L1StateAdapter is WorldIdStateBridge {
-    /// @dev Mapping of WC chain head (keccak256 of the chain's blocks) to validity. Updated via `proveChainHead`.
-    ///   Stored at a known slot (slot 8) for MPT proof verification in `_verifyChainHead`.
-    bytes32 internal constant KECCAK_CHAIN_SLOT = bytes32(keccak256("world.id.l1StateAdapter.keccakChain"));
-
+    /// @dev Sequence of Commitments to the World ID Registry state.
+    ///      accompanied by a MPT proof of the latest commitment's inclusion in the World Chain bridge
     struct L1CommitmentWithProof {
         CommitmentWithProof commitment;
         uint256 disputeGameIndex;
@@ -56,7 +54,8 @@ contract L1StateAdapter is WorldIdStateBridge {
         WORLD_CHAIN_BRIDGE = worldChainVerifier_;
     }
 
-    /// @notice Proves that a given WC chain head is valid by referencing a resolved dispute game and providing
+    /// @notice Proves that a given chain head is a valid extension of the contracts state.
+    ///  Reverts if the dispute game is invalid, the output root preimage doesn't match the root claim
     function proveChainedCommitment(L1CommitmentWithProof calldata commitWithProof) external virtual {
         bytes calldata proofData = commitWithProof.commitment.mptProof;
 
@@ -69,9 +68,10 @@ contract L1StateAdapter is WorldIdStateBridge {
 
         bytes32 storageRoot = MptVerifier.verifyAccountAndGetStorageRoot(WORLD_CHAIN_BRIDGE, accountProof, stateRoot);
 
-        bytes32 keccakChain = hashChainedCommitment(commitWithProof.commitment.commits, keccakChain);
+        bytes32 expectedChainHead = hashChainedCommitment(commitWithProof.commitment.commits, keccakChain);
 
-        bytes32 validitySlot = MptVerifier._computeMappingSlot(MptVerifier.VALID_CHAIN_HEADS_SLOT, keccakChain);
+        bytes32 validitySlot =
+            MptVerifier._computeMappingSlot(MptVerifier._VALID_CHAIN_KECCAK_CHAIN_SLOT, expectedChainHead);
 
         uint256 isValid = MptVerifier.storageFromProof(chainHeadValidityProof, storageRoot, validitySlot);
 
@@ -102,9 +102,12 @@ contract L1StateAdapter is WorldIdStateBridge {
         keccakChain = commitChain(Commitment({blockHash: blockhash(block.number), data: data}));
     }
 
+    /// @dev L1 verifies chain heads via DisputeGame in `proveChainedCommitment`, not via L1Block oracle.
+    function verifyChainedCommitment(bytes32, bytes memory) internal view override {}
+
     /// @dev Checks that the computed chain head was previously proven via `proveChainHead`.
     function verifyChainTip(bytes32 computedHead, bytes calldata) internal view virtual {
-        bytes32 baseSlot = KECCAK_CHAIN_SLOT;
+        bytes32 baseSlot = MptVerifier._computeMappingSlot(MptVerifier._VALID_CHAIN_KECCAK_CHAIN_SLOT, computedHead);
         assembly ("memory-safe") {
             let fmp := mload(0x40)
             mstore(fmp, keccak256(computedHead, baseSlot))

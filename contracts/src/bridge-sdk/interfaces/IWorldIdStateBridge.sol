@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {IBridgeAdapter} from "./IBridgeAdapter.sol";
-import {WorldIdStateBridge} from "../abstract/WorldIdStateBridge.sol";
 
 /// @title IWorldIdStateBridge
 /// @author World Contributors
@@ -44,6 +43,12 @@ interface IWorldIdStateBridge {
     /// @dev Thrown when the computed chain head is not valid.
     error InvalidChainHead();
 
+    /// @dev Thrown when the provided root is not valid.
+    error InvalidRoot();
+
+    /// @dev Thrown when a proof ID used by a root or key has been invalidated.
+    error InvalidatedProofId();
+
     /// @notice Emitted when a proof ID is invalidated.
     event ProofIdInvalidated(bytes32 indexed proofId);
 
@@ -64,7 +69,4 @@ interface IWorldIdStateBridge {
 
     /// @notice Removes a bridge adapter at the given index using swap-and-pop.
     function removeAdapter(uint256 index) external;
-
-    /// @notice Processes a chained commit with its associated proof, updates bridge state, and dispatches to adapters.
-    function commitChained(WorldIdStateBridge.CommitmentWithProof calldata commitWithProof) external;
 }

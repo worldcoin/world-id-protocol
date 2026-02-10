@@ -15,7 +15,7 @@ library MptVerifier {
 
     /// @dev Slot for `_validChainHeads` mapping in WorldIdStateBridge (slot 8).
     ///   Shared by all adapters (WorldChain, L1, Bridged) since they all inherit the same base.
-    bytes32 internal constant VALID_CHAIN_HEADS_SLOT = bytes32(uint256(8));
+    bytes32 internal constant _VALID_CHAIN_KECCAK_CHAIN_SLOT = bytes32(uint256(8));
 
     ////////////////////////////////////////////////////////////
     //                  PROOF VERIFICATION                    //
@@ -86,17 +86,5 @@ library MptVerifier {
         require(fields.length >= 4, "MptVerifier: invalid block header");
 
         stateRoot = bytes32(RLPReader.readBytes(fields[3]));
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                  UTILITY                               //
-    ////////////////////////////////////////////////////////////
-
-    /// @dev Copies a calldata bytes[] array to memory for use with SecureMerkleTrie.
-    function toMemory(bytes[] calldata arr) internal pure returns (bytes[] memory out) {
-        out = new bytes[](arr.length);
-        for (uint256 i; i < arr.length; ++i) {
-            out[i] = arr[i];
-        }
     }
 }

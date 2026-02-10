@@ -11,7 +11,7 @@ import {ICrossDomainMessenger} from "../../vendored/optimism/ICrossDomainMesseng
 /// @dev Permissionless — auth is enforced on the receiving side via `_authorizeReceive`.
 contract OpStackBridgeAdapter is IBridgeAdapter {
     /// @notice The OP Stack cross-domain messenger used to relay messages.
-    ICrossDomainMessenger public immutable MESSENGER;
+    ICrossDomainMessenger internal immutable _MESSENGER;
 
     /// @notice The target contract on the destination chain (e.g. the receiving adapter).
     address public immutable TARGET;
@@ -20,13 +20,23 @@ contract OpStackBridgeAdapter is IBridgeAdapter {
     uint32 public immutable MIN_GAS_LIMIT;
 
     constructor(ICrossDomainMessenger messenger, address target, uint32 minGasLimit) {
-        MESSENGER = messenger;
+        _MESSENGER = messenger;
         TARGET = target;
         MIN_GAS_LIMIT = minGasLimit;
     }
 
     /// @inheritdoc IBridgeAdapter
+    function MESSENGER() external view override returns (address) {
+        return address(_MESSENGER);
+    }
+
+    /// @inheritdoc IBridgeAdapter
+    function GAS_LIMIT() external view override returns (uint32) {
+        return MIN_GAS_LIMIT;
+    }
+
+    /// @inheritdoc IBridgeAdapter
     function sendMessage(bytes calldata message) external payable virtual {
-        MESSENGER.sendMessage{value: msg.value}(TARGET, message, MIN_GAS_LIMIT);
+        _MESSENGER.sendMessage{value: msg.value}(TARGET, message, MIN_GAS_LIMIT);
     }
 }

@@ -9,7 +9,7 @@ import {OprfKeyGen} from "lib/oprf-key-registry/src/OprfKeyGen.sol";
 import {IL1Block} from "../vendored/optimism/IL1Block.sol";
 
 interface IOprfKeyRegistry {
-    function oprfKeyRegistry(uint160) external view returns (OprfKeyGen.RegisteredOprfPublicKey memory);
+    function getOprfPublicKeyAndEpoch(uint160) external view returns (OprfKeyGen.RegisteredOprfPublicKey memory);
 }
 
 /// @title WorldChainStateAdapter
@@ -65,6 +65,7 @@ contract WorldChainStateAdapter is WorldIdStateBridge {
 
     /// @notice Reads an issuer public key from WC's CredentialSchemaIssuerRegistry and
     ///   propagates it into bridge state.
+    ///
     /// @dev Reverts if the pubkey hasn't changed since the last propagation.
     function propagateIssuerPubkey(uint64 issuerSchemaId) external {
         ICredentialSchemaIssuerRegistry.Pubkey memory key =
@@ -89,7 +90,7 @@ contract WorldChainStateAdapter is WorldIdStateBridge {
     ///   bridge state.
     /// @dev Reverts if the key hasn't changed since the last propagation.
     function propagateOprfKey(uint160 oprfKeyId) external {
-        OprfKeyGen.RegisteredOprfPublicKey memory key = WORLD_CHAIN_OPRF_REGISTRY.oprfKeyRegistry(oprfKeyId);
+        OprfKeyGen.RegisteredOprfPublicKey memory key = WORLD_CHAIN_OPRF_REGISTRY.getOprfPublicKeyAndEpoch(oprfKeyId);
         if (
             key.key.x == _oprfKeyIdToPubkeyAndProofId[oprfKeyId].pubKey.x
                 && key.key.y == _oprfKeyIdToPubkeyAndProofId[oprfKeyId].pubKey.y

@@ -5,21 +5,13 @@ import {IWorldIDVerifier} from "../../interfaces/IWorldIDVerifier.sol";
 import {IWorldIdStateBridge} from "../interfaces/IWorldIdStateBridge.sol";
 import {Verifier} from "../../Verifier.sol";
 import {WorldIdStateBridge} from "./WorldIdStateBridge.sol";
+import {IL1Block} from "../vendored/optimism/IL1Block.sol";
 
 /// @title CrossDomainWorldIdVerifier
 /// @author World Contributors
 /// @notice ZK proof verification layer on top of `WorldIdStateBridge`. Reads proven state from
 ///   the inherited bridge and verifies Groth16 proofs against it.
 abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdStateBridge {
-    ////////////////////////////////////////////////////////////
-    //                        ERRORS                          //
-    ////////////////////////////////////////////////////////////
-
-    /// @dev Thrown when the provided root is invalid or expired.
-    error InvalidRoot();
-
-    /// @dev Thrown when a proof ID referenced by state has been invalidated.
-    error InvalidatedProofId();
     ////////////////////////////////////////////////////////////
     //                         STATE                          //
     ////////////////////////////////////////////////////////////
@@ -31,9 +23,14 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdStateBr
     //                      CONSTRUCTOR                       //
     ////////////////////////////////////////////////////////////
 
-    constructor(address verifier, uint256 rootValidityWindow_, uint256 treeDepth_, uint64 minExpirationThreshold_)
-        WorldIdStateBridge(rootValidityWindow_, treeDepth_, minExpirationThreshold_)
-    {
+    constructor(
+        address verifier,
+        uint256 rootValidityWindow_,
+        uint256 treeDepth_,
+        uint64 minExpirationThreshold_,
+        IL1Block l1BlockHashOracle,
+        address l1Bridge
+    ) WorldIdStateBridge(rootValidityWindow_, treeDepth_, minExpirationThreshold_, l1BlockHashOracle, l1Bridge) {
         _verifier = Verifier(verifier);
     }
 
