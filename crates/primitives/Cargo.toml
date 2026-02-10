@@ -18,6 +18,7 @@ circuits = ["dep:circom-types", "dep:groth16-material", "dep:ark-serde-compat"]
 openapi = ["dep:utoipa"]
 
 [dependencies]
+alloy = { workspace = true, features = ["sol-types", "signer-local"] }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
     "std",
@@ -43,8 +44,12 @@ url = { workspace = true, features = ["serde"] }
 poseidon2 = { workspace = true }
 sha3 = { workspace = true, default-features = false }
 rand = { workspace = true }
+secrecy = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
+taceo-oprf-types = { workspace = true }
 utoipa = { workspace = true, optional = true }
+uuid = { workspace = true, features = ["js"] }
+k256 = { workspace = true, features = ["ecdsa", "serde"] }
 
 # WASM support: getrandom needs 'js' feature to work in browsers
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -2672,6 +2672,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.3.0"
+dependencies = [
+ "alloy",
+ "aws-config",
+ "aws-sdk-kms",
+ "clap",
+ "config",
+ "governor",
+ "serde",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tower",
+ "tower-http 0.5.2",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7684,6 +7703,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-utils"
+version = "0.3.0"
+dependencies = [
+ "alloy",
+ "alloy-node-bindings",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "axum",
+ "eyre",
+ "futures",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "reqwest",
+ "semver 1.0.27",
+ "serde_json",
+ "taceo-ark-babyjubjub",
+ "taceo-eddsa-babyjubjub",
+ "taceo-oprf",
+ "taceo-oprf-key-gen",
+ "taceo-oprf-test-utils",
+ "taceo-poseidon2",
+ "tokio",
+ "tokio-util",
+ "world-id-oprf-node",
+ "world-id-primitives",
+]
+
+[[package]]
 name = "testcontainers"
 version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9054,8 +9102,6 @@ dependencies = [
  "webpki-roots 1.0.5",
  "world-id-primitives",
  "world-id-proof",
- "world-id-request",
- "world-id-signer",
 ]
 
 [[package]]
@@ -9074,6 +9120,7 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-oprf",
  "taceo-oprf-test-utils",
+ "test-utils",
  "tokio",
  "tracing-subscriber 0.3.22",
  "world-id-authenticator",
@@ -9081,9 +9128,6 @@ dependencies = [
  "world-id-issuer",
  "world-id-primitives",
  "world-id-proof",
- "world-id-request",
- "world-id-signer",
- "world-id-test-utils",
 ]
 
 [[package]]
@@ -9102,7 +9146,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.22",
  "world-id-primitives",
- "world-id-signer",
 ]
 
 [[package]]
@@ -9114,6 +9157,7 @@ dependencies = [
  "aws-sdk-kms",
  "axum",
  "clap",
+ "common",
  "dotenvy",
  "hex",
  "metrics",
@@ -9125,6 +9169,7 @@ dependencies = [
  "serde_json",
  "strum",
  "telemetry-batteries 0.2.1",
+ "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tower-http 0.5.2",
@@ -9133,8 +9178,6 @@ dependencies = [
  "utoipa",
  "uuid",
  "world-id-core",
- "world-id-services-common",
- "world-id-test-utils",
 ]
 
 [[package]]
@@ -9145,6 +9188,7 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "axum",
+ "common",
  "dotenvy",
  "futures-util",
  "hex",
@@ -9164,6 +9208,7 @@ dependencies = [
  "take_mut",
  "telemetry-batteries 0.2.1",
  "tempfile",
+ "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -9173,8 +9218,6 @@ dependencies = [
  "uuid",
  "world-id-core",
  "world-id-primitives",
- "world-id-services-common",
- "world-id-test-utils",
 ]
 
 [[package]]
@@ -9189,7 +9232,6 @@ dependencies = [
  "thiserror 1.0.69",
  "url",
  "world-id-primitives",
- "world-id-signer",
 ]
 
 [[package]]
@@ -9210,13 +9252,13 @@ dependencies = [
  "taceo-nodes-observability",
  "taceo-oprf",
  "taceo-oprf-test-utils",
+ "test-utils",
  "tokio",
  "tracing",
  "uuid",
  "webpki-roots 1.0.5",
  "world-id-core",
  "world-id-primitives",
- "world-id-test-utils",
 ]
 
 [[package]]
@@ -9246,6 +9288,7 @@ dependencies = [
  "taceo-nodes-common",
  "taceo-nodes-observability",
  "taceo-oprf",
+ "test-utils",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
@@ -9253,13 +9296,13 @@ dependencies = [
  "uuid",
  "world-id-core",
  "world-id-primitives",
- "world-id-test-utils",
 ]
 
 [[package]]
 name = "world-id-primitives"
 version = "0.3.0"
 dependencies = [
+ "alloy",
  "alloy-primitives",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -9270,8 +9313,10 @@ dependencies = [
  "eyre",
  "getrandom 0.2.17",
  "hex",
+ "k256",
  "rand 0.8.5",
  "ruint",
+ "secrecy",
  "serde",
  "serde_json",
  "sha3",
@@ -9282,10 +9327,12 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-groth16-sol",
+ "taceo-oprf-types 0.7.0",
  "taceo-poseidon2",
  "thiserror 1.0.69",
  "url",
  "utoipa",
+ "uuid",
 ]
 
 [[package]]
@@ -9308,80 +9355,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "world-id-primitives",
- "world-id-request",
  "zeroize",
-]
-
-[[package]]
-name = "world-id-request"
-version = "0.3.0"
-dependencies = [
- "alloy",
- "k256",
- "serde",
- "serde_json",
- "taceo-oprf-types 0.7.0",
- "thiserror 1.0.69",
- "uuid",
- "world-id-primitives",
-]
-
-[[package]]
-name = "world-id-services-common"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "aws-config",
- "aws-sdk-kms",
- "clap",
- "config",
- "governor",
- "serde",
- "tempfile",
- "thiserror 1.0.69",
- "tower",
- "tower-http 0.5.2",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "world-id-signer"
-version = "0.3.0"
-dependencies = [
- "alloy",
- "secrecy",
- "taceo-eddsa-babyjubjub",
- "world-id-primitives",
-]
-
-[[package]]
-name = "world-id-test-utils"
-version = "0.3.0"
-dependencies = [
- "alloy",
- "alloy-node-bindings",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "axum",
- "eyre",
- "futures",
- "hex",
- "k256",
- "rand 0.8.5",
- "reqwest",
- "semver 1.0.27",
- "serde_json",
- "taceo-ark-babyjubjub",
- "taceo-eddsa-babyjubjub",
- "taceo-oprf",
- "taceo-oprf-key-gen",
- "taceo-oprf-test-utils",
- "taceo-poseidon2",
- "tokio",
- "tokio-util",
- "world-id-oprf-node",
- "world-id-primitives",
 ]
 
 [[package]]

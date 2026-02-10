@@ -37,4 +37,3 @@ url = { workspace = true }
 rustls = { workspace = true }
 
 # Internal
-world-id-signer = { workspace = true }
