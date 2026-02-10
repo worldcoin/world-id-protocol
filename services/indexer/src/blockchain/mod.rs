@@ -2,6 +2,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use alloy::pubsub::Subscription;
+use alloy::rpc::types::Log;
 use alloy::{
     primitives::{Address, FixedBytes},
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
@@ -46,7 +48,7 @@ pub enum BlockchainError {
     MissingBlockNumber,
     #[error("missing transaction hash in log topics")]
     MissingTxHash,
-    #[error("missing log indesx in log topics")]
+    #[error("missing log index in log topics")]
     MissingLogIndex,
     #[error("unknown event signature: {0:?}")]
     UnknownEventSignature(FixedBytes<32>),
@@ -116,47 +118,19 @@ impl Blockchain {
     ///
     /// # Returns
     ///
-    /// A stream of [`BlockchainEvent<RegistryEvent>`].
-    pub fn stream_events_with_backfill(
-        &self,
-        from_block: u64,
-        batch_size: u64,
-    ) -> BlockchainResult<
-        impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin + '_,
-    > {
-        let last_block = Arc::new(AtomicU64::new(from_block.saturating_sub(1)));
-
-        let backfill = self.backfill_stream(from_block, batch_size, last_block.clone());
-        let ws = self.websocket_stream(last_block, batch_size);
-
-        Ok(backfill.chain(ws).boxed())
-    }
-
-    
-
-    /// Streams live decoded events from a WebSocket subscription, gap-filling
-    /// any blocks from `from_block` up to the first live event.
-    ///
-    /// This is useful when the caller has already performed its own backfill
-    /// (e.g. via [`Self::backfill_events`]) and only needs the live tail.
-    ///
-    /// # Arguments
-    ///
-    /// * `from_block` - The first block the stream should cover (inclusive).
-    ///   Any blocks between `from_block` and the first WS event are fetched
-    ///   via HTTP to avoid gaps.
-    /// * `batch_size` - Batch size for the HTTP gap-fill requests.
-    ///
-    /// # Returns
-    ///
-    /// A stream of decoded [`BlockchainEvent<RegistryEvent>`].
-    pub fn stream_events(
+    /// A stream of [`BlockchainEvent<RegistryEvent>`]. The stream terminates
+    /// after the first error.
+    pub fn backfill_and_stream_events(
         &self,
         from_block: u64,
         batch_size: u64,
     ) -> impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin + '_ {
         let last_block = Arc::new(AtomicU64::new(from_block.saturating_sub(1)));
-        self.websocket_stream(last_block, batch_size)
+
+        let backfill = self.backfill_stream(from_block, batch_size, last_block.clone());
+        let ws = self.websocket_stream(last_block, batch_size);
+
+        backfill.chain(ws).boxed()
     }
 
     /// Returns a decoded backfill event stream and a shared atomic holding the
@@ -173,13 +147,14 @@ impl Blockchain {
     ///
     /// # Returns
     ///
-    /// A tuple of (stream, last_block_atomic).
+    /// A tuple of (stream, last_block_atomic). The stream terminates after
+    /// the first error.
     pub fn backfill_events(
         &self,
         from_block: u64,
         batch_size: u64,
     ) -> (
-        impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin + '_,
+        impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin,
         Arc<AtomicU64>,
     ) {
         let last_block = Arc::new(AtomicU64::new(from_block.saturating_sub(1)));
@@ -211,11 +186,12 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of decoded [`BlockchainResult<BlockchainEvent<RegistryEvent>>`].
+    /// The stream terminates after the first error.
     fn websocket_stream(
         &self,
         backfill_to_block: Arc<AtomicU64>,
         batch_size: u64,
-    ) -> impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin + '_ {
+    ) -> impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin {
         stream::once(async move {
             let backfill_to_block = backfill_to_block.load(Ordering::Relaxed);
             let filter = Filter::new()
@@ -277,6 +253,7 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of decoded [`BlockchainResult<BlockchainEvent<RegistryEvent>>`].
+    /// The stream terminates after the first error.
     fn backfill_stream(
         &self,
         from_block: u64,
@@ -325,20 +302,22 @@ impl Blockchain {
     ///
     /// # Returns
     ///
-    /// A stream of [`BlockchainResult<alloy::rpc::types::Log>`].
+    /// A stream of [`BlockchainResult<alloy::rpc::types::Log>`]. The stream
+    /// terminates after the first error.
     fn fetch_logs_in_batches(
         &self,
         from_block: u64,
         to_block: u64,
         batch_size: u64,
-    ) -> impl Stream<Item = BlockchainResult<alloy::rpc::types::Log>> + Unpin + '_ {
+    ) -> impl Stream<Item = BlockchainResult<Log>> + Unpin {
         let initial_state = (
             from_block, // start block
             0usize,     // total logs fetched; we keep this only for logging
         );
 
-        stream::try_unfold(initial_state, move |(current_from, total_logs)| {
-            async move {
+        stream::try_unfold(
+            initial_state,
+            move |(current_from, total_logs)| async move {
                 if current_from > to_block {
                     tracing::info!(
                         "Backfill step complete: fetched {} total logs from block {} to {}",
@@ -374,8 +353,8 @@ impl Blockchain {
                     stream::iter(logs.into_iter().map(Ok)),
                     (next_from, new_total),
                 )))
-            }
-        })
+            },
+        )
         .try_flatten()
         .boxed()
     }
@@ -414,10 +393,7 @@ impl Blockchain {
         .await
     }
 
-    async fn get_logs(
-        &self,
-        filter: &Filter,
-    ) -> BlockchainResult<Vec<alloy::rpc::types::Log>> {
+    async fn get_logs(&self, filter: &Filter) -> BlockchainResult<Vec<Log>> {
         self.rpc("get_logs", || async {
             self.http_provider
                 .get_logs(filter)
@@ -427,10 +403,7 @@ impl Blockchain {
         .await
     }
 
-    async fn subscribe_logs(
-        &self,
-        filter: &Filter,
-    ) -> BlockchainResult<alloy::pubsub::Subscription<alloy::rpc::types::Log>> {
+    async fn subscribe_logs(&self, filter: &Filter) -> BlockchainResult<Subscription<Log>> {
         self.rpc("subscribe_logs", || async {
             self.ws_provider
                 .subscribe_logs(filter)
