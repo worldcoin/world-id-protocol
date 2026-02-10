@@ -13,7 +13,7 @@ pub enum ConstraintKind {
     All,
     /// Any of the children must be satisfied
     Any,
-    /// All satisfiable children should be selected
+    /// All satisfiable children should be selected. Will fail if there are no matches
     Enumerate,
 }
 
