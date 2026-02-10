@@ -9,11 +9,10 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, TREE_DEPTH,
+    FieldElement, ProofRequest, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
 };
-use world_id_request::ProofRequest;
 
 use crate::{
     AuthenticatorProofInput,

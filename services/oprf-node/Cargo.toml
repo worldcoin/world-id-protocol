@@ -45,6 +45,6 @@ moka = { workspace = true }
 metrics = { workspace = true }
 
 [dev-dependencies]
-test-utils = { workspace = true }
+world-id-test-utils = { workspace = true }
 ark-serialize.workspace = true
 rand.workspace = true

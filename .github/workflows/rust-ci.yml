@@ -325,4 +325,5 @@ jobs:
       - uses: dtolnay/install@cargo-docs-rs
       - run: |
           cargo +nightly docs-rs -p world-id-primitives
+          cargo +nightly docs-rs -p world-id-authenticator
           cargo +nightly docs-rs -p world-id-core

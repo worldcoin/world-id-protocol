@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use alloy::primitives::Address;
 use clap::Parser;
-use common::ProviderArgs;
+use world_id_services_common::ProviderArgs;
 
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]

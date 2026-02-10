@@ -54,5 +54,5 @@ pub(crate) fn handler(state: AppState) -> Router {
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
         .with_state(state)
-        .layer(common::trace_layer())
+        .layer(world_id_services_common::trace_layer())
 }

@@ -8,8 +8,7 @@ use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
 use url::Url;
-use world_id_primitives::PrimitiveError;
-use world_id_signer::Signer;
+use world_id_primitives::{PrimitiveError, Signer};
 
 use crate::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance;
 
@@ -17,7 +16,7 @@ sol!(
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     CredentialSchemaIssuerRegistry,
-    "../../contracts/abi/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json"
+    "abi/CredentialSchemaIssuerRegistryAbi.json"
 );
 
 impl From<EdDSAPublicKey> for ICredentialSchemaIssuerRegistry::Pubkey {

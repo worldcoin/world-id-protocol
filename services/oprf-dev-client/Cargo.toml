@@ -22,7 +22,7 @@ secrecy = { workspace = true }
 taceo-nodes-observability = { workspace = true }
 taceo-oprf = { workspace = true, features = ["dev-client"] }
 taceo-oprf-test-utils = { workspace = true }
-test-utils = { workspace = true }
+world-id-test-utils = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
   "rt-multi-thread",

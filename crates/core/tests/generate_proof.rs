@@ -12,7 +12,13 @@ use alloy::{
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::health_checks;
-use test_utils::{
+use world_id_core::{
+    Authenticator, AuthenticatorError, EdDSAPrivateKey,
+    requests::{ProofRequest, RequestItem, RequestVersion},
+};
+use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
@@ -20,12 +26,6 @@ use test_utils::{
     },
     stubs::spawn_indexer_stub,
 };
-use world_id_core::{
-    Authenticator, AuthenticatorError, EdDSAPrivateKey,
-    requests::{ProofRequest, RequestItem, RequestVersion},
-};
-use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
-use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
 
 const GW_PORT: u16 = 4104;
 
@@ -157,7 +157,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let rp_fixture = generate_rp_fixture();
 
     // OPRF key-gen instances
-    let oprf_key_gens = test_utils::stubs::spawn_key_gens(
+    let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
         anvil.ws_endpoint(),
         &localstack_url,
         &postgres_urls,
@@ -166,7 +166,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     .await;
 
     // OPRF nodes
-    let nodes = test_utils::stubs::spawn_oprf_nodes(
+    let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         anvil.ws_endpoint(),
         &postgres_urls,
         oprf_key_registry,

@@ -25,7 +25,7 @@ pub use world_id_primitives::{Credential, CredentialVersion};
 pub use world_id_issuer::Issuer;
 
 #[cfg(any(feature = "authenticator", feature = "issuer"))]
-pub use world_id_signer::Signer;
+pub use world_id_primitives::Signer;
 
 #[cfg(feature = "authenticator")]
 pub use world_id_proof::proof;
@@ -34,7 +34,7 @@ pub use world_id_proof::proof;
 pub use world_id_proof::nullifier;
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]
-pub use world_id_request as requests;
+pub use world_id_primitives::request as requests;
 
 pub use world_id_primitives::FieldElement;
 

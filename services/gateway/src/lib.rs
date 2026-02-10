@@ -18,7 +18,7 @@ mod types;
 
 // Re-export common types
 pub use crate::error::{GatewayError, GatewayResult};
-pub use ::common::{ProviderArgs, SignerArgs, SignerConfig};
+pub use world_id_services_common::{ProviderArgs, SignerArgs, SignerConfig};
 
 #[derive(Debug)]
 pub struct GatewayHandle {

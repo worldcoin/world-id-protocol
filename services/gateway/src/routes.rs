@@ -123,7 +123,7 @@ pub(crate) async fn build_app(
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
         )))
-        .layer(common::trace_layer()))
+        .layer(world_id_services_common::trace_layer()))
 }
 
 #[utoipa::path(
