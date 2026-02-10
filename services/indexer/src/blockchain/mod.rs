@@ -60,6 +60,7 @@ pub struct Blockchain {
     http_provider: DynProvider,
     ws_provider: DynProvider,
     world_id_registry: Address,
+    rpc_retry_max_delay: Duration,
 }
 
 impl Blockchain {
@@ -101,7 +102,14 @@ impl Blockchain {
             http_provider,
             ws_provider,
             world_id_registry,
+            rpc_retry_max_delay: RPC_RETRY_MAX_DELAY,
         })
+    }
+
+    /// Override the maximum delay between RPC retries.
+    pub fn with_rpc_max_delay(mut self, max_delay: Duration) -> Self {
+        self.rpc_retry_max_delay = max_delay;
+        self
     }
 
     /// Streams World Tree events from the blockchain.
