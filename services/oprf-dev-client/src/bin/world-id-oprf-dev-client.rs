@@ -30,10 +30,6 @@ use taceo_oprf::{
     types::{OprfKeyId, ShareEpoch, api::OprfRequest, crypto::OprfPublicKey},
 };
 use taceo_oprf_test_utils::health_checks;
-use test_utils::{
-    anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, RpRegistry},
-    fixtures::build_base_credential,
-};
 use uuid::Uuid;
 use world_id_core::{
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature,
@@ -51,7 +47,7 @@ use world_id_primitives::{
 };
 use world_id_test_utils::{
     anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry, RpRegistry},
-    fixtures::{MerkleFixture, build_base_credential},
+    fixtures::build_base_credential,
 };
 
 /// The configuration for the OPRF client.
