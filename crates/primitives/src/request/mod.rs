@@ -2,19 +2,15 @@
 //!
 //! Enables an RP to create a Proof request or a Session Proof request, and provides base functionality
 //! for Authenticators to handle such requests.
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
-
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
+use crate::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf_types::OprfKeyId;
 // The uuid crate is needed for wasm compatibility
 use uuid as _;
-use world_id_primitives::{
-    FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId,
-};
 
 /// Protocol schema version for proof requests and responses.
 #[repr(u8)]
@@ -271,7 +267,7 @@ impl ProofResponse {
 impl ResponseItem {
     /// Create a new response item for a Uniqueness proof.
     #[must_use]
-    pub fn new_uniqueness(
+    pub const fn new_uniqueness(
         identifier: String,
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
@@ -290,7 +286,7 @@ impl ResponseItem {
 
     /// Create a new response item for a Session proof.
     #[must_use]
-    pub fn new_session(
+    pub const fn new_session(
         identifier: String,
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
@@ -395,8 +391,8 @@ impl ProofRequest {
     /// Note: the timestamp is encoded as big-endian to mirror the RP-side signing
     /// performed in test fixtures and the OPRF stub.
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
+        use crate::rp::compute_rp_signature_msg;
         use k256::sha2::{Digest, Sha256};
-        use world_id_primitives::rp::compute_rp_signature_msg;
 
         let msg = compute_rp_signature_msg(*self.nonce, self.created_at, self.expires_at);
         let mut hasher = Sha256::new();
@@ -648,12 +644,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SessionNullifier;
     use alloy::{
         signers::{SignerSync, local::PrivateKeySigner},
         uint,
     };
     use k256::ecdsa::SigningKey;
-    use world_id_primitives::SessionNullifier;
 
     // Test helpers
     fn test_signature() -> alloy::signers::Signature {
