@@ -409,8 +409,6 @@ pub async fn process_registry_events(
 
         let mut events_committer = EventsCommitter::new(db);
 
-        let mut event_error = false;
-
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
@@ -418,20 +416,14 @@ pub async fn process_registry_events(
                         handle_registry_event(db, &mut events_committer, &event, tree_state).await
                     {
                         tracing::error!(?e, "error processing registry event");
-                        event_error = true;
                         break;
                     }
                 }
                 Err(e) => {
                     tracing::error!(?e, "blockchain event stream error");
-                    event_error = true;
                     break;
                 }
             }
-        }
-
-        if !event_error {
-            tracing::warn!("websocket event stream dropped");
         }
 
         tracing::warn!("restarting blockchain connection");

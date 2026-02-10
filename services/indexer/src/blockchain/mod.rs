@@ -25,7 +25,7 @@ mod events;
 static WS_BUFFER_SIZE: usize = 1024;
 
 static RPC_RETRY_MIN_DELAY: Duration = Duration::from_millis(100);
-static RPC_RETRY_MAX_TIMES: usize = 5;
+static RPC_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 static RPC_RETRY_FACTOR: f32 = 2.0;
 
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
@@ -186,6 +186,7 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of decoded [`BlockchainResult<BlockchainEvent<RegistryEvent>>`].
+    /// Returns [`BlockchainError::WsSubscriptionClosed`] if the websocket subscription is closed.
     /// The stream terminates after the first error.
     fn websocket_stream(
         &self,
@@ -228,7 +229,11 @@ impl Blockchain {
             Ok::<_, BlockchainError>(
                 missed_logs
                     .chain(stream::iter(std::iter::once(first_decoded)))
-                    .chain(ws_stream.map(|log| RegistryEvent::decode(&log))),
+                    .chain(ws_stream.map(|log| RegistryEvent::decode(&log)))
+                    // If the websocket subscription is closed, we return an error.
+                    .chain(stream::once(async {
+                        Err(BlockchainError::WsSubscriptionClosed)
+                    })),
             )
         })
         .try_flatten()
@@ -373,7 +378,7 @@ impl Blockchain {
     {
         let backoff = ExponentialBuilder::default()
             .with_min_delay(RPC_RETRY_MIN_DELAY)
-            .with_max_times(RPC_RETRY_MAX_TIMES)
+            .with_max_delay(RPC_RETRY_MAX_DELAY)
             .with_factor(RPC_RETRY_FACTOR);
 
         f.retry(backoff)
