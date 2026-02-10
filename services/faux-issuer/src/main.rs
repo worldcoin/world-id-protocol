@@ -4,8 +4,7 @@ use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{env, net::SocketAddr, sync::Arc};
-use world_id_primitives::{Credential, FieldElement};
-use world_id_signer::Signer;
+use world_id_primitives::{Credential, FieldElement, Signer};
 
 #[tokio::main]
 async fn main() {

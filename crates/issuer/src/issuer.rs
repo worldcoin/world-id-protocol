@@ -8,8 +8,7 @@ use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
 use url::Url;
-use world_id_primitives::PrimitiveError;
-use world_id_signer::Signer;
+use world_id_primitives::{PrimitiveError, Signer};
 
 use crate::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance;
 

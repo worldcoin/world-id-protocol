@@ -10,16 +10,9 @@ use crate::api_types::{
     IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
     RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
 };
-use world_id_primitives::{Credential, FieldElement, SessionNullifier};
-use world_id_signer::Signer;
-
-use world_id_proof::{
-    AuthenticatorProofInput,
-    credential_blinding_factor::OprfCredentialBlindingFactor,
-    nullifier::OprfNullifier,
-    proof::{ProofError, generate_nullifier_proof},
+use world_id_primitives::{
+    Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
 };
-use world_id_request::{ProofRequest, RequestItem, ResponseItem};
 
 use crate::registry::{
     WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
@@ -41,6 +34,12 @@ pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner}
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
     merkle::MerkleInclusionProof,
+};
+use world_id_proof::{
+    AuthenticatorProofInput,
+    credential_blinding_factor::OprfCredentialBlindingFactor,
+    nullifier::OprfNullifier,
+    proof::{ProofError, generate_nullifier_proof},
 };
 
 static MASK_RECOVERY_COUNTER: U256 =
