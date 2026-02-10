@@ -295,7 +295,7 @@ async fn run_both(
     let rpc_url_clone = http_rpc_url.to_string();
     // Spawned tasks run for the lifetime of the process; they are not
     // joined because the Phase 4 retry loop below never returns.
-    let _http_handle = tokio::spawn(async move {
+    let http_handle = tokio::spawn(async move {
         start_http_server(
             &rpc_url_clone,
             registry_address,
@@ -306,9 +306,10 @@ async fn run_both(
         .await
     });
 
+    let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = http_rpc_url.to_string();
-        let _sanity_handle = tokio::spawn(async move {
+        sanity_handle = Some(tokio::spawn(async move {
             if let Err(e) = sanity_check::root_sanity_check_loop(
                 rpc_url,
                 registry_address,
@@ -319,7 +320,7 @@ async fn run_both(
             {
                 tracing::error!(?e, "Root sanity checker failed");
             }
-        });
+        }));
     }
 
     process_registry_events(
@@ -331,6 +332,11 @@ async fn run_both(
         Some(&tree_state),
     )
     .await?;
+
+    http_handle.abort();
+    if let Some(sanity_handle) = sanity_handle {
+        sanity_handle.abort();
+    }
 
     Ok(())
 }
