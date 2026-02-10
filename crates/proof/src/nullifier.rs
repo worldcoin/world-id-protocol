@@ -65,7 +65,7 @@ impl OprfNullifier {
         let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
             authenticator_input.inclusion_proof.siblings.map(|s| *s);
 
-        let action = *proof_request.computed_action();
+        let action = *proof_request.computed_action(&mut rng);
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             authenticator_input.inclusion_proof.leaf_index,
             action.into(),

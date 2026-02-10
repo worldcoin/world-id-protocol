@@ -349,13 +349,14 @@ impl ProofRequest {
     /// Gets the action value to use in the proof.
     ///
     /// When an explicit action is provided, it is returned directly.
-    /// For session proofs (action is `None`), a deterministic action is derived
-    /// from the request nonce via keccak256 hashing.
+    /// For session proofs (action is `None`), a random action is generated.
+    /// Callers must cache the result when the `None` branch may be hit,
+    /// since each call produces a different random value.
     #[must_use]
-    pub fn computed_action(&self) -> FieldElement {
+    pub fn computed_action<R: rand::CryptoRng + rand::RngCore>(&self, rng: &mut R) -> FieldElement {
         match self.action {
             Some(action) => action,
-            None => FieldElement::from_arbitrary_raw_bytes(self.nonce.to_string().as_bytes()),
+            None => FieldElement::random(rng),
         }
     }
 
@@ -1697,11 +1698,11 @@ mod tests {
             requests: vec![],
             constraints: None,
         };
-        assert_eq!(request.computed_action(), action);
+        assert_eq!(request.computed_action(&mut rand::rngs::OsRng), action);
     }
 
     #[test]
-    fn computed_action_derives_from_nonce_when_none() {
+    fn computed_action_generates_random_when_none() {
         let request = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
@@ -1717,16 +1718,9 @@ mod tests {
             constraints: None,
         };
 
-        // Should not panic (was previously todo!)
-        let action = request.computed_action();
-        // Deterministic: same nonce → same result
-        assert_eq!(action, request.computed_action());
-
-        // Different nonce → different action
-        let request2 = ProofRequest {
-            nonce: test_field_element(999),
-            ..request
-        };
-        assert_ne!(action, request2.computed_action());
+        let action1 = request.computed_action(&mut rand::rngs::OsRng);
+        let action2 = request.computed_action(&mut rand::rngs::OsRng);
+        // Each call generates a different random action
+        assert_ne!(action1, action2);
     }
 }

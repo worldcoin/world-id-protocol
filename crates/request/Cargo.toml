@@ -19,3 +19,4 @@ serde_json = { workspace = true }
 world-id-primitives = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
+rand = { workspace = true }
