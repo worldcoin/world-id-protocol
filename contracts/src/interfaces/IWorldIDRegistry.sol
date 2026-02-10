@@ -216,8 +216,6 @@ interface IWorldIDRegistry {
     );
 
     /**
-     * <<<<<<< HEAD
-     * =======
      * @dev Emitted when the recovery address for a World ID account is updated.
      * @param leafIndex The leaf index of the account in the Merkle tree.
      * @param oldRecoveryAddress The previous recovery address.
