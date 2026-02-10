@@ -41,7 +41,7 @@ issuer = [
 rp = []
 
 # OpenAPI/Swagger docs
-openapi = ["authenticator", "world-id-primitives/openapi"]
+openapi = ["world-id-primitives/openapi"]
 
 [dependencies]
 eddsa-babyjubjub = { workspace = true }
