@@ -17,7 +17,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.3.0"
+version = "0.4.0"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -121,12 +121,11 @@ tokio-util = "0.7"
 tower = "0.5.3"
 
 # Internal
-world-id-core = { version = "0.3.0", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.3.0", path = "crates/issuer" }
-world-id-proof = { version = "0.3.0", path = "crates/proof" }
-world-id-authenticator = { version = "0.3.0", path = "crates/authenticator" }
-world-id-primitives = { version = "0.3.0", path = "crates/primitives", default-features = false }
-world-id-oprf-node = { version = "0.1", path = "services/oprf-node" }
-world-id-gateway = { version = "0.1", path = "services/gateway" }
-world-id-test-utils = { version = "0.3.0", path = "crates/test-utils" }
+world-id-core = { version = "0.4.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.4.0", path = "crates/issuer" }
+world-id-proof = { version = "0.4.0", path = "crates/proof" }
+world-id-authenticator = { version = "0.4.0", path = "crates/authenticator" }
+world-id-primitives = { version = "0.4.0", path = "crates/primitives", default-features = false }
+world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
+world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }
