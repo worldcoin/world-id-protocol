@@ -1540,7 +1540,7 @@ mod tests {
         // proof_requests: orb, passport, national-id
         let orb_id = 100;
         let passport_id = 101;
-        let national_id_id = 102;
+        let national_id = 102;
 
         let req = ProofRequest {
             id: "req".into(),
@@ -1570,7 +1570,7 @@ mod tests {
                 },
                 RequestItem {
                     identifier: "national_id".into(),
-                    issuer_schema_id: national_id_id,
+                    issuer_schema_id: national_id,
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
@@ -1605,7 +1605,7 @@ mod tests {
         let sel2 = req.credentials_to_prove(&available2).unwrap();
         assert_eq!(sel2.len(), 2);
         assert_eq!(sel2[0].issuer_schema_id, orb_id);
-        assert_eq!(sel2[1].issuer_schema_id, national_id_id);
+        assert_eq!(sel2[1].issuer_schema_id, national_id);
 
         // Missing orb → cannot satisfy "all" → None
         let available3: HashSet<String> = std::iter::once("passport".to_string()).collect();
