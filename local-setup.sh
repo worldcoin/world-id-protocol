@@ -12,19 +12,6 @@ GREEN='\033[0;32m'
 
 PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
-create_secret() {
-    local name="$1"
-    local value="$2"
-    AWS_ACCESS_KEY_ID=test \
-    AWS_SECRET_ACCESS_KEY=test \
-    aws \
-        --region us-east-1 \
-        --endpoint-url http://localhost:4566 \
-        secretsmanager create-secret \
-        --name "$name" \
-        --secret-string "$value"
-}
-
 wait_for_health() {
     local port=$1
     local name=$2
@@ -124,6 +111,9 @@ setup() {
     anvil &
 
     docker compose up -d localstack postgres oprf-node-db0 oprf-node-db1 oprf-node-db2
+    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n0 --secret-string 0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
+    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n1 --secret-string 0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
+    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n2 --secret-string 0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
 
     echo -e "${GREEN}deploying contracts..${NOCOLOR}"
     deploy_contracts
@@ -132,9 +122,6 @@ setup() {
     run_indexer_and_gateway
 
     echo -e "${GREEN}starting OPRF key-gen nodes..${NOCOLOR}"
-    create_secret "oprf/eth/n0" "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
-    create_secret "oprf/eth/n1" "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
-    create_secret "oprf/eth/n2" "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
     OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     wait_for_health 20000 "oprf-key-gen0" 300
     wait_for_health 20001 "oprf-key-gen1" 300

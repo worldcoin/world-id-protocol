@@ -24,7 +24,6 @@ services:
   # world-id-oprf-node
   localstack:
     image: localstack/localstack
-    container_name: localstack
     ports:
       - "4566:4566"
     environment:
