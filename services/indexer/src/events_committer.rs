@@ -48,7 +48,6 @@ impl<'a> EventsCommitter<'a> {
         for event in self.buffered_events.iter() {
             match &event.details {
                 RegistryEvent::AccountCreated(ev) => {
-                    let leaf_index = U256::from(ev.leaf_index);
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
                         ev.leaf_index,
@@ -67,7 +66,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .insert(
-                            &leaf_index,
+                            ev.leaf_index,
                             &ev.recovery_address,
                             &ev.authenticator_addresses,
                             &ev.authenticator_pubkeys,
@@ -76,7 +75,6 @@ impl<'a> EventsCommitter<'a> {
                         .await?;
                 }
                 RegistryEvent::AccountUpdated(ev) => {
-                    let leaf_index = U256::from(ev.leaf_index);
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
                         ev.leaf_index,
@@ -95,7 +93,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .update_authenticator_at_index(
-                            &leaf_index,
+                            ev.leaf_index,
                             ev.pubkey_id,
                             &ev.new_authenticator_address,
                             &ev.new_authenticator_pubkey,
@@ -104,7 +102,6 @@ impl<'a> EventsCommitter<'a> {
                         .await?;
                 }
                 RegistryEvent::AuthenticatorInserted(ev) => {
-                    let leaf_index = U256::from(ev.leaf_index);
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
                         ev.leaf_index,
@@ -123,7 +120,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .insert_authenticator_at_index(
-                            &leaf_index,
+                            ev.leaf_index,
                             ev.pubkey_id,
                             &ev.authenticator_address,
                             &ev.new_authenticator_pubkey,
@@ -132,7 +129,6 @@ impl<'a> EventsCommitter<'a> {
                         .await?;
                 }
                 RegistryEvent::AuthenticatorRemoved(ev) => {
-                    let leaf_index = U256::from(ev.leaf_index);
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
                         ev.leaf_index,
@@ -151,14 +147,13 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .remove_authenticator_at_index(
-                            &leaf_index,
+                            ev.leaf_index,
                             ev.pubkey_id,
                             &ev.new_offchain_signer_commitment,
                         )
                         .await?;
                 }
                 RegistryEvent::AccountRecovered(ev) => {
-                    let leaf_index = U256::from(ev.leaf_index);
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
                         ev.leaf_index,
@@ -177,7 +172,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .reset_authenticator(
-                            &leaf_index,
+                            ev.leaf_index,
                             &ev.new_authenticator_address,
                             &ev.new_authenticator_pubkey,
                             &ev.new_offchain_signer_commitment,
@@ -228,7 +223,6 @@ impl<'a> EventsCommitter<'a> {
             .get_event((block_number, log_index))
             .await?;
 
-        let leaf_index_u256 = U256::from(leaf_index);
         if let Some(db_event) = db_event
             && db_event.id.block_number == block_number
             && db_event.id.log_index == log_index
@@ -244,7 +238,7 @@ impl<'a> EventsCommitter<'a> {
             .world_tree_events()
             .await?
             .insert_event(
-                &leaf_index_u256,
+                leaf_index,
                 event_type,
                 offchain_signer_commitment,
                 block_number,

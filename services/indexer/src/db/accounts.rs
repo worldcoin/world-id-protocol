@@ -1,8 +1,9 @@
 use alloy::primitives::{Address, U160, U256};
+use futures_util::{Stream, StreamExt as _};
 use sqlx::{Postgres, Row, postgres::PgRow, types::Json};
 use tracing::instrument;
 
-use crate::db::{DBError, DBResult};
+use crate::db::DBResult;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
@@ -18,7 +19,6 @@ where
     E: sqlx::Executor<'a, Database = Postgres>,
 {
     executor: E,
-    table_name: String,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -29,27 +29,47 @@ where
     pub fn with_executor(executor: E) -> Self {
         Self {
             executor,
-            table_name: "accounts".to_string(),
             _marker: std::marker::PhantomData,
         }
     }
 
+    pub fn stream_leaf_index_and_offchain_signer_commitment(
+        self,
+    ) -> impl Stream<Item = DBResult<(u64, U256)>> + 'a {
+        sqlx::query(
+            r#"
+                SELECT
+                    leaf_index,
+                    offchain_signer_commitment
+                FROM accounts
+                ORDER BY
+                    leaf_index ASC
+            "#,
+        )
+        .fetch(self.executor)
+        .map(|row_result| {
+            let row = row_result?;
+            let leaf_index = Self::map_leaf_index(&row)?;
+            let commitment = Self::map_offchain_signer_commitment(&row)?;
+            Ok((leaf_index, commitment))
+        })
+    }
+
     pub async fn get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
         self,
-        leaf_index: &U256,
+        leaf_index: u64,
     ) -> DBResult<Option<(U256, Vec<U256>)>> {
-        let result = sqlx::query(&format!(
+        let result = sqlx::query(
             r#"
-                                SELECT
-                                    authenticator_pubkeys,
-                                    offchain_signer_commitment
-                                FROM {}
-                                WHERE
-                                    leaf_index = $1
-                            "#,
-            self.table_name
-        ))
-        .bind(leaf_index)
+                SELECT
+                    authenticator_pubkeys,
+                    offchain_signer_commitment
+                FROM accounts
+                WHERE
+                    leaf_index = $1
+            "#,
+        )
+        .bind(leaf_index as i64)
         .fetch_optional(self.executor)
         .await?;
 
@@ -62,22 +82,21 @@ where
             .transpose()
     }
 
-    pub async fn get_account(self, leaf_index: &U256) -> DBResult<Option<Account>> {
-        let result = sqlx::query(&format!(
+    pub async fn get_account(self, leaf_index: u64) -> DBResult<Option<Account>> {
+        let result = sqlx::query(
             r#"
-                                SELECT
-                                    leaf_index,
-                                    recovery_address,
-                                    authenticator_addresses,
-                                    authenticator_pubkeys,
-                                    offchain_signer_commitment
-                                FROM {}
-                                WHERE
-                                    leaf_index = $1
-                            "#,
-            self.table_name
-        ))
-        .bind(leaf_index)
+                SELECT
+                    leaf_index,
+                    recovery_address,
+                    authenticator_addresses,
+                    authenticator_pubkeys,
+                    offchain_signer_commitment
+                FROM accounts
+                WHERE
+                    leaf_index = $1
+            "#,
+        )
+        .bind(leaf_index as i64)
         .fetch_optional(self.executor)
         .await?;
 
@@ -87,15 +106,15 @@ where
     #[instrument(level = "info", skip(self))]
     pub async fn insert(
         self,
-        leaf_index: &U256,
+        leaf_index: u64,
         recovery_address: &Address,
         authenticator_addresses: &[Address],
         authenticator_pubkeys: &[U256],
         offchain_signer_commitment: &U256,
     ) -> DBResult<()> {
-        sqlx::query(&format!(
+        sqlx::query(
             r#"
-                INSERT INTO {} (
+                INSERT INTO accounts (
                     leaf_index,
                     recovery_address,
                     authenticator_addresses,
@@ -103,9 +122,8 @@ where
                     offchain_signer_commitment
                 ) VALUES ($1, $2, $3, $4, $5)
             "#,
-            self.table_name,
-        ))
-        .bind(leaf_index)
+        )
+        .bind(leaf_index as i64)
         .bind(Self::address_to_u160(recovery_address))
         .bind(Json(
             authenticator_addresses
@@ -127,25 +145,24 @@ where
 
     pub async fn update_authenticator_at_index(
         self,
-        leaf_index: &U256,
+        leaf_index: u64,
         pubkey_id: u32,
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
     ) -> DBResult<()> {
         // Update authenticator at specific index (pubkey_id)
-        sqlx::query(&format!(
+        sqlx::query(
             r#"
-                UPDATE {} SET
+                UPDATE accounts SET
                     authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], to_jsonb($3::text), false),
                     authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], to_jsonb($4::text), false),
                     offchain_signer_commitment = $5
                 WHERE
                     leaf_index = $1
             "#,
-            self.table_name,
-        ))
-            .bind(leaf_index)
+        )
+            .bind(leaf_index as i64)
             .bind(format!("{{{pubkey_id}}}")) // JSONB path format: {0}, {1}, etc
             .bind(new_address.to_string())
             .bind(new_pubkey.to_string())
@@ -157,24 +174,23 @@ where
 
     pub async fn reset_authenticator(
         self,
-        leaf_index: &U256,
+        leaf_index: u64,
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
     ) -> DBResult<()> {
         // Reset all authenticators to single one
-        sqlx::query(&format!(
+        sqlx::query(
             r#"
-                UPDATE {} SET
+                UPDATE accounts SET
                     authenticator_addresses = $2,
                     authenticator_pubkeys = $3,
                     offchain_signer_commitment = $4
                 WHERE
                     leaf_index = $1
             "#,
-            self.table_name,
-        ))
-        .bind(leaf_index)
+        )
+        .bind(leaf_index as i64)
         .bind(Json(
             [new_address]
                 .iter()
@@ -195,25 +211,24 @@ where
 
     pub async fn insert_authenticator_at_index(
         self,
-        leaf_index: &U256,
+        leaf_index: u64,
         pubkey_id: u32,
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
     ) -> DBResult<()> {
         // Ensure arrays are large enough and insert at specific index
-        sqlx::query(&format!(
+        sqlx::query(
             r#"
-                UPDATE {} SET
+                UPDATE accounts SET
                     authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], to_jsonb($3::text), true),
                     authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], to_jsonb($4::text), true),
                     offchain_signer_commitment = $5
                 WHERE
                     leaf_index = $1
             "#,
-            self.table_name,
-        ))
-            .bind(leaf_index)
+        )
+            .bind(leaf_index as i64)
             .bind(format!("{{{pubkey_id}}}"))
             .bind(new_address.to_string())
             .bind(new_pubkey.to_string())
@@ -225,23 +240,22 @@ where
 
     pub async fn remove_authenticator_at_index(
         self,
-        leaf_index: &U256,
+        leaf_index: u64,
         pubkey_id: u32,
         new_commitment: &U256,
     ) -> DBResult<()> {
         // Remove authenticator at specific index by setting to null
-        sqlx::query(&format!(
+        sqlx::query(
             r#"
-                UPDATE {} SET
+                UPDATE accounts SET
                     authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], 'null'::jsonb, false),
                     authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], 'null'::jsonb, false),
                     offchain_signer_commitment = $3
                 WHERE
                     leaf_index = $1
             "#,
-            self.table_name,
-        ))
-        .bind(leaf_index)
+        )
+        .bind(leaf_index as i64)
         .bind(format!("{{{pubkey_id}}}"))
         .bind(new_commitment)
         .execute(self.executor)
@@ -260,12 +274,7 @@ where
     }
 
     fn map_leaf_index(row: &PgRow) -> DBResult<u64> {
-        let leaf_index = row.get::<U256, _>("leaf_index");
-        u64::try_from(leaf_index).map_err(|_| {
-            DBError::Sqlx(sqlx::Error::Decode(
-                format!("leaf_index {leaf_index} does not fit into u64").into(),
-            ))
-        })
+        Ok(row.get::<i64, _>("leaf_index") as u64)
     }
 
     fn map_recovery_address(row: &PgRow) -> DBResult<Address> {
