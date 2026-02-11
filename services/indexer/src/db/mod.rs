@@ -1,8 +1,4 @@
-use alloy::primitives::U256;
-use futures_util::{Stream, StreamExt as _};
-use sqlx::{
-    Acquire, Executor, PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions,
-};
+use sqlx::{Acquire, PgConnection, PgPool, Postgres, Transaction, postgres::PgPoolOptions};
 use thiserror::Error;
 
 mod accounts;
@@ -157,27 +153,4 @@ impl<'a> PostgresDBTransaction<'a> {
     pub async fn rollback(self) -> DBResult<()> {
         Ok(self.tx.rollback().await?)
     }
-}
-
-// =============================================================================
-// Tree-related DB queries (extracted from tree module)
-// =============================================================================
-
-pub fn stream_leaves<'a, E>(executor: E) -> impl Stream<Item = DBResult<(u64, U256)>> + 'a
-where
-    E: Executor<'a, Database = Postgres> + 'a,
-{
-    sqlx::query(
-        "SELECT leaf_index, offchain_signer_commitment
-         FROM accounts
-         ORDER BY leaf_index ASC",
-    )
-    .fetch(executor)
-    .map(|row_result| {
-        let row = row_result?;
-        let leaf_index = row.get::<U256, _>("leaf_index");
-        let leaf_index = leaf_index.as_limbs()[0];
-        let commitment = row.get::<U256, _>("offchain_signer_commitment");
-        Ok((leaf_index, commitment))
-    })
 }

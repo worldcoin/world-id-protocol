@@ -7,7 +7,7 @@ use tracing::{info, instrument};
 
 use super::{TreeError, TreeResult, TreeState};
 use crate::{
-    db::{DB, WorldTreeEventId, stream_leaves},
+    db::{DB, WorldTreeEventId},
     tree::MerkleTree,
 };
 
@@ -199,7 +199,9 @@ async fn build_from_db_with_cache(
     let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
 
     info!("Downloading leaves from database");
-    let leaves = stream_leaves(db.pool())
+    let leaves = db
+        .accounts()
+        .stream_leaf_index_and_offchain_signer_commitment()
         .try_fold(Vec::new(), |mut acc, (index, value)| async move {
             if index == acc.len() as u64 {
                 acc.push(value);
