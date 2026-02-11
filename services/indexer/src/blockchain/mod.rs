@@ -10,9 +10,12 @@ use alloy::{
     primitives::{Address, FixedBytes},
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     pubsub::Subscription,
-    rpc::types::{Filter, Log},
+    rpc::{
+        client::RpcClient,
+        types::{Filter, Log},
+    },
+    transports::layers::RetryBackoffLayer,
 };
-use backon::{ExponentialBuilder, Retryable};
 use futures_util::{Stream, StreamExt, TryStreamExt, stream};
 use thiserror::Error;
 
@@ -27,9 +30,11 @@ mod events;
 
 static WS_BUFFER_SIZE: usize = 1024;
 
-static RPC_RETRY_MIN_DELAY: Duration = Duration::from_millis(100);
-static RPC_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
-static RPC_RETRY_FACTOR: f32 = 2.0;
+static DEFAULT_MAX_RPC_RETRIES: u32 = 30;
+// 1 second
+static RPC_RETRY_MIN_DELAY: Duration = Duration::from_secs(1);
+// Not really relevant for sequential workloads
+static RPC_COMPUTE_UNITS_PER_SECOND: u64 = 10_000;
 
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 
@@ -60,10 +65,10 @@ pub enum BlockchainError {
 }
 
 pub struct Blockchain {
+    http_rpc_url: Url,
     http_provider: DynProvider,
     ws_provider: DynProvider,
     world_id_registry: Address,
-    rpc_retry_max_delay: Duration,
 }
 
 impl Blockchain {
@@ -85,7 +90,7 @@ impl Blockchain {
         world_id_registry: Address,
     ) -> BlockchainResult<Self> {
         let http_url = Url::parse(http_rpc_url)?;
-        let http_provider = DynProvider::new(ProviderBuilder::new().connect_http(http_url));
+        let http_provider = Self::build_http_provider(http_url.clone(), DEFAULT_MAX_RPC_RETRIES);
 
         let ws_provider = DynProvider::new(
             ProviderBuilder::new()
@@ -103,17 +108,27 @@ impl Blockchain {
             .set_channel_size(WS_BUFFER_SIZE); // Increase buffer size to avoid losing events
 
         Ok(Self {
+            http_rpc_url: http_url,
             http_provider,
             ws_provider,
             world_id_registry,
-            rpc_retry_max_delay: RPC_RETRY_MAX_DELAY,
         })
     }
 
-    /// Override the maximum delay between RPC retries.
-    pub fn with_rpc_max_delay(mut self, max_delay: Duration) -> Self {
-        self.rpc_retry_max_delay = max_delay;
+    /// Override the maximum number of RPC retries for rate-limit errors.
+    pub fn with_max_rpc_retries(mut self, max_retries: u32) -> Self {
+        self.http_provider = Self::build_http_provider(self.http_rpc_url.clone(), max_retries);
         self
+    }
+
+    fn build_http_provider(url: Url, max_retries: u32) -> DynProvider {
+        let retry_layer = RetryBackoffLayer::new(
+            max_retries,
+            RPC_RETRY_MIN_DELAY.as_millis() as u64, // Convert to milliseconds
+            RPC_COMPUTE_UNITS_PER_SECOND,
+        );
+        let client = RpcClient::builder().layer(retry_layer).http(url);
+        DynProvider::new(ProviderBuilder::new().connect_client(client))
     }
 
     /// Streams World Tree events from the blockchain.
@@ -377,57 +392,25 @@ impl Blockchain {
         .boxed()
     }
 
-    // ── RPC helpers ──────────────────────────────────────────────────────
-
-    /// Generic retry wrapper for any RPC call.
-    ///
-    /// Retries `f` with exponential backoff. Every failed attempt is logged
-    /// at `warn` level together with the operation `name`.
-    async fn rpc<T, F, Fut>(&self, name: &str, f: F) -> BlockchainResult<T>
-    where
-        F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = BlockchainResult<T>>,
-    {
-        let backoff = ExponentialBuilder::default()
-            .with_min_delay(RPC_RETRY_MIN_DELAY)
-            .with_max_delay(self.rpc_retry_max_delay)
-            .with_factor(RPC_RETRY_FACTOR);
-
-        f.retry(backoff)
-            .notify(|err, dur| {
-                tracing::warn!(?err, ?dur, "rpc call '{}' failed, retrying", name);
-            })
-            .await
-    }
-
     async fn get_block_number(&self) -> BlockchainResult<u64> {
-        self.rpc("get_block_number", || async {
-            self.http_provider
-                .get_block_number()
-                .await
-                .map_err(|err| BlockchainError::Rpc(Box::new(err)))
-        })
-        .await
+        self.http_provider
+            .get_block_number()
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))
     }
 
     async fn get_logs(&self, filter: &Filter) -> BlockchainResult<Vec<Log>> {
-        self.rpc("get_logs", || async {
-            self.http_provider
-                .get_logs(filter)
-                .await
-                .map_err(|err| BlockchainError::Rpc(Box::new(err)))
-        })
-        .await
+        self.http_provider
+            .get_logs(filter)
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))
     }
 
     async fn subscribe_logs(&self, filter: &Filter) -> BlockchainResult<Subscription<Log>> {
-        self.rpc("subscribe_logs", || async {
-            self.ws_provider
-                .subscribe_logs(filter)
-                .await
-                .map_err(|err| BlockchainError::Rpc(Box::new(err)))
-        })
-        .await
+        self.ws_provider
+            .subscribe_logs(filter)
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))
     }
 }
 

@@ -288,11 +288,11 @@ async fn test_backfill_events() {
 ///
 /// Scenario:
 ///   1. 10 accounts are created so there is backfill work to do.
-///   2. The stream is started with a small `batch_size` and a very low
-///      `max_delay` so retries exhaust almost instantly.
+///   2. The stream is started with a small `batch_size` and RPC retries
+///      disabled so errors propagate immediately.
 ///   3. A few events are consumed, then the Anvil process is killed.
 ///   4. The next poll yields `Err(BlockchainError::Rpc(...))`.
-///   5. The stream eventually terminates.
+///   5. The stream terminates.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_stream_stops_on_error() {
     let _ = tracing_subscriber::fmt()
@@ -310,7 +310,7 @@ async fn test_stream_stops_on_error() {
     let blockchain = Blockchain::new(anvil.endpoint(), anvil.ws_endpoint(), registry_address)
         .await
         .expect("failed to create Blockchain")
-        .with_rpc_max_delay(Duration::from_millis(1));
+        .with_max_rpc_retries(0);
 
     let http_provider =
         ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
