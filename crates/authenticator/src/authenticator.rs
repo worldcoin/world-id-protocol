@@ -626,7 +626,7 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let (_inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_offchain_signer_commitment = key_set.leaf_hash();
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
         key_set.try_push(new_authenticator_pubkey)?;
@@ -661,11 +661,6 @@ impl Authenticator {
             new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            sibling_nodes: inclusion_proof
-                .siblings
-                .iter()
-                .map(|s| (*s).into())
-                .collect(),
             signature: signature.as_bytes().to_vec(),
             nonce,
         };
@@ -710,7 +705,7 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let (_inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
         key_set.try_set_at_index(index as usize, new_authenticator_pubkey)?;
@@ -734,19 +729,12 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign update authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = inclusion_proof
-            .siblings
-            .iter()
-            .map(|s| (*s).into())
-            .collect();
-
         let req = UpdateAuthenticatorRequest {
             leaf_index,
             old_authenticator_address,
             new_authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: index,
@@ -791,7 +779,7 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let (_inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
         let existing_pubkey = key_set
             .get(index as usize)
@@ -821,18 +809,11 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign remove authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = inclusion_proof
-            .siblings
-            .iter()
-            .map(|s| (*s).into())
-            .collect();
-
         let req = RemoveAuthenticatorRequest {
             leaf_index,
             authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: Some(index),
