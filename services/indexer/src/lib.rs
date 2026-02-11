@@ -1,5 +1,5 @@
 use crate::{
-    blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
+    blockchain::{Blockchain, BlockchainEvent, BlockchainResult, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
@@ -7,10 +7,14 @@ use crate::{
 use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
-    rpc::types::Log,
 };
-use futures_util::StreamExt;
-use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
+use futures_util::{Stream, StreamExt};
+use std::{
+    backtrace::Backtrace,
+    net::SocketAddr,
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
@@ -26,6 +30,8 @@ pub mod events_committer;
 mod routes;
 mod sanity_check;
 mod tree;
+
+static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);
 
 /// Initializes the in-memory tree from a cache file if it exists, otherwise builds from DB.
 ///
@@ -125,12 +131,14 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
 
-            tracing::info!("Connecting to blockchain...");
-            let blockchain =
-                Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
-            tracing::info!("Connection to blockchain successful.");
-
-            run_indexer_only(&blockchain, db, indexer_config).await
+            run_indexer_only(
+                db,
+                &cfg.http_rpc_url,
+                &cfg.ws_rpc_url,
+                cfg.registry_address,
+                indexer_config,
+            )
+            .await
         }
         RunMode::HttpOnly { http_config } => {
             tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
@@ -154,16 +162,11 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
 
-            tracing::info!("Connecting to blockchain...");
-            let blockchain =
-                Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
-            tracing::info!("Connection to blockchain successful.");
-
             unsafe {
                 run_both(
-                    &blockchain,
                     db,
                     &cfg.http_rpc_url,
+                    &cfg.ws_rpc_url,
                     cfg.registry_address,
                     indexer_config,
                     http_config,
@@ -176,17 +179,21 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
 
 #[instrument(level = "info", skip_all)]
 async fn run_indexer_only(
-    blockchain: &Blockchain,
     db: DB,
+    http_rpc_url: &str,
+    ws_rpc_url: &str,
+    registry_address: Address,
     indexer_cfg: IndexerConfig,
 ) -> eyre::Result<()> {
-    let from = match db.world_tree_events().get_latest_block().await? {
-        Some(block) => block,
-        None => indexer_cfg.start_block,
-    };
-
-    tracing::info!("switching to websocket live follow");
-    stream_logs(blockchain, &db, from, None).await?;
+    process_registry_events(
+        http_rpc_url,
+        ws_rpc_url,
+        registry_address,
+        indexer_cfg,
+        &db,
+        None,
+    )
+    .await?;
 
     Ok(())
 }
@@ -254,14 +261,15 @@ async fn run_http_only(
 /// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all)]
 async unsafe fn run_both(
-    blockchain: &Blockchain,
     db: DB,
-    rpc_url: &str,
+    http_rpc_url: &str,
+    ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
 ) -> eyre::Result<()> {
     let tree_cache_cfg = &http_cfg.tree_cache;
+    let batch_size = indexer_cfg.batch_size;
 
     // --- Phase 1: Backfill historical events into DB (no tree) ---
     let from = match db.world_tree_roots().get_latest_block().await? {
@@ -269,22 +277,24 @@ async unsafe fn run_both(
         None => indexer_cfg.start_block,
     };
 
-    tracing::info!(from_block = from, "Phase 1: starting historical backfill");
-
-    let (raw_logs, backfill_up_to_block) = blockchain.get_backfill_events(from).await?;
-
     tracing::info!(
-        log_count = raw_logs.len(),
-        backfill_up_to_block,
-        "Phase 1: fetched historical logs, processing..."
+        from_block = from,
+        batch_size,
+        "Phase 1: starting historical backfill"
     );
 
-    let committed_batches = save_events(&db, raw_logs).await?;
+    {
+        let blockchain = Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await?;
+        let (backfill_stream, last_block) = blockchain.backfill_events(from, batch_size);
+        let committed_batches = save_events(&db, backfill_stream).await?;
+        let backfill_up_to_block = last_block.load(Ordering::Relaxed);
 
-    tracing::info!(
-        committed_batches,
-        "Phase 1: backfill complete, all historical events stored in DB"
-    );
+        tracing::info!(
+            committed_batches,
+            backfill_up_to_block,
+            "Phase 1: backfill complete, all historical events stored in DB"
+        );
+    } // blockchain dropped — provider no longer needed
 
     // --- Phase 2: Build tree from complete DB ---
     tracing::info!("Phase 2: building tree from DB");
@@ -301,7 +311,9 @@ async unsafe fn run_both(
 
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
-    let rpc_url_clone = rpc_url.to_string();
+    let rpc_url_clone = http_rpc_url.to_string();
+    // Spawned tasks run for the lifetime of the process; they are not
+    // joined because the Phase 4 retry loop below never returns.
     let http_handle = tokio::spawn(async move {
         start_http_server(
             &rpc_url_clone,
@@ -315,7 +327,7 @@ async unsafe fn run_both(
 
     let mut sanity_handle = None;
     if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
-        let rpc_url = rpc_url.to_string();
+        let rpc_url = http_rpc_url.to_string();
         sanity_handle = Some(tokio::spawn(async move {
             if let Err(e) = sanity_check::root_sanity_check_loop(
                 rpc_url,
@@ -330,18 +342,21 @@ async unsafe fn run_both(
         }));
     }
 
-    // --- Phase 4: Live event streaming with tree sync ---
-    tracing::info!(
-        from_block = backfill_up_to_block,
-        "Phase 4: starting live event stream with tree sync"
-    );
-
-    stream_logs(blockchain, &db, backfill_up_to_block + 1, Some(&tree_state)).await?;
+    process_registry_events(
+        http_rpc_url,
+        ws_rpc_url,
+        registry_address,
+        indexer_cfg,
+        &db,
+        Some(&tree_state),
+    )
+    .await?;
 
     http_handle.abort();
-    if let Some(handle) = sanity_handle {
-        handle.abort();
+    if let Some(sanity_handle) = sanity_handle {
+        sanity_handle.abort();
     }
+
     Ok(())
 }
 
@@ -364,56 +379,81 @@ pub async fn handle_registry_event<'a>(
     Ok(())
 }
 
-/// Process backfill logs from HTTP get_logs, writing to DB only (no tree sync).
+/// Process decoded backfill events from a stream, writing to DB only (no tree sync).
 /// Returns the number of committed batches.
-async fn save_events(db: &DB, raw_logs: Vec<Log>) -> IndexerResult<usize> {
+async fn save_events(
+    db: &DB,
+    mut stream: impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin,
+) -> IndexerResult<usize> {
     let mut events_committer = EventsCommitter::new(db);
     let mut committed_batches = 0usize;
 
-    for log in raw_logs {
-        match RegistryEvent::decode(&log) {
-            Ok(event) => {
-                tracing::info!(?event, "processing backfill event");
-                let committed = events_committer.handle_event(event).await?;
-                if committed {
-                    committed_batches += 1;
-                }
-            }
-            Err(e) => {
-                tracing::warn!(?e, "failed to decode backfill event");
-            }
+    while let Some(event_result) = stream.next().await {
+        let event = event_result?;
+        tracing::info!(?event, "processing backfill event");
+        let committed = events_committer.handle_event(event).await?;
+        if committed {
+            committed_batches += 1;
         }
     }
 
     Ok(committed_batches)
 }
 
+/// Stream registry events from the blockchain and process them.
+/// Restart when websocket connection is dropped.
 #[instrument(level = "info", skip_all, fields(start_from))]
-pub async fn stream_logs(
-    blockchain: &Blockchain,
+pub async fn process_registry_events(
+    http_rpc_url: &str,
+    ws_rpc_url: &str,
+    registry_address: Address,
+    indexer_cfg: IndexerConfig,
     db: &DB,
-    start_from: u64,
     tree_state: Option<&tree::TreeState>,
 ) -> IndexerResult<()> {
-    let mut stream = blockchain.stream_world_tree_events(start_from).await?;
-    let mut events_committer = EventsCommitter::new(db);
+    // We re-create the blockchain connection (including backfill and websocket) when the stream
+    // returns an error or the websocket connection is dropped.
+    //
+    // TOOD: Add smarter error handling. This could likely happen one level higher when there is
+    // mismatch between root of the tree and on-chain tree.
+    loop {
+        tracing::info!("starting blockchain connection");
 
-    while let Some(log) = stream.next().await {
-        tracing::info!(?log, "processing live registry log");
-        match log {
-            Ok(event) => {
-                tracing::info!(?event, "decoded live registry event");
+        let blockchain = match Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::error!(?e, "failed to create blockchain connection, retrying");
+                tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
+                continue;
+            }
+        };
 
-                if let Err(e) =
-                    handle_registry_event(db, &mut events_committer, &event, tree_state).await
-                {
-                    tracing::error!(?e, ?event, "failed to handle registry event");
+        let from = match db.world_tree_roots().get_latest_block().await? {
+            Some(block) => block + 1,
+            None => indexer_cfg.start_block,
+        };
+
+        let mut stream = blockchain.backfill_and_stream_events(from, indexer_cfg.batch_size);
+
+        let mut events_committer = EventsCommitter::new(db);
+
+        while let Some(event) = stream.next().await {
+            match event {
+                Ok(event) => {
+                    if let Err(e) =
+                        handle_registry_event(db, &mut events_committer, &event, tree_state).await
+                    {
+                        tracing::error!(?e, "error processing registry event");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(?e, "blockchain event stream error");
+                    break;
                 }
             }
-            Err(ref e) => {
-                tracing::warn!(?e, ?log, "failed to decode live registry event");
-            }
         }
+
+        tracing::warn!("restarting blockchain connection");
     }
-    Ok(())
 }
