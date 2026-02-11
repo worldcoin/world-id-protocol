@@ -10,7 +10,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use futures_util::{StreamExt, TryStreamExt};
-use test_utils::anvil::TestAnvil;
+use world_id_test_utils::anvil::TestAnvil;
 use world_id_core::{EdDSAPrivateKey, world_id_registry::WorldIdRegistry};
 use world_id_indexer::blockchain::{Blockchain, BlockchainError, BlockchainEvent, RegistryEvent};
 
