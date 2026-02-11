@@ -45,21 +45,20 @@ ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 backon = "1"
-circom-witness-rs = "0.2.1"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
 criterion = "0.7"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.4" }
 eyre = "0.6"
 futures = "0.3"
-groth16-material = { package = "taceo-groth16-material", version = "0.2.1", default-features = false }
+groth16-material = { package = "taceo-groth16-material", version = "0.2.2", default-features = false }
 hex = { version = "0.4" }
 itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
 taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.4", default-features = false }
-taceo-oprf-types = { version = "0.7" }
-taceo-oprf-test-utils = "0.3"
+taceo-oprf = { version = "0.5", default-features = false }
+taceo-oprf-types = { version = "0.8" }
+taceo-oprf-test-utils = "0.4"
 taceo-oprf-key-gen = "0.4"
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
