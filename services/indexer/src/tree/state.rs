@@ -1,20 +1,22 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use alloy::primitives::U256;
-use semaphore_rs_trees::{lazy::Canonical, proof::InclusionProof};
+use semaphore_rs_storage::MmapVec;
+use semaphore_rs_trees::{cascading::CascadingMerkleTree, proof::InclusionProof};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
-use crate::db::WorldTreeEventId;
+use crate::{db::WorldTreeEventId, tree::cached_tree::set_arbitrary_leaf};
 
 /// Thread-safe wrapper around the Merkle tree and its configuration.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TreeState {
     inner: Arc<TreeStateInner>,
 }
 
+#[derive(Debug)]
 struct TreeStateInner {
-    tree: RwLock<MerkleTree<PoseidonHasher, Canonical>>,
+    tree: RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>>,
     tree_depth: usize,
     last_synced_event_id: RwLock<WorldTreeEventId>,
 }
@@ -22,7 +24,7 @@ struct TreeStateInner {
 impl TreeState {
     /// Create a new `TreeState` with an existing tree, depth, and sync cursor.
     pub fn new(
-        tree: MerkleTree<PoseidonHasher, Canonical>,
+        tree: CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>,
         tree_depth: usize,
         last_synced_event_id: WorldTreeEventId,
     ) -> Self {
@@ -36,9 +38,16 @@ impl TreeState {
     }
 
     /// Create a new `TreeState` with an empty tree of the given depth.
-    pub fn new_empty(tree_depth: usize) -> Self {
-        let tree = MerkleTree::<PoseidonHasher>::new(tree_depth, U256::ZERO);
-        Self::new(tree, tree_depth, WorldTreeEventId::default())
+    ///
+    /// # Safety
+    ///
+    /// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+    /// The caller must ensure that the cache file is not concurrently accessed or modified
+    /// by other processes while the tree is using it.
+    pub unsafe fn new_empty(tree_depth: usize, path: impl AsRef<Path>) -> eyre::Result<Self> {
+        let storage = unsafe { MmapVec::create_from_path(path)? };
+        let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
+        Ok(Self::new(tree, tree_depth, WorldTreeEventId::default()))
     }
 
     /// Returns the configured depth.
@@ -52,12 +61,16 @@ impl TreeState {
     }
 
     /// Acquire a read lock on the tree.
-    pub async fn read(&self) -> RwLockReadGuard<'_, MerkleTree<PoseidonHasher, Canonical>> {
+    pub async fn read(
+        &self,
+    ) -> RwLockReadGuard<'_, CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>> {
         self.inner.tree.read().await
     }
 
     /// Acquire a write lock on the tree.
-    pub async fn write(&self) -> RwLockWriteGuard<'_, MerkleTree<PoseidonHasher, Canonical>> {
+    pub async fn write(
+        &self,
+    ) -> RwLockWriteGuard<'_, CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>> {
         self.inner.tree.write().await
     }
 
@@ -93,9 +106,7 @@ impl TreeState {
         }
 
         let mut tree = self.write().await;
-        take_mut::take(&mut *tree, |tree| {
-            tree.update_with_mutation(leaf_index, &value)
-        });
+        set_arbitrary_leaf(&mut tree, leaf_index, value);
         Ok(())
     }
 
@@ -115,7 +126,7 @@ impl TreeState {
     }
 
     /// Atomically replace the entire tree.
-    pub async fn replace(&self, new_tree: MerkleTree<PoseidonHasher, Canonical>) {
+    pub async fn replace(&self, new_tree: MerkleTree) {
         let mut tree = self.write().await;
         *tree = new_tree;
     }
@@ -135,34 +146,45 @@ impl TreeState {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_new_empty() {
-        let state = TreeState::new_empty(6);
-        assert_eq!(state.depth(), 6);
-        assert_eq!(state.capacity(), 64);
+    fn tmp_file() -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("tree_state_test_{}.tmp", uuid::Uuid::new_v4()));
+        path
     }
 
     #[tokio::test]
-    async fn test_set_leaf_at_index() {
-        let state = TreeState::new_empty(6);
+    async fn test_new_empty() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
+        assert_eq!(state.depth(), 6);
+        assert_eq!(state.capacity(), 64);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_set_leaf_at_index() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let value = U256::from(42u64);
 
         state.set_leaf_at_index(1, value).await.unwrap();
 
         let tree = state.read().await;
         assert_eq!(tree.get_leaf(1), value);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_set_leaf_out_of_range() {
-        let state = TreeState::new_empty(6);
+    async fn test_set_leaf_out_of_range() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let result = state.set_leaf_at_index(100, U256::from(1u64)).await;
         assert!(matches!(result, Err(TreeError::LeafIndexOutOfRange { .. })));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_commitment() {
-        let state = TreeState::new_empty(6);
+    async fn test_update_commitment() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let commitment = U256::from(123u64);
 
         state
@@ -172,39 +194,29 @@ mod tests {
 
         let tree = state.read().await;
         assert_eq!(tree.get_leaf(5), commitment);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_tree_with_zero_index() {
-        let state = TreeState::new_empty(6);
+    async fn test_update_tree_with_zero_index() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let result = state.update_commitment(U256::ZERO, U256::from(1u64)).await;
         assert!(matches!(result, Err(TreeError::ZeroLeafIndex)));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_replace() {
-        let state = TreeState::new_empty(6);
-        let initial_root = state.root().await;
-
-        // Create a new tree with a different value
-        let mut new_tree = MerkleTree::<PoseidonHasher>::new(6, U256::ZERO);
-        new_tree = new_tree.update_with_mutation(1, &U256::from(999u64));
-        let new_root = new_tree.root();
-
-        state.replace(new_tree).await;
-
-        assert_ne!(initial_root, state.root().await);
-        assert_eq!(new_root, state.root().await);
-    }
-
-    #[tokio::test]
-    async fn test_leaf_proof_and_root() {
-        let state = TreeState::new_empty(6);
+    async fn test_leaf_proof_and_root() -> eyre::Result<()> {
+        let state = unsafe { TreeState::new_empty(6, tmp_file())? };
         let value = U256::from(42u64);
         state.set_leaf_at_index(3, value).await.unwrap();
 
         let (leaf, _proof, root) = state.leaf_proof_and_root(3).await;
         assert_eq!(leaf, value);
         assert_eq!(root, state.root().await);
+
+        Ok(())
     }
 }

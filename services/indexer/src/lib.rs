@@ -27,20 +27,22 @@ mod routes;
 mod sanity_check;
 mod tree;
 
+/// Initializes the in-memory tree from a cache file if it exists, otherwise builds from DB.
+///
+/// # Safety
+///
+/// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+/// The caller must ensure that the cache file is not concurrently accessed or modified
+/// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all)]
-async fn initialize_tree_with_config(
+async unsafe fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
-) -> IndexerResult<tree::TreeState> {
+) -> eyre::Result<tree::TreeState> {
     let cache_path = std::path::Path::new(&tree_cache_cfg.cache_file_path);
 
-    let tree_state = tree::cached_tree::init_tree(
-        db,
-        cache_path,
-        tree_cache_cfg.tree_depth,
-        tree_cache_cfg.dense_tree_prefix_depth,
-    )
-    .await?;
+    let tree_state =
+        unsafe { tree::cached_tree::init_tree(db, cache_path, tree_cache_cfg.tree_depth).await? };
 
     let root = tree_state.root().await;
     tracing::info!(
@@ -85,7 +87,7 @@ async fn start_http_server(
     addr: SocketAddr,
     db: DB,
     tree_state: tree::TreeState,
-) -> IndexerResult<()> {
+) -> eyre::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
     let registry = WorldIdRegistry::new(registry_address, provider.erased());
     let router = routes::handler(AppState::new(db, Arc::new(registry), tree_state));
@@ -105,8 +107,15 @@ async fn start_http_server(
     Ok(())
 }
 
+/// Runs the indexer
+///
+/// # Safety
+///
+/// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+/// The caller must ensure that the cache file is not concurrently accessed or modified
+/// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all)]
-pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
+pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     tracing::info!("Creating DB...");
     let db = DB::new(&cfg.db_url, None).await?;
     db.run_migrations().await?;
@@ -127,7 +136,7 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
             tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
             let start_time = std::time::Instant::now();
             let tree_cache_cfg = http_config.tree_cache.clone();
-            let tree_state = initialize_tree_with_config(&tree_cache_cfg, &db).await?;
+            let tree_state = unsafe { initialize_tree_with_config(&tree_cache_cfg, &db).await? };
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
 
             run_http_only(
@@ -150,14 +159,16 @@ pub async fn run_indexer(cfg: GlobalConfig) -> IndexerResult<()> {
                 Blockchain::new(&cfg.http_rpc_url, &cfg.ws_rpc_url, cfg.registry_address).await?;
             tracing::info!("Connection to blockchain successful.");
 
-            run_both(
-                &blockchain,
-                db,
-                &cfg.http_rpc_url,
-                cfg.registry_address,
-                indexer_config,
-                http_config,
-            )
+            unsafe {
+                run_both(
+                    &blockchain,
+                    db,
+                    &cfg.http_rpc_url,
+                    cfg.registry_address,
+                    indexer_config,
+                    http_config,
+                )
+            }
             .await
         }
     }
@@ -168,7 +179,7 @@ async fn run_indexer_only(
     blockchain: &Blockchain,
     db: DB,
     indexer_cfg: IndexerConfig,
-) -> IndexerResult<()> {
+) -> eyre::Result<()> {
     let from = match db.world_tree_events().get_latest_block().await? {
         Some(block) => block,
         None => indexer_cfg.start_block,
@@ -187,7 +198,7 @@ async fn run_http_only(
     registry_address: Address,
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
-) -> IndexerResult<()> {
+) -> eyre::Result<()> {
     // Start tree sync loop
     let sync_pool = db.clone();
     let sync_interval = http_cfg.db_poll_interval_secs;
@@ -234,15 +245,22 @@ async fn run_http_only(
     http_result
 }
 
+/// Runs both the indexer and HTTP server in the same process, sharing the same DB and in-memory tree.
+///
+/// # Safety
+///
+/// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
+/// The caller must ensure that the cache file is not concurrently accessed or modified
+/// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all)]
-async fn run_both(
+async unsafe fn run_both(
     blockchain: &Blockchain,
     db: DB,
     rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
-) -> IndexerResult<()> {
+) -> eyre::Result<()> {
     let tree_cache_cfg = &http_cfg.tree_cache;
 
     // --- Phase 1: Backfill historical events into DB (no tree) ---
@@ -271,7 +289,7 @@ async fn run_both(
     // --- Phase 2: Build tree from complete DB ---
     tracing::info!("Phase 2: building tree from DB");
     let start_time = std::time::Instant::now();
-    let tree_state = initialize_tree_with_config(tree_cache_cfg, &db).await?;
+    let tree_state = unsafe { initialize_tree_with_config(tree_cache_cfg, &db).await? };
     tracing::info!(
         "Phase 2: tree initialization took {:?}",
         start_time.elapsed()
