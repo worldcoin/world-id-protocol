@@ -12,15 +12,13 @@ async fn main() -> eyre::Result<()> {
         )
         .init();
 
-    let signing_key_hex =
-        env::var("SIGNING_KEY").expect("SIGNING_KEY must be set in environment");
+    let signing_key_hex = env::var("SIGNING_KEY").expect("SIGNING_KEY must be set in environment");
     let signing_key_bytes = hex::decode(&signing_key_hex).expect("SIGNING_KEY must be valid hex");
     let signing_key: [u8; 32] = signing_key_bytes
         .try_into()
         .expect("SIGNING_KEY must be exactly 32 bytes (64 hex characters)");
 
-    let issuer_schema_id_str =
-        env::var("ISSUER_SCHEMA_ID").expect("ISSUER_SCHEMA_ID must be set");
+    let issuer_schema_id_str = env::var("ISSUER_SCHEMA_ID").expect("ISSUER_SCHEMA_ID must be set");
     let issuer_schema_id: u64 = if let Some(hex_str) = issuer_schema_id_str.strip_prefix("0x") {
         u64::from_str_radix(hex_str, 16).expect("ISSUER_SCHEMA_ID must be valid hex after 0x")
     } else {
