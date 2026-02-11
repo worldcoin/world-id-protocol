@@ -142,8 +142,6 @@ on:
         required: true
       BROWSERSTACK_ACCESS_KEY:
         required: true
-      MOBENCH_REPO_TOKEN:
-        required: false
 
 permissions:
   contents: read
@@ -173,7 +171,6 @@ jobs:
           repository: worldcoin/mobile-bench-rs
           ref: ${{ inputs.mobench_ref }}
           path: mobile-bench-rs
-          token: ${{ secrets.MOBENCH_REPO_TOKEN != '' && secrets.MOBENCH_REPO_TOKEN || github.token }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
@@ -507,7 +504,6 @@ jobs:
           repository: worldcoin/mobile-bench-rs
           ref: ${{ inputs.mobench_ref }}
           path: mobile-bench-rs
-          token: ${{ secrets.MOBENCH_REPO_TOKEN != '' && secrets.MOBENCH_REPO_TOKEN || github.token }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
