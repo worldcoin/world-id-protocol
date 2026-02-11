@@ -28,11 +28,7 @@ async fn test_insert_account() {
         .unwrap();
 
     // Verify account was inserted with correct data
-    let account = db
-        .accounts()
-        .get_account(leaf_index)
-        .await
-        .unwrap();
+    let account = db.accounts().get_account(leaf_index).await.unwrap();
     assert!(account.is_some(), "Account should exist");
 
     let account = account.unwrap();
@@ -119,13 +115,7 @@ async fn test_update_authenticator_at_index() {
     let new_commitment = U256::from(999);
 
     db.accounts()
-        .update_authenticator_at_index(
-            leaf_index,
-            0,
-            &new_address,
-            &new_pubkey,
-            &new_commitment,
-        )
+        .update_authenticator_at_index(leaf_index, 0, &new_address, &new_pubkey, &new_commitment)
         .await
         .unwrap();
 
@@ -168,13 +158,7 @@ async fn test_insert_authenticator_at_index() {
     let new_commitment = U256::from(999);
 
     db.accounts()
-        .insert_authenticator_at_index(
-            leaf_index,
-            1,
-            &new_address,
-            &new_pubkey,
-            &new_commitment,
-        )
+        .insert_authenticator_at_index(leaf_index, 1, &new_address, &new_pubkey, &new_commitment)
         .await
         .unwrap();
 
@@ -260,21 +244,12 @@ async fn test_reset_authenticator() {
     let new_commitment = U256::from(1111);
 
     db.accounts()
-        .reset_authenticator(
-            leaf_index,
-            &new_address,
-            &new_pubkey,
-            &new_commitment,
-        )
+        .reset_authenticator(leaf_index, &new_address, &new_pubkey, &new_commitment)
         .await
         .unwrap();
 
     // Verify reset
-    let account = db
-        .accounts()
-        .get_account(leaf_index)
-        .await
-        .unwrap();
+    let account = db.accounts().get_account(leaf_index).await.unwrap();
     assert!(account.is_some(), "Account should exist after reset");
     let account = account.unwrap();
 
@@ -323,7 +298,7 @@ async fn test_insert_world_tree_event() {
     let event = event.unwrap();
     assert_eq!(event.id.block_number, block_number);
     assert_eq!(event.id.log_index, log_index);
-    assert_eq!(event.leaf_index, u64::try_from(leaf_index).unwrap());
+    assert_eq!(event.leaf_index, leaf_index);
     assert_eq!(event.event_type, WorldTreeEventType::AccountCreated);
     assert_eq!(event.offchain_signer_commitment, commitment);
     assert_eq!(event.tx_hash, tx_hash);
@@ -412,7 +387,7 @@ async fn test_get_world_tree_event() {
     let event = event.unwrap();
     assert_eq!(event.id.block_number, block_number);
     assert_eq!(event.id.log_index, log_index);
-    assert_eq!(event.leaf_index, u64::try_from(leaf_index).unwrap());
+    assert_eq!(event.leaf_index, leaf_index);
     assert_eq!(event.event_type, WorldTreeEventType::AccountCreated);
 }
 
@@ -599,13 +574,7 @@ async fn test_transaction_commit() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(
-            1u64,
-            &Address::ZERO,
-            &[],
-            &[],
-            &U256::from(123),
-        )
+        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123))
         .await
         .unwrap();
 
@@ -633,13 +602,7 @@ async fn test_transaction_rollback() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(
-            1u64,
-            &Address::ZERO,
-            &[],
-            &[],
-            &U256::from(123),
-        )
+        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123))
         .await
         .unwrap();
 
@@ -663,13 +626,7 @@ async fn test_multiple_operations_in_transaction() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(
-            1u64,
-            &Address::ZERO,
-            &[],
-            &[],
-            &U256::from(123),
-        )
+        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123))
         .await
         .unwrap();
 

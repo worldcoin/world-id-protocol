@@ -133,11 +133,7 @@ async fn test_account_update_modifies_existing_account() {
 
     // Verify account was created with UPDATED values (not initial values)
     // This confirms that the update event modified the account before it was committed
-    let account = db
-        .accounts()
-        .get_account(leaf_index)
-        .await
-        .unwrap();
+    let account = db.accounts().get_account(leaf_index).await.unwrap();
     assert!(account.is_some(), "Account should exist after root event");
     let account = account.unwrap();
     assert_eq!(account.leaf_index, leaf_index);

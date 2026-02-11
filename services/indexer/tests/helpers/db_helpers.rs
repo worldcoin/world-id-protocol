@@ -133,13 +133,7 @@ pub async fn insert_test_account(
     commitment: U256,
 ) -> DBResult<()> {
     db.accounts()
-        .insert(
-            leaf_index,
-            &recovery_address,
-            &[],
-            &[],
-            &commitment,
-        )
+        .insert(leaf_index, &recovery_address, &[], &[], &commitment)
         .await
 }
 
