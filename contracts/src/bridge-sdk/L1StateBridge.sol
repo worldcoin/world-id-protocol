@@ -101,6 +101,7 @@ contract L1StateBridge is WorldIdStateBridge {
         _validChainHeads[keccakChain.head] = true;
 
         _dispatch(abi.encode(commit));
+
         emit ChainCommitted(keccakChain.head, block.number, abi.encode(commit));
     }
 
