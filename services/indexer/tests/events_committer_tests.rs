@@ -135,7 +135,7 @@ async fn test_account_update_modifies_existing_account() {
     // This confirms that the update event modified the account before it was committed
     let account = db
         .accounts()
-        .get_account(&U256::from(leaf_index))
+        .get_account(leaf_index)
         .await
         .unwrap();
     assert!(account.is_some(), "Account should exist after root event");

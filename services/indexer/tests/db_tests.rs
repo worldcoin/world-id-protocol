@@ -10,7 +10,7 @@ async fn test_insert_account() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let recovery_address = Address::ZERO;
     let auth_addresses = vec![Address::ZERO];
     let auth_pubkeys = vec![U256::from(123)];
@@ -18,7 +18,7 @@ async fn test_insert_account() {
 
     db.accounts()
         .insert(
-            &leaf_index,
+            leaf_index,
             &recovery_address,
             &auth_addresses,
             &auth_pubkeys,
@@ -28,11 +28,15 @@ async fn test_insert_account() {
         .unwrap();
 
     // Verify account was inserted with correct data
-    let account = db.accounts().get_account(&leaf_index).await.unwrap();
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap();
     assert!(account.is_some(), "Account should exist");
 
     let account = account.unwrap();
-    assert_eq!(account.leaf_index, u64::try_from(leaf_index).unwrap());
+    assert_eq!(account.leaf_index, leaf_index);
     assert_eq!(account.recovery_address, recovery_address);
     assert_eq!(account.authenticator_addresses, auth_addresses);
     assert_eq!(account.authenticator_pubkeys, auth_pubkeys);
@@ -46,7 +50,7 @@ async fn test_duplicate_insert_account() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let recovery_address = Address::ZERO;
     let auth_addresses = vec![Address::ZERO];
     let auth_pubkeys = vec![U256::from(123)];
@@ -55,7 +59,7 @@ async fn test_duplicate_insert_account() {
     // First insert
     db.accounts()
         .insert(
-            &leaf_index,
+            leaf_index,
             &recovery_address,
             &auth_addresses,
             &auth_pubkeys,
@@ -68,7 +72,7 @@ async fn test_duplicate_insert_account() {
     let result = db
         .accounts()
         .insert(
-            &leaf_index,
+            leaf_index,
             &recovery_address,
             &auth_addresses,
             &auth_pubkeys,
@@ -92,7 +96,7 @@ async fn test_update_authenticator_at_index() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let initial_address = Address::from([1u8; 20]);
     let initial_pubkey = U256::from(123);
     let initial_commitment = U256::from(456);
@@ -100,7 +104,7 @@ async fn test_update_authenticator_at_index() {
     // Insert account
     db.accounts()
         .insert(
-            &leaf_index,
+            leaf_index,
             &Address::ZERO,
             &[initial_address],
             &[initial_pubkey],
@@ -115,14 +119,20 @@ async fn test_update_authenticator_at_index() {
     let new_commitment = U256::from(999);
 
     db.accounts()
-        .update_authenticator_at_index(&leaf_index, 0, &new_address, &new_pubkey, &new_commitment)
+        .update_authenticator_at_index(
+            leaf_index,
+            0,
+            &new_address,
+            &new_pubkey,
+            &new_commitment,
+        )
         .await
         .unwrap();
 
     // Verify update with field checks
     let account = db
         .accounts()
-        .get_account(&leaf_index)
+        .get_account(leaf_index)
         .await
         .unwrap()
         .unwrap();
@@ -137,13 +147,13 @@ async fn test_insert_authenticator_at_index() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let initial_commitment = U256::from(456);
 
     // Insert account with one authenticator
     db.accounts()
         .insert(
-            &leaf_index,
+            leaf_index,
             &Address::ZERO,
             &[Address::from([1u8; 20])],
             &[U256::from(123)],
@@ -158,14 +168,20 @@ async fn test_insert_authenticator_at_index() {
     let new_commitment = U256::from(999);
 
     db.accounts()
-        .insert_authenticator_at_index(&leaf_index, 1, &new_address, &new_pubkey, &new_commitment)
+        .insert_authenticator_at_index(
+            leaf_index,
+            1,
+            &new_address,
+            &new_pubkey,
+            &new_commitment,
+        )
         .await
         .unwrap();
 
     // Verify insertion with field checks
     let account = db
         .accounts()
-        .get_account(&leaf_index)
+        .get_account(leaf_index)
         .await
         .unwrap()
         .unwrap();
@@ -181,13 +197,13 @@ async fn test_remove_authenticator_at_index() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let initial_commitment = U256::from(456);
 
     // Insert account with two authenticators
     db.accounts()
         .insert(
-            &leaf_index,
+            leaf_index,
             &Address::ZERO,
             &[Address::from([1u8; 20]), Address::from([2u8; 20])],
             &[U256::from(123), U256::from(456)],
@@ -200,14 +216,14 @@ async fn test_remove_authenticator_at_index() {
     let new_commitment = U256::from(999);
 
     db.accounts()
-        .remove_authenticator_at_index(&leaf_index, 1, &new_commitment)
+        .remove_authenticator_at_index(leaf_index, 1, &new_commitment)
         .await
         .unwrap();
 
     // Verify removal with field checks
     let account = db
         .accounts()
-        .get_account(&leaf_index)
+        .get_account(leaf_index)
         .await
         .unwrap()
         .unwrap();
@@ -223,13 +239,13 @@ async fn test_reset_authenticator() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let initial_commitment = U256::from(456);
 
     // Insert account
     db.accounts()
         .insert(
-            &leaf_index,
+            leaf_index,
             &Address::ZERO,
             &[Address::from([1u8; 20])],
             &[U256::from(123)],
@@ -244,12 +260,21 @@ async fn test_reset_authenticator() {
     let new_commitment = U256::from(1111);
 
     db.accounts()
-        .reset_authenticator(&leaf_index, &new_address, &new_pubkey, &new_commitment)
+        .reset_authenticator(
+            leaf_index,
+            &new_address,
+            &new_pubkey,
+            &new_commitment,
+        )
         .await
         .unwrap();
 
     // Verify reset
-    let account = db.accounts().get_account(&leaf_index).await.unwrap();
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap();
     assert!(account.is_some(), "Account should exist after reset");
     let account = account.unwrap();
 
@@ -271,13 +296,13 @@ async fn test_insert_world_tree_event() {
 
     let block_number = 100;
     let log_index = 5;
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
     db.world_tree_events()
         .insert_event(
-            &leaf_index,
+            leaf_index,
             WorldTreeEventType::AccountCreated,
             &commitment,
             block_number,
@@ -312,14 +337,14 @@ async fn test_duplicate_world_tree_event_insert() {
 
     let block_number = 100;
     let log_index = 5;
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
     // First insert
     db.world_tree_events()
         .insert_event(
-            &leaf_index,
+            leaf_index,
             WorldTreeEventType::AccountCreated,
             &commitment,
             block_number,
@@ -333,7 +358,7 @@ async fn test_duplicate_world_tree_event_insert() {
     let result = db
         .world_tree_events()
         .insert_event(
-            &leaf_index,
+            leaf_index,
             WorldTreeEventType::AccountCreated,
             &commitment,
             block_number,
@@ -360,13 +385,13 @@ async fn test_get_world_tree_event() {
 
     let block_number = 100;
     let log_index = 5;
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
     db.world_tree_events()
         .insert_event(
-            &leaf_index,
+            leaf_index,
             WorldTreeEventType::AccountCreated,
             &commitment,
             block_number,
@@ -401,7 +426,7 @@ async fn test_get_latest_world_tree_events() {
     for i in 0..5 {
         db.world_tree_events()
             .insert_event(
-                &U256::from(i),
+                i,
                 WorldTreeEventType::AccountCreated,
                 &U256::from(i * 100),
                 100 + i,
@@ -574,7 +599,13 @@ async fn test_transaction_commit() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(123))
+        .insert(
+            1u64,
+            &Address::ZERO,
+            &[],
+            &[],
+            &U256::from(123),
+        )
         .await
         .unwrap();
 
@@ -602,7 +633,13 @@ async fn test_transaction_rollback() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(123))
+        .insert(
+            1u64,
+            &Address::ZERO,
+            &[],
+            &[],
+            &U256::from(123),
+        )
         .await
         .unwrap();
 
@@ -626,7 +663,13 @@ async fn test_multiple_operations_in_transaction() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(123))
+        .insert(
+            1u64,
+            &Address::ZERO,
+            &[],
+            &[],
+            &U256::from(123),
+        )
         .await
         .unwrap();
 
@@ -635,7 +678,7 @@ async fn test_multiple_operations_in_transaction() {
         .await
         .unwrap()
         .insert_event(
-            &U256::from(1),
+            1,
             WorldTreeEventType::AccountCreated,
             &U256::from(123),
             100,
