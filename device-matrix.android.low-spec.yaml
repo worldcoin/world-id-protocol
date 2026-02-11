@@ -1,0 +1,5 @@
+devices:
+  - name: "Motorola Moto G9 Play"
+    os: "android"
+    os_version: "10.0"
+    tags: ["low-spec", "android"]

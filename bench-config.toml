@@ -1,0 +1,15 @@
+target = "ios"
+function = "bench_mobile::bench_nullifier_proving_only"
+iterations = 100
+warmup = 10
+device_matrix = "device-matrix.yaml"
+device_tags = ["default"]
+
+[browserstack]
+app_automate_username = "${BROWSERSTACK_USERNAME}"
+app_automate_access_key = "${BROWSERSTACK_ACCESS_KEY}"
+project = "mobile-bench-rs"
+
+[ios_xcuitest]
+app = "target/mobench/ios/BenchRunner.ipa"
+test_suite = "target/mobench/ios/BenchRunnerUITests.zip"

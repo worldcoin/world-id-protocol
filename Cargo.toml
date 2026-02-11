@@ -6,6 +6,8 @@ members = [
   "crates/proof",
   "crates/primitives",
   "crates/test-utils",
+  # Mobile benchmarking harness (used by mobench).
+  "bench-mobile",
   "services/indexer",
   "services/gateway",
   "services/oprf-node",
@@ -92,6 +94,7 @@ metrics = "0.24"
 secrecy = "0.10"
 mockito = "1"
 ciborium = "0.2"
+uniffi = "0.31"
 arrayvec = "0.7"
 async-trait = "0.1"
 aws-config = "1"
