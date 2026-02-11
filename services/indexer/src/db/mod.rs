@@ -176,7 +176,7 @@ where
     .map(|row_result| {
         let row = row_result?;
         let leaf_index = row.get::<U256, _>("leaf_index");
-        let leaf_index = leaf_index.as_limbs()[0] as u64;
+        let leaf_index = leaf_index.as_limbs()[0];
         let commitment = row.get::<U256, _>("offchain_signer_commitment");
         Ok((leaf_index, commitment))
     })

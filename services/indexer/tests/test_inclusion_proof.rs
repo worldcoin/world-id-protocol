@@ -55,7 +55,6 @@ async fn test_backfill_and_live_sync() {
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,
-                    dense_tree_prefix_depth: 2,
                     http_cache_refresh_interval_secs: 30,
                 },
             },
@@ -184,7 +183,6 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,
-                    dense_tree_prefix_depth: 2,
                     http_cache_refresh_interval_secs: 1,
                 },
             },

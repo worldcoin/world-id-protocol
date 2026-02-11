@@ -28,7 +28,7 @@ use crate::{
 /// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
 /// The caller must ensure that the cache file is not concurrently accessed or modified
 /// by other processes while the tree is using it.
-#[instrument(level = "info", skip_all, fields(tree_depth, dense_prefix_depth))]
+#[instrument(level = "info", skip_all, fields(tree_depth))]
 pub async unsafe fn init_tree(
     db: &DB,
     cache_path: &Path,
@@ -188,10 +188,6 @@ fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<Merk
 }
 
 /// Build tree from DB with mmap backing using chunk-based processing.
-///
-/// Two-pass approach:
-/// 1. First pass: Build dense prefix by processing leaves in chunks
-/// 2. Second pass: Apply sparse leaves (beyond dense prefix) incrementally
 #[instrument(level = "info", skip_all)]
 async fn build_from_db_with_cache(
     db: &DB,
