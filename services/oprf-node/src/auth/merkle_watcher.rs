@@ -345,8 +345,8 @@ mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
     use taceo_oprf::service::StartedServices;
-    use test_utils::anvil::TestAnvil;
     use tokio_util::sync::CancellationToken;
+    use world_id_test_utils::anvil::TestAnvil;
 
     const CACHED: u8 = 0b0001;
     const LATEST: u8 = 0b0010;

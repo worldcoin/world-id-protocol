@@ -133,9 +133,10 @@ pub fn build_base_credential(
     expires_at: u64,
     credential_sub_blinding_factor: FieldElement,
 ) -> Credential {
+    let sub = Credential::compute_sub(leaf_index, credential_sub_blinding_factor);
     Credential::new()
         .issuer_schema_id(issuer_schema_id)
-        .sub(leaf_index, credential_sub_blinding_factor)
+        .subject(sub)
         .genesis_issued_at(genesis_issued_at)
         .expires_at(expires_at)
 }

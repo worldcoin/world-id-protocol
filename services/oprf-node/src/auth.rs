@@ -127,14 +127,14 @@ mod tests {
     };
     use ark_serialize::CanonicalSerialize;
     use rand::Rng;
-    use test_utils::{
-        anvil::TestAnvil,
-        fixtures::{RegistryTestContext, RpFixture, generate_rp_fixture},
-        merkle::first_leaf_merkle_path,
-    };
     use world_id_core::{EdDSAPrivateKey, Signer};
     use world_id_primitives::{
         TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    };
+    use world_id_test_utils::{
+        anvil::TestAnvil,
+        fixtures::{RegistryTestContext, RpFixture, generate_rp_fixture},
+        merkle::first_leaf_merkle_path,
     };
 
     pub(crate) struct OprfRequestAuthTestSetup {

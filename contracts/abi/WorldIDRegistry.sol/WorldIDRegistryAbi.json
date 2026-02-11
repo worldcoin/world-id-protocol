@@ -312,8 +312,8 @@
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -343,8 +343,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "outputs": [
@@ -362,8 +362,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "outputs": [
@@ -426,8 +426,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "outputs": [
@@ -486,8 +486,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "newAuthenticatorAddress",
@@ -597,8 +597,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "newAuthenticatorAddress",
@@ -645,8 +645,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "authenticatorAddress",
@@ -783,8 +783,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "oldAuthenticatorAddress",
@@ -841,8 +841,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "newRecoveryAddress",
@@ -887,9 +887,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "recoveryAddress",
@@ -924,9 +924,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "newAuthenticatorAddress",
@@ -961,9 +961,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "pubkeyId",
@@ -1010,9 +1010,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "pubkeyId",
@@ -1053,9 +1053,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "pubkeyId",
@@ -1210,9 +1210,9 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
+        "type": "uint64",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "uint64"
       },
       {
         "name": "oldRecoveryAddress",
@@ -1305,8 +1305,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },
@@ -1349,13 +1349,13 @@
     "inputs": [
       {
         "name": "expectedLeafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "actualLeafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },
@@ -1470,13 +1470,13 @@
     "inputs": [
       {
         "name": "expectedLeafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "actualLeafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },
@@ -1502,8 +1502,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "expectedRecoveryCounter",
@@ -1523,8 +1523,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       },
       {
         "name": "expectedNonce",
@@ -1607,8 +1607,8 @@
     "inputs": [
       {
         "name": "leafIndex",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },

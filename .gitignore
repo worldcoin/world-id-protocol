@@ -7,6 +7,9 @@ contracts/out/*
 contracts/cache/
 contracts/broadcast/
 
+# Ignore local deployment because it changes every run
+contracts/deployments/local.json
+
 # Node (if used later)
 node_modules/
 
