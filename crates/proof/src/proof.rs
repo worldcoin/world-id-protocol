@@ -178,6 +178,8 @@ fn get_circuit_files(cache_dir: Option<&Path>) -> &'static CircuitFiles {
 fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
     use std::io::Read as _;
 
+    use eyre::ContextCompat;
+
     // Step 1: Decode archive bytes (optional zstd decompression)
     let tar_bytes: Vec<u8> = {
         #[cfg(feature = "zstd-compress-zkeys")]
@@ -217,16 +219,12 @@ fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
         }
     }
 
-    let query_graph =
-        query_graph.ok_or_else(|| eyre::eyre!("OPRFQueryGraph.bin not found in archive"))?;
-    let nullifier_graph = nullifier_graph
-        .ok_or_else(|| eyre::eyre!("OPRFNullifierGraph.bin not found in archive"))?;
+    let query_graph = query_graph.context("OPRFQueryGraph.bin not found in archive")?;
+    let nullifier_graph = nullifier_graph.context("OPRFNullifierGraph.bin not found in archive")?;
     #[allow(unused_mut)]
-    let mut query_zkey =
-        query_zkey.ok_or_else(|| eyre::eyre!("OPRFQuery zkey not found in archive"))?;
+    let mut query_zkey = query_zkey.context("OPRFQuery zkey not found in archive")?;
     #[allow(unused_mut)]
-    let mut nullifier_zkey =
-        nullifier_zkey.ok_or_else(|| eyre::eyre!("OPRFNullifier zkey not found in archive"))?;
+    let mut nullifier_zkey = nullifier_zkey.context("OPRFNullifier zkey not found in archive")?;
 
     // Step 3: ARK decompress zkeys if compress-zkeys is active (with disk caching)
     #[cfg(feature = "compress-zkeys")]
