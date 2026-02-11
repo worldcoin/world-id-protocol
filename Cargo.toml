@@ -17,7 +17,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.3.0"
+version = "0.4.0"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -57,16 +57,16 @@ itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
 taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.4", default-features = false }
-taceo-oprf-types = { version = "0.7" }
-taceo-oprf-test-utils = "0.3"
+taceo-oprf = { version = "0.5", default-features = false }
+taceo-oprf-types = { version = "0.8" }
+taceo-oprf-test-utils = "0.4"
 taceo-oprf-key-gen = "0.4"
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
 rand = "0.8"
 rand_chacha = "0.3"
-rustls = { version = "0.23",features = ["ring"] }
+rustls = { version = "0.23", features = ["ring"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -111,6 +111,7 @@ redis = "1"
 regex = "1"
 semaphore-rs-hasher = "0.5.0"
 semaphore-rs-trees = "0.5.0"
+semaphore-rs-storage = "0.5.0"
 serial_test = "3"
 sqlx = "0.8"
 take_mut = "0.2.2"
@@ -121,12 +122,11 @@ tokio-util = "0.7"
 tower = "0.5.3"
 
 # Internal
-world-id-core = { version = "0.3.0", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.3.0", path = "crates/issuer" }
-world-id-proof = { version = "0.3.0", path = "crates/proof" }
-world-id-authenticator = { version = "0.3.0", path = "crates/authenticator" }
-world-id-primitives = { version = "0.3.0", path = "crates/primitives", default-features = false }
+world-id-core = { version = "0.4.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.4.0", path = "crates/issuer" }
+world-id-proof = { version = "0.4.0", path = "crates/proof" }
+world-id-authenticator = { version = "0.4.0", path = "crates/authenticator" }
+world-id-primitives = { version = "0.4.0", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
-world-id-gateway = { version = "0.1.0", path = "services/gateway" }
 world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }

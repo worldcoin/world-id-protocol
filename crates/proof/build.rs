@@ -122,7 +122,11 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<()> {
 
         if let Some(path) = local_path {
             if path.exists() {
-                std::fs::hard_link(&path, &output_path).ok();
+                // Hard links fail across filesystem boundaries (e.g. in cross Docker containers),
+                // so fall back to copying the file.
+                if std::fs::hard_link(&path, &output_path).is_err() {
+                    std::fs::copy(&path, &output_path)?;
+                }
                 println!("cargo:rerun-if-changed={}", path.display());
                 return Ok(());
             }

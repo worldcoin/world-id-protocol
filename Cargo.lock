@@ -2654,7 +2654,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7334,9 +7334,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "900c46c7c5c7d95db48fc2feb3eb1fcddf39ea0ddda90f20482a51bfabbbbb58"
+checksum = "9ad0c141a86360ceee41ac686fe23759f1e683afb8b9f490ba05d10ead0d0faa"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -7347,9 +7347,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35c970d34235130ce19d2b026e1a7ca0e027f8d6c5aaedef23f3699a4722e350"
+checksum = "4faf78cbda7fcf4ed4efb58b3cab68a144de69cb8cd00c69b2cef5d2c661f652"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -7390,9 +7390,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-dev-client"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f565bf705c6f9ca82e196d7645a891aea7a21447579036a9eb69af589018f275"
+checksum = "049777ff118b69f07f70bea3cb88fe5920dec0a5ae998bed186fee760e03a61c"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7414,9 +7414,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-key-gen"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dedb48a992e13942542d152c922a840e777dc3893319c34451351becae8c16b"
+checksum = "34638461a9d1beb13d2c2bc62f486b9a3cb599cc067d8977c5496e73df33cb12"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -7456,9 +7456,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "343335e5197913a9e609b979785f56c03cea109a801303287eb15489de9c9825"
+checksum = "477cf37743cad992e48e21f9bc110c162afa47392fef75792e8ab70da468ddab"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -7498,9 +7498,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-test-utils"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbe1720e0b71b9db344b800e43de0756742a3ec2f8c8039aa6dc62f345d1057b"
+checksum = "b0803e730bac7a6c1ddaa9f6ee7d1fec7a8405eaaa5b68a2e784e73bef2ab407"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -7528,9 +7528,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-types"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d8bb3332990b063920bf34e7391b56942daab551a45871d440023ebc3956d8d"
+checksum = "df4a13d21292f6f89e3cd9051acff0ea53e353f4d2bb4b8b2808a7925833cdc9"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7544,7 +7544,6 @@ dependencies = [
  "taceo-circom-types",
  "taceo-groth16-sol",
  "taceo-oprf-core",
- "tracing",
  "uuid",
 ]
 
@@ -8784,15 +8783,6 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
-dependencies = [
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
 version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
@@ -9012,7 +9002,7 @@ checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -9041,7 +9031,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "backon",
@@ -9125,6 +9115,7 @@ dependencies = [
  "axum",
  "common",
  "dotenvy",
+ "eyre",
  "futures-util",
  "hex",
  "http 1.4.0",
@@ -9134,6 +9125,7 @@ dependencies = [
  "ruint",
  "rustls 0.23.36",
  "semaphore-rs-hasher",
+ "semaphore-rs-storage",
  "semaphore-rs-trees",
  "serde",
  "serde_json",
@@ -9158,7 +9150,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -9236,7 +9228,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -9273,7 +9265,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
