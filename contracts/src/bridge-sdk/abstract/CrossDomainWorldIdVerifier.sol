@@ -10,13 +10,14 @@ import {IL1Block} from "../vendored/optimism/IL1Block.sol";
 /// @title CrossDomainWorldIdVerifier
 /// @author World Contributors
 /// @notice ZK proof verification layer on top of `WorldIdStateBridge`. Reads proven state from
-///   the inherited bridge and verifies Groth16 proofs against it.
+///   the inherited bridge and verifies Groth16 proofs against it. Domain-agnostic — can be
+///   composed with any context via multiple inheritance.
 abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdStateBridge {
     ////////////////////////////////////////////////////////////
     //                         STATE                          //
     ////////////////////////////////////////////////////////////
 
-    /// @dev Contract for proof verification (Groth16). Slot 11.
+    /// @dev Contract for proof verification (Groth16). Packs into slot 11 with `_minExpirationThreshold` (uint64 + address = 28 bytes).
     Verifier internal _verifier;
 
     ////////////////////////////////////////////////////////////
@@ -25,12 +26,12 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdStateBr
 
     constructor(
         address verifier,
+        IL1Block l1BlockHashOracle,
+        address l1Bridge,
         uint256 rootValidityWindow_,
         uint256 treeDepth_,
-        uint64 minExpirationThreshold_,
-        IL1Block l1BlockHashOracle,
-        address l1Bridge
-    ) WorldIdStateBridge(rootValidityWindow_, treeDepth_, minExpirationThreshold_, l1BlockHashOracle, l1Bridge) {
+        uint64 minExpirationThreshold_
+    ) WorldIdStateBridge(l1BlockHashOracle, l1Bridge, rootValidityWindow_, treeDepth_, minExpirationThreshold_) {
         _verifier = Verifier(verifier);
     }
 

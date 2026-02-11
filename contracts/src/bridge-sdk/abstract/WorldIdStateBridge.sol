@@ -3,15 +3,22 @@ pragma solidity ^0.8.28;
 
 import {IWorldIdStateBridge} from "../interfaces/IWorldIdStateBridge.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
-import {BabyJubJub} from "../../../lib/oprf-key-registry/src/BabyJubJub.sol";
+import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
+import {ProofsLib} from "../libraries/Proofs.sol";
 import {IL1Block} from "../vendored/optimism/IL1Block.sol";
-
-import {MptVerifier} from "../libraries/MptVerifier.sol";
 
 /// @title WorldIdStateBridge
 /// @author World Contributors
-/// @notice Abstract base for cross-chain for World ID state bridges
+/// @notice Abstract base for cross-chain World ID state bridges. Owns all shared state
+///   and commitment dispatch logic. Domain-specific verification and chain extension
+///   are handled by context contracts (Source, Relay, Destination).
 abstract contract WorldIdStateBridge is IWorldIdStateBridge {
+    using ProofsLib for ProofsLib.Chain;
+
+    ////////////////////////////////////////////////////////////
+    //                    ACTION SELECTORS                     //
+    ////////////////////////////////////////////////////////////
+
     /// @dev Action: a new Merkle root was proven. Data: `abi.encode(root, timestamp, proofId)`.
     bytes4 internal constant UPDATE_ROOT_SELECTOR = bytes4(keccak256("updateRoot(uint256,uint256,bytes32)"));
 
@@ -26,31 +33,15 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
     /// @dev Action: a proof ID was invalidated. Data: `abi.encode(proofId)`.
     bytes4 internal constant INVALIDATE_PROOF_ID_SELECTOR = bytes4(keccak256("invalidateProofId(bytes32)"));
 
-    /// @dev A commitment to the sequence of updates.
-    struct Commitment {
-        bytes32 blockHash;
-        bytes data;
-    }
+    /// @notice The oracle that attests to known L1 block hashes on this chain.
+    IL1Block public immutable L1_BLOCK_HASH_ORACLE;
 
-    /// @notice A single commit in a keccak chain verifiable via `proof`.
-    ///       represents a scritclly-ordered sequence of state transitions to the verifier's state
-    ///       that whith an MPT against Ethereum L1s state.
-    struct CommitmentWithProof {
-        bytes mptProof;
-        Commitment[] commits;
-    }
+    /// @notice The RelayContext contract address on Ethereum L1.
+    address public immutable L1_BRIDGE;
 
-    /// @dev Current head of the rolling keccak state chain.
-    ///     Updated with each new commitment.
-    bytes32 public keccakChain;
-
-    /// @dev Holds a mapping of invalidated Proof IDs.
-    ///      Any root or pubkey relying on an invalidated proof ID is rejected by `isValidRoot` and WorldIDVerifier functions.
-    mapping(bytes32 => bool) internal _invalidatedProofIds; // slot 0
-
-    uint256 public latestRoot; // slot 1
-    uint256 internal _rootValidityWindow; // slot 2
-    uint256 internal _treeDepth; // slot 3
+    ////////////////////////////////////////////////////////////
+    //                        STRUCTS                         //
+    ////////////////////////////////////////////////////////////
 
     struct ProvenRootInfo {
         uint256 timestamp;
@@ -62,30 +53,55 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
         bytes32 proofId;
     }
 
-    mapping(bytes32 root => ProvenRootInfo rootInfo) internal _rootToTimestampAndProofId; // slot 4
-    mapping(uint64 schemaId => ProvenPubKeyInfo issuerPubKeyInfo) public _issuerSchemaIdToPubkeyAndProofId; // slot 5
-    mapping(uint160 oprfKeyId => ProvenPubKeyInfo oprfPubKeyInfo) internal _oprfKeyIdToPubkeyAndProofId; // slot 6
+    ////////////////////////////////////////////////////////////
+    //                   STORAGE LAYOUT                       //
+    //  Slot positions matter for MPT proof verification.     //
+    ////////////////////////////////////////////////////////////
 
-    IBridgeAdapter[] internal _adapters; // slot 10
+    /// @dev Current head of the rolling keccak state chain. Slot 0-1.
+    ProofsLib.Chain public keccakChain;
 
-    uint64 internal _minExpirationThreshold; // slot 12
+    /// @dev Holds a mapping of invalidated Proof IDs. Slot 2.
+    mapping(bytes32 => bool) internal _invalidatedProofIds;
 
-    /// @notice The oracle that attests to known L1 block hashes on this chain.
-    IL1Block public immutable L1_BLOCK_HASH_ORACLE;
+    /// @notice The latest proven Merkle root. Slot 3.
+    uint256 public latestRoot;
 
-    /// @notice The L1StateAdapter contract address on Ethereum L1.
-    address public immutable L1_BRIDGE;
+    /// @dev Root validity window in seconds. Slot 4.
+    uint256 internal _rootValidityWindow;
+
+    /// @dev Merkle tree depth. Slot 5.
+    uint256 internal _treeDepth;
+
+    /// @dev Maps root → (timestamp, proofId). Slot 6.
+    mapping(bytes32 root => ProvenRootInfo rootInfo) internal _rootToTimestampAndProofId;
+
+    /// @dev Maps issuerSchemaId → (pubKey, proofId). Slot 7.
+    mapping(uint64 schemaId => ProvenPubKeyInfo issuerPubKeyInfo) public _issuerSchemaIdToPubkeyAndProofId;
+
+    /// @dev Maps oprfKeyId → (pubKey, proofId). Slot 8.
+    mapping(uint160 oprfKeyId => ProvenPubKeyInfo oprfPubKeyInfo) internal _oprfKeyIdToPubkeyAndProofId;
+
+    /// @dev Maps chain head → validity. Slot 9.
+    ///   Must match `MptVerifier._VALID_CHAIN_KECCAK_CHAIN_SLOT`.
+    mapping(bytes32 => bool) internal _validChainHeads;
+
+    /// @dev Registered bridge adapters for cross-chain dispatch. Slot 10.
+    IBridgeAdapter[] internal _adapters;
+
+    /// @dev Minimum expiration threshold. Slot 11.
+    uint64 internal _minExpirationThreshold;
 
     ////////////////////////////////////////////////////////////
     //                      CONSTRUCTOR                       //
     ////////////////////////////////////////////////////////////
 
     constructor(
+        IL1Block l1BlockHashOracle,
+        address l1Bridge,
         uint256 rootValidityWindow_,
         uint256 treeDepth_,
-        uint64 minExpirationThreshold_,
-        IL1Block l1BlockHashOracle,
-        address l1Bridge
+        uint64 minExpirationThreshold_
     ) {
         L1_BLOCK_HASH_ORACLE = l1BlockHashOracle;
         L1_BRIDGE = l1Bridge;
@@ -94,23 +110,9 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
         _minExpirationThreshold = minExpirationThreshold_;
     }
 
-    /// @notice Commits a sequence of state transitions to the bridge's keccak chain, verifies the new head against L1, and dispatches to adapters.
-    /// @dev Each commit in `commitWithProof.commits` is applied in order.
-    function commitChained(CommitmentWithProof memory commitWithProof) public virtual {
-        if (commitWithProof.commits.length == 0) revert EmptyChainedCommits();
-
-        for (uint256 i; i < commitWithProof.commits.length; ++i) {
-            keccakChain = commitChain(commitWithProof.commits[i]);
-        }
-
-        verifyChainedCommitment(keccakChain, commitWithProof.mptProof);
-    }
-
-    /// @notice Commits a transition to the hash chain. _Does not verify the commitment's validity_
-    function commitChain(Commitment memory commit) internal returns (bytes32 chainedHead) {
-        chainedHead = keccak256(abi.encodePacked(keccakChain, commit.blockHash, commit.data));
-        applyCommitment(commit);
-    }
+    ////////////////////////////////////////////////////////////
+    //                    STATE WRITERS                        //
+    ////////////////////////////////////////////////////////////
 
     /// @notice Writes a proven root into bridge state.
     function updateRoot(uint256 root, uint256 timestamp, bytes32 proofId) internal virtual {
@@ -130,14 +132,18 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
             ProvenPubKeyInfo({pubKey: BabyJubJub.Affine({x: x, y: y}), proofId: proofId});
     }
 
-    /// @notice Invalidates a proof ID by marking it in bridge state. Invalidated proof IDs cause roots and pubkeys relying on them to be rejected by `isValidRoot` and WorldIDVerifier functions.
+    /// @notice Marks a proof ID as invalidated.
     function invalidateProofId(bytes32 proofId) internal virtual {
         _invalidatedProofIds[proofId] = true;
         emit ProofIdInvalidated(proofId);
     }
 
-    /// @dev Applies a single chained commit's state change based on its action type.
-    function applyCommitment(Commitment memory commit) internal virtual {
+    ////////////////////////////////////////////////////////////
+    //                 COMMITMENT DISPATCH                    //
+    ////////////////////////////////////////////////////////////
+
+    /// @dev Applies a single commitment's state change based on its action selector.
+    function applyCommitment(ProofsLib.Commitment memory commit) internal virtual {
         bytes memory data = commit.data;
         bytes4 sel;
         assembly {
@@ -192,40 +198,16 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
         }
     }
 
-    /// @notice Hashes a sequence of commitments with a given chain head
-    function hashChainedCommitment(Commitment[] memory commits, bytes32 _chain)
-        internal
-        pure
-        returns (bytes32 _chained)
-    {
-        _chained = _chain;
+    /// @dev Applies an array of commitments in order.
+    function _applyCommitments(ProofsLib.Commitment[] memory commits) internal {
         for (uint256 i; i < commits.length; ++i) {
-            _chained = keccak256(abi.encodePacked(_chained, commits[i].blockHash, commits[i].data));
+            applyCommitment(commits[i]);
         }
     }
 
-    /// @dev Verifies that `keccakChain` is a valid chain head by proving the
-    ///   `_validChainHeads[keccakChain]` mapping value is `true` on L1 via MPT storage proof.
-    /// @param keccakChain_ The chain head to verify.
-    /// @param proof ABI-encoded `(bytes l1HeaderRlp, bytes[] l1AccountProof, bytes[] chainHeadValidityProof)`.
-    function verifyChainedCommitment(bytes32 keccakChain_, bytes memory proof) internal view virtual {
-        (bytes memory l1HeaderRlp, bytes[] memory l1AccountProof, bytes[] memory chainHeadValidityProof) =
-            abi.decode(proof, (bytes, bytes[], bytes[]));
-
-        bytes32 l1BlockHash = keccak256(l1HeaderRlp);
-
-        if (!(L1_BLOCK_HASH_ORACLE.hash() == l1BlockHash)) {
-            revert IWorldIdStateBridge.UnknownL1BlockHash();
-        }
-
-        bytes32 l1StateRoot = MptVerifier.extractStateRootFromHeader(l1HeaderRlp, l1BlockHash);
-        bytes32 storageRoot = MptVerifier.verifyAccountAndGetStorageRoot(L1_BRIDGE, l1AccountProof, l1StateRoot);
-
-        bytes32 validitySlot = MptVerifier._computeMappingSlot(MptVerifier._VALID_CHAIN_KECCAK_CHAIN_SLOT, keccakChain_);
-        uint256 isValid = MptVerifier.storageFromProof(chainHeadValidityProof, storageRoot, validitySlot);
-
-        if (isValid != 1) revert InvalidChainHead();
-    }
+    ////////////////////////////////////////////////////////////
+    //                         VIEWS                          //
+    ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IWorldIdStateBridge
     function isValidRoot(uint256 root) public view virtual returns (bool) {
@@ -237,6 +219,28 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
 
         return (root == latestRoot || (block.timestamp <= timestamp + _rootValidityWindow));
     }
+
+    /// @notice Commits a sequence of state transitions by verifying them against L1 state
+    ///   via MPT proof. The L1 block hash is read from the oracle for trust anchoring.
+    /// @param commitWithProof The commitment batch with MPT proof data.
+    function commitChained(ProofsLib.CommitmentWithProof calldata commitWithProof) external virtual {
+        if (commitWithProof.commits.length == 0) revert EmptyChainedCommits();
+
+        bytes32 trustedL1BlockHash = L1_BLOCK_HASH_ORACLE.hash();
+
+        ProofsLib.Chain memory chain = keccakChain;
+        ProofsLib.verifyProof(chain, commitWithProof, L1_BRIDGE, trustedL1BlockHash);
+
+        _applyCommitments(commitWithProof.commits);
+        keccakChain.commitChained(commitWithProof.commits);
+        _validChainHeads[keccakChain.head] = true;
+
+        emit ChainCommitted(keccakChain.head, block.number, abi.encode(commitWithProof));
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                   ADAPTER MANAGEMENT                   //
+    ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IWorldIdStateBridge
     function registerAdapter(IBridgeAdapter adapter) external virtual {
@@ -255,12 +259,5 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
         _adapters.pop();
 
         emit AdapterRemoved(index, removed);
-    }
-
-    function dispatch(bytes calldata message) internal virtual {
-        for (uint256 i; i < _adapters.length; ++i) {
-            (bool success,) = address(_adapters[i]).call(message);
-            if (!success) revert("Adapter call failed");
-        }
     }
 }

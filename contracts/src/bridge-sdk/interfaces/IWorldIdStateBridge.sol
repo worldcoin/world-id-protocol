@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IBridgeAdapter} from "./IBridgeAdapter.sol";
+import {ProofsLib} from "../libraries/Proofs.sol";
 
 /// @title IWorldIdStateBridge
 /// @author World Contributors
@@ -59,7 +60,7 @@ interface IWorldIdStateBridge {
     event AdapterRemoved(uint256 indexed index, address adapter);
 
     /// @notice Emitted when the native World Chain state is updated and propagated into the bridge.
-    event ChainCommitted(bytes32 indexed keccakChain, bytes32 indexed blockHash, bytes data);
+    event ChainCommitted(bytes32 indexed keccakChain, uint256 indexed blockNumber, bytes commitment);
 
     /// @notice Checks if a root is currently valid.
     function isValidRoot(uint256 root) external view returns (bool);
@@ -69,4 +70,9 @@ interface IWorldIdStateBridge {
 
     /// @notice Removes a bridge adapter at the given index using swap-and-pop.
     function removeAdapter(uint256 index) external;
+
+    /// @notice Commits a sequence of state transitions by verifying them against L1 state
+    ///   via MPT proof. The L1 block hash is read from the oracle for trust anchoring.
+    /// @param commitWithProof The commitment batch with MPT proof data.
+    function commitChained(ProofsLib.CommitmentWithProof calldata commitWithProof) external;
 }

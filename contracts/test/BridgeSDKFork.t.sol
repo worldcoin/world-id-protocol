@@ -2,14 +2,15 @@
 pragma solidity ^0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {WorldChainStateAdapter, IOprfKeyRegistry} from "../src/bridge-sdk/adapters/WorldChainStateAdapter.sol";
-import {L1StateAdapter} from "../src/bridge-sdk/adapters/L1StateAdapter.sol";
+import {WorldChainStateBridge, IOprfKeyRegistry} from "../src/bridge-sdk/WorldChainStateBridge.sol";
+import {L1StateBridge} from "../src/bridge-sdk/L1StateBridge.sol";
 import {OpStackBridgeAdapter} from "../src/bridge-sdk/adapters/op/OpStackBridgeAdapter.sol";
 import {WorldIdStateBridge} from "../src/bridge-sdk/abstract/WorldIdStateBridge.sol";
 import {IWorldIdStateBridge} from "../src/bridge-sdk/interfaces/IWorldIdStateBridge.sol";
 import {IBridgeAdapter} from "../src/bridge-sdk/interfaces/IBridgeAdapter.sol";
 import {IL1Block} from "../src/bridge-sdk/vendored/optimism/IL1Block.sol";
 import {MptVerifier} from "../src/bridge-sdk/libraries/MptVerifier.sol";
+import {ProofsLib} from "../src/bridge-sdk/libraries/Proofs.sol";
 import {IDisputeGameFactory} from "../src/bridge-sdk/vendored/optimism/IDisputeGameFactory.sol";
 import {IDisputeGame} from "../src/bridge-sdk/vendored/optimism/IDisputeGame.sol";
 import {ICrossDomainMessenger} from "../src/bridge-sdk/vendored/optimism/ICrossDomainMessenger.sol";
@@ -17,13 +18,30 @@ import {GameStatus, Claim, GameType, Timestamp} from "../src/bridge-sdk/vendored
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
 
 // ═══════════════════════════════════════════════════════════════
-//                      MINIMAL HARNESS
+//                      TEST HARNESSES
 // ═══════════════════════════════════════════════════════════════
 
+/// @dev Test-only bridge that applies commitments without proof verification.
+contract TestBridge is WorldIdStateBridge {
+    using ProofsLib for ProofsLib.Chain;
+
+    constructor(uint256 rootValidityWindow_, uint256 treeDepth_, uint64 minExpirationThreshold_)
+        WorldIdStateBridge(IL1Block(address(0)), address(0), rootValidityWindow_, treeDepth_, minExpirationThreshold_)
+    {}
+
+    function commitChained(ProofsLib.CommitmentWithProof calldata commitWithProof) external override {
+        if (commitWithProof.commits.length == 0) revert EmptyChainedCommits();
+        _applyCommitments(commitWithProof.commits);
+        keccakChain.commitChained(commitWithProof.commits);
+    }
+}
+
 /// @dev Exposes internal OPRF key mapping for assertions.
-contract WCHarness is WorldChainStateAdapter {
+contract WCHarness is WorldChainStateBridge {
     constructor(address registry, address issuerRegistry, address oprfRegistry, address l1BlockOracle)
-        WorldChainStateAdapter(registry, issuerRegistry, oprfRegistry, 1 hours, 30, 0, address(1), l1BlockOracle)
+        WorldChainStateBridge(
+            registry, issuerRegistry, oprfRegistry, IL1Block(l1BlockOracle), address(0), 1 hours, 30, 0
+        )
     {}
 
     function getOprfKey(uint160 oprfKeyId) external view returns (uint256 x, uint256 y, bytes32 proofId) {
@@ -36,7 +54,7 @@ contract WCHarness is WorldChainStateAdapter {
 //                  WORLD CHAIN FORK TESTS
 // ═══════════════════════════════════════════════════════════════
 
-/// @notice Tests WorldChainStateAdapter against real WC mainnet registries.
+/// @notice Tests SourceContext against real WC mainnet registries.
 contract WorldChainForkTest is Test {
     // ═══ World Chain Mainnet Addresses ═══
     address constant WC_REGISTRY = 0x969947cFED008bFb5e3F32a25A1A2CDdf64d46fe;
@@ -62,7 +80,8 @@ contract WorldChainForkTest is Test {
         uint256 root = wc.latestRoot();
         assertTrue(root != 0, "Root should be non-zero from real registry");
         assertTrue(wc.isValidRoot(root), "Propagated root should be valid");
-        assertTrue(wc.keccakChain() != bytes32(0), "Chain head should advance");
+        (bytes32 head,) = wc.keccakChain();
+        assertTrue(head != bytes32(0), "Chain head should advance");
     }
 
     function test_propagateRoot_duplicateReverts() public {
@@ -99,13 +118,13 @@ contract WorldChainForkTest is Test {
 
     function test_chainExtension_eachPropagationAdvancesChain() public {
         wc.propagateRoot();
-        bytes32 head1 = wc.keccakChain();
+        (bytes32 head1,) = wc.keccakChain();
 
         wc.propagateIssuerPubkey(ISSUER_ID);
-        bytes32 head2 = wc.keccakChain();
+        (bytes32 head2,) = wc.keccakChain();
 
         wc.propagateOprfKey(OPRF_ID);
-        bytes32 head3 = wc.keccakChain();
+        (bytes32 head3,) = wc.keccakChain();
 
         assertTrue(head1 != head2, "Head should change after issuer propagation");
         assertTrue(head2 != head3, "Head should change after OPRF propagation");
@@ -124,7 +143,8 @@ contract WorldChainForkTest is Test {
         bytes32 expected = keccak256(abi.encodePacked(bytes32(0), l1Hash, data));
 
         wc.propagateRoot();
-        assertEq(wc.keccakChain(), expected, "Chain head should match deterministic computation");
+        (bytes32 head,) = wc.keccakChain();
+        assertEq(head, expected, "Chain head should match deterministic computation");
     }
 }
 
@@ -252,7 +272,7 @@ contract MptVerificationForkTest is Test {
 //                  L1 DISPUTE GAME FORK TESTS
 // ═══════════════════════════════════════════════════════════════
 
-/// @notice Tests L1StateAdapter against real DisputeGameFactory on Ethereum mainnet.
+/// @notice Tests L1StateBridge against real DisputeGameFactory on Ethereum mainnet.
 contract L1DisputeGameForkTest is Test {
     address constant L1_DISPUTE_GAME_FACTORY = 0x069c4c579671f8c120b1327a73217D01Ea2EC5ea;
 
@@ -283,10 +303,11 @@ contract L1DisputeGameForkTest is Test {
             return;
         }
 
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        L1StateBridge relay = new L1StateBridge(dgf, address(2), 1 hours, 30, 0);
 
-        l1.invalidateProofId(challengerIdx);
-        assertTrue(l1.keccakChain() != bytes32(0), "Chain should advance after invalidation");
+        relay.invalidateProofId(challengerIdx);
+        (bytes32 head,) = relay.keccakChain();
+        assertTrue(head != bytes32(0), "Chain should advance after invalidation");
 
         (,, IDisputeGame game) = dgf.gameAtIndex(challengerIdx);
         console2.log("Invalidated proofId (l2BlockNumber):", game.l2BlockNumber());
@@ -299,19 +320,19 @@ contract L1DisputeGameForkTest is Test {
             return;
         }
 
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        L1StateBridge relay = new L1StateBridge(dgf, address(2), 1 hours, 30, 0);
 
         vm.expectRevert(IWorldIdStateBridge.GameNotChallengerWins.selector);
-        l1.invalidateProofId(defenderIdx);
+        relay.invalidateProofId(defenderIdx);
     }
 
     function test_invalidateProofId_invalidIndexReverts() public {
         uint256 count = dgf.gameCount();
 
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        L1StateBridge relay = new L1StateBridge(dgf, address(2), 1 hours, 30, 0);
 
         vm.expectRevert(IWorldIdStateBridge.InvalidDisputeGameIndex.selector);
-        l1.invalidateProofId(count + 999);
+        relay.invalidateProofId(count + 999);
     }
 
     function _findGameWithStatus(GameStatus targetStatus, uint256 searchDepth) internal view returns (uint256) {
@@ -363,58 +384,56 @@ contract BridgeE2EForkTest is Test {
 
     function test_e2e_fullBridging_wcToL1() public {
         CapturedState memory state = _propagateOnWC();
-        WorldIdStateBridge.Commitment[] memory commits = _buildCommitments(state);
+        ProofsLib.Commitment[] memory commits = _buildCommitments(state);
 
         vm.selectFork(ethFork);
-        IDisputeGameFactory dgf = IDisputeGameFactory(L1_DISPUTE_GAME_FACTORY);
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        TestBridge bridge = new TestBridge(1 hours, 30, 0);
 
-        WorldIdStateBridge.CommitmentWithProof memory cwp =
-            WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: commits});
+        ProofsLib.CommitmentWithProof memory cwp = ProofsLib.CommitmentWithProof({mptProof: "", commits: commits});
 
-        l1.commitChained(cwp);
+        bridge.commitChained(cwp);
 
-        assertEq(l1.keccakChain(), state.keccakChain, "Chain heads should match");
-        assertEq(l1.latestRoot(), state.root, "Roots should match");
-        assertTrue(l1.isValidRoot(state.root), "Root should be valid on L1");
+        (bytes32 head,) = bridge.keccakChain();
+        assertEq(head, state.keccakChain, "Chain heads should match");
+        assertEq(bridge.latestRoot(), state.root, "Roots should match");
+        assertTrue(bridge.isValidRoot(state.root), "Root should be valid on L1");
 
-        (BabyJubJub.Affine memory l1Pk,) = l1._issuerSchemaIdToPubkeyAndProofId(ISSUER_ID);
+        (BabyJubJub.Affine memory l1Pk,) = bridge._issuerSchemaIdToPubkeyAndProofId(ISSUER_ID);
         assertEq(l1Pk.x, state.issuerX, "Issuer X should match");
         assertEq(l1Pk.y, state.issuerY, "Issuer Y should match");
     }
 
     function test_e2e_partialCatchUp() public {
         CapturedState memory state = _propagateOnWC();
-        WorldIdStateBridge.Commitment[] memory fullCommits = _buildCommitments(state);
+        ProofsLib.Commitment[] memory fullCommits = _buildCommitments(state);
 
         vm.selectFork(ethFork);
-        IDisputeGameFactory dgf = IDisputeGameFactory(L1_DISPUTE_GAME_FACTORY);
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        TestBridge bridge = new TestBridge(1 hours, 30, 0);
 
         // Batch 1: root only
-        WorldIdStateBridge.Commitment[] memory batch1 = new WorldIdStateBridge.Commitment[](1);
+        ProofsLib.Commitment[] memory batch1 = new ProofsLib.Commitment[](1);
         batch1[0] = fullCommits[0];
-        l1.commitChained(WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: batch1}));
-        assertEq(l1.latestRoot(), state.root, "Root should match after batch 1");
+        bridge.commitChained(ProofsLib.CommitmentWithProof({mptProof: "", commits: batch1}));
+        assertEq(bridge.latestRoot(), state.root, "Root should match after batch 1");
 
         // Batch 2: issuer + OPRF
-        WorldIdStateBridge.Commitment[] memory batch2 = new WorldIdStateBridge.Commitment[](2);
+        ProofsLib.Commitment[] memory batch2 = new ProofsLib.Commitment[](2);
         batch2[0] = fullCommits[1];
         batch2[1] = fullCommits[2];
-        l1.commitChained(WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: batch2}));
-        assertEq(l1.keccakChain(), state.keccakChain, "Final chain head should match WC");
+        bridge.commitChained(ProofsLib.CommitmentWithProof({mptProof: "", commits: batch2}));
+        (bytes32 head,) = bridge.keccakChain();
+        assertEq(head, state.keccakChain, "Final chain head should match WC");
     }
 
     function test_e2e_tamperDetection() public {
         CapturedState memory state = _propagateOnWC();
 
         vm.selectFork(ethFork);
-        IDisputeGameFactory dgf = IDisputeGameFactory(L1_DISPUTE_GAME_FACTORY);
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        TestBridge bridge = new TestBridge(1 hours, 30, 0);
 
         // Tamper: use wrong root value
-        WorldIdStateBridge.Commitment[] memory commits = new WorldIdStateBridge.Commitment[](1);
-        commits[0] = WorldIdStateBridge.Commitment({
+        ProofsLib.Commitment[] memory commits = new ProofsLib.Commitment[](1);
+        commits[0] = ProofsLib.Commitment({
             blockHash: state.l1BlockHash,
             data: abi.encodeWithSelector(
                 bytes4(keccak256("updateRoot(uint256,uint256,bytes32)")),
@@ -423,52 +442,50 @@ contract BridgeE2EForkTest is Test {
                 bytes32(state.blockNumber)
             )
         });
-        l1.commitChained(WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: commits}));
+        bridge.commitChained(ProofsLib.CommitmentWithProof({mptProof: "", commits: commits}));
 
-        assertTrue(l1.keccakChain() != state.keccakChain, "Tampered commit should produce different chain head");
+        (bytes32 head,) = bridge.keccakChain();
+        assertTrue(head != state.keccakChain, "Tampered commit should produce different chain head");
     }
 
     function test_e2e_invalidation_rootBecomesInvalid() public {
         CapturedState memory state = _propagateOnWC();
-        WorldIdStateBridge.Commitment[] memory commits = _buildCommitments(state);
+        ProofsLib.Commitment[] memory commits = _buildCommitments(state);
 
         vm.selectFork(ethFork);
-        IDisputeGameFactory dgf = IDisputeGameFactory(L1_DISPUTE_GAME_FACTORY);
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        TestBridge bridge = new TestBridge(1 hours, 30, 0);
 
-        l1.commitChained(WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: commits}));
-        assertTrue(l1.isValidRoot(state.root), "Root should be valid before invalidation");
+        bridge.commitChained(ProofsLib.CommitmentWithProof({mptProof: "", commits: commits}));
+        assertTrue(bridge.isValidRoot(state.root), "Root should be valid before invalidation");
 
         // Invalidate the proof ID (block number used as proof ID during propagation)
-        WorldIdStateBridge.Commitment[] memory invCommits = new WorldIdStateBridge.Commitment[](1);
-        invCommits[0] = WorldIdStateBridge.Commitment({
+        ProofsLib.Commitment[] memory invCommits = new ProofsLib.Commitment[](1);
+        invCommits[0] = ProofsLib.Commitment({
             blockHash: bytes32(0),
             data: abi.encodeWithSelector(bytes4(keccak256("invalidateProofId(bytes32)")), bytes32(state.blockNumber))
         });
-        l1.commitChained(WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: invCommits}));
-        assertFalse(l1.isValidRoot(state.root), "Root should be invalid after invalidation");
+        bridge.commitChained(ProofsLib.CommitmentWithProof({mptProof: "", commits: invCommits}));
+        assertFalse(bridge.isValidRoot(state.root), "Root should be invalid after invalidation");
     }
 
     function test_e2e_commitChained_emptyReverts() public {
         vm.selectFork(ethFork);
-        IDisputeGameFactory dgf = IDisputeGameFactory(L1_DISPUTE_GAME_FACTORY);
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        TestBridge bridge = new TestBridge(1 hours, 30, 0);
 
-        WorldIdStateBridge.Commitment[] memory empty = new WorldIdStateBridge.Commitment[](0);
+        ProofsLib.Commitment[] memory empty = new ProofsLib.Commitment[](0);
         vm.expectRevert(IWorldIdStateBridge.EmptyChainedCommits.selector);
-        l1.commitChained(WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: empty}));
+        bridge.commitChained(ProofsLib.CommitmentWithProof({mptProof: "", commits: empty}));
     }
 
     function test_e2e_isValidRoot_windowExpiry() public {
         CapturedState memory state = _propagateOnWC();
 
         vm.selectFork(ethFork);
-        IDisputeGameFactory dgf = IDisputeGameFactory(L1_DISPUTE_GAME_FACTORY);
-        L1StateAdapter l1 = new L1StateAdapter(dgf, 1 hours, 30, 0, address(2), address(0), IL1Block(address(0)));
+        TestBridge bridge = new TestBridge(1 hours, 30, 0);
 
         // Commit root 1
-        WorldIdStateBridge.Commitment[] memory c1 = new WorldIdStateBridge.Commitment[](1);
-        c1[0] = WorldIdStateBridge.Commitment({
+        ProofsLib.Commitment[] memory c1 = new ProofsLib.Commitment[](1);
+        c1[0] = ProofsLib.Commitment({
             blockHash: state.l1BlockHash,
             data: abi.encodeWithSelector(
                 bytes4(keccak256("updateRoot(uint256,uint256,bytes32)")),
@@ -477,14 +494,14 @@ contract BridgeE2EForkTest is Test {
                 bytes32(state.blockNumber)
             )
         });
-        l1.commitChained(WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: c1}));
-        assertTrue(l1.isValidRoot(state.root));
+        bridge.commitChained(ProofsLib.CommitmentWithProof({mptProof: "", commits: c1}));
+        assertTrue(bridge.isValidRoot(state.root));
 
         // Warp past window, commit a new root to replace latestRoot
         vm.warp(block.timestamp + 100);
         uint256 newRoot = state.root + 42;
-        WorldIdStateBridge.Commitment[] memory c2 = new WorldIdStateBridge.Commitment[](1);
-        c2[0] = WorldIdStateBridge.Commitment({
+        ProofsLib.Commitment[] memory c2 = new ProofsLib.Commitment[](1);
+        c2[0] = ProofsLib.Commitment({
             blockHash: state.l1BlockHash,
             data: abi.encodeWithSelector(
                 bytes4(keccak256("updateRoot(uint256,uint256,bytes32)")),
@@ -493,15 +510,15 @@ contract BridgeE2EForkTest is Test {
                 bytes32(block.number)
             )
         });
-        l1.commitChained(WorldIdStateBridge.CommitmentWithProof({mptProof: "", commits: c2}));
+        bridge.commitChained(ProofsLib.CommitmentWithProof({mptProof: "", commits: c2}));
 
         // Old root still within window
-        assertTrue(l1.isValidRoot(state.root), "Old root still within 1h window");
+        assertTrue(bridge.isValidRoot(state.root), "Old root still within 1h window");
 
         // Warp past validity window
         vm.warp(block.timestamp + 1 hours + 1);
-        assertFalse(l1.isValidRoot(state.root), "Old root should expire after window");
-        assertTrue(l1.isValidRoot(newRoot), "Latest root always valid");
+        assertFalse(bridge.isValidRoot(state.root), "Old root should expire after window");
+        assertTrue(bridge.isValidRoot(newRoot), "Latest root always valid");
     }
 
     // ═══════ Internal Helpers ═══════
@@ -527,16 +544,16 @@ contract BridgeE2EForkTest is Test {
         wc.propagateOprfKey(OPRF_ID);
         (state.oprfX, state.oprfY,) = wc.getOprfKey(OPRF_ID);
 
-        state.keccakChain = wc.keccakChain();
+        (state.keccakChain,) = wc.keccakChain();
     }
 
     function _buildCommitments(CapturedState memory state)
         internal
         pure
-        returns (WorldIdStateBridge.Commitment[] memory commits)
+        returns (ProofsLib.Commitment[] memory commits)
     {
-        commits = new WorldIdStateBridge.Commitment[](3);
-        commits[0] = WorldIdStateBridge.Commitment({
+        commits = new ProofsLib.Commitment[](3);
+        commits[0] = ProofsLib.Commitment({
             blockHash: state.l1BlockHash,
             data: abi.encodeWithSelector(
                 bytes4(keccak256("updateRoot(uint256,uint256,bytes32)")),
@@ -545,7 +562,7 @@ contract BridgeE2EForkTest is Test {
                 bytes32(state.blockNumber)
             )
         });
-        commits[1] = WorldIdStateBridge.Commitment({
+        commits[1] = ProofsLib.Commitment({
             blockHash: state.l1BlockHash,
             data: abi.encodeWithSelector(
                 bytes4(keccak256("setIssuerPubkey(uint64,uint256,uint256,bytes32)")),
@@ -555,7 +572,7 @@ contract BridgeE2EForkTest is Test {
                 bytes32(state.blockNumber)
             )
         });
-        commits[2] = WorldIdStateBridge.Commitment({
+        commits[2] = ProofsLib.Commitment({
             blockHash: state.l1BlockHash,
             data: abi.encodeWithSelector(
                 bytes4(keccak256("setOprfKey(uint160,uint256,uint256,bytes32)")),
