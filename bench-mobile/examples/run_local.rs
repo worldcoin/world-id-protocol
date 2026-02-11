@@ -1,6 +1,6 @@
 //! Local benchmark runner for testing without mobile devices.
 //!
-//! Run with: cargo run -p world-id-mobile-bench --example run_local --release
+//! Run with: cargo run -p bench-mobile --example run_local --release
 
 use bench_mobile::{run_benchmark, BenchSpec};
 

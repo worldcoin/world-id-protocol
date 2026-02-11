@@ -456,12 +456,27 @@ jobs:
               continue
             fi
             selected=$((selected + 1))
+            config_path="bench-config.ios.runtime.${output}.toml"
+            awk -v fn="$function" '
+              BEGIN { replaced = 0 }
+              /^function[[:space:]]*=/ && !replaced {
+                print "function = \"" fn "\""
+                replaced = 1
+                next
+              }
+              { print }
+              END {
+                if (!replaced) {
+                  print "function = \"" fn "\""
+                }
+              }
+            ' bench-config.ios.runtime.toml > "${config_path}"
             cargo mobench run \
               --target ios \
               --function "${function}" \
               --iterations "${ITERATIONS}" \
               --warmup "${WARMUP}" \
-              --config bench-config.ios.runtime.toml \
+              --config "${config_path}" \
               --release \
               --fetch \
               --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
@@ -787,12 +802,27 @@ jobs:
               continue
             fi
             selected=$((selected + 1))
+            config_path="bench-config.android.runtime.${output}.toml"
+            awk -v fn="$function" '
+              BEGIN { replaced = 0 }
+              /^function[[:space:]]*=/ && !replaced {
+                print "function = \"" fn "\""
+                replaced = 1
+                next
+              }
+              { print }
+              END {
+                if (!replaced) {
+                  print "function = \"" fn "\""
+                }
+              }
+            ' bench-config.android.runtime.toml > "${config_path}"
             cargo mobench run \
               --target android \
               --function "${function}" \
               --iterations "${ITERATIONS}" \
               --warmup "${WARMUP}" \
-              --config bench-config.android.runtime.toml \
+              --config "${config_path}" \
               --release \
               --fetch \
               --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
