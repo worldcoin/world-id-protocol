@@ -2,8 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use alloy::primitives::U256;
 use semaphore_rs_storage::MmapVec;
-use semaphore_rs_trees::cascading::CascadingMerkleTree;
-use semaphore_rs_trees::proof::InclusionProof;
+use semaphore_rs_trees::{cascading::CascadingMerkleTree, proof::InclusionProof};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
