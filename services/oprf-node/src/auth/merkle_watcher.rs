@@ -187,6 +187,7 @@ impl MerkleWatcher {
                 loop {
                     let log = tokio::select! {
                         log = stream.next() => {
+                            tracing::warn!("MerkleWatcher subscribe stream was closed");
                             log.ok_or_else(||eyre::eyre!("MerkleWatcher subscribe stream was closed"))?
                         }
                         _ = cancellation_token.cancelled() => {

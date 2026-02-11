@@ -105,6 +105,7 @@ impl RpRegistryWatcher {
                 loop {
                     let log = tokio::select! {
                         log = stream.next() => {
+                            tracing::warn!("RpRegistry subscribe stream was closed");
                             log.ok_or_else(||eyre::eyre!("RpRegistry subscribe stream was closed"))?
                         }
                         _ = cancellation_token.cancelled() => {

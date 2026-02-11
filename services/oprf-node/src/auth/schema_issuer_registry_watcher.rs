@@ -98,6 +98,7 @@ impl SchemaIssuerRegistryWatcher {
                 loop {
                     let log = tokio::select! {
                         log = stream.next() => {
+                            tracing::warn!("SchemaIssuerRegistryWatcher subscribe stream was closed");
                             log.ok_or_else(||eyre::eyre!("SchemaIssuerRegistryWatcher subscribe stream was closed"))?
                         }
                         _ = cancellation_token.cancelled() => {
