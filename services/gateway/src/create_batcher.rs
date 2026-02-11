@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     RequestTracker,
+    error::parse_contract_error,
     metrics::{
         METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
         METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
@@ -13,7 +14,7 @@ use alloy::{
 };
 use tokio::sync::mpsc;
 use world_id_core::{
-    types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState, parse_contract_error},
+    api_types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState},
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
@@ -94,12 +95,12 @@ impl CreateBatcherRunner {
 
             // Collect all authenticator addresses from this batch for cache cleanup
             let mut all_addresses: Vec<Address> = Vec::new();
-            for env in &batch {
-                recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
-                auths.push(env.req.authenticator_addresses.clone());
-                pubkeys.push(env.req.authenticator_pubkeys.clone());
-                commits.push(env.req.offchain_signer_commitment);
+            for env in batch {
                 all_addresses.extend(env.req.authenticator_addresses.iter());
+                recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
+                auths.push(env.req.authenticator_addresses);
+                pubkeys.push(env.req.authenticator_pubkeys);
+                commits.push(env.req.offchain_signer_commitment);
             }
 
             let call =
@@ -125,8 +126,8 @@ impl CreateBatcherRunner {
                         .await;
 
                     let tracker = self.tracker.clone();
-                    let ids_for_receipt = ids.clone();
-                    let addresses_for_cleanup = all_addresses.clone();
+                    let ids_for_receipt = ids;
+                    let addresses_for_cleanup = all_addresses;
                     tokio::spawn(async move {
                         match builder.get_receipt().await {
                             Ok(receipt) => {

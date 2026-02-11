@@ -9,11 +9,9 @@ use moka::{
 use redis::{AsyncTypedCommands, Client, SetExpiry, SetOptions, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use world_id_core::types::{
-    GatewayErrorCode, GatewayErrorResponse, GatewayRequestKind, GatewayRequestState,
-};
+use world_id_core::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
-use crate::error::{GatewayError, GatewayResult};
+use crate::error::{GatewayError, GatewayErrorResponse, GatewayResult};
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
     pub kind: GatewayRequestKind,
@@ -148,7 +146,7 @@ impl RequestTracker {
                 .map_err(handle_redis_error)?;
         } else {
             // No Redis, use local cache as storage
-            self.cache.insert(id.clone(), record.clone()).await;
+            self.cache.insert(id, record).await;
         }
 
         Ok(())

@@ -103,7 +103,7 @@ impl MerkleWatcher {
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
-    ) -> eyre::Result<Self> {
+    ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
         ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(0.0);
 
         eyre::ensure!(
@@ -177,14 +177,26 @@ impl MerkleWatcher {
         started.store(true, Ordering::Relaxed);
 
         tracing::info!("listening for events...");
-        tokio::spawn({
+        let subscribe_task = tokio::spawn({
             let latest_root = Arc::clone(&latest_root);
             let merkle_root_cache = merkle_root_cache.clone();
             let root_validity_window = Arc::clone(&root_validity_window);
             async move {
                 // shutdown service if merkle watcher encounters an error and drops this guard
-                let _drop_guard = cancellation_token.drop_guard();
-                while let Some(log) = stream.next().await {
+                let _drop_guard = cancellation_token.clone().drop_guard();
+                loop {
+                    let log = tokio::select! {
+                        log = stream.next() => {
+                            log.ok_or_else(||{
+                                tracing::warn!("MerkleWatcher subscribe stream was closed");
+                                eyre::eyre!("MerkleWatcher subscribe stream was closed")
+                            })?
+                        }
+                        _ = cancellation_token.cancelled() => {
+                            break;
+                        }
+                    };
+
                     match log.topic0() {
                         Some(&RootRecorded::SIGNATURE_HASH) => {
                             match RootRecorded::decode_log(log.as_ref()) {
@@ -242,6 +254,8 @@ impl MerkleWatcher {
                         }
                     }
                 }
+                tracing::info!("Successfully shutdown MerkleWatcher");
+                eyre::Ok(())
             }
         });
 
@@ -259,13 +273,15 @@ impl MerkleWatcher {
             }
         });
 
-        Ok(Self {
+        let merkle_watcher = Self {
             latest_root,
             merkle_root_cache,
             root_validity_window,
             provider: provider.erased(),
             contract_address,
-        })
+        };
+
+        Ok((merkle_watcher, subscribe_task))
     }
 
     #[instrument(level = "debug", skip(self))]
@@ -332,8 +348,8 @@ mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
     use taceo_oprf::service::StartedServices;
-    use test_utils::anvil::TestAnvil;
     use tokio_util::sync::CancellationToken;
+    use world_id_test_utils::anvil::TestAnvil;
 
     const CACHED: u8 = 0b0001;
     const LATEST: u8 = 0b0010;
@@ -377,11 +393,11 @@ mod tests {
             .expect("failed to deploy WorldIDRegistry");
         let contract = WorldIdRegistry::new(registry_address, anvil.provider().unwrap());
 
-        let mut started_services = StartedServices::default();
+        let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
 
-        let merkle_watcher = MerkleWatcher::init(
+        let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
             anvil.ws_endpoint(),
             100,
@@ -421,11 +437,11 @@ mod tests {
             .set_root_validity_window(registry_address, signer.clone(), 5)
             .await;
 
-        let mut started_services = StartedServices::default();
+        let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
 
-        let merkle_watcher = MerkleWatcher::init(
+        let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
             anvil.ws_endpoint(),
             100,
@@ -454,7 +470,7 @@ mod tests {
                 signer.clone(),
                 address!("0x0000000000000000000000000000000000000011"),
                 U256::from(11),
-                1,
+                U256::from(1),
             )
             .await;
 
@@ -484,11 +500,11 @@ mod tests {
             .set_root_validity_window(registry_address, signer.clone(), 5)
             .await;
 
-        let mut started_services = StartedServices::default();
+        let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
 
-        let merkle_watcher = MerkleWatcher::init(
+        let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
             anvil.ws_endpoint(),
             100,
@@ -521,7 +537,7 @@ mod tests {
                 signer.clone(),
                 address!("0x0000000000000000000000000000000000000011"),
                 U256::from(11),
-                1,
+                U256::from(1),
             )
             .await;
 

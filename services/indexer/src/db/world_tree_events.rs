@@ -26,7 +26,7 @@ pub struct WorldTreeEvent {
     pub id: WorldTreeEventId,
     pub tx_hash: U256,
     pub event_type: WorldTreeEventType,
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     pub offchain_signer_commitment: U256,
 }
 
@@ -72,7 +72,6 @@ where
     E: sqlx::Executor<'a, Database = Postgres>,
 {
     executor: E,
-    table_name: String,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -83,36 +82,31 @@ where
     pub fn with_executor(executor: E) -> Self {
         Self {
             executor,
-            table_name: "world_tree_events".to_string(),
             _marker: std::marker::PhantomData,
         }
     }
 
     pub async fn get_latest_block(self) -> DBResult<Option<u64>> {
-        let rec: Option<(Option<i64>,)> = sqlx::query_as(&format!(
-            "SELECT MAX(block_number) FROM {}",
-            self.table_name
-        ))
-        .fetch_optional(self.executor)
-        .await?;
+        let rec: Option<(Option<i64>,)> =
+            sqlx::query_as("SELECT MAX(block_number) FROM world_tree_events")
+                .fetch_optional(self.executor)
+                .await?;
         Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
     }
 
     pub async fn get_latest_id(self) -> DBResult<Option<WorldTreeEventId>> {
-        let table_name = self.table_name;
-        let result = sqlx::query(&format!(
+        let result = sqlx::query(
             r#"
                 SELECT
                     block_number,
                     log_index
-                FROM {}
+                FROM world_tree_events
                 ORDER BY
                     block_number DESC,
                     log_index DESC
                 LIMIT 1
             "#,
-            table_name
-        ))
+        )
         .fetch_optional(self.executor)
         .await?;
 
@@ -124,22 +118,20 @@ where
         event_id: T,
     ) -> DBResult<Option<WorldTreeEvent>> {
         let event_id = event_id.into();
-        let table_name = self.table_name;
-        let result = sqlx::query(&format!(
+        let result = sqlx::query(
             r#"
-                    SELECT
-                        block_number,
-                        log_index,
-                        leaf_index,
-                        event_type,
-                        offchain_signer_commitment,
-                        tx_hash
-                    FROM {}
-                    WHERE
-                        block_number = $1 AND log_index = $2
-                "#,
-            table_name
-        ))
+                SELECT
+                    block_number,
+                    log_index,
+                    leaf_index,
+                    event_type,
+                    offchain_signer_commitment,
+                    tx_hash
+                FROM world_tree_events
+                WHERE
+                    block_number = $1 AND log_index = $2
+            "#,
+        )
         .bind(event_id.block_number as i64)
         .bind(event_id.log_index as i64)
         .fetch_optional(self.executor)
@@ -153,8 +145,7 @@ where
         event_id: WorldTreeEventId,
         limit: u64,
     ) -> DBResult<Vec<WorldTreeEvent>> {
-        let table_name = self.table_name;
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(
             r#"
                 SELECT
                     block_number,
@@ -163,7 +154,7 @@ where
                     event_type,
                     offchain_signer_commitment,
                     tx_hash
-                FROM {}
+                FROM world_tree_events
                 WHERE
                     (block_number = $1 AND log_index > $2)
                     OR block_number > $1
@@ -172,8 +163,7 @@ where
                     log_index ASC
                 LIMIT $3
             "#,
-            table_name
-        ))
+        )
         .bind(event_id.block_number as i64)
         .bind(event_id.log_index as i64)
         .bind(limit as i64)
@@ -186,16 +176,16 @@ where
     #[instrument(level = "info", skip(self))]
     pub async fn insert_event(
         self,
-        leaf_index: &U256,
+        leaf_index: u64,
         event_type: WorldTreeEventType,
         offchain_signer_commitment: &U256,
         block_number: u64,
         tx_hash: &U256,
         log_index: u64,
     ) -> DBResult<()> {
-        sqlx::query(&format!(
+        sqlx::query(
             r#"
-                INSERT INTO {} (
+                INSERT INTO world_tree_events (
                     block_number,
                     log_index,
                     leaf_index,
@@ -204,11 +194,10 @@ where
                     tx_hash
                 ) VALUES ($1, $2, $3, $4, $5, $6)
             "#,
-            self.table_name
-        ))
+        )
         .bind(block_number as i64)
         .bind(log_index as i64)
-        .bind(leaf_index)
+        .bind(leaf_index as i64)
         .bind(event_type.to_string())
         .bind(offchain_signer_commitment)
         .bind(tx_hash)
@@ -230,7 +219,7 @@ where
             id: Self::map_event_id(row)?,
             tx_hash: row.get::<U256, _>("tx_hash"),
             event_type: WorldTreeEventType::try_from(row.get::<&str, _>("event_type"))?,
-            leaf_index: row.get::<U256, _>("leaf_index"),
+            leaf_index: row.get::<i64, _>("leaf_index") as u64,
             offchain_signer_commitment: row.get::<U256, _>("offchain_signer_commitment"),
         })
     }

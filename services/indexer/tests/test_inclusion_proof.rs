@@ -55,7 +55,6 @@ async fn test_backfill_and_live_sync() {
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,
-                    dense_tree_prefix_depth: 2,
                     http_cache_refresh_interval_secs: 30,
                 },
             },
@@ -67,7 +66,7 @@ async fn test_backfill_and_live_sync() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
@@ -184,7 +183,6 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,
-                    dense_tree_prefix_depth: 2,
                     http_cache_refresh_interval_secs: 1,
                 },
             },
@@ -196,7 +194,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
     };
 
     let http_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     TestSetup::wait_for_health("http://127.0.0.1:8082").await;

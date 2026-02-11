@@ -12,7 +12,7 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
-    "../../contracts/abi/*",
+    "abi/*",
     "Cargo.toml",
     "README.md",
 ]
@@ -21,6 +21,7 @@ include = [
 alloy = { workspace = true, features = [
     "sol-types",
     "reqwest",
+    "reqwest-rustls-tls",
     "signer-local",
     "json",
     "network",
@@ -32,6 +33,7 @@ ruint = { workspace = true }
 thiserror = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 world-id-primitives = { workspace = true }
+url = { workspace = true }
+rustls = { workspace = true }
 
 # Internal
-world-id-signer = { workspace = true }

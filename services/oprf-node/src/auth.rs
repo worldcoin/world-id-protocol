@@ -118,3 +118,126 @@ impl OprfRequestAuthenticator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy::{
+        primitives::{Address, U256},
+        signers::local::LocalSigner,
+    };
+    use ark_serialize::CanonicalSerialize;
+    use rand::Rng;
+    use world_id_core::{EdDSAPrivateKey, Signer};
+    use world_id_primitives::{
+        TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    };
+    use world_id_test_utils::{
+        anvil::TestAnvil,
+        fixtures::{RegistryTestContext, RpFixture, generate_rp_fixture},
+        merkle::first_leaf_merkle_path,
+    };
+
+    pub(crate) struct OprfRequestAuthTestSetup {
+        pub(crate) anvil: TestAnvil,
+        pub(crate) world_id_registry: Address,
+        pub(crate) rp_registry: Address,
+        pub(crate) credential_schema_issuer_registry: Address,
+        pub(crate) issuer_schema_id: u64,
+        pub(crate) rp_fixture: RpFixture,
+        pub(crate) merkle_inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+        pub(crate) key_index: u64,
+        pub(crate) key_set: AuthenticatorPublicKeySet,
+        pub(crate) signer: Signer,
+    }
+
+    impl OprfRequestAuthTestSetup {
+        pub(crate) async fn new() -> eyre::Result<Self> {
+            let mut rng = rand::thread_rng();
+            let RegistryTestContext {
+                anvil,
+                world_id_registry,
+                rp_registry,
+                credential_registry: credential_schema_issuer_registry,
+                ..
+            } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
+
+            let deployer = anvil.signer(0)?;
+
+            let rp_fixture = generate_rp_fixture();
+
+            // Register the RP which also triggers a OPRF key-gen.
+            let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+            anvil
+                .register_rp(
+                    rp_registry,
+                    deployer.clone(),
+                    rp_fixture.world_rp_id,
+                    rp_signer.address(),
+                    rp_signer.address(),
+                    "taceo.oprf".to_string(),
+                )
+                .await?;
+
+            // Register an issuer which also triggers a OPRF key-gen.
+            let issuer_schema_id = rng.r#gen::<u64>();
+            let issuer_sk = EdDSAPrivateKey::random(&mut rng);
+            let issuer_pk = issuer_sk.public();
+            anvil
+                .register_issuer(
+                    credential_schema_issuer_registry,
+                    deployer.clone(),
+                    issuer_schema_id,
+                    issuer_pk.clone(),
+                )
+                .await?;
+
+            let signer = Signer::from_seed_bytes(&rng.r#gen::<[u8; 32]>()).unwrap();
+
+            let mut key_set = AuthenticatorPublicKeySet::new(None)?;
+            key_set.try_push(signer.offchain_signer_pubkey())?;
+            let leaf_hash = key_set.leaf_hash();
+
+            let offchain_pubkey_compressed = {
+                let pk = signer.offchain_signer_pubkey().pk;
+                let mut compressed_bytes = Vec::new();
+                pk.serialize_compressed(&mut compressed_bytes)
+                    .expect("serialization to succeed");
+                U256::from_le_slice(&compressed_bytes)
+            };
+
+            let leaf_index = 1;
+            let (siblings, root) = first_leaf_merkle_path(leaf_hash);
+            let key_index = key_set
+                .iter()
+                .position(|pk| pk.pk == signer.offchain_signer_pubkey().pk)
+                .expect("key set contains signer key") as u64;
+
+            anvil
+                .create_account(
+                    world_id_registry,
+                    deployer.clone(),
+                    signer.onchain_signer_address(),
+                    offchain_pubkey_compressed,
+                    leaf_hash.into(),
+                )
+                .await;
+
+            Ok(Self {
+                anvil,
+                world_id_registry,
+                rp_registry,
+                credential_schema_issuer_registry,
+                issuer_schema_id,
+                rp_fixture,
+                merkle_inclusion_proof: MerkleInclusionProof {
+                    root,
+                    leaf_index,
+                    siblings,
+                },
+                key_index,
+                key_set,
+                signer,
+            })
+        }
+    }
+}

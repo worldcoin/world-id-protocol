@@ -325,6 +325,18 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
     }
 
     ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
+
+    /// @inheritdoc ICredentialSchemaIssuerRegistry
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newOprfKeyRegistry == address(0)) revert ZeroAddress();
+        address oldOprfKeyRegistry = address(_oprfKeyRegistry);
+        _oprfKeyRegistry = IOprfKeyRegistry(newOprfKeyRegistry);
+        emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, newOprfKeyRegistry);
+    }
+
+    ////////////////////////////////////////////////////////////
     //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
 

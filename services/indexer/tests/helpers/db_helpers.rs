@@ -128,12 +128,12 @@ pub async fn cleanup_test_db(db_name: &str) {
 /// Insert a test account directly into the database
 pub async fn insert_test_account(
     db: &DB,
-    leaf_index: U256,
+    leaf_index: u64,
     recovery_address: Address,
     commitment: U256,
 ) -> DBResult<()> {
     db.accounts()
-        .insert(&leaf_index, &recovery_address, &[], &[], &commitment)
+        .insert(leaf_index, &recovery_address, &[], &[], &commitment)
         .await
 }
 
@@ -142,14 +142,14 @@ pub async fn insert_test_world_tree_event(
     db: &DB,
     block_number: u64,
     log_index: u64,
-    leaf_index: U256,
+    leaf_index: u64,
     event_type: WorldTreeEventType,
     tx_hash: U256,
     commitment: U256,
 ) -> DBResult<()> {
     db.world_tree_events()
         .insert_event(
-            &leaf_index,
+            leaf_index,
             event_type,
             &commitment,
             block_number,
@@ -207,11 +207,11 @@ pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
 }
 
 /// Check if account exists by leaf index
-pub async fn account_exists(pool: &PgPool, leaf_index: U256) -> DBResult<bool> {
+pub async fn account_exists(pool: &PgPool, leaf_index: u64) -> DBResult<bool> {
     let count: (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
         "SELECT COUNT(*) FROM accounts WHERE leaf_index = $1",
     )
-    .bind(leaf_index)
+    .bind(leaf_index as i64)
     .fetch_one(pool)
     .await?;
 
@@ -257,7 +257,7 @@ pub async fn assert_root_count(pool: &PgPool, expected: i64) {
 }
 
 /// Assert that an account exists with the given leaf index
-pub async fn assert_account_exists(pool: &PgPool, leaf_index: U256) {
+pub async fn assert_account_exists(pool: &PgPool, leaf_index: u64) {
     let exists = account_exists(pool, leaf_index)
         .await
         .expect("Failed to check account existence");
@@ -269,7 +269,7 @@ pub async fn assert_account_exists(pool: &PgPool, leaf_index: U256) {
 }
 
 /// Assert that an account does not exist with the given leaf index
-pub async fn assert_account_not_exists(pool: &PgPool, leaf_index: U256) {
+pub async fn assert_account_not_exists(pool: &PgPool, leaf_index: u64) {
     let exists = account_exists(pool, leaf_index)
         .await
         .expect("Failed to check account existence");

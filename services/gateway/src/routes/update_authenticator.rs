@@ -1,11 +1,12 @@
 //! Update authenticator handler.
 
-use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use crate::{
+    error::GatewayErrorResponse, request::IntoRequest, routes::middleware::RequestId,
+    types::AppState,
+};
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::types::{
-    GatewayErrorResponse, GatewayStatusResponse, UpdateAuthenticatorRequest,
-};
+use world_id_core::api_types::{GatewayStatusResponse, UpdateAuthenticatorRequest};
 
 /// POST /v1/authenticators/update
 ///

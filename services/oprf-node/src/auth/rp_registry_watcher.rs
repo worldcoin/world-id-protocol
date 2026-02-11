@@ -77,7 +77,7 @@ impl RpRegistryWatcher {
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
-    ) -> eyre::Result<Self> {
+    ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
         ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
 
         tracing::info!("creating provider for rp-registry-watcher...");
@@ -97,12 +97,24 @@ impl RpRegistryWatcher {
         let rp_store: Cache<RpId, RelyingParty> = Cache::builder()
             .max_capacity(max_rp_registry_store_size)
             .build();
-        tokio::task::spawn({
+        let subscribe_task = tokio::task::spawn({
             let rp_store = rp_store.clone();
             async move {
                 // shutdown service if RP registry watcher encounters an error and drops this guard
-                let _drop_guard = cancellation_token.drop_guard();
-                while let Some(log) = stream.next().await {
+                let _drop_guard = cancellation_token.clone().drop_guard();
+                loop {
+                    let log = tokio::select! {
+                        log = stream.next() => {
+                            log.ok_or_else(||{
+                                tracing::warn!("RpRegistry subscribe stream was closed");
+                                eyre::eyre!("RpRegistry subscribe stream was closed")
+                            })?
+                        }
+                        _ = cancellation_token.cancelled() => {
+                            break;
+                        }
+                    };
+
                     match RpUpdated::decode_log(log.as_ref()) {
                         Ok(event) => {
                             let rp_id = RpId::new(event.rpId);
@@ -137,6 +149,8 @@ impl RpRegistryWatcher {
                         }
                     }
                 }
+                tracing::info!("Successfully shutdown RpRegistry");
+                eyre::Ok(())
             }
         });
 
@@ -154,11 +168,13 @@ impl RpRegistryWatcher {
             }
         });
 
-        Ok(Self {
+        let rp_registry = Self {
             rp_store,
             provider: provider.erased(),
             contract_address,
-        })
+        };
+
+        Ok((rp_registry, subscribe_task))
     }
 
     pub(crate) async fn get_rp(

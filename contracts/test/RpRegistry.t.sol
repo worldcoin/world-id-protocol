@@ -926,4 +926,33 @@ contract RpRegistryTest is Test {
         vm.expectRevert(OprfKeyRegistryMock.AlreadySubmitted.selector);
         registry.register(conflictingId, manager1, signer1, domain);
     }
+
+    // UpdateOprfKeyRegistry Tests
+
+    function testUpdateOprfKeyRegistry() public {
+        OprfKeyRegistryMock newOprfKeyRegistry = new OprfKeyRegistryMock();
+
+        vm.expectEmit(true, true, false, true);
+        emit IRpRegistry.OprfKeyRegistryUpdated(address(oprfKeyRegistry), address(newOprfKeyRegistry));
+
+        registry.updateOprfKeyRegistry(address(newOprfKeyRegistry));
+
+        assertEq(registry.getOprfKeyRegistry(), address(newOprfKeyRegistry));
+    }
+
+    function testCannotUpdateOprfKeyRegistryToZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(WorldIDBase.ZeroAddress.selector));
+        registry.updateOprfKeyRegistry(address(0));
+    }
+
+    function testOnlyOwnerCanUpdateOprfKeyRegistry() public {
+        OprfKeyRegistryMock newOprfKeyRegistry = new OprfKeyRegistryMock();
+
+        vm.prank(manager1);
+        vm.expectRevert();
+        registry.updateOprfKeyRegistry(address(newOprfKeyRegistry));
+
+        // Verify it wasn't updated
+        assertEq(registry.getOprfKeyRegistry(), address(oprfKeyRegistry));
+    }
 }

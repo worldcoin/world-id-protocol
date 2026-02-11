@@ -20,19 +20,18 @@ impl<'a> EventsCommitter<'a> {
             buffered_events: vec![],
         }
     }
-    pub async fn handle_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DBResult<()> {
-        match event.details {
-            RegistryEvent::AccountCreated(_) => self.buffer_event(event),
-            RegistryEvent::AccountUpdated(_) => self.buffer_event(event),
-            RegistryEvent::AuthenticatorInserted(_) => self.buffer_event(event),
-            RegistryEvent::AuthenticatorRemoved(_) => self.buffer_event(event),
-            RegistryEvent::AccountRecovered(_) => self.buffer_event(event),
-            RegistryEvent::RootRecorded(_) => {
-                self.buffer_event(event)?;
-                self.commit_events().await?;
-                Ok(())
-            }
+    /// Handle a single event: buffer it, and commit when a RootRecorded event
+    /// is seen. Returns `true` when a DB commit happened (batch flushed).
+    pub async fn handle_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DBResult<bool> {
+        let is_root = matches!(event.details, RegistryEvent::RootRecorded(_));
+        self.buffer_event(event)?;
+
+        if is_root {
+            self.commit_events().await?;
+            return Ok(true);
         }
+
+        Ok(false)
     }
 
     fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DBResult<()> {
@@ -51,7 +50,7 @@ impl<'a> EventsCommitter<'a> {
                 RegistryEvent::AccountCreated(ev) => {
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
-                        &ev.leaf_index,
+                        ev.leaf_index,
                         WorldTreeEventType::AccountCreated,
                         &ev.offchain_signer_commitment,
                         event.block_number,
@@ -67,7 +66,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .insert(
-                            &ev.leaf_index,
+                            ev.leaf_index,
                             &ev.recovery_address,
                             &ev.authenticator_addresses,
                             &ev.authenticator_pubkeys,
@@ -78,7 +77,7 @@ impl<'a> EventsCommitter<'a> {
                 RegistryEvent::AccountUpdated(ev) => {
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
-                        &ev.leaf_index,
+                        ev.leaf_index,
                         WorldTreeEventType::AccountUpdated,
                         &ev.new_offchain_signer_commitment,
                         event.block_number,
@@ -94,7 +93,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .update_authenticator_at_index(
-                            &ev.leaf_index,
+                            ev.leaf_index,
                             ev.pubkey_id,
                             &ev.new_authenticator_address,
                             &ev.new_authenticator_pubkey,
@@ -105,7 +104,7 @@ impl<'a> EventsCommitter<'a> {
                 RegistryEvent::AuthenticatorInserted(ev) => {
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
-                        &ev.leaf_index,
+                        ev.leaf_index,
                         WorldTreeEventType::AuthenticationInserted,
                         &ev.new_offchain_signer_commitment,
                         event.block_number,
@@ -121,7 +120,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .insert_authenticator_at_index(
-                            &ev.leaf_index,
+                            ev.leaf_index,
                             ev.pubkey_id,
                             &ev.authenticator_address,
                             &ev.new_authenticator_pubkey,
@@ -132,7 +131,7 @@ impl<'a> EventsCommitter<'a> {
                 RegistryEvent::AuthenticatorRemoved(ev) => {
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
-                        &ev.leaf_index,
+                        ev.leaf_index,
                         WorldTreeEventType::AuthenticationRemoved,
                         &ev.new_offchain_signer_commitment,
                         event.block_number,
@@ -148,7 +147,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .remove_authenticator_at_index(
-                            &ev.leaf_index,
+                            ev.leaf_index,
                             ev.pubkey_id,
                             &ev.new_offchain_signer_commitment,
                         )
@@ -157,7 +156,7 @@ impl<'a> EventsCommitter<'a> {
                 RegistryEvent::AccountRecovered(ev) => {
                     let already_processed = Self::ensure_event_inserted(
                         &mut transaction,
-                        &ev.leaf_index,
+                        ev.leaf_index,
                         WorldTreeEventType::AccountRecovered,
                         &ev.new_offchain_signer_commitment,
                         event.block_number,
@@ -173,7 +172,7 @@ impl<'a> EventsCommitter<'a> {
                         .accounts()
                         .await?
                         .reset_authenticator(
-                            &ev.leaf_index,
+                            ev.leaf_index,
                             &ev.new_authenticator_address,
                             &ev.new_authenticator_pubkey,
                             &ev.new_offchain_signer_commitment,
@@ -210,7 +209,7 @@ impl<'a> EventsCommitter<'a> {
     // and processed.
     async fn ensure_event_inserted(
         transaction: &mut PostgresDBTransaction<'_>,
-        leaf_index: &U256,
+        leaf_index: u64,
         event_type: WorldTreeEventType,
         offchain_signer_commitment: &U256,
         block_number: u64,
@@ -228,7 +227,7 @@ impl<'a> EventsCommitter<'a> {
             && db_event.id.block_number == block_number
             && db_event.id.log_index == log_index
             && db_event.event_type == event_type
-            && db_event.leaf_index == *leaf_index
+            && db_event.leaf_index == leaf_index
             && db_event.tx_hash == *tx_hash
             && db_event.offchain_signer_commitment == *offchain_signer_commitment
         {

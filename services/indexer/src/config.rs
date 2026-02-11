@@ -4,17 +4,26 @@ use alloy::{primitives::Address, providers::DynProvider};
 use thiserror::Error;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
-use crate::db::DB;
+use crate::{db::DB, tree::state::TreeState};
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: DB,
     pub registry: Arc<WorldIdRegistryInstance<DynProvider>>,
+    pub tree_state: TreeState,
 }
 
 impl AppState {
-    pub fn new(db: DB, registry: Arc<WorldIdRegistryInstance<DynProvider>>) -> Self {
-        Self { db, registry }
+    pub fn new(
+        db: DB,
+        registry: Arc<WorldIdRegistryInstance<DynProvider>>,
+        tree_state: TreeState,
+    ) -> Self {
+        Self {
+            db,
+            registry,
+            tree_state,
+        }
     }
 }
 
@@ -167,9 +176,6 @@ pub struct TreeCacheConfig {
     /// Depth of the Merkle tree (default: 30)
     pub tree_depth: usize,
 
-    /// Depth of dense tree prefix (mandatory, default: 20)
-    pub dense_tree_prefix_depth: usize,
-
     /// HttpOnly mode: interval in seconds to check for cache updates (default: 30)
     pub http_cache_refresh_interval_secs: u64,
 }
@@ -185,10 +191,6 @@ impl TreeCacheConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(30),
-            dense_tree_prefix_depth: std::env::var("TREE_DENSE_PREFIX_DEPTH")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(26),
             http_cache_refresh_interval_secs: std::env::var(
                 "TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS",
             )
@@ -301,7 +303,6 @@ mod tests {
             // Tree cache config
             env::remove_var("TREE_CACHE_FILE");
             env::remove_var("TREE_DEPTH");
-            env::remove_var("TREE_DENSE_PREFIX_DEPTH");
             env::remove_var("TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS");
         }
     }
@@ -410,7 +411,6 @@ mod tests {
         assert_eq!(config.sanity_check_interval_secs, None);
         assert_eq!(config.tree_cache.cache_file_path, "/tmp/test_cache");
         assert_eq!(config.tree_cache.tree_depth, 30); // default
-        assert_eq!(config.tree_cache.dense_tree_prefix_depth, 26); // default
     }
 
     #[test]
@@ -604,7 +604,6 @@ mod tests {
 
         assert_eq!(config.cache_file_path, "/tmp/test_cache");
         assert_eq!(config.tree_depth, 30);
-        assert_eq!(config.dense_tree_prefix_depth, 26);
         assert_eq!(config.http_cache_refresh_interval_secs, 30);
     }
 
@@ -615,14 +614,12 @@ mod tests {
 
         set_env("TREE_CACHE_FILE", "/custom/path/cache");
         set_env("TREE_DEPTH", "20");
-        set_env("TREE_DENSE_PREFIX_DEPTH", "15");
         set_env("TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS", "60");
 
         let config = super::TreeCacheConfig::from_env().unwrap();
 
         assert_eq!(config.cache_file_path, "/custom/path/cache");
         assert_eq!(config.tree_depth, 20);
-        assert_eq!(config.dense_tree_prefix_depth, 15);
         assert_eq!(config.http_cache_refresh_interval_secs, 60);
     }
 
