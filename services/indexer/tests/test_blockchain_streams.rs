@@ -10,9 +10,9 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use futures_util::{StreamExt, TryStreamExt};
-use world_id_test_utils::anvil::TestAnvil;
 use world_id_core::{EdDSAPrivateKey, world_id_registry::WorldIdRegistry};
 use world_id_indexer::blockchain::{Blockchain, BlockchainError, BlockchainEvent, RegistryEvent};
+use world_id_test_utils::anvil::TestAnvil;
 
 const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 
