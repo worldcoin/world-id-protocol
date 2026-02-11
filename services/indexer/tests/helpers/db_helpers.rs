@@ -133,13 +133,7 @@ pub async fn insert_test_account(
     commitment: U256,
 ) -> DBResult<()> {
     db.accounts()
-        .insert(
-            &U256::from(leaf_index),
-            &recovery_address,
-            &[],
-            &[],
-            &commitment,
-        )
+        .insert(leaf_index, &recovery_address, &[], &[], &commitment)
         .await
 }
 
@@ -155,7 +149,7 @@ pub async fn insert_test_world_tree_event(
 ) -> DBResult<()> {
     db.world_tree_events()
         .insert_event(
-            &U256::from(leaf_index),
+            leaf_index,
             event_type,
             &commitment,
             block_number,
@@ -217,7 +211,7 @@ pub async fn account_exists(pool: &PgPool, leaf_index: u64) -> DBResult<bool> {
     let count: (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
         "SELECT COUNT(*) FROM accounts WHERE leaf_index = $1",
     )
-    .bind(U256::from(leaf_index))
+    .bind(leaf_index as i64)
     .fetch_one(pool)
     .await?;
 

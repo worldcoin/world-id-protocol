@@ -57,11 +57,10 @@ pub(crate) async fn handler(
         ));
     }
 
-    let leaf_index_u256 = U256::from(leaf_index);
     let (offchain_signer_commitment, pubkeys) = state
         .db
         .accounts()
-        .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(&leaf_index_u256)
+        .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(leaf_index)
         .await
         .map_err(|_err| IndexerErrorResponse::internal_server_error())?
         .ok_or(IndexerErrorResponse::not_found())?;

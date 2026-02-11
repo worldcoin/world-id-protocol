@@ -488,7 +488,7 @@ async fn test_authenticator_removed_replay() {
         (leaf_index, event_type, offchain_signer_commitment, block_number, tx_hash, log_index)
         VALUES ($1, $2, $3, $4, $5, $6)"#,
     )
-    .bind(U256::from(1))
+    .bind(1i64)
     .bind("removed")
     .bind(new_commitment_after_removal)
     .bind((last_block + 1) as i64)
@@ -505,7 +505,7 @@ async fn test_authenticator_removed_replay() {
         WHERE leaf_index = $2"#,
     )
     .bind(new_commitment_after_removal)
-    .bind(U256::from(1))
+    .bind(1i64)
     .execute(&setup.pool)
     .await
     .expect("Failed to update account");
