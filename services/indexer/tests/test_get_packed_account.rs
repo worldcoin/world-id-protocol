@@ -41,7 +41,6 @@ async fn test_packed_account_endpoint() {
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,
-                    dense_tree_prefix_depth: 2,
                     http_cache_refresh_interval_secs: 30,
                 },
             },
@@ -53,7 +52,7 @@ async fn test_packed_account_endpoint() {
     };
 
     let indexer_task = tokio::spawn(async move {
-        world_id_indexer::run_indexer(global_config).await.unwrap();
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
 
     // Add a small delay to let initialization start
