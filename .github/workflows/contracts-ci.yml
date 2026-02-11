@@ -12,6 +12,11 @@ permissions:
 
 name: Contracts CI
 
+env:
+    FOUNDRY_PROFILE: ci
+    WORLDCHAIN_PROVIDER: "${{ secrets.WORLDCHAIN_PROVIDER }}"
+    ETHEREUM_PROVIDER: "${{ secrets.ETHEREUM_PROVIDER }}"
+
 jobs:
   test:
     runs-on: ubuntu-latest

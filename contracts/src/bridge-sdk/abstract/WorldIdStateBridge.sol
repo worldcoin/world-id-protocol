@@ -36,7 +36,7 @@ abstract contract WorldIdStateBridge is IWorldIdStateBridge {
     /// @notice The oracle that attests to known L1 block hashes on this chain.
     IL1Block public immutable L1_BLOCK_HASH_ORACLE;
 
-    /// @notice The RelayContext contract address on Ethereum L1.
+    /// @notice The WorldIdStateBridge contract address on Ethereum L1.
     address public immutable L1_BRIDGE;
 
     ////////////////////////////////////////////////////////////
