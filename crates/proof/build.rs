@@ -80,7 +80,7 @@ fn main() -> eyre::Result<()> {
     if needs_rebuild {
         let file = fs::File::create(&archive_path)?;
         if use_zstd {
-            let encoder = zstd::Encoder::new(file, 19)?;
+            let encoder = zstd::Encoder::new(file, 0)?;
             let mut tar = tar::Builder::new(encoder);
             for (name, path) in &files_to_bundle {
                 tar.append_path_with_name(path, name)?;
