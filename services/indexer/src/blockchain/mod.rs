@@ -92,9 +92,11 @@ impl Blockchain {
         let http_url = Url::parse(http_rpc_url)?;
         let http_provider = Self::build_http_provider(http_url.clone(), DEFAULT_MAX_RPC_RETRIES);
 
+        // Disable internal WS reconnect so drops surface immediately as errors.
+        let ws_connect = WsConnect::new(ws_rpc_url).with_max_retries(0);
         let ws_provider = DynProvider::new(
             ProviderBuilder::new()
-                .connect_ws(WsConnect::new(ws_rpc_url))
+                .connect_ws(ws_connect)
                 .await
                 .map_err(|err| BlockchainError::WsProvider(Box::new(err)))?,
         );
@@ -215,7 +217,6 @@ impl Blockchain {
     /// # Returns
     ///
     /// A stream of decoded [`BlockchainResult<BlockchainEvent<RegistryEvent>>`].
-    /// WARNING: Due to the internal reconnectoin logic of alloy, there might be dropped websocket events in rare cases.
     /// Returns [`BlockchainError::WsSubscriptionClosed`] and stops in case the websocket is dropped.
     fn websocket_stream(
         &self,

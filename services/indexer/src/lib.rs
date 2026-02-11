@@ -31,6 +31,8 @@ mod routes;
 mod sanity_check;
 mod tree;
 
+static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);
+
 #[instrument(level = "info", skip_all)]
 async fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
@@ -399,7 +401,15 @@ pub async fn process_registry_events(
     loop {
         tracing::info!("starting blockchain connection");
 
-        let blockchain = Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await?;
+        let blockchain = match Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::error!(?e, "failed to create blockchain connection, retrying");
+                tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
+                continue;
+            }
+        };
+
         let from = match db.world_tree_roots().get_latest_block().await? {
             Some(block) => block + 1,
             None => indexer_cfg.start_block,
