@@ -20,6 +20,7 @@ jobs:
           - indexer
           - gateway
           - oprf-node
+          - faux-issuer
     permissions:
       contents: read
       id-token: write
