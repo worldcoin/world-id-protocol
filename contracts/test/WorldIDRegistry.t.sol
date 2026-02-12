@@ -711,6 +711,95 @@ contract WorldIDRegistryTest is Test {
         assertEq(worldIDRegistry.getMaxAuthenticators(), 1);
     }
 
+    /**
+     * @dev Tests the edge case of the max authenticators soft limit being lowered. In this scenario,
+     * users should still be able to update/remove existing authenticators.
+     */
+    function test_UpdateAuthenticator_SucceedsWhenPubkeyIdExceedsLoweredLimit() public {
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress2;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // Lower the limit so pubkeyId=1 is now out of bounds
+        worldIDRegistry.setMaxAuthenticators(1);
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        bytes memory signature = eip712Sign(
+            worldIDRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
+            abi.encode(
+                leafIndex, authenticatorAddress2, authenticatorAddress3, uint256(1), newCommitment, newCommitment, nonce
+            ),
+            AUTH2_PRIVATE_KEY
+        );
+
+        worldIDRegistry.updateAuthenticator(
+            leafIndex,
+            authenticatorAddress2,
+            authenticatorAddress3,
+            1,
+            newCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            signature,
+            emptyProof(),
+            nonce
+        );
+
+        assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress2), 0);
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress3)), leafIndex);
+    }
+
+    function test_RemoveAuthenticator_SucceedsWhenPubkeyIdExceedsLoweredLimit() public {
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress2;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // Lower the limit so pubkeyId=1 is now out of bounds
+        worldIDRegistry.setMaxAuthenticators(1);
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        assertEq(uint64(worldIDRegistry.getPackedAccountData(authenticatorAddress2)), leafIndex);
+
+        bytes memory signature = eip712Sign(
+            worldIDRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
+            abi.encode(leafIndex, authenticatorAddress2, uint256(1), OFFCHAIN_SIGNER_COMMITMENT, newCommitment, nonce),
+            AUTH1_PRIVATE_KEY
+        );
+
+        worldIDRegistry.removeAuthenticator(
+            leafIndex,
+            authenticatorAddress2,
+            1,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            signature,
+            emptyProof(),
+            nonce
+        );
+
+        assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress2), 0);
+        assertEq(PackedAccountData.leafIndex(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), leafIndex);
+    }
+
     ////////////////////////////////////////////////////////////
     //              Tests for Getter Functions                //
     ////////////////////////////////////////////////////////////
