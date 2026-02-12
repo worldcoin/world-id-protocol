@@ -41,7 +41,7 @@ jobs:
             \`\`\`text
             /mobench platforms=ios proof_scope=pi2 modes=proving iterations=20 warmup=3 device_profile=low-spec
             /mobench platforms=android proof_scope=both modes=witness,proving iterations=15 warmup=2 device_profile=mid-spec
-            /mobench platforms=both device_profile=custom ios_device="iPhone 11" ios_os_version="14" android_device="Google Pixel 6" android_os_version="12"
+            /mobench platforms=both device_profile=custom ios_device="iPhone 11" ios_os_version="13" android_device="Google Pixel 6" android_os_version="12"
             \`\`\`
 
             Supported keys:

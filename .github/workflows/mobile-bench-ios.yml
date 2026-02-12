@@ -282,17 +282,17 @@ jobs:
 
           low_candidates = [
               ("iPhone 7", "10"),
-              ("iPhone 8", "11"),
-              ("iPhone SE 2020", "13"),
-              ("iPhone X", "11"),
+              ("iPhone 11", "13"),
+              ("iPhone SE 2020", "16"),
+              ("iPhone 12", "14"),
           ]
           mid_candidates = [
-              ("iPhone 11", "14"),
-              ("iPhone 12", "15"),
+              ("iPhone 13", "15"),
+              ("iPhone 14", "16"),
           ]
           high_candidates = [
-              ("iPhone 15", "17"),
               ("iPhone 16", "18"),
+              ("iPhone 17", "26"),
           ]
 
           selected = None
@@ -659,10 +659,10 @@ jobs:
 
           low_candidates = [
               ("Motorola Moto G9 Play", "10"),
-              ("Samsung Galaxy A12", "10"),
-              ("Samsung Galaxy A11", "10"),
-              ("Xiaomi Redmi Note 8", "10"),
-              ("Google Pixel 3", "9"),
+              ("Samsung Galaxy S20", "10"),
+              ("Samsung Galaxy S20 Ultra", "10"),
+              ("Xiaomi Redmi Note 9", "10"),
+              ("Google Pixel 5", "11"),
           ]
           mid_candidates = [
               ("Google Pixel 6", "12"),
@@ -670,7 +670,7 @@ jobs:
           ]
           high_candidates = [
               ("Samsung Galaxy S24", "14"),
-              ("Google Pixel 8", "14"),
+              ("Google Pixel 10", "16"),
           ]
 
           selected = None
