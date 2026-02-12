@@ -138,12 +138,21 @@ setup() {
 }
 
 client() {
-    oprf_key_registry=$(jq -r '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./contracts/broadcast/OprfKeyRegistryWithDeps.s.sol/31337/run-latest.json)
-    world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
-    rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
-    credential_schema_issuer_registry=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/local.json)
-    # use addresses from deploy logs or use existing env vars
-    OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT:-$oprf_key_registry} OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT:-$world_id_registry} OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT:-$rp_registry} OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT:-$credential_schema_issuer_registry} cargo run --release --bin world-id-oprf-dev-client -- "$@"
+    # Set env vars only if they are not already set
+    if [ -z "${OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT=$(jq -r '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./contracts/broadcast/OprfKeyRegistryWithDeps.s.sol/31337/run-latest.json)
+    fi
+    if [ -z "${OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
+    fi
+    if [ -z "${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
+    fi
+    if [ -z "${OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/local.json)
+    fi
+
+    cargo run --release --bin world-id-oprf-dev-client -- "$@"
 }
 
 main() {
