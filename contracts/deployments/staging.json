@@ -1,23 +1,22 @@
 {
   "chainId": 480,
   "credentialSchemaIssuerRegistry": {
-    "implementation": "0x8b17369144A1Feb4f6ee9F79e048260b5f4974D9",
-    "proxy": "0x640eb6Fd4c7348661B7DB482e1a66f4bFc7a15eE"
+    "implementation": "0x9b79b3b0BE9c862870da375B20DF0e6CD9cc2e81",
+    "proxy": "0x9037125Ae10e9E89fDbe7001228289462EFA3eF3"
   },
   "deployer": "0x96d55BD9c8C4706FED243c1e15825FF7854920fA",
   "rpRegistry": {
-    "implementation": "0x154f175d102E6F8fA3af60e57097bf24b722b8Da",
-    "proxy": "0xd335697404D033A50ac1A0763C66AbfF0153FCe9"
+    "implementation": "0x9e4984bdE7F17aB422Cc4254C08074b3c42160d1",
+    "proxy": "0x37d2462fE7B4a07987263AAd062C6593C4f567b9"
   },
-  "timestamp": 1770161051,
-  "verifier": "0xD27221FED8E6d548d7aF3EF0772C351Bd33Bc928",
+  "timestamp": 1770925941,
+  "verifier": "0x39CcB3b670651a14da8b3835f42924f49C2C5986",
   "worldIDRegistry": {
-    "implementation": "0x4886744dA655dC2bcB6b328606B0aDdC91AF7383",
-    "proxy": "0x969947cFED008bFb5e3F32a25A1A2CDdf64d46fe"
+    "implementation": "0x3bEa0754795255C41737414bDf70CBCf5EA98900",
+    "proxy": "0x7215Be2f5521985e2169f376B36a57473eaaAe6f"
   },
   "worldIDVerifier": {
-    "implementation": "0xe5cFa9432E21D5A941737DB61249d4C4d96E0CCA",
-    "proxy": "0xC1BF296fdf56Eec522eFCcb7655F158F3D108560"
-  },
-  "oprfKeyRegistry": "0xb2C02253ee7bFEDF50F5D015658857099980E91F"
+    "implementation": "0xCA7d6822b9c6913B1A1416cE30eF14c4e7f0bFb1",
+    "proxy": "0x703a6316c975DEabF30b637c155edD53e24657DB"
+  }
 }
