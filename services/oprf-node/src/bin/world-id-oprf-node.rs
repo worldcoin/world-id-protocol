@@ -84,7 +84,7 @@ async fn run() -> eyre::Result<()> {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    rustls::crypto::aws_lc_rs::default_provider()
+    rustls::crypto::ring::default_provider()
         .install_default()
         .expect("can install");
     let tracing_config =
