@@ -1,0 +1,36 @@
+name: Mobile Bench PR Label Trigger
+
+on:
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  run-mobile-bench:
+    if: >-
+      ${{
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        contains(github.event.pull_request.labels.*.name, 'mobench')
+      }}
+    uses: ./.github/workflows/mobile-bench-ios.yml
+    with:
+      mobench_ref: codex/ci-devex
+      iterations: 30
+      warmup: 5
+      fetch_timeout_secs: 1800
+      platforms: both
+      proof_scope: both
+      modes: all
+      device_profile: auto-low-spec
+      ios_device: ""
+      ios_os_version: ""
+      android_device: ""
+      android_os_version: ""
+      also_bench_query: false
+    secrets: inherit
