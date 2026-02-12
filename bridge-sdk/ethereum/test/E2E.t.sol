@@ -2,34 +2,35 @@
 pragma solidity ^0.8.28;
 
 import {ProofsLib} from "../src/lib/ProofsLib.sol";
-import {InvalidChainHead, NothingChanged} from "../src/lib/BridgeErrors.sol";
-import {IBridgeAdapter} from "../src/interfaces/IBridgeAdapter.sol";
+import {InvalidChainHead} from "../src/lib/ProofsLib.sol";
+import {NothingChanged} from "../src/core/interfaces/IWorldIdBridge.sol";
+import {ITransport} from "../src/interfaces/ITransport.sol";
 import {IL1BlockHashOracle} from "../src/interfaces/IL1BlockHashOracle.sol";
 import {CommitmentHelpers} from "./helpers/CommitmentHelpers.sol";
 
 // ── Core contracts ──
-import {WorldChainWorldId} from "../src/core/WorldChainWorldId.sol";
-import {L1WorldId} from "../src/core/L1WorldId.sol";
-import {UniversalWorldId} from "../src/core/UniversalWorldId.sol";
+import {WorldChainBridge} from "../src/core/WorldChainBridge.sol";
+import {EthereumWorldIdVerifier} from "../src/core/EthereumWorldIdVerifier.sol";
+import {UniversalWorldIdVerifier} from "../src/core/UniversalWorldIdVerifier.sol";
 import {WorldIdBridge} from "../src/core/lib/WorldIdBridge.sol";
 
 // ── Adapters + Receivers ──
-import {ArbitrumAdapter} from "../src/adapters/arbitrum/ArbitrumAdapter.sol";
-import {ArbitrumReceiver} from "../src/adapters/arbitrum/ArbitrumReceiver.sol";
-import {ScrollAdapter} from "../src/adapters/scroll/ScrollAdapter.sol";
-import {ScrollReceiver} from "../src/adapters/scroll/ScrollReceiver.sol";
-import {ZkSyncAdapter} from "../src/adapters/zksync/ZkSyncAdapter.sol";
-import {ZkSyncReceiver} from "../src/adapters/zksync/ZkSyncReceiver.sol";
+import {ArbitrumAdapter} from "../src/core/adapters/arbitrum/ArbitrumAdapter.sol";
+import {ArbitrumReceiver} from "../src/core/adapters/arbitrum/ArbitrumReceiver.sol";
+import {ScrollAdapter} from "../src/core/adapters/scroll/ScrollAdapter.sol";
+import {ScrollReceiver} from "../src/core/adapters/scroll/ScrollReceiver.sol";
+import {ZkSyncAdapter} from "../src/core/adapters/zksync/ZkSyncAdapter.sol";
+import {ZkSyncReceiver} from "../src/core/adapters/zksync/ZkSyncReceiver.sol";
 
 // ── Vendored types ──
-import {IDisputeGameFactory} from "../src/vendored/optimism/IDisputeGameFactory.sol";
-import {IDisputeGame} from "../src/vendored/optimism/IDisputeGame.sol";
-import {GameStatus, Claim, GameType, Timestamp} from "../src/vendored/optimism/DisputeTypes.sol";
-import {IInbox} from "../src/vendored/arbitrum/IInbox.sol";
-import {IL1ScrollMessenger} from "../src/vendored/scroll/IL1ScrollMessenger.sol";
-import {IL2ScrollMessenger} from "../src/vendored/scroll/IL2ScrollMessenger.sol";
-import {IMailbox} from "../src/vendored/zksync/IMailbox.sol";
-import {IL1Block} from "../src/vendored/optimism/IL1Block.sol";
+import {IDisputeGameFactory} from "../src/vendor/optimism/IDisputeGameFactory.sol";
+import {IDisputeGame} from "../src/vendor/optimism/IDisputeGame.sol";
+import {GameStatus, Claim, GameType, Timestamp} from "../src/vendor/optimism/DisputeTypes.sol";
+import {IInbox} from "../src/vendor/arbitrum/IInbox.sol";
+import {IL1ScrollMessenger} from "../src/vendor/scroll/IL1ScrollMessenger.sol";
+import {IL2ScrollMessenger} from "../src/vendor/scroll/IL2ScrollMessenger.sol";
+import {IMailbox} from "../src/vendor/zksync/IMailbox.sol";
+import {IL1Block} from "../src/vendor/optimism/IL1Block.sol";
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
 
 // ── Mock registries ──
@@ -198,7 +199,7 @@ contract MockVerifier {
 }
 
 /// @dev Records all messages sent through it.
-contract MockBridgeAdapter is IBridgeAdapter {
+contract MockBridgeAdapter is ITransport {
     bytes[] public receivedMessages;
 
     function sendMessage(bytes calldata message) external payable override {
@@ -277,7 +278,7 @@ abstract contract E2EBase is CommitmentHelpers {
 // ═══════════════════════════════════════════════════════════
 
 contract E2EFullPipelineTest is E2EBase {
-    // ── Phase 1: WorldChainWorldId ──
+    // ── Phase 1: WorldChainBridge ──
 
     function test_e2e_fullPipeline_worldChainToAllDestinations() public {
         // ──────── Phase 1: World Chain propagateState ────────
@@ -290,8 +291,8 @@ contract E2EFullPipelineTest is E2EBase {
         wcIssuerRegistry.setPubkey(TEST_ISSUER_ID, 111, 222);
         wcOprfRegistry.setKey(TEST_OPRF_ID, 333, 444);
 
-        // Deploy WorldChainWorldId
-        WorldChainWorldId wcSource = new WorldChainWorldId(
+        // Deploy WorldChainBridge
+        WorldChainBridge wcSource = new WorldChainBridge(
             address(wcRegistry),
             address(wcIssuerRegistry),
             address(wcOprfRegistry),
@@ -321,7 +322,7 @@ contract E2EFullPipelineTest is E2EBase {
         assertTrue(wcSource.isValidRoot(TEST_ROOT), "WC isValidRoot");
 
         // ──────── Phase 2: Reconstruct commitments ────────
-        // Reconstruct the same commitments that WorldChainWorldId produced
+        // Reconstruct the same commitments that WorldChainBridge produced
         bytes32 proofId = bytes32(block.number);
         ProofsLib.Commitment[] memory commits = new ProofsLib.Commitment[](3);
         commits[0] = ProofsLib.Commitment({
@@ -350,8 +351,8 @@ contract E2EFullPipelineTest is E2EBase {
         MockDisputeGameFactory factory = new MockDisputeGameFactory();
         factory.addGame(address(game));
 
-        // Deploy L1WorldId
-        L1WorldId l1Relay = new L1WorldId(
+        // Deploy EthereumWorldIdVerifier
+        EthereumWorldIdVerifier l1Relay = new EthereumWorldIdVerifier(
             address(0),
             IDisputeGameFactory(address(factory)),
             PLANTED_WC_BRIDGE,
@@ -365,16 +366,16 @@ contract E2EFullPipelineTest is E2EBase {
         MockBridgeAdapter scrollAdapter = new MockBridgeAdapter();
         MockBridgeAdapter zkSyncAdapter = new MockBridgeAdapter();
 
-        l1Relay.registerAdapter(IBridgeAdapter(address(arbAdapter)));
-        l1Relay.registerAdapter(IBridgeAdapter(address(scrollAdapter)));
-        l1Relay.registerAdapter(IBridgeAdapter(address(zkSyncAdapter)));
+        l1Relay.registerAdapter(ITransport(address(arbAdapter)));
+        l1Relay.registerAdapter(ITransport(address(scrollAdapter)));
+        l1Relay.registerAdapter(ITransport(address(zkSyncAdapter)));
 
         // Encode mptProof with disputeGameIndex
         (bytes[] memory outputRootProof, bytes[] memory accountProof, bytes[] memory storageValidityProof) =
             abi.decode(wcMptProof, (bytes[], bytes[], bytes[]));
         bytes memory mptProofWithIndex = abi.encode(outputRootProof, accountProof, storageValidityProof, uint256(0));
 
-        // Call commitChained on L1WorldId
+        // Call commitChained on EthereumWorldIdVerifier
         l1Relay.commitChained(ProofsLib.CommitmentWithProof({mptProof: mptProofWithIndex, commits: commits}));
 
         // Assert L1 state
@@ -447,14 +448,14 @@ contract E2EFullPipelineTest is E2EBase {
             assertEq(zkLen, 3, "ZkSync chain length");
         }
 
-        // ──────── Phase 5: UniversalWorldId with L1→dest proof ────────
+        // ──────── Phase 5: UniversalWorldIdVerifier with L1→dest proof ────────
         string memory l1Rpc = vm.envString("ETHEREUM_PROVIDER");
         (bytes memory l1MptProof, bytes32 l1BlockHash) = _generateDestProof(l1Rpc, expectedChainHead);
 
         MockBlockHashOracle oracle = new MockBlockHashOracle();
         oracle.setValid(l1BlockHash, true);
 
-        UniversalWorldId universalReceiver = new UniversalWorldId(
+        UniversalWorldIdVerifier universalReceiver = new UniversalWorldIdVerifier(
             address(verifier), address(oracle), PLANTED_BRIDGE, ROOT_VALIDITY_WINDOW, TREE_DEPTH, MIN_EXPIRATION
         );
 
@@ -470,14 +471,14 @@ contract E2EFullPipelineTest is E2EBase {
 
         // ──────── Phase 6: Cross-chain Consistency ────────
         // All 5 bridges should have identical state
-        _assertBridgeState(l1Relay, expectedChainHead, 3, "L1WorldId");
+        _assertBridgeState(l1Relay, expectedChainHead, 3, "EthereumWorldIdVerifier");
         _assertBridgeState(arbReceiver, expectedChainHead, 3, "Arb");
         _assertBridgeState(scrollReceiver, expectedChainHead, 3, "Scroll");
         _assertBridgeState(zkReceiver, expectedChainHead, 3, "ZkSync");
         _assertBridgeState(universalReceiver, expectedChainHead, 3, "Universal");
 
         // Verify issuer pubkey on L1 and receivers that expose it
-        _assertIssuerPubkey(l1Relay, TEST_ISSUER_ID, 111, 222, "L1WorldId");
+        _assertIssuerPubkey(l1Relay, TEST_ISSUER_ID, 111, 222, "EthereumWorldIdVerifier");
         _assertIssuerPubkey(arbReceiver, TEST_ISSUER_ID, 111, 222, "Arb");
         _assertIssuerPubkey(scrollReceiver, TEST_ISSUER_ID, 111, 222, "Scroll");
         _assertIssuerPubkey(zkReceiver, TEST_ISSUER_ID, 111, 222, "ZkSync");
@@ -518,8 +519,8 @@ contract E2EMultipleRoundsTest is E2EBase {
         MockIssuerRegistry wcIssuerRegistry = new MockIssuerRegistry();
         MockOprfKeyRegistry wcOprfRegistry = new MockOprfKeyRegistry();
 
-        // Deploy WorldChainWorldId
-        WorldChainWorldId wcSource = new WorldChainWorldId(
+        // Deploy WorldChainBridge
+        WorldChainBridge wcSource = new WorldChainBridge(
             address(wcRegistry),
             address(wcIssuerRegistry),
             address(wcOprfRegistry),
@@ -567,7 +568,7 @@ contract E2EMultipleRoundsTest is E2EBase {
         MockIssuerRegistry wcIssuerRegistry = new MockIssuerRegistry();
         MockOprfKeyRegistry wcOprfRegistry = new MockOprfKeyRegistry();
 
-        WorldChainWorldId wcSource = new WorldChainWorldId(
+        WorldChainBridge wcSource = new WorldChainBridge(
             address(wcRegistry),
             address(wcIssuerRegistry),
             address(wcOprfRegistry),
@@ -662,7 +663,7 @@ contract E2EWrongProofTest is E2EBase {
         oracle.setValid(blockHash, true);
         MockVerifier verifier = new MockVerifier();
 
-        UniversalWorldId receiver = new UniversalWorldId(
+        UniversalWorldIdVerifier receiver = new UniversalWorldIdVerifier(
             address(verifier), address(oracle), PLANTED_BRIDGE, ROOT_VALIDITY_WINDOW, TREE_DEPTH, MIN_EXPIRATION
         );
 
@@ -685,7 +686,7 @@ contract E2EWrongProofTest is E2EBase {
         MockDisputeGameFactory factory = new MockDisputeGameFactory();
         factory.addGame(address(game));
 
-        L1WorldId l1Relay = new L1WorldId(
+        EthereumWorldIdVerifier l1Relay = new EthereumWorldIdVerifier(
             address(0),
             IDisputeGameFactory(address(factory)),
             PLANTED_WC_BRIDGE,
@@ -709,14 +710,14 @@ contract E2EWrongProofTest is E2EBase {
 
 contract E2EAdapterDispatchTest is E2EBase {
     function test_e2e_adapterDispatch_messageIntegrity() public {
-        // Build commitments and push through L1WorldId → mock adapters
+        // Build commitments and push through EthereumWorldIdVerifier → mock adapters
         ProofsLib.Commitment[] memory commits = new ProofsLib.Commitment[](2);
         commits[0] = _makeUpdateRootCommitment(TEST_ROOT, block.timestamp, TEST_PROOF_ID, TEST_BLOCK_HASH);
         commits[1] = _makeSetIssuerCommitment(TEST_ISSUER_ID, 111, 222, TEST_PROOF_ID, TEST_BLOCK_HASH);
 
         bytes32 expectedHead = _computeChainHead(commits);
 
-        // Deploy L1WorldId with real WC proof
+        // Deploy EthereumWorldIdVerifier with real WC proof
         string memory wcRpc = vm.envString("WORLDCHAIN_PROVIDER");
         (bytes memory wcMptProof, bytes32 rootClaim) = _generateL1Proof(wcRpc, expectedHead);
 
@@ -724,7 +725,7 @@ contract E2EAdapterDispatchTest is E2EBase {
         MockDisputeGameFactory factory = new MockDisputeGameFactory();
         factory.addGame(address(game));
 
-        L1WorldId l1Relay = new L1WorldId(
+        EthereumWorldIdVerifier l1Relay = new EthereumWorldIdVerifier(
             address(0),
             IDisputeGameFactory(address(factory)),
             PLANTED_WC_BRIDGE,
@@ -748,9 +749,9 @@ contract E2EAdapterDispatchTest is E2EBase {
         address zkTarget = address(0x2C01);
         ZkSyncAdapter zkAdapter = new ZkSyncAdapter(IMailbox(address(zkMailbox)), zkTarget, 2_000_000, 800);
 
-        l1Relay.registerAdapter(IBridgeAdapter(address(arbAdapter)));
-        l1Relay.registerAdapter(IBridgeAdapter(address(scrollAdapt)));
-        l1Relay.registerAdapter(IBridgeAdapter(address(zkAdapter)));
+        l1Relay.registerAdapter(ITransport(address(arbAdapter)));
+        l1Relay.registerAdapter(ITransport(address(scrollAdapt)));
+        l1Relay.registerAdapter(ITransport(address(zkAdapter)));
 
         // Commit
         (bytes[] memory outputRootProof, bytes[] memory accountProof, bytes[] memory storageValidityProof) =

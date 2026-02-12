@@ -4,19 +4,17 @@ pragma solidity ^0.8.28;
 import {IWorldIDRegistry} from "@world-id/interfaces/IWorldIDRegistry.sol";
 import {ICredentialSchemaIssuerRegistry} from "@world-id/interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {OprfKeyGen} from "lib/oprf-key-registry/src/OprfKeyGen.sol";
-import {IL1Block} from "../vendored/optimism/IL1Block.sol";
+import {IL1Block} from "../vendor/optimism/IL1Block.sol";
 import {WorldIdBridge} from "./lib/WorldIdBridge.sol";
 import {ProofsLib} from "../lib/ProofsLib.sol";
 import {IOprfKeyRegistry} from "../interfaces/IOprfKeyRegistry.sol";
-import {ProvenPubKeyInfo} from "../lib/BridgeTypes.sol";
-import {NothingChanged, UnsupportedOperation} from "../lib/BridgeErrors.sol";
-import {ChainCommitted} from "../lib/BridgeEvents.sol";
+import {ProvenPubKeyInfo, NothingChanged, UnsupportedOperation, ChainCommitted} from "./interfaces/IWorldIdBridge.sol";
 
 /// @title WorldChainSource
 /// @author World Contributors
 /// @notice World Chain source-of-truth context. Reads WC registries directly via `propagateState`,
 ///   extends the rolling keccak state chain, and marks new chain heads as valid for L1 verification via MPT.
-contract WorldChainWorldId is WorldIdBridge {
+contract WorldChainBridge is WorldIdBridge {
     using ProofsLib for ProofsLib.Chain;
 
     IL1Block public constant L1_BLOCK = IL1Block(address(0));

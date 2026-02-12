@@ -2,7 +2,18 @@
 pragma solidity ^0.8.28;
 
 import {ProofsLib} from "./ProofsLib.sol";
-import {TooManyCommits, PayloadTooShort, UnsupportedPayloadVersion, UnknownPayloadAction} from "./BridgeErrors.sol";
+
+/// @dev Thrown when the number of commitments exceeds uint16 max.
+error TooManyCommits();
+
+/// @dev Thrown when a Wormhole payload is shorter than the header size.
+error PayloadTooShort();
+
+/// @dev Thrown when a Wormhole payload has an unsupported version byte.
+error UnsupportedPayloadVersion();
+
+/// @dev Thrown when a Wormhole payload has an unknown action byte.
+error UnknownPayloadAction();
 
 /// @title WormholePayloadLib
 /// @author World Contributors

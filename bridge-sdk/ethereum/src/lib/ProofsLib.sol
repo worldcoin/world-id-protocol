@@ -1,17 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Hashing} from "../vendored/optimism/Hashing.sol";
-import {RLPReader} from "../vendored/optimism/rlp/RLPReader.sol";
-import {SecureMerkleTrie} from "../vendored/optimism/trie/SecureMerkleTrie.sol";
-import {
-    InvalidOutputRootPreimage,
-    InvalidChainHead,
-    EmptyAccountProof,
-    InvalidAccountFields,
-    StorageValueTooLarge,
-    InvalidBlockHeader
-} from "./BridgeErrors.sol";
+import {Hashing} from "../vendor/optimism/Hashing.sol";
+import {RLPReader} from "../vendor/optimism/rlp/RLPReader.sol";
+import {SecureMerkleTrie} from "../vendor/optimism/trie/SecureMerkleTrie.sol";
+
+/// @dev Thrown when the output root preimage does not match the game's `rootClaim()`.
+error InvalidOutputRootPreimage();
+
+/// @dev Thrown when the computed chain head is not valid.
+error InvalidChainHead();
+
+/// @dev Thrown when the MPT account proof returns an empty RLP result.
+error EmptyAccountProof();
+
+/// @dev Thrown when the RLP-decoded account does not have exactly 4 fields.
+error InvalidAccountFields();
+
+/// @dev Thrown when a decoded storage value exceeds 32 bytes.
+error StorageValueTooLarge();
+
+/// @dev Thrown when a block header has fewer fields than required.
+error InvalidBlockHeader();
 
 /// @title ProofsLib
 /// @author World Contributors

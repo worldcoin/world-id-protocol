@@ -1,29 +1,32 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IDisputeGameFactory} from "../vendored/optimism/IDisputeGameFactory.sol";
-import {IDisputeGame} from "../vendored/optimism/IDisputeGame.sol";
-import {GameStatus, Claim} from "../vendored/optimism/DisputeTypes.sol";
-import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
-import {INativeWorldId} from "../interfaces/INativeWorldId.sol";
+import {IDisputeGameFactory} from "../vendor/optimism/IDisputeGameFactory.sol";
+import {IDisputeGame} from "../vendor/optimism/IDisputeGame.sol";
+import {GameStatus, Claim} from "../vendor/optimism/DisputeTypes.sol";
+import {ITransport} from "../interfaces/ITransport.sol";
+import {INativeReceiver} from "./interfaces/INativeReceiver.sol";
 import {ProofsLib} from "../lib/ProofsLib.sol";
 import {CrossDomainWorldIdVerifier} from "./lib/CrossDomainWorldIdVerifier.sol";
-import {
-    EmptyChainedCommits,
-    InvalidDisputeGameIndex,
-    InvalidOutputRoot,
-    InvalidAdapterIndex
-} from "../lib/BridgeErrors.sol";
-import {ChainCommitted, AdapterRegistered, AdapterRemoved} from "../lib/BridgeEvents.sol";
+import {EmptyChainedCommits, InvalidOutputRoot, ChainCommitted} from "./interfaces/IWorldIdBridge.sol";
 
-/// @title L1Relay
+/// @dev Thrown when the dispute game index is invalid or does not exist.
+error InvalidDisputeGameIndex();
+
+/// @dev Thrown when the adapter index is out of bounds.
+error InvalidAdapterIndex();
+
+/// @notice Emitted when a new bridge adapter is registered.
+event AdapterRegistered(uint256 indexed index, address adapter);
+
+/// @notice Emitted when a bridge adapter is removed.
+event AdapterRemoved(uint256 indexed index, address adapter);
+
+/// @title EthereumWorldIdVerifier
 /// @author World Contributors
-/// @notice L1 relay context for the World ID state bridge.
-///
-///   Verifies proofs against the state root of World Chain stored in the DisputeGameFactory's
-///   game contract. Applies proven commitments locally, marks chain heads valid, and dispatches
-///   to destination adapters.
-contract L1WorldId is CrossDomainWorldIdVerifier {
+/// @notice Ethereum L1 World ID verifier and relay. Verifies ZK proofs against bridged state
+///   proven via OP Stack DisputeGame, applies commitments, and dispatches to destination adapters.
+contract EthereumWorldIdVerifier is CrossDomainWorldIdVerifier {
     using ProofsLib for ProofsLib.Chain;
 
     ////////////////////////////////////////////////////////////
@@ -37,7 +40,7 @@ contract L1WorldId is CrossDomainWorldIdVerifier {
     address public immutable WC_BRIDGE;
 
     /// @notice Registered Adapters for dispatching state updates.
-    IBridgeAdapter[] public adapters;
+    ITransport[] public adapters;
 
     ////////////////////////////////////////////////////////////
     //                      CONSTRUCTOR                       //
@@ -57,7 +60,7 @@ contract L1WorldId is CrossDomainWorldIdVerifier {
 
     /// @notice Registers a new bridge adapter for state dispatch.
     /// @param adapter The bridge adapter contract to register.
-    function registerAdapter(IBridgeAdapter adapter) external virtual {
+    function registerAdapter(ITransport adapter) external virtual {
         uint256 index = adapters.length;
         adapters.push(adapter);
         emit AdapterRegistered(index, address(adapter));
@@ -118,7 +121,7 @@ contract L1WorldId is CrossDomainWorldIdVerifier {
     /// @dev Dispatches commitments to all registered adapters via `commitFromL1` ABI encoding.
     /// @param commits The commitments to dispatch.
     function dispatch(ProofsLib.Commitment[] memory commits) internal {
-        bytes memory message = abi.encodeCall(INativeWorldId.commitFromL1, (commits));
+        bytes memory message = abi.encodeCall(INativeReceiver.commitFromL1, (commits));
         for (uint256 i; i < adapters.length; ++i) {
             adapters[i].sendMessage(message);
         }

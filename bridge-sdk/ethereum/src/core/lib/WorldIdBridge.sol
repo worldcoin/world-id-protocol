@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IStateBridge} from "../../interfaces/IStateBridge.sol";
+import {
+    IWorldIdBridge,
+    ProvenRootInfo,
+    ProvenPubKeyInfo,
+    UnknownAction,
+    InvalidChainSlot,
+    ProofIdInvalidated
+} from "../interfaces/IWorldIdBridge.sol";
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
 import {ProofsLib} from "../../lib/ProofsLib.sol";
-import {CommitmentDecoder} from "./CommitmentDecoder.sol";
-import {ProvenRootInfo, ProvenPubKeyInfo} from "../../lib/BridgeTypes.sol";
-import {UnknownAction, InvalidChainSlot} from "../../lib/BridgeErrors.sol";
-import {ProofIdInvalidated} from "../../lib/BridgeEvents.sol";
+import {CommitmentDecoder} from "../../lib/CommitmentDecoder.sol";
 
 /// @title BridgeState
 /// @author World Contributors
@@ -15,7 +19,7 @@ import {ProofIdInvalidated} from "../../lib/BridgeEvents.sol";
 ///   and bridged destinations). Manages the rolling keccak state chain, root validity tracking,
 ///   issuer/OPRF key storage, and commitment decoding. Uses `CommitmentDecoder` for typed
 ///   deserialization of commitment data.
-abstract contract WorldIdBridge is IStateBridge {
+abstract contract WorldIdBridge is IWorldIdBridge {
     using ProofsLib for ProofsLib.Chain;
     using CommitmentDecoder for bytes;
 
@@ -63,10 +67,10 @@ abstract contract WorldIdBridge is IStateBridge {
         minExpirationThreshold = minExpirationThreshold_;
     }
 
-    /// @inheritdoc IStateBridge
+    /// @inheritdoc IWorldIdBridge
     function commitChained(ProofsLib.CommitmentWithProof calldata commitWithProof) external virtual;
 
-    /// @inheritdoc IStateBridge
+    /// @inheritdoc IWorldIdBridge
     function isValidRoot(uint256 root) public view virtual returns (bool) {
         bytes32 proofId = rootToTimestampAndProofId[bytes32(root)].proofId;
         if (invalidatedProofIds[proofId]) return false;

@@ -5,27 +5,30 @@ import {Test} from "forge-std/Test.sol";
 import {ProofsLib} from "../src/lib/ProofsLib.sol";
 import {WormholePayloadLib} from "../src/lib/WormholePayloadLib.sol";
 import {CommitmentHelpers} from "./helpers/CommitmentHelpers.sol";
-import {ProvenRootInfo, ProvenPubKeyInfo} from "../src/lib/BridgeTypes.sol";
 import {
+    ProvenRootInfo,
+    ProvenPubKeyInfo,
     EmptyChainedCommits,
-    InvalidDisputeGameIndex,
-    InvalidOutputRoot,
     UnknownAction,
-    PayloadTooShort,
-    UnsupportedPayloadVersion,
-    UnknownPayloadAction,
-    InvalidAdapterIndex
-} from "../src/lib/BridgeErrors.sol";
-import {WormholeMessagePublished, AdapterRegistered, AdapterRemoved} from "../src/lib/BridgeEvents.sol";
-import {WormholeAdapter} from "../src/adapters/wormhole/WormholeAdapter.sol";
-import {IWormhole} from "../src/vendored/wormhole/IWormhole.sol";
-import {IBridgeAdapter} from "../src/interfaces/IBridgeAdapter.sol";
-import {INativeWorldId} from "../src/interfaces/INativeWorldId.sol";
-import {L1WorldId} from "../src/core/L1WorldId.sol";
+    InvalidOutputRoot
+} from "../src/core/interfaces/IWorldIdBridge.sol";
+import {PayloadTooShort, UnsupportedPayloadVersion, UnknownPayloadAction} from "../src/lib/WormholePayloadLib.sol";
+import {
+    InvalidDisputeGameIndex,
+    InvalidAdapterIndex,
+    AdapterRegistered,
+    AdapterRemoved
+} from "../src/core/EthereumWorldIdVerifier.sol";
+import {WormholeMessagePublished} from "../src/core/adapters/wormhole/WormholeAdapter.sol";
+import {WormholeAdapter} from "../src/core/adapters/wormhole/WormholeAdapter.sol";
+import {IWormhole} from "../src/vendor/wormhole/IWormhole.sol";
+import {ITransport} from "../src/interfaces/ITransport.sol";
+import {INativeReceiver} from "../src/core/interfaces/INativeReceiver.sol";
+import {EthereumWorldIdVerifier} from "../src/core/EthereumWorldIdVerifier.sol";
 import {WorldIdBridge} from "../src/core/lib/WorldIdBridge.sol";
-import {IDisputeGameFactory} from "../src/vendored/optimism/IDisputeGameFactory.sol";
-import {IDisputeGame} from "../src/vendored/optimism/IDisputeGame.sol";
-import {GameStatus, Claim, GameType, Timestamp} from "../src/vendored/optimism/DisputeTypes.sol";
+import {IDisputeGameFactory} from "../src/vendor/optimism/IDisputeGameFactory.sol";
+import {IDisputeGame} from "../src/vendor/optimism/IDisputeGame.sol";
+import {GameStatus, Claim, GameType, Timestamp} from "../src/vendor/optimism/DisputeTypes.sol";
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
 
 // ═══════════════════════════════════════════════════════════
@@ -119,8 +122,8 @@ contract MockWormhole is IWormhole {
     }
 }
 
-/// @dev Records all messages sent through it. Used to verify L1WorldId dispatch behavior.
-contract MockBridgeAdapter is IBridgeAdapter {
+/// @dev Records all messages sent through it. Used to verify EthereumWorldIdVerifier dispatch behavior.
+contract MockBridgeAdapter is ITransport {
     bytes[] public receivedMessages;
 
     function sendMessage(bytes calldata message) external payable override {
@@ -840,17 +843,17 @@ contract WormholeAdapterTest is WormholeBridgeBaseTest {
         assertEq(wormhole.publishedMessageCount(), 1);
     }
 
-    // ── IBridgeAdapter Interface Conformance ──
+    // ── ITransport Interface Conformance ──
 
-    function test_implementsIBridgeAdapter() public view {
-        // Verify the adapter can be cast to IBridgeAdapter.
-        IBridgeAdapter iBridge = IBridgeAdapter(address(adapter));
+    function test_implementsITransport() public view {
+        // Verify the adapter can be cast to ITransport.
+        ITransport iBridge = ITransport(address(adapter));
         assertEq(address(iBridge), address(adapter));
     }
 }
 
 // ═══════════════════════════════════════════════════════════
-//     3. L1WorldId DISPATCH + ADAPTER INTEGRATION
+//     3. EthereumWorldIdVerifier DISPATCH + ADAPTER INTEGRATION
 // ═══════════════════════════════════════════════════════════
 
 contract L1RelayDispatchTest is WormholeBridgeBaseTest {
@@ -859,8 +862,8 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
     MockBridgeAdapter mockAdapter;
     WormholePayloadHarness payloadHarness;
 
-    // L1WorldId with a permissive mock factory.
-    L1WorldId l1Bridge;
+    // EthereumWorldIdVerifier with a permissive mock factory.
+    EthereumWorldIdVerifier l1Bridge;
     MockDisputeGameFactory factory;
 
     address constant WC_BRIDGE = address(uint160(uint256(keccak256("test.wc.bridge"))));
@@ -874,7 +877,7 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
         payloadHarness = new WormholePayloadHarness();
         factory = new MockDisputeGameFactory();
 
-        l1Bridge = new L1WorldId(
+        l1Bridge = new EthereumWorldIdVerifier(
             address(0), // verifier (not testing ZK)
             IDisputeGameFactory(address(factory)),
             WC_BRIDGE,
@@ -889,21 +892,21 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
     // ── Adapter Registration ──
 
     function test_registerAdapter_single() public {
-        l1Bridge.registerAdapter(IBridgeAdapter(address(mockAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(mockAdapter)));
         assertEq(address(l1Bridge.adapters(0)), address(mockAdapter));
     }
 
     function test_registerAdapter_multiple() public {
-        l1Bridge.registerAdapter(IBridgeAdapter(address(mockAdapter)));
-        l1Bridge.registerAdapter(IBridgeAdapter(address(wormholeAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(mockAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(wormholeAdapter)));
 
         assertEq(address(l1Bridge.adapters(0)), address(mockAdapter));
         assertEq(address(l1Bridge.adapters(1)), address(wormholeAdapter));
     }
 
     function test_removeAdapter_removesCorrectAdapter() public {
-        l1Bridge.registerAdapter(IBridgeAdapter(address(mockAdapter)));
-        l1Bridge.registerAdapter(IBridgeAdapter(address(wormholeAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(mockAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(wormholeAdapter)));
 
         l1Bridge.removeAdapter(0); // remove mockAdapter, wormholeAdapter moves to index 0
 
@@ -916,7 +919,7 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
     }
 
     function test_removeAdapter_lastElement() public {
-        l1Bridge.registerAdapter(IBridgeAdapter(address(mockAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(mockAdapter)));
         l1Bridge.removeAdapter(0);
 
         // Should revert when accessing index 0 (array is empty).
@@ -927,16 +930,16 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
     function test_registerAdapter_emitsEvent() public {
         vm.expectEmit(true, false, false, true, address(l1Bridge));
         emit AdapterRegistered(0, address(mockAdapter));
-        l1Bridge.registerAdapter(IBridgeAdapter(address(mockAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(mockAdapter)));
 
         vm.expectEmit(true, false, false, true, address(l1Bridge));
         emit AdapterRegistered(1, address(wormholeAdapter));
-        l1Bridge.registerAdapter(IBridgeAdapter(address(wormholeAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(wormholeAdapter)));
     }
 
     function test_removeAdapter_emitsEvent() public {
-        l1Bridge.registerAdapter(IBridgeAdapter(address(mockAdapter)));
-        l1Bridge.registerAdapter(IBridgeAdapter(address(wormholeAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(mockAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(wormholeAdapter)));
 
         vm.expectEmit(true, false, false, true, address(l1Bridge));
         emit AdapterRemoved(0, address(mockAdapter));
@@ -950,8 +953,8 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
         MockBridgeAdapter adapter1 = new MockBridgeAdapter();
         MockBridgeAdapter adapter2 = new MockBridgeAdapter();
 
-        l1Bridge.registerAdapter(IBridgeAdapter(address(adapter1)));
-        l1Bridge.registerAdapter(IBridgeAdapter(address(adapter2)));
+        l1Bridge.registerAdapter(ITransport(address(adapter1)));
+        l1Bridge.registerAdapter(ITransport(address(adapter2)));
 
         // We can't call dispatch directly (internal), so we'll verify via the mock adapter
         // message recording in the E2E test below. Here verify adapters are registered.
@@ -962,24 +965,24 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
     // ── Message Format Verification ──
 
     function test_dispatch_messageFormat_isCommitFromL1() public {
-        // Verify the message format that L1WorldId.dispatch() produces.
+        // Verify the message format that EthereumWorldIdVerifier.dispatch() produces.
         ProofsLib.Commitment[] memory commits = new ProofsLib.Commitment[](1);
         commits[0] = _makeUpdateRootCommitment(TEST_ROOT, TEST_TIMESTAMP, TEST_PROOF_ID, TEST_BLOCK_HASH);
 
         bytes memory expectedMessage = _encodeCommitFromL1(commits);
 
-        // Check that the selector is INativeWorldId.commitFromL1
+        // Check that the selector is INativeReceiver.commitFromL1
         bytes4 selector;
         assembly {
             selector := mload(add(expectedMessage, 32))
         }
-        assertEq(selector, INativeWorldId.commitFromL1.selector, "message selector is commitFromL1");
+        assertEq(selector, INativeReceiver.commitFromL1.selector, "message selector is commitFromL1");
     }
 
     // ── Wormhole Adapter E2E: ABI decode → WormholePayload encode → publish ──
 
     function test_wormholeAdapter_decodesCommitFromL1Correctly() public {
-        // Build the exact message that L1WorldId.dispatch() produces.
+        // Build the exact message that EthereumWorldIdVerifier.dispatch() produces.
         ProofsLib.Commitment[] memory commits = new ProofsLib.Commitment[](2);
         commits[0] = _makeUpdateRootCommitment(TEST_ROOT, TEST_TIMESTAMP, TEST_PROOF_ID, TEST_BLOCK_HASH);
         commits[1] = _makeSetIssuerCommitment(TEST_ISSUER_ID, 111, 222, TEST_PROOF_ID, bytes32(uint256(0xAA)));
@@ -1103,8 +1106,8 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
 
     function test_dispatch_wormholeAndMockReceiveSameCommits() public {
         // Register both a mock adapter and the Wormhole adapter.
-        l1Bridge.registerAdapter(IBridgeAdapter(address(mockAdapter)));
-        l1Bridge.registerAdapter(IBridgeAdapter(address(wormholeAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(mockAdapter)));
+        l1Bridge.registerAdapter(ITransport(address(wormholeAdapter)));
 
         // Build commits.
         ProofsLib.Commitment[] memory commits = new ProofsLib.Commitment[](1);
@@ -1112,8 +1115,8 @@ contract L1RelayDispatchTest is WormholeBridgeBaseTest {
 
         bytes memory expectedMessage = _encodeCommitFromL1(commits);
 
-        // Call dispatch directly on both adapters to simulate what L1WorldId does.
-        // (We can't trigger L1WorldId.commitChained without valid MPT proofs,
+        // Call dispatch directly on both adapters to simulate what EthereumWorldIdVerifier does.
+        // (We can't trigger EthereumWorldIdVerifier.commitChained without valid MPT proofs,
         //  so we test the adapter layer directly.)
         mockAdapter.sendMessage(expectedMessage);
         wormholeAdapter.sendMessage{value: MESSAGE_FEE}(expectedMessage);

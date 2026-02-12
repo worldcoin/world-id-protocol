@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IBridgeAdapter} from "../../interfaces/IBridgeAdapter.sol";
-import {IMailbox} from "../../vendored/zksync/IMailbox.sol";
+import {ITransport} from "../../../interfaces/ITransport.sol";
+import {IMailbox} from "../../../vendor/zksync/IMailbox.sol";
 
 /// @title ZkSyncAdapter
 /// @author World Contributors
-/// @notice Concrete `IBridgeAdapter` for ZkSync Era. Wraps the ZkSync Mailbox to request
+/// @notice Concrete `ITransport` for ZkSync Era. Wraps the ZkSync Mailbox to request
 ///   L2 transactions that deliver encoded `commitFromL1` calls to the L2 receiver.
 /// @dev Permissionless — auth is enforced on the L2 side via address aliasing.
-contract ZkSyncAdapter is IBridgeAdapter {
+contract ZkSyncAdapter is ITransport {
     /// @notice The ZkSync Era Mailbox contract on L1.
     IMailbox public immutable MAILBOX;
 
@@ -29,7 +29,7 @@ contract ZkSyncAdapter is IBridgeAdapter {
         GAS_PER_PUBDATA = gasPerPubdata;
     }
 
-    /// @inheritdoc IBridgeAdapter
+    /// @inheritdoc ITransport
     function sendMessage(bytes calldata message) external payable virtual {
         MAILBOX.requestL2Transaction{value: msg.value}(
             TARGET,

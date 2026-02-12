@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IBridgeAdapter} from "../../interfaces/IBridgeAdapter.sol";
-import {IL1ScrollMessenger} from "../../vendored/scroll/IL1ScrollMessenger.sol";
+import {ITransport} from "../../../interfaces/ITransport.sol";
+import {IL1ScrollMessenger} from "../../../vendor/scroll/IL1ScrollMessenger.sol";
 
 /// @title ScrollAdapter
 /// @author World Contributors
-/// @notice Concrete `IBridgeAdapter` for Scroll. Wraps the Scroll L1 messenger to deliver
+/// @notice Concrete `ITransport` for Scroll. Wraps the Scroll L1 messenger to deliver
 ///   encoded `commitFromL1` calls to the L2 receiver.
 /// @dev Permissionless — auth is enforced on the L2 side via `xDomainMessageSender`.
-contract ScrollAdapter is IBridgeAdapter {
+contract ScrollAdapter is ITransport {
     /// @notice The Scroll L1 messenger contract.
     IL1ScrollMessenger public immutable MESSENGER;
 
@@ -25,7 +25,7 @@ contract ScrollAdapter is IBridgeAdapter {
         GAS_LIMIT = gasLimit;
     }
 
-    /// @inheritdoc IBridgeAdapter
+    /// @inheritdoc ITransport
     function sendMessage(bytes calldata message) external payable virtual {
         MESSENGER.sendMessage{value: msg.value}(TARGET, 0, message, GAS_LIMIT);
     }

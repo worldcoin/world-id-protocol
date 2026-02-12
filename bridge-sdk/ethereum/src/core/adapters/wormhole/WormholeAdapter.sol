@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IBridgeAdapter} from "../../interfaces/IBridgeAdapter.sol";
-import {IWormhole} from "../../vendored/wormhole/IWormhole.sol";
-import {WormholePayloadLib} from "../../lib/WormholePayloadLib.sol";
-import {ProofsLib} from "../../lib/ProofsLib.sol";
-import {WormholeMessagePublished} from "../../lib/BridgeEvents.sol";
+import {ITransport} from "../../../interfaces/ITransport.sol";
+import {IWormhole} from "../../../vendor/wormhole/IWormhole.sol";
+import {WormholePayloadLib} from "../../../lib/WormholePayloadLib.sol";
+import {ProofsLib} from "../../../lib/ProofsLib.sol";
+
+/// @notice Emitted when commitments are published via Wormhole.
+event WormholeMessagePublished(uint64 indexed sequence, uint32 nonce, uint256 numCommits);
 
 /// @title WormholeAdapter
 /// @author World Contributors
-/// @notice Concrete `IBridgeAdapter` for Wormhole-connected chains (e.g. Solana).
+/// @notice Concrete `ITransport` for Wormhole-connected chains (e.g. Solana).
 ///
 /// @dev Uses Wormhole Core Bridge (`publishMessage`) rather than the Standard Relayer,
 ///   since the Standard Relayer only supports EVM-to-EVM delivery.
@@ -24,7 +26,7 @@ import {WormholeMessagePublished} from "../../lib/BridgeEvents.sol";
 ///
 ///   The destination (e.g. Solana bridge program) verifies the VAA signatures, checks the
 ///   emitter chain/address, and decodes the `WormholePayloadLib` to extract commitments.
-contract WormholeAdapter is IBridgeAdapter {
+contract WormholeAdapter is ITransport {
     /// @notice The Wormhole Core Bridge contract.
     IWormhole public immutable WORMHOLE;
 
@@ -39,7 +41,7 @@ contract WormholeAdapter is IBridgeAdapter {
         CONSISTENCY_LEVEL = consistencyLevel;
     }
 
-    /// @inheritdoc IBridgeAdapter
+    /// @inheritdoc ITransport
     /// @dev Expects `message` to be `abi.encodeCall(INativeReceiver.commitFromL1, (commits))`.
     ///   Decodes the commitments, re-encodes them using the compact Wormhole wire format,
     ///   and publishes via Wormhole Core. Any excess `msg.value` beyond the message fee

@@ -10,12 +10,12 @@ ffi = true
 memory_limit = 1073741824
 gas_limit = "18446744073709551615"
 
-allow_paths = ["../../contracts/src/"]
+allow_paths = ["../../contracts/src/", "../../contracts/lib/"]
 
 remappings = [
     "@world-id/=../../contracts/src/",
-    "lib/oprf-key-registry/=lib/oprf-key-registry/",
-    "forge-std/=lib/forge-std/src/",
+    "lib/oprf-key-registry/=../../contracts/lib/oprf-key-registry/",
+    "forge-std/=../../contracts/lib/forge-std/src/",
 ]
 
 [lint]

@@ -3,34 +3,34 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {ProofsLib} from "../src/lib/ProofsLib.sol";
-import {ProvenRootInfo, ProvenPubKeyInfo} from "../src/lib/BridgeTypes.sol";
 import {
-    Unauthorized,
+    ProvenRootInfo,
+    ProvenPubKeyInfo,
     EmptyChainedCommits,
     UnknownAction,
-    InvalidRoot,
-    InvalidatedProofId,
-    UnknownL1BlockHash,
-    UnsupportedOperation
-} from "../src/lib/BridgeErrors.sol";
-import {ProofIdInvalidated} from "../src/lib/BridgeEvents.sol";
-import {IBridgeAdapter} from "../src/interfaces/IBridgeAdapter.sol";
-import {INativeWorldId} from "../src/interfaces/INativeWorldId.sol";
+    UnsupportedOperation,
+    ProofIdInvalidated
+} from "../src/core/interfaces/IWorldIdBridge.sol";
+import {Unauthorized} from "../src/core/interfaces/INativeReceiver.sol";
+import {InvalidRoot, InvalidatedProofId} from "../src/core/lib/CrossDomainWorldIdVerifier.sol";
+import {UnknownL1BlockHash} from "../src/core/UniversalWorldIdVerifier.sol";
+import {ITransport} from "../src/interfaces/ITransport.sol";
+import {INativeReceiver} from "../src/core/interfaces/INativeReceiver.sol";
 import {CommitmentHelpers} from "./helpers/CommitmentHelpers.sol";
 import {WorldIdBridge} from "../src/core/lib/WorldIdBridge.sol";
 import {CrossDomainWorldIdVerifier} from "../src/core/lib/CrossDomainWorldIdVerifier.sol";
-import {ArbitrumAdapter} from "../src/adapters/arbitrum/ArbitrumAdapter.sol";
-import {ArbitrumReceiver} from "../src/adapters/arbitrum/ArbitrumReceiver.sol";
-import {ScrollAdapter} from "../src/adapters/scroll/ScrollAdapter.sol";
-import {ScrollReceiver} from "../src/adapters/scroll/ScrollReceiver.sol";
-import {ZkSyncAdapter} from "../src/adapters/zksync/ZkSyncAdapter.sol";
-import {ZkSyncReceiver} from "../src/adapters/zksync/ZkSyncReceiver.sol";
-import {UniversalWorldId} from "../src/core/UniversalWorldId.sol";
+import {ArbitrumAdapter} from "../src/core/adapters/arbitrum/ArbitrumAdapter.sol";
+import {ArbitrumReceiver} from "../src/core/adapters/arbitrum/ArbitrumReceiver.sol";
+import {ScrollAdapter} from "../src/core/adapters/scroll/ScrollAdapter.sol";
+import {ScrollReceiver} from "../src/core/adapters/scroll/ScrollReceiver.sol";
+import {ZkSyncAdapter} from "../src/core/adapters/zksync/ZkSyncAdapter.sol";
+import {ZkSyncReceiver} from "../src/core/adapters/zksync/ZkSyncReceiver.sol";
+import {UniversalWorldIdVerifier} from "../src/core/UniversalWorldIdVerifier.sol";
 import {IL1BlockHashOracle} from "../src/interfaces/IL1BlockHashOracle.sol";
-import {IInbox} from "../src/vendored/arbitrum/IInbox.sol";
-import {IL1ScrollMessenger} from "../src/vendored/scroll/IL1ScrollMessenger.sol";
-import {IL2ScrollMessenger} from "../src/vendored/scroll/IL2ScrollMessenger.sol";
-import {IMailbox} from "../src/vendored/zksync/IMailbox.sol";
+import {IInbox} from "../src/vendor/arbitrum/IInbox.sol";
+import {IL1ScrollMessenger} from "../src/vendor/scroll/IL1ScrollMessenger.sol";
+import {IL2ScrollMessenger} from "../src/vendor/scroll/IL2ScrollMessenger.sol";
+import {IMailbox} from "../src/vendor/zksync/IMailbox.sol";
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
 
 // ═══════════════════════════════════════════════════════════
@@ -939,7 +939,7 @@ contract StateBridgeIsValidRootTest is BridgeAdapterBaseTest {
 // ═══════════════════════════════════════════════════════════
 
 contract UniversalReceiverTest is BridgeAdapterBaseTest {
-    UniversalWorldId universalBridge;
+    UniversalWorldIdVerifier universalBridge;
     MockBlockHashOracle oracle;
     MockVerifier verifier;
 
@@ -948,7 +948,7 @@ contract UniversalReceiverTest is BridgeAdapterBaseTest {
     function setUp() public {
         oracle = new MockBlockHashOracle();
         verifier = new MockVerifier();
-        universalBridge = new UniversalWorldId(
+        universalBridge = new UniversalWorldIdVerifier(
             address(verifier),
             address(oracle),
             ETH_STATE_BRIDGE,
@@ -1024,6 +1024,32 @@ contract TestCrossDomainVerifier is CrossDomainWorldIdVerifier {
     function exposedInvalidateProofId(bytes32 proofId) external {
         invalidateProofId(proofId);
     }
+
+    function exposedVerifyProofAndSignals(
+        uint256 nullifier,
+        uint256 action,
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint64 expiresAtMin,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
+        uint256[5] calldata proofExt
+    ) external view {
+        _verifyProofAndSignals(
+            nullifier,
+            action,
+            rpId,
+            nonce,
+            signalHash,
+            expiresAtMin,
+            issuerSchemaId,
+            credentialGenesisIssuedAtMin,
+            sessionId,
+            proofExt
+        );
+    }
 }
 
 contract CrossDomainWorldIdVerifierTest is BridgeAdapterBaseTest {
@@ -1038,15 +1064,15 @@ contract CrossDomainWorldIdVerifierTest is BridgeAdapterBaseTest {
     }
 
     function test_getVerifier_returnsCorrectAddress() public view {
-        assertEq(verifierBridge.getVerifier(), address(mockVerifier));
+        assertEq(verifierBridge.VERIFIER(), address(mockVerifier));
     }
 
     function test_getTreeDepth_returnsCorrectValue() public view {
-        assertEq(verifierBridge.getTreeDepth(), DEFAULT_TREE_DEPTH);
+        assertEq(verifierBridge.treeDepth(), DEFAULT_TREE_DEPTH);
     }
 
     function test_getMinExpirationThreshold_returnsCorrectValue() public view {
-        assertEq(verifierBridge.getMinExpirationThreshold(), DEFAULT_MIN_EXPIRATION_THRESHOLD);
+        assertEq(verifierBridge.minExpirationThreshold(), DEFAULT_MIN_EXPIRATION_THRESHOLD);
     }
 
     function test_verifyProofAndSignals_revertsOnInvalidRoot() public {
@@ -1055,7 +1081,7 @@ contract CrossDomainWorldIdVerifierTest is BridgeAdapterBaseTest {
         proofExt[4] = 42; // root
 
         vm.expectRevert(InvalidRoot.selector);
-        verifierBridge._verifyProofAndSignals(1, 2, 3, 4, 5, 6, 7, 8, 0, proofExt);
+        verifierBridge.exposedVerifyProofAndSignals(1, 2, 3, 4, 5, 6, 7, 8, 0, proofExt);
     }
 
     function test_verifyProofAndSignals_revertsOnInvalidatedRootProofId() public {
@@ -1069,7 +1095,7 @@ contract CrossDomainWorldIdVerifierTest is BridgeAdapterBaseTest {
         // isValidRoot() checks invalidatedProofIds first and returns false,
         // so _verifyProofAndSignals hits InvalidRoot before the explicit InvalidatedProofId check.
         vm.expectRevert(InvalidRoot.selector);
-        verifierBridge._verifyProofAndSignals(1, 2, 3, 4, 5, 6, 7, 8, 0, proofExt);
+        verifierBridge.exposedVerifyProofAndSignals(1, 2, 3, 4, 5, 6, 7, 8, 0, proofExt);
     }
 
     function test_verifyProofAndSignals_revertsOnInvalidatedIssuerProofId() public {
@@ -1085,7 +1111,7 @@ contract CrossDomainWorldIdVerifierTest is BridgeAdapterBaseTest {
 
         vm.expectRevert(InvalidatedProofId.selector);
         // issuerSchemaId = 7 → matches the one we set
-        verifierBridge._verifyProofAndSignals(1, 2, 3, 4, 5, 6, 7, 8, 0, proofExt);
+        verifierBridge.exposedVerifyProofAndSignals(1, 2, 3, 4, 5, 6, 7, 8, 0, proofExt);
     }
 
     function test_verifyProofAndSignals_revertsOnInvalidatedOprfProofId() public {
@@ -1104,7 +1130,7 @@ contract CrossDomainWorldIdVerifierTest is BridgeAdapterBaseTest {
 
         vm.expectRevert(InvalidatedProofId.selector);
         // rpId = 3, issuerSchemaId = 7
-        verifierBridge._verifyProofAndSignals(1, 2, 3, 4, 5, 6, 7, 8, 0, proofExt);
+        verifierBridge.exposedVerifyProofAndSignals(1, 2, 3, 4, 5, 6, 7, 8, 0, proofExt);
     }
 
     function test_issuerPubkeyMapping_returnsCorrectValues() public {

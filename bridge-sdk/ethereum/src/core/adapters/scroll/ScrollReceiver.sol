@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {NativeWorldId} from "../../core/lib/NativeWorldId.sol";
-import {Unauthorized} from "../../lib/BridgeErrors.sol";
-import {IL2ScrollMessenger} from "../../vendored/scroll/IL2ScrollMessenger.sol";
+import {BridgeAdapter} from "../../lib/BridgeAdapter.sol";
+import {Unauthorized} from "../../interfaces/INativeReceiver.sol";
+import {IL2ScrollMessenger} from "../../../vendor/scroll/IL2ScrollMessenger.sol";
 
 /// @title ScrollReceiver
 /// @author World Contributors
 /// @notice L2 receiver for World ID state on Scroll. Validates that the cross-chain
 ///   message originates from the L1StateBridge via the Scroll messenger.
-contract ScrollReceiver is NativeWorldId {
+contract ScrollReceiver is BridgeAdapter {
     /// @notice The Scroll L2 messenger contract.
     IL2ScrollMessenger public immutable MESSENGER;
+
+    /// @notice The L1StateBridge contract address on Ethereum L1.
+    address public immutable L1_STATE_BRIDGE;
 
     constructor(
         address verifier,
@@ -20,7 +23,8 @@ contract ScrollReceiver is NativeWorldId {
         uint256 rootValidityWindow_,
         uint256 treeDepth_,
         uint64 minExpirationThreshold_
-    ) NativeWorldId(verifier, l1StateBridge, rootValidityWindow_, treeDepth_, minExpirationThreshold_) {
+    ) BridgeAdapter("ScrollReceiver", verifier, rootValidityWindow_, treeDepth_, minExpirationThreshold_) {
+        L1_STATE_BRIDGE = l1StateBridge;
         MESSENGER = messenger;
     }
 

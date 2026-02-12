@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {ProofsLib} from "../../src/lib/ProofsLib.sol";
-import {INativeWorldId} from "../../src/interfaces/INativeWorldId.sol";
+import {INativeReceiver} from "../../src/core/interfaces/INativeReceiver.sol";
 
 /// @title CommitmentHelpers
 /// @notice Shared test helper base providing commitment builders, action selectors,
@@ -117,7 +117,7 @@ abstract contract CommitmentHelpers is Test {
 
     /// @dev Builds the standard `commitFromL1` ABI calldata that L1Relay.dispatch() produces.
     function _encodeCommitFromL1(ProofsLib.Commitment[] memory commits) internal pure returns (bytes memory) {
-        return abi.encodeCall(INativeWorldId.commitFromL1, (commits));
+        return abi.encodeCall(INativeReceiver.commitFromL1, (commits));
     }
 
     // ── Assertion helpers ──

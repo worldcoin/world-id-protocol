@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ProofsLib} from "../lib/ProofsLib.sol";
+import {ProofsLib} from "../../lib/ProofsLib.sol";
+
+/// @notice Thrown when the cross-chain sender is not authorized.
+error Unauthorized();
 
 /// @title INativeReceiver
 /// @author World Contributors
 /// @notice Interface for L2 contracts that receive World ID state via native L1→L2 messaging.
-interface INativeWorldId {
+interface INativeReceiver {
     /// @notice Receives and applies a batch of commitments from the L1 state bridge
     ///   via the chain's native cross-domain messenger.
     /// @param commits The batch of commitments to apply.

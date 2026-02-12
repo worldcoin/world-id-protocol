@@ -2,15 +2,14 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {L1WorldId} from "../src/core/L1WorldId.sol";
+import {EthereumWorldIdVerifier} from "../src/core/EthereumWorldIdVerifier.sol";
 import {WorldIdBridge} from "../src/core/lib/WorldIdBridge.sol";
-import {EmptyChainedCommits} from "../src/lib/BridgeErrors.sol";
-import {ChainCommitted} from "../src/lib/BridgeEvents.sol";
-import {IL1Block} from "../src/vendored/optimism/IL1Block.sol";
+import {EmptyChainedCommits, ChainCommitted} from "../src/core/interfaces/IWorldIdBridge.sol";
+import {IL1Block} from "../src/vendor/optimism/IL1Block.sol";
 import {ProofsLib} from "../src/lib/ProofsLib.sol";
-import {IDisputeGameFactory} from "../src/vendored/optimism/IDisputeGameFactory.sol";
-import {IDisputeGame} from "../src/vendored/optimism/IDisputeGame.sol";
-import {GameStatus, Claim, GameType, Timestamp} from "../src/vendored/optimism/DisputeTypes.sol";
+import {IDisputeGameFactory} from "../src/vendor/optimism/IDisputeGameFactory.sol";
+import {IDisputeGame} from "../src/vendor/optimism/IDisputeGame.sol";
+import {GameStatus, Claim, GameType, Timestamp} from "../src/vendor/optimism/DisputeTypes.sol";
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
 
 /// @dev Mock L1Block oracle that returns a configurable block hash.
@@ -256,9 +255,10 @@ contract WorldChainStateBridgeTest is Test {
         MockDisputeGameFactory factory = new MockDisputeGameFactory();
         factory.addGame(address(game));
 
-        // 4. Deploy L1WorldId (verifier = address(0) for test — not testing ZK proofs here)
-        L1WorldId l1Bridge =
-            new L1WorldId(address(0), IDisputeGameFactory(address(factory)), PLANTED_WC_BRIDGE, 1 hours, 30, 0);
+        // 4. Deploy EthereumWorldIdVerifier (verifier = address(0) for test — not testing ZK proofs here)
+        EthereumWorldIdVerifier l1Bridge = new EthereumWorldIdVerifier(
+            address(0), IDisputeGameFactory(address(factory)), PLANTED_WC_BRIDGE, 1 hours, 30, 0
+        );
 
         // 5. Encode disputeGameIndex into mptProof alongside the WC proof data
         (bytes[] memory outputRootProof, bytes[] memory accountProof, bytes[] memory storageValidityProof) =
@@ -292,8 +292,9 @@ contract WorldChainStateBridgeTest is Test {
         MockDisputeGameFactory factory = new MockDisputeGameFactory();
         factory.addGame(address(game));
 
-        L1WorldId l1Bridge =
-            new L1WorldId(address(0), IDisputeGameFactory(address(factory)), PLANTED_WC_BRIDGE, 1 hours, 30, 0);
+        EthereumWorldIdVerifier l1Bridge = new EthereumWorldIdVerifier(
+            address(0), IDisputeGameFactory(address(factory)), PLANTED_WC_BRIDGE, 1 hours, 30, 0
+        );
 
         // Encode disputeGameIndex into mptProof
         (bytes[] memory outputRootProof, bytes[] memory accountProof, bytes[] memory storageValidityProof) =

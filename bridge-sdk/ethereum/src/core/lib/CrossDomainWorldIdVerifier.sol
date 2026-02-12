@@ -1,23 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IWorldIDVerifier} from "@world-id/interfaces/IWorldIDVerifier.sol";
 import {Verifier} from "@world-id/Verifier.sol";
 import {WorldIdBridge} from "./WorldIdBridge.sol";
-import {ProvenPubKeyInfo} from "../../lib/BridgeTypes.sol";
-import {InvalidRoot, InvalidatedProofId} from "../../lib/BridgeErrors.sol";
+import {ProvenPubKeyInfo} from "../interfaces/IWorldIdBridge.sol";
 
-/// @title ProofVerifier
+/// @dev Thrown when the provided root is not valid.
+error InvalidRoot();
+
+/// @dev Thrown when a proof ID used by a root or key has been invalidated.
+error InvalidatedProofId();
+
+/// @title CrossDomainWorldIdVerifier
 /// @author World Contributors
-/// @notice ZK proof verification layer on top of `WorldIdBridge`. Reads proven state from
-///   the inherited bridge and verifies Groth16 proofs against it. Domain-agnostic — can be
-///   composed with any context via multiple inheritance.
-abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge {
+/// @notice Abstract base for cross-domain World ID proof verification. Extends `WorldIdBridge`
+///   with Groth16 ZK proof verification. Concrete implementations are named by their host domain
+///   (e.g. `EthereumWorldIdVerifier`, `UniversalWorldIdVerifier`).
+abstract contract CrossDomainWorldIdVerifier is WorldIdBridge {
     ////////////////////////////////////////////////////////////
     //                         STATE                          //
     ////////////////////////////////////////////////////////////
 
-    /// @dev Contract for proof verification (Groth16). Packs into slot 11 with `_minExpirationThreshold` (uint64 + address = 28 bytes).
+    /// @dev Contract for proof verification (Groth16).
     Verifier internal _verifier;
 
     ////////////////////////////////////////////////////////////
@@ -31,10 +35,10 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge 
     }
 
     ////////////////////////////////////////////////////////////
-    //                  IWorldIDVerifier                       //
+    //                     VERIFICATION                       //
     ////////////////////////////////////////////////////////////
 
-    /// @inheritdoc IWorldIDVerifier
+    /// @notice Verifies a World ID proof against the current state of the bridge. Reverts if proof is invalid or any referenced state (root, pubkeys) has been invalidated.
     function verify(
         uint256 nullifier,
         uint256 action,
@@ -46,7 +50,7 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge 
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual {
-        this._verifyProofAndSignals(
+        _verifyProofAndSignals(
             nullifier,
             action,
             rpId,
@@ -60,6 +64,7 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge 
         );
     }
 
+    /// @notice Verifies a session key proof, which includes an additional `sessionId` signal and uses the nullifier pair as (sessionNullifier, action) instead of (nullifier, action).
     function verifySession(
         uint64 rpId,
         uint256 nonce,
@@ -71,7 +76,7 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge 
         uint256[2] calldata sessionNullifier,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual {
-        this._verifyProofAndSignals(
+        _verifyProofAndSignals(
             sessionNullifier[0],
             sessionNullifier[1],
             rpId,
@@ -85,7 +90,7 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge 
         );
     }
 
-    /// @inheritdoc IWorldIDVerifier
+    /// @dev Internal function to verify proofs for both regular and session-based verification.
     function _verifyProofAndSignals(
         uint256 nullifier,
         uint256 action,
@@ -97,7 +102,7 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge 
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
         uint256[5] calldata proofExt
-    ) external view virtual {
+    ) internal view virtual {
         uint256 root = proofExt[4];
 
         if (!isValidRoot(root)) revert InvalidRoot();
@@ -105,10 +110,10 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge 
         bytes32 rootProofId = rootToTimestampAndProofId[bytes32(root)].proofId;
         if (invalidatedProofIds[rootProofId]) revert InvalidatedProofId();
 
-        ProvenPubKeyInfo memory issuerPubKeyInfo = issuerSchemaIdToPubkeyAndProofId[issuerSchemaId];
+        ProvenPubKeyInfo storage issuerPubKeyInfo = issuerSchemaIdToPubkeyAndProofId[issuerSchemaId];
         if (invalidatedProofIds[issuerPubKeyInfo.proofId]) revert InvalidatedProofId();
 
-        ProvenPubKeyInfo memory oprfPubKeyInfo = oprfKeyIdToPubkeyAndProofId[uint160(rpId)];
+        ProvenPubKeyInfo storage oprfPubKeyInfo = oprfKeyIdToPubkeyAndProofId[uint160(rpId)];
         if (invalidatedProofIds[oprfPubKeyInfo.proofId]) revert InvalidatedProofId();
 
         uint256[4] memory proof = [proofExt[0], proofExt[1], proofExt[2], proofExt[3]];
@@ -133,18 +138,8 @@ abstract contract CrossDomainWorldIdVerifier is IWorldIDVerifier, WorldIdBridge 
         _verifier.verifyCompressedProof(proof, input);
     }
 
-    /// @inheritdoc IWorldIDVerifier
-    function getVerifier() external view virtual returns (address) {
+    /// @notice Returns the address of the verifier contract.
+    function VERIFIER() public view virtual returns (address) {
         return address(_verifier);
-    }
-
-    /// @inheritdoc IWorldIDVerifier
-    function getMinExpirationThreshold() external view virtual returns (uint256) {
-        return minExpirationThreshold;
-    }
-
-    /// @inheritdoc IWorldIDVerifier
-    function getTreeDepth() external view virtual returns (uint256) {
-        return treeDepth;
     }
 }
