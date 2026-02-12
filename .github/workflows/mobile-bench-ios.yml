@@ -397,6 +397,16 @@ jobs:
               fh.write('test_suite = "target/mobench/ios/BenchRunnerUITests.zip"\n')
           PY
 
+      - name: Build iOS BrowserStack artifacts
+        working-directory: world-id-protocol
+        run: |
+          set -euo pipefail
+          cargo-mobench build --target ios
+          cargo-mobench package-ipa --method adhoc
+          cargo-mobench package-xcuitest
+          test -f target/mobench/ios/BenchRunner.ipa
+          test -f target/mobench/ios/BenchRunnerUITests.zip
+
       - name: Run iOS benchmark matrix
         working-directory: world-id-protocol
         env:
@@ -780,6 +790,8 @@ jobs:
           ITERATIONS_RAW: ${{ inputs.iterations }}
           WARMUP_RAW: ${{ inputs.warmup }}
           FETCH_TIMEOUT_SECS_RAW: ${{ inputs.fetch_timeout_secs }}
+          CARGO_NDK_PLATFORM: "28"
+          ANDROID_PLATFORM: "28"
         run: |
           set -euo pipefail
 

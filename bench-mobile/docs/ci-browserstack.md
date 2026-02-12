@@ -45,7 +45,7 @@ Run only `π2` proving on iOS:
 Use explicit devices:
 
 ```text
-/mobench platforms=both device_profile=custom ios_device="iPhone 11" ios_os_version="14" android_device="Google Pixel 6" android_os_version="12"
+/mobench platforms=both device_profile=custom ios_device="iPhone 11" ios_os_version="13" android_device="Google Pixel 6" android_os_version="12"
 ```
 
 ## Required repository secrets
