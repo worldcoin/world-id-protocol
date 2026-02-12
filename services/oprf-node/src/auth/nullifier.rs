@@ -438,7 +438,6 @@ mod tests {
                 deployer,
                 rp_signer.clone(),
                 rp_fixture.world_rp_id,
-                rp_fixture.oprf_key_id,
                 true,
                 rp_signer.address(),
                 rp_signer.address(),

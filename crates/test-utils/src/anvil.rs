@@ -99,7 +99,6 @@ sol!(
 sol! {
     struct UpdateRp {
         uint64 rpId;
-        uint160 oprfKeyId;
         address manager;
         address signer;
         bool toggleActive;
@@ -578,7 +577,6 @@ impl TestAnvil {
         signer: PrivateKeySigner,
         manager_signer: PrivateKeySigner,
         rp_id: RpId,
-        oprf_key_id: OprfKeyId,
         toggle_active: bool,
         rp_manager: Address,
         rp_signer: Address,
@@ -602,7 +600,6 @@ impl TestAnvil {
 
         let payload = UpdateRp {
             rpId: rp_id.into_inner(),
-            oprfKeyId: oprf_key_id.into_inner(),
             manager: rp_manager,
             signer: rp_signer,
             toggleActive: toggle_active,
@@ -619,7 +616,6 @@ impl TestAnvil {
         let receipt = rp_registry
             .updateRp(
                 rp_id.into_inner(),
-                oprf_key_id.into_inner(),
                 rp_manager,
                 rp_signer,
                 toggle_active,
