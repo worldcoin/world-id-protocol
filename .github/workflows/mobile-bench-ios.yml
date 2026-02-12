@@ -201,7 +201,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -578,6 +578,10 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Install cargo-ndk
+        working-directory: world-id-protocol
+        run: cargo install cargo-ndk --locked
 
       - name: Install mobench (local build)
         working-directory: world-id-protocol
