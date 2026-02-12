@@ -111,7 +111,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         _treeDepth = initialTreeDepth;
         _tree.initWithDefaultZeroes(_treeDepth);
 
-        // Insert the initial leaf to start leaf indexes at 1
+        // Insert a sentinel leaf to start leaf indexes at 1.
         // The 0-index of the tree is RESERVED.
         _tree.insert(uint256(0));
         _nextLeafIndex = 1;
@@ -140,7 +140,6 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
             revert AccountDoesNotExist(leafIndex);
         }
-
         return _tree.getProof(uint256(leafIndex));
     }
 

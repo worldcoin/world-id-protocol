@@ -14,11 +14,10 @@ struct FullBinaryIMTData {
     uint256 depth; // Depth of the tree.
     uint256 root; // Root hash of the tree.
     uint256 numberOfLeaves; // Number of leaves of the tree.
-    bool useDefaultZeroes;
-    // nodes[level][index] = hash of the node at (level, index).
+    // nodes[(level << 32) | index] = hash of the node at (level, index).
     // Level 0 = leaves, level depth = root.
     // For a node at (level, index), its children are at (level-1, 2*index) and (level-1, 2*index+1).
-    mapping(uint256 => mapping(uint256 => uint256)) nodes;
+    mapping(uint256 => uint256) nodes;
 }
 
 error ValueGreaterThanSnarkScalarField();
@@ -100,6 +99,11 @@ library FullStorageBinaryIMT {
         revert WrongDefaultZeroIndex();
     }
 
+    /// @dev Encode (level, idx) into a single mapping key.
+    function _key(uint256 level, uint256 idx) private pure returns (uint256) {
+        return (level << 32) | idx;
+    }
+
     /// @dev Returns the node value at (level, index). Unset nodes return the
     ///      default zero for that level.
     function _getNode(FullBinaryIMTData storage self, uint256 level, uint256 idx, uint256 numLeaves) private view returns (uint256) {
@@ -108,7 +112,7 @@ library FullStorageBinaryIMT {
         if (numLeaves == 0 || idx > (numLeaves - 1) >> level) {
             return defaultZero(level);
         }
-        uint256 v = self.nodes[level][idx];
+        uint256 v = self.nodes[_key(level, idx)];
         if (v != 0) return v;
         return defaultZero(level);
     }
@@ -119,7 +123,6 @@ library FullStorageBinaryIMT {
             revert DepthNotSupported();
         }
         self.depth = depth;
-        self.useDefaultZeroes = true;
         self.root = defaultZero(depth);
     }
 
@@ -139,7 +142,7 @@ library FullStorageBinaryIMT {
         uint256 idx = numLeaves;
 
         // Write the leaf at level 0
-        self.nodes[0][idx] = leaf;
+        self.nodes[_key(0, idx)] = leaf;
 
         // Walk up the tree, hashing with the sibling at each level
         uint256 hash = leaf;
@@ -147,7 +150,6 @@ library FullStorageBinaryIMT {
             uint256 siblingIdx = idx ^ 1; // flip the lowest bit to get sibling
             uint256 sibling = _getNode(self, level, siblingIdx, numLeaves);
 
-            // Write the current node (already written for level 0, but we skip that)
             if ((idx & 1) == 0) {
                 hash = Poseidon2T2.compress([hash, sibling]);
             } else {
@@ -160,7 +162,7 @@ library FullStorageBinaryIMT {
             }
 
             // Write the parent node
-            self.nodes[level][idx] = hash;
+            self.nodes[_key(level, idx)] = hash;
         }
 
         self.root = hash;
@@ -191,7 +193,7 @@ library FullStorageBinaryIMT {
             if (leaf >= SNARK_SCALAR_FIELD) {
                 revert ValueGreaterThanSnarkScalarField();
             }
-            self.nodes[0][start + i] = leaf;
+            self.nodes[_key(0, start + i)] = leaf;
             unchecked { ++i; }
         }
 
@@ -218,7 +220,7 @@ library FullStorageBinaryIMT {
                 uint256 left  = _getNode(self, level, leftChild, effectiveLeaves);
                 uint256 right = _getNode(self, level, leftChild | 1, effectiveLeaves);
 
-                self.nodes[parentLevel][p] = Poseidon2T2.compress([left, right]);
+                self.nodes[_key(parentLevel, p)] = Poseidon2T2.compress([left, right]);
                 unchecked { ++p; }
             }
 
@@ -227,7 +229,7 @@ library FullStorageBinaryIMT {
             unchecked { ++level; }
         }
 
-        uint256 newRoot = self.nodes[depth][0];
+        uint256 newRoot = self.nodes[_key(depth, 0)];
         self.root = newRoot;
         self.numberOfLeaves = start + k;
         return newRoot;
@@ -258,7 +260,7 @@ library FullStorageBinaryIMT {
         uint256 idx = index;
 
         // Write new leaf
-        self.nodes[0][idx] = newLeaf;
+        self.nodes[_key(0, idx)] = newLeaf;
 
         // Walk up, reading siblings from storage and writing updated parents
         uint256 hash = newLeaf;
@@ -276,7 +278,7 @@ library FullStorageBinaryIMT {
             unchecked {
                 ++level;
             }
-            self.nodes[level][idx] = hash;
+            self.nodes[_key(level, idx)] = hash;
         }
 
         self.root = hash;
