@@ -150,6 +150,7 @@ impl SchemaIssuerRegistryWatcher {
         Ok((schema_issuer_registry, subscribe_task))
     }
 
+    #[instrument(level = "debug", skip_all, fields(issuer_schema_id=issuer_schema_id))]
     pub(crate) async fn is_valid_issuer(
         &self,
         issuer_schema_id: u64,
