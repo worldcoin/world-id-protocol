@@ -456,11 +456,9 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         }
 
         _validateNewAuthenticatorAddress(newAuthenticatorAddress);
+
         if (oldAuthenticatorAddress == newAuthenticatorAddress) {
             revert ReusedAuthenticatorAddress();
-        }
-        if (pubkeyId >= _maxAuthenticators) {
-            revert PubkeyIdOutOfBounds();
         }
 
         bytes32 messageHash = _hashTypedDataV4(
@@ -606,10 +604,6 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (pubkeyId >= _maxAuthenticators) {
-            revert PubkeyIdOutOfBounds();
-        }
-
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
