@@ -17,7 +17,7 @@ import {ProvenPubKeyInfo, NothingChanged, UnsupportedOperation, ChainCommitted} 
 contract WorldChainBridge is WorldIdBridge {
     using ProofsLib for ProofsLib.Chain;
 
-    IL1Block public constant L1_BLOCK = IL1Block(address(0));
+    IL1Block public constant L1_BLOCK = IL1Block(address(0x4200000000000000000000000000000000000015));
 
     /// @notice The WorldIDRegistry contract on World Chain.
     IWorldIDRegistry public immutable WC_REGISTRY;
