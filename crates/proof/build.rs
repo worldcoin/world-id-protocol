@@ -136,7 +136,8 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<()> {
         }
     }
 
-    // Download from GitHub
+    // Download from GitHub: we need to do this because crates.io enforce a hard limit on the
+    // size of a crate upload of ~10MB and the circuit files are heavier than that.
     #[cfg(feature = "embed-zkeys")]
     {
         let url = format!(
