@@ -409,8 +409,8 @@ jobs:
             exit 1
           fi
 
-          scope="${PROOF_SCOPE,,}"
-          modes="${BENCH_MODES,,}"
+          scope="$(printf '%s' "${PROOF_SCOPE}" | tr '[:upper:]' '[:lower:]')"
+          modes="$(printf '%s' "${BENCH_MODES}" | tr '[:upper:]' '[:lower:]')"
           modes="${modes//[[:space:]]/}"
           if [[ -z "$modes" ]]; then
             modes="all"
@@ -755,8 +755,8 @@ jobs:
             exit 1
           fi
 
-          scope="${PROOF_SCOPE,,}"
-          modes="${BENCH_MODES,,}"
+          scope="$(printf '%s' "${PROOF_SCOPE}" | tr '[:upper:]' '[:lower:]')"
+          modes="$(printf '%s' "${BENCH_MODES}" | tr '[:upper:]' '[:lower:]')"
           modes="${modes//[[:space:]]/}"
           if [[ -z "$modes" ]]; then
             modes="all"
