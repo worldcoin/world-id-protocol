@@ -7,7 +7,7 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 
 use crate::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
 use serde::{Deserialize, Serialize, de::Error as _};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 // we want to use taceo_oprf_types explicitly over the umbrella taceo_oprf create for WASM compatibility
 use taceo_oprf_types::OprfKeyId;
 // The uuid crate is needed for wasm compatibility
@@ -327,19 +327,15 @@ impl ProofRequest {
     /// (this should not occur as constraints are provided by trusted request issuer).
     #[must_use]
     pub fn credentials_to_prove(&self, available: &HashSet<u64>) -> Option<Vec<&RequestItem>> {
-        // Build identifier → issuer_schema_id map from requests
-        let identifier_to_schema: HashMap<&str, u64> = self
+        // Pre-compute which identifiers have an available issuer_schema_id
+        let available_identifiers: HashSet<&str> = self
             .requests
             .iter()
-            .map(|r| (r.identifier.as_str(), r.issuer_schema_id))
+            .filter(|r| available.contains(&r.issuer_schema_id))
+            .map(|r| r.identifier.as_str())
             .collect();
 
-        // Predicate: identifier is requested and its issuer_schema_id is available
-        let is_selectable = |identifier: &str| {
-            identifier_to_schema
-                .get(identifier)
-                .is_some_and(|schema_id| available.contains(schema_id))
-        };
+        let is_selectable = |identifier: &str| available_identifiers.contains(identifier);
 
         // If no explicit constraints: require all requested be available
         if self.constraints.is_none() {
