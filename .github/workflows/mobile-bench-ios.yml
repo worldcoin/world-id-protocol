@@ -471,7 +471,7 @@ jobs:
                 }
               }
             ' bench-config.ios.runtime.toml > "${config_path}"
-            cargo mobench run \
+            cargo-mobench run \
               --target ios \
               --function "${function}" \
               --iterations "${ITERATIONS}" \
@@ -817,7 +817,7 @@ jobs:
                 }
               }
             ' bench-config.android.runtime.toml > "${config_path}"
-            cargo mobench run \
+            cargo-mobench run \
               --target android \
               --function "${function}" \
               --iterations "${ITERATIONS}" \
