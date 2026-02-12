@@ -290,6 +290,16 @@ pub struct IndexerSignatureNonceResponse {
     pub signature_nonce: U256,
 }
 
+/// Response containing authenticator public keys for an account from the indexer.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerAuthenticatorPubkeysResponse {
+    /// The compressed authenticator public keys for the account.
+    #[serde(with = "hex_u256_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    pub authenticator_pubkeys: Vec<U256>,
+}
+
 /// Health response for an API service (gateway or indexer).
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]

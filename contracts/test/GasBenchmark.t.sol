@@ -3,16 +3,19 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
-import {InternalBinaryIMT} from "../src/libraries/InternalBinaryIMT.sol";
+import {FullStorageBinaryIMT, FullBinaryIMTData} from "../src/libraries/FullStorageBinaryIMT.sol";
 
 /// @title Gas benchmark for the current (proof-based) BinaryIMT implementation.
 contract GasBenchmarkCurrent is Test {
     using BinaryIMT for BinaryIMTData;
+    using FullStorageBinaryIMT for FullBinaryIMTData;
 
     BinaryIMTData public tree;
+    FullBinaryIMTData public fullStorageTree;
 
     function setUp() public {
         tree.initWithDefaultZeroes(30);
+        fullStorageTree.initWithDefaultZeroes(30);
     }
 
     // ---------------------------------------------------------------
@@ -98,8 +101,18 @@ contract GasBenchmarkCurrent is Test {
     }
 
     function test_current_update_leaf0_after100() public {
-        // We'll use a full-storage tree to generate the proof for the current tree
-        // This is just to measure current update gas with a realistic tree size
+        // Use full-storage tree only to derive a valid proof for the current tree.
+        for (uint256 i = 0; i < 100; i++) {
+            uint256 leaf = 1000 + i;
+            tree.insert(leaf);
+            fullStorageTree.insert(leaf);
+        }
+
+        uint256[] memory proof = fullStorageTree.getProof(0);
+        uint256 g0 = gasleft();
+        tree.update(0, 1000, 9999, proof);
+        uint256 g1 = gasleft();
+        console.log("[CURRENT] update leaf 0 (100-leaf tree): %s gas", g0 - g1);
     }
 
     function test_current_update_2leaf_tree() public {

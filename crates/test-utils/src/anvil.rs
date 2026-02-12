@@ -776,24 +776,6 @@ impl TestAnvil {
             .expect("setRootValidityWindow transaction failed");
     }
 
-    /// Links a library address into contract bytecode by replacing all placeholder references.
-    ///
-    /// Alloy only supports the linking of libraries that are already deployed, or linking at compile time, hence this manual handling.
-    fn link_library(json: &str, library_path: &str, library_address: Address) -> Result<Bytes> {
-        let json_value: serde_json::Value = serde_json::from_str(json)?;
-        let bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            });
-
-        Self::link_bytecode_str(json, bytecode_str, library_path, library_address)
-    }
-
     /// Links a library to bytecode hex string and returns the hex string (no decoding).
     ///
     /// Use this when you need to link multiple libraries before decoding.
@@ -837,20 +819,6 @@ impl TestAnvil {
         }
 
         Ok(linked_bytecode)
-    }
-
-    /// Core linking logic: links a library address into a bytecode hex string and decodes it.
-    ///
-    /// This handles the actual replacement of library placeholders with addresses.
-    fn link_bytecode_str(
-        json: &str,
-        bytecode_str: &str,
-        library_path: &str,
-        library_address: Address,
-    ) -> Result<Bytes> {
-        let linked_hex =
-            Self::link_bytecode_hex(json, bytecode_str, library_path, library_address)?;
-        Ok(Bytes::from(hex::decode(linked_hex)?))
     }
 
     /// Deploys a contract with the given bytecode and constructor arguments
