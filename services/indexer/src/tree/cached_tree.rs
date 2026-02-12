@@ -337,25 +337,7 @@ pub(crate) fn set_arbitrary_leaf(tree: &mut MerkleTree, leaf_index: usize, value
 mod tests {
     use super::*;
 
-    /// Test 15: Non-UTF8 cache path returns InvalidCacheFilePath.
-    #[test]
-    fn test_restore_invalid_utf8_path() {
-        use std::ffi::OsStr;
-        #[cfg(unix)]
-        use std::os::unix::ffi::OsStrExt;
-
-        #[cfg(unix)]
-        {
-            let invalid_path = Path::new(OsStr::from_bytes(b"/tmp/\xff\xfe.mmap"));
-            let result = restore_from_cache(invalid_path, 6, 2);
-            assert!(
-                matches!(result, Err(TreeError::InvalidCacheFilePath)),
-                "expected InvalidCacheFilePath"
-            );
-        }
-    }
-
-    /// Test 16: Cache file with no read permissions fails with CacheRestore.
+    /// Test 15: Cache file with no read permissions fails with CacheRestore.
     #[test]
     fn test_restore_unreadable_cache_file() {
         #[cfg(unix)]
@@ -367,7 +349,7 @@ mod tests {
             std::fs::write(&cache_path, b"some data").unwrap();
             std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o000)).unwrap();
 
-            let result = restore_from_cache(&cache_path, 6, 2);
+            let result = restore_from_cache(&cache_path, 6);
             assert!(
                 result.is_err(),
                 "restore should fail on unreadable cache file"

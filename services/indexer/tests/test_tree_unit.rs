@@ -35,9 +35,9 @@ async fn test_init_tree_empty_db() {
     let test_db = create_unique_test_db().await;
     let cache_path = temp_cache_path();
 
-    let tree_state = init_tree(test_db.db(), &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(test_db.db(), &cache_path, 6).await.unwrap() };
 
-    let expected = TreeState::new_empty(6);
+    let expected = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
     assert_eq!(tree_state.root().await, expected.root().await);
 
     cleanup(&cache_path);
@@ -52,14 +52,14 @@ async fn test_all_leaves_in_dense_prefix() {
 
     // dense_prefix_depth=3 → dense_prefix_size=8; indices 1..=4 all fit
     for i in 1u64..=4 {
-        insert_test_account(db, U256::from(i), Address::ZERO, U256::from(i * 100))
+        insert_test_account(db, i, Address::ZERO, U256::from(i * 100))
             .await
             .unwrap();
     }
 
-    let tree_state = init_tree(db, &cache_path, 6, 3).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
-    let expected = TreeState::new_empty(6);
+    let expected = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
     for i in 1u64..=4 {
         expected
             .set_leaf_at_index(i as usize, U256::from(i * 100))
@@ -84,14 +84,14 @@ async fn test_leaves_beyond_dense_prefix() {
     let leaves: &[(u64, u64)] = &[(1, 100), (2, 200), (5, 500), (10, 1000)];
 
     for &(idx, val) in leaves {
-        insert_test_account(db, U256::from(idx), Address::ZERO, U256::from(val))
+        insert_test_account(db, idx, Address::ZERO, U256::from(val))
             .await
             .unwrap();
     }
 
-    let tree_state = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
-    let expected = TreeState::new_empty(6);
+    let expected = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
     for &(idx, val) in leaves {
         expected
             .set_leaf_at_index(idx as usize, U256::from(val))
@@ -112,14 +112,14 @@ async fn test_zero_index_leaf_skipped() {
     let cache_path = temp_cache_path();
 
     // leaf_index 0 should be skipped; leaf_index 1 should be included
-    insert_test_account(db, U256::ZERO, Address::ZERO, U256::from(999))
+    insert_test_account(db, 0, Address::ZERO, U256::from(999))
         .await
         .unwrap();
-    insert_test_account(db, U256::from(1), Address::ZERO, U256::from(100))
+    insert_test_account(db, 1, Address::ZERO, U256::from(100))
         .await
         .unwrap();
 
-    let tree_state = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     let tree = tree_state.read().await;
     assert_eq!(tree.get_leaf(0), U256::ZERO, "leaf 0 must remain zero");
@@ -136,14 +136,14 @@ async fn test_leaf_index_out_of_range() {
     let cache_path = temp_cache_path();
 
     // tree_depth=6 → capacity=64; leaf_index 100 is out of range
-    insert_test_account(db, U256::from(100), Address::ZERO, U256::from(999))
+    insert_test_account(db, 100, Address::ZERO, U256::from(999))
         .await
         .unwrap();
 
-    let result = init_tree(db, &cache_path, 6, 2).await;
+    let result = unsafe { init_tree(db, &cache_path, 6).await };
     assert!(result.is_err(), "should fail for out-of-range leaf index");
 
-    let err = result.err().expect("should be an error");
+    let err = result.unwrap_err();
     let msg = format!("{err}");
     assert!(
         msg.contains("out of range"),
@@ -166,21 +166,21 @@ async fn test_stale_cache_triggers_rebuild() {
     let cache_path = temp_cache_path();
 
     // First init: builds cache from one account
-    insert_test_account(db, U256::from(1), Address::ZERO, U256::from(100))
+    insert_test_account(db, 1, Address::ZERO, U256::from(100))
         .await
         .unwrap();
 
-    let tree_state = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     drop(tree_state);
     assert!(cache_path.exists());
 
     // Add a second account — only visible to a full rebuild, not to replay
-    insert_test_account(db, U256::from(2), Address::ZERO, U256::from(200))
+    insert_test_account(db, 2, Address::ZERO, U256::from(200))
         .await
         .unwrap();
 
     // Second init: cache root is NOT in world_tree_roots → StaleCache → fallback
-    let tree_state2 = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state2 = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     // If fallback rebuilt from accounts, both leaves must be present
     let tree = tree_state2.read().await;
@@ -198,14 +198,14 @@ async fn test_replay_with_no_new_events() {
     let cache_path = temp_cache_path();
 
     // Insert account + matching event
-    insert_test_account(db, U256::from(1), Address::ZERO, U256::from(100))
+    insert_test_account(db, 1, Address::ZERO, U256::from(100))
         .await
         .unwrap();
     insert_test_world_tree_event(
         db,
         10,
         0,
-        U256::from(1),
+        1,
         WorldTreeEventType::AccountCreated,
         U256::from(1),
         U256::from(100),
@@ -214,7 +214,7 @@ async fn test_replay_with_no_new_events() {
     .unwrap();
 
     // Build cache
-    let tree_state = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let root = tree_state.root().await;
     drop(tree_state);
 
@@ -226,7 +226,7 @@ async fn test_replay_with_no_new_events() {
         .unwrap();
 
     // Second init: restore from cache, replay 0 events
-    let tree_state2 = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state2 = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     assert_eq!(tree_state2.root().await, root, "root must be unchanged");
 
     cleanup(&cache_path);
@@ -241,14 +241,14 @@ async fn test_replay_deduplication() {
     let cache_path = temp_cache_path();
 
     // Initial state
-    insert_test_account(db, U256::from(1), Address::ZERO, U256::from(100))
+    insert_test_account(db, 1, Address::ZERO, U256::from(100))
         .await
         .unwrap();
     insert_test_world_tree_event(
         db,
         10,
         0,
-        U256::from(1),
+        1,
         WorldTreeEventType::AccountCreated,
         U256::from(1),
         U256::from(100),
@@ -257,7 +257,7 @@ async fn test_replay_deduplication() {
     .unwrap();
 
     // Build cache
-    let tree_state = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let root = tree_state.root().await;
     drop(tree_state);
 
@@ -272,7 +272,7 @@ async fn test_replay_deduplication() {
             db,
             block,
             0,
-            U256::from(1),
+            1,
             WorldTreeEventType::AccountUpdated,
             U256::from(block),
             U256::from(commitment),
@@ -284,13 +284,13 @@ async fn test_replay_deduplication() {
     // Update account table to match final state (for potential rebuild parity)
     sqlx::query("UPDATE accounts SET offchain_signer_commitment = $1 WHERE leaf_index = $2")
         .bind(U256::from(400))
-        .bind(U256::from(1))
+        .bind(1)
         .execute(db.pool())
         .await
         .unwrap();
 
     // Restore + replay should deduplicate to final value 400
-    let tree_state2 = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state2 = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     let tree = tree_state2.read().await;
     assert_eq!(
@@ -311,10 +311,10 @@ async fn test_replay_matches_fresh_build() {
     let cache_path = temp_cache_path();
 
     // Initial state: two accounts
-    insert_test_account(db, U256::from(1), Address::ZERO, U256::from(100))
+    insert_test_account(db, 1, Address::ZERO, U256::from(100))
         .await
         .unwrap();
-    insert_test_account(db, U256::from(2), Address::ZERO, U256::from(200))
+    insert_test_account(db, 2, Address::ZERO, U256::from(200))
         .await
         .unwrap();
 
@@ -322,7 +322,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         10,
         0,
-        U256::from(1),
+        1,
         WorldTreeEventType::AccountCreated,
         U256::from(1),
         U256::from(100),
@@ -333,7 +333,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         10,
         1,
-        U256::from(2),
+        2,
         WorldTreeEventType::AccountCreated,
         U256::from(2),
         U256::from(200),
@@ -342,7 +342,7 @@ async fn test_replay_matches_fresh_build() {
     .unwrap();
 
     // Build cache
-    let tree_state = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let root = tree_state.root().await;
     drop(tree_state);
 
@@ -356,7 +356,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         11,
         0,
-        U256::from(1),
+        1,
         WorldTreeEventType::AccountUpdated,
         U256::from(11),
         U256::from(300),
@@ -367,7 +367,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         11,
         1,
-        U256::from(2),
+        2,
         WorldTreeEventType::AccountUpdated,
         U256::from(12),
         U256::from(400),
@@ -378,7 +378,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         12,
         0,
-        U256::from(3),
+        3,
         WorldTreeEventType::AccountCreated,
         U256::from(13),
         U256::from(500),
@@ -399,18 +399,18 @@ async fn test_replay_matches_fresh_build() {
         .execute(db.pool())
         .await
         .unwrap();
-    insert_test_account(db, U256::from(3), Address::ZERO, U256::from(500))
+    insert_test_account(db, 3, Address::ZERO, U256::from(500))
         .await
         .unwrap();
 
     // Path A: Restore from cache + replay
-    let replayed = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let replayed = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let replayed_root = replayed.root().await;
     drop(replayed);
 
     // Path B: Fresh rebuild (delete cache first)
     cleanup(&cache_path);
-    let fresh = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let fresh = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let fresh_root = fresh.root().await;
 
     assert_eq!(
@@ -432,7 +432,7 @@ async fn test_sync_from_db_no_pending_events() {
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    let tree_state = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     let count = sync_from_db(db, &tree_state).await.unwrap();
     assert_eq!(count, 0);
@@ -447,12 +447,12 @@ async fn test_sync_from_db_deduplication() {
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    insert_test_account(db, U256::from(1), Address::ZERO, U256::from(100))
+    insert_test_account(db, 1, Address::ZERO, U256::from(100))
         .await
         .unwrap();
 
     // Build tree — last_synced_event_id will be (0,0) since no events exist yet
-    let tree_state = init_tree(db, &cache_path, 6, 2).await.unwrap();
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     // Insert 3 events for the same leaf with increasing commitments
     for (block, commitment) in [(100, 200u64), (101, 300), (102, 400)] {
@@ -460,7 +460,7 @@ async fn test_sync_from_db_deduplication() {
             db,
             block,
             0,
-            U256::from(1),
+            1,
             WorldTreeEventType::AccountUpdated,
             U256::from(block),
             U256::from(commitment),
@@ -491,7 +491,7 @@ async fn test_sync_from_db_deduplication() {
 /// tests the earliest possible proof request.
 #[tokio::test]
 async fn test_proof_on_empty_tree() {
-    let state = TreeState::new_empty(6);
+    let state = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
 
     let (leaf, _proof, root) = state.leaf_proof_and_root(0).await;
     assert_eq!(leaf, U256::ZERO);
