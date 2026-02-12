@@ -18,7 +18,7 @@ cargo run -p bench-mobile --example run_local --release
 Direct mobench run (example):
 
 ```bash
-cargo mobench run \
+cargo-mobench run \
   --target ios \
   --function bench_mobile::bench_nullifier_proving_only \
   --iterations 30 \

@@ -172,6 +172,31 @@ jobs:
           ref: ${{ inputs.mobench_ref }}
           path: mobile-bench-rs
 
+      - name: Hotfix mobench BrowserStack device endpoint
+        working-directory: mobile-bench-rs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          file = Path("crates/mobench/src/browserstack.rs")
+          text = file.read_text(encoding="utf-8")
+          updated = text.replace(
+              'self.get_json("app-automate/espresso/v2/devices")?',
+              'self.get_json("app-automate/devices.json")?',
+          ).replace(
+              'self.get_json("app-automate/xcuitest/v2/devices")?',
+              'self.get_json("app-automate/devices.json")?',
+          )
+
+          if updated == text:
+              raise SystemExit("No endpoint replacements applied in browserstack.rs")
+
+          file.write_text(updated, encoding="utf-8")
+          print("Patched BrowserStack device endpoints to app-automate/devices.json")
+          PY
+          rg -n "app-automate/.*/devices|app-automate/devices.json" crates/mobench/src/browserstack.rs
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -519,6 +544,31 @@ jobs:
           repository: worldcoin/mobile-bench-rs
           ref: ${{ inputs.mobench_ref }}
           path: mobile-bench-rs
+
+      - name: Hotfix mobench BrowserStack device endpoint
+        working-directory: mobile-bench-rs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          file = Path("crates/mobench/src/browserstack.rs")
+          text = file.read_text(encoding="utf-8")
+          updated = text.replace(
+              'self.get_json("app-automate/espresso/v2/devices")?',
+              'self.get_json("app-automate/devices.json")?',
+          ).replace(
+              'self.get_json("app-automate/xcuitest/v2/devices")?',
+              'self.get_json("app-automate/devices.json")?',
+          )
+
+          if updated == text:
+              raise SystemExit("No endpoint replacements applied in browserstack.rs")
+
+          file.write_text(updated, encoding="utf-8")
+          print("Patched BrowserStack device endpoints to app-automate/devices.json")
+          PY
+          rg -n "app-automate/.*/devices|app-automate/devices.json" crates/mobench/src/browserstack.rs
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
