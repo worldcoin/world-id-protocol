@@ -7,6 +7,7 @@ import {IWorldIDRegistry} from "../src/interfaces/IWorldIDRegistry.sol";
 import {WorldIDBase} from "../src/abstract/WorldIDBase.sol";
 import {FullStorageBinaryIMT, FullBinaryIMTData} from "../src/libraries/FullStorageBinaryIMT.sol";
 import {PackedAccountData} from "../src/libraries/PackedAccountData.sol";
+import {Poseidon2T2} from "../src/hash/Poseidon2.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
@@ -86,6 +87,26 @@ contract WorldIDRegistryTest is Test {
             abi.encode(leafIndex, newRecoveryAddress, nonce),
             AUTH1_PRIVATE_KEY
         );
+    }
+
+    function computeRootFromProof(uint256 leaf, uint64 leafIndex, uint256[] memory siblings)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 hash = leaf;
+        uint256 idx = leafIndex;
+        for (uint256 level = 0; level < siblings.length; level++) {
+            uint256 sibling = siblings[level];
+            if ((idx & 1) == 0) {
+                hash = Poseidon2T2.compress([hash, sibling]);
+            } else {
+                hash = Poseidon2T2.compress([sibling, hash]);
+            }
+            idx >>= 1;
+        }
+
+        return hash;
     }
 
     ////////////////////////////////////////////////////////////
@@ -860,6 +881,39 @@ contract WorldIDRegistryTest is Test {
     function test_GetTreeDepth() public {
         uint256 depth = worldIDRegistry.getTreeDepth();
         assertEq(depth, 30, "Tree depth should match initialization value");
+    }
+
+    function test_GetProof() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256[] memory proof = worldIDRegistry.getProof(leafIndex);
+
+        assertEq(proof.length, worldIDRegistry.getTreeDepth(), "Proof length should match tree depth");
+        uint256 reconstructedRoot = computeRootFromProof(OFFCHAIN_SIGNER_COMMITMENT, leafIndex, proof);
+        assertEq(reconstructedRoot, worldIDRegistry.currentRoot(), "Proof should reconstruct the current root");
+    }
+
+    function test_GetProofRevertsForMissingAccount() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 missingLeafIndex = 2;
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.AccountDoesNotExist.selector, missingLeafIndex));
+        worldIDRegistry.getProof(missingLeafIndex);
     }
 
     function test_GetMaxAuthenticators() public {

@@ -403,6 +403,12 @@ interface IWorldIDRegistry {
     function currentRoot() external view returns (uint256);
 
     /**
+     * @dev Returns the Merkle inclusion proof (sibling nodes) for an account leaf.
+     * @param leafIndex The index of the leaf/account.
+     */
+    function getProof(uint64 leafIndex) external view returns (uint256[] memory);
+
+    /**
      * @dev Returns the recovery address for the given World ID (based on its leaf index).
      * @param leafIndex The index of the leaf.
      */

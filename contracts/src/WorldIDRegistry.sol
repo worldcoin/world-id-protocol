@@ -136,6 +136,15 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
+    function getProof(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256[] memory) {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
+            revert AccountDoesNotExist(leafIndex);
+        }
+
+        return _tree.getProof(uint256(leafIndex));
+    }
+
+    /// @inheritdoc IWorldIDRegistry
     function getRecoveryAddress(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
         return _getRecoveryAddress(leafIndex);
     }
