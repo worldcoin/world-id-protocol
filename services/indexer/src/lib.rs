@@ -393,7 +393,7 @@ pub async fn stream_logs(
                 }
             }
             Err(ref e) => {
-                tracing::warn!(?e, ?log, "failed to decode live registry event");
+                tracing::error!(?e, ?log, "failed to decode live registry event");
             }
         }
     }
