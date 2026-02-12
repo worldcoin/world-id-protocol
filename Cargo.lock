@@ -9068,7 +9068,6 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "axum",
- "common",
  "dotenvy",
  "eyre",
  "futures-util",
