@@ -4,7 +4,7 @@ use crate::{
     AppState,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
-    error::GatewayResult,
+    error::{GatewayErrorBody, GatewayResult},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -32,10 +32,10 @@ use moka::future::Cache;
 use tokio::sync::mpsc;
 use utoipa::OpenApi;
 use world_id_core::{
-    types::{
-        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
-        IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+    api_types::{
+        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
+        GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
+        IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
         UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
@@ -123,7 +123,7 @@ pub(crate) async fn build_app(
         .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
             30,
         )))
-        .layer(common::trace_layer()))
+        .layer(world_id_services_common::trace_layer()))
 }
 
 #[utoipa::path(

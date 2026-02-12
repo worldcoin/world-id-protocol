@@ -1,4 +1,7 @@
-//! This module allows interactions with the `WorldIDRegistry`.
+//! Minimal World ID Registry contract bindings.
+//!
+//! This crate provides only the contract bindings and EIP-712 signing utilities.
+//! It has no dependencies on other world-id crates to avoid circular dependencies.
 
 use alloy::{
     primitives::{Address, Signature, U256},
@@ -12,46 +15,74 @@ sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     WorldIdRegistry,
-    "../../contracts/abi/WorldIDRegistry.sol/WorldIDRegistryAbi.json"
+    "abi/WorldIDRegistryAbi.json"
 );
 
-sol! {
-    struct UpdateAuthenticator {
-        uint256 leafIndex;
-        address oldAuthenticatorAddress;
-        address newAuthenticatorAddress;
-        uint32 pubkeyId;
-        uint256 newAuthenticatorPubkey;
-        uint256 newOffchainSignerCommitment;
-        uint256 nonce;
-    }
+/// These structs are created in a private module to avoid confusion with their exports.
+///
+/// They are only used to compute the EIP-712 typed data for signature.
+mod sol_types {
+    use alloy::sol;
 
-    struct InsertAuthenticator {
-        uint256 leafIndex;
-        address newAuthenticatorAddress;
-        uint32 pubkeyId;
-        uint256 newAuthenticatorPubkey;
-        uint256 newOffchainSignerCommitment;
-        uint256 nonce;
-    }
+    sol! {
+        /// EIP-712 typed-data payload for `updateAuthenticator`.
+        ///
+        /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+        struct UpdateAuthenticator {
+            uint64 leafIndex;
+            address oldAuthenticatorAddress;
+            address newAuthenticatorAddress;
+            uint32 pubkeyId;
+            uint256 newAuthenticatorPubkey;
+            uint256 newOffchainSignerCommitment;
+            uint256 nonce;
+        }
 
-    struct RemoveAuthenticator {
-        uint256 leafIndex;
-        address authenticatorAddress;
-        uint32 pubkeyId;
-        uint256 authenticatorPubkey;
-        uint256 newOffchainSignerCommitment;
-        uint256 nonce;
-    }
+        /// EIP-712 typed-data payload for `insertAuthenticator`.
+        ///
+        /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+        struct InsertAuthenticator {
+            uint64 leafIndex;
+            address newAuthenticatorAddress;
+            uint32 pubkeyId;
+            uint256 newAuthenticatorPubkey;
+            uint256 newOffchainSignerCommitment;
+            uint256 nonce;
+        }
 
-    struct RecoverAccount {
-        uint256 leafIndex;
-        address newAuthenticatorAddress;
-        uint256 newAuthenticatorPubkey;
-        uint256 newOffchainSignerCommitment;
-        uint256 nonce;
+        /// EIP-712 typed-data payload for `removeAuthenticator`.
+        ///
+        /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+        struct RemoveAuthenticator {
+            uint64 leafIndex;
+            address authenticatorAddress;
+            uint32 pubkeyId;
+            uint256 authenticatorPubkey;
+            uint256 newOffchainSignerCommitment;
+            uint256 nonce;
+        }
+
+        /// EIP-712 typed-data payload for `recoverAccount`.
+        ///
+        /// This is used only for signature hashing/recovery, not as the Solidity call signature.
+        struct RecoverAccount {
+            uint64 leafIndex;
+            address newAuthenticatorAddress;
+            uint256 newAuthenticatorPubkey;
+            uint256 newOffchainSignerCommitment;
+            uint256 nonce;
+        }
     }
 }
+
+/// EIP-712 typed-data signature payload for `updateAuthenticator`.
+pub type UpdateAuthenticatorTypedData = sol_types::UpdateAuthenticator;
+/// EIP-712 typed-data signature payload for `insertAuthenticator`.
+pub type InsertAuthenticatorTypedData = sol_types::InsertAuthenticator;
+/// EIP-712 typed-data signature payload for `removeAuthenticator`.
+pub type RemoveAuthenticatorTypedData = sol_types::RemoveAuthenticator;
+/// EIP-712 typed-data signature payload for `recoverAccount`.
+pub type RecoverAccountTypedData = sol_types::RecoverAccount;
 
 /// Returns the EIP-712 domain used by the `[WorldIdRegistry]` contract
 /// for a given `chain_id` and `verifying_contract` address.
@@ -65,14 +96,14 @@ pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain 
     )
 }
 
-/// Signs `UpdateAuthenticator` contract call.
+/// Signs the EIP-712 payload for an `updateAuthenticator` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_update_authenticator<S: Signer + Sync>(
     signer: &S,
-    leaf_index: U256,
+    leaf_index: u64,
     old_authenticator_address: Address,
     new_authenticator_address: Address,
     pubkey_id: u32,
@@ -81,7 +112,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
-    let payload = UpdateAuthenticator {
+    let payload = UpdateAuthenticatorTypedData {
         leafIndex: leaf_index,
         oldAuthenticatorAddress: old_authenticator_address,
         newAuthenticatorAddress: new_authenticator_address,
@@ -94,14 +125,14 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
-/// Signs `InsertAuthenticator` contract call.
+/// Signs the EIP-712 payload for an `insertAuthenticator` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_insert_authenticator<S: Signer + Sync>(
     signer: &S,
-    leaf_index: U256,
+    leaf_index: u64,
     new_authenticator_address: Address,
     pubkey_id: u32,
     new_authenticator_pubkey: U256,
@@ -109,7 +140,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
-    let payload = InsertAuthenticator {
+    let payload = InsertAuthenticatorTypedData {
         leafIndex: leaf_index,
         newAuthenticatorAddress: new_authenticator_address,
         pubkeyId: pubkey_id,
@@ -121,14 +152,14 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
-/// Signs `RemoveAuthenticator` contract call.
+/// Signs the EIP-712 payload for a `removeAuthenticator` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
 #[allow(clippy::too_many_arguments)]
 pub async fn sign_remove_authenticator<S: Signer + Sync>(
     signer: &S,
-    leaf_index: U256,
+    leaf_index: u64,
     authenticator_address: Address,
     pubkey_id: u32,
     authenticator_pubkey: U256,
@@ -136,7 +167,7 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
-    let payload = RemoveAuthenticator {
+    let payload = RemoveAuthenticatorTypedData {
         leafIndex: leaf_index,
         authenticatorAddress: authenticator_address,
         pubkeyId: pubkey_id,
@@ -148,20 +179,20 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
     Ok(signer.sign_hash(&digest).await?)
 }
 
-/// Signs `RecoverAccount` contract call.
+/// Signs the EIP-712 payload for a `recoverAccount` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
 pub async fn sign_recover_account<S: Signer + Sync>(
     signer: &S,
-    leaf_index: U256,
+    leaf_index: u64,
     new_authenticator_address: Address,
     new_authenticator_pubkey: U256,
     new_offchain_signer_commitment: U256,
     nonce: U256,
     domain: &Eip712Domain,
 ) -> anyhow::Result<Signature> {
-    let payload = RecoverAccount {
+    let payload = RecoverAccountTypedData {
         leafIndex: leaf_index,
         newAuthenticatorAddress: new_authenticator_address,
         newAuthenticatorPubkey: new_authenticator_pubkey,

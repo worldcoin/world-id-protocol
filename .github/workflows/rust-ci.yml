@@ -155,6 +155,43 @@ jobs:
         run: |
           docker compose down
 
+  setup-test:
+    name: Local Setup Test
+    runs-on:
+      group: arc-public-8xlarge-amd64-runner
+    permissions:
+      contents: read
+
+    # Log in to Docker Hub if a token is provided to avoid public rate limiting
+    env:
+      IS_DOCKER_TOKEN_SET: ${{ (secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN != '' && secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME != '') && 'true' || 'false' }}
+
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
+        with:
+          username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build contracts
+        run: |
+          make sol-build
+
+      - name: Run setup test
+        run: |
+          make setup-test
+
   deny:
     name: Cargo deny
     runs-on:
@@ -288,4 +325,5 @@ jobs:
       - uses: dtolnay/install@cargo-docs-rs
       - run: |
           cargo +nightly docs-rs -p world-id-primitives
+          cargo +nightly docs-rs -p world-id-authenticator
           cargo +nightly docs-rs -p world-id-core

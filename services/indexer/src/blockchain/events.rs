@@ -6,7 +6,7 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 
 use super::{BlockchainError, BlockchainResult};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlockchainEvent<T: Clone> {
     pub block_number: u64,
     pub tx_hash: U256,
@@ -14,18 +14,18 @@ pub struct BlockchainEvent<T: Clone> {
     pub details: T,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccountCreatedEvent {
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     pub recovery_address: Address,
     pub authenticator_addresses: Vec<Address>,
     pub authenticator_pubkeys: Vec<U256>,
     pub offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccountUpdatedEvent {
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     pub pubkey_id: u32,
     pub new_authenticator_pubkey: U256,
     pub old_authenticator_address: Address,
@@ -34,9 +34,9 @@ pub struct AccountUpdatedEvent {
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AuthenticatorInsertedEvent {
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     pub pubkey_id: u32,
     pub authenticator_address: Address,
     pub new_authenticator_pubkey: U256,
@@ -44,9 +44,9 @@ pub struct AuthenticatorInsertedEvent {
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AuthenticatorRemovedEvent {
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     pub pubkey_id: u32,
     pub authenticator_address: Address,
     pub authenticator_pubkey: U256,
@@ -54,22 +54,22 @@ pub struct AuthenticatorRemovedEvent {
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccountRecoveredEvent {
-    pub leaf_index: U256,
+    pub leaf_index: u64,
     pub new_authenticator_address: Address,
     pub new_authenticator_pubkey: U256,
     pub old_offchain_signer_commitment: U256,
     pub new_offchain_signer_commitment: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RootRecordedEvent {
     pub root: U256,
     pub timestamp: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RegistryEvent {
     AccountCreated(AccountCreatedEvent),
     AccountUpdated(AccountUpdatedEvent),
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_decode_account_created_event() {
-        let leaf_index = U256::from(1);
+        let leaf_index = 1u64;
         let recovery_address = Address::from([1u8; 20]);
         let auth_addresses = vec![Address::from([2u8; 20])];
         let auth_pubkeys = vec![U256::from(123)];
@@ -291,7 +291,7 @@ mod tests {
             Address::ZERO,
             vec![
                 WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-                FixedBytes::from(leaf_index),
+                FixedBytes::from(U256::from(leaf_index)),
                 recovery_address.into_word(),
             ],
             encoded.into(),
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn test_decode_account_updated_event() {
-        let leaf_index = U256::from(1);
+        let leaf_index = 1u64;
         let pubkey_id = 0u32;
         let new_pubkey = U256::from(789);
         let old_address = Address::from([1u8; 20]);
@@ -343,7 +343,7 @@ mod tests {
             Address::ZERO,
             vec![
                 WorldIdRegistry::AccountUpdated::SIGNATURE_HASH,
-                FixedBytes::from(leaf_index),
+                FixedBytes::from(U256::from(leaf_index)),
                 old_address.into_word(),
                 new_address.into_word(),
             ],
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_decode_authenticator_inserted_event() {
-        let leaf_index = U256::from(1);
+        let leaf_index = 1u64;
         let pubkey_id = 1u32;
         let auth_address = Address::from([3u8; 20]);
         let new_pubkey = U256::from(999);
@@ -393,7 +393,7 @@ mod tests {
             Address::ZERO,
             vec![
                 WorldIdRegistry::AuthenticatorInserted::SIGNATURE_HASH,
-                FixedBytes::from(leaf_index),
+                FixedBytes::from(U256::from(leaf_index)),
                 auth_address.into_word(),
                 FixedBytes::from(new_pubkey),
             ],
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_decode_authenticator_removed_event() {
-        let leaf_index = U256::from(1);
+        let leaf_index = 1u64;
         let pubkey_id = 0u32;
         let auth_address = Address::from([4u8; 20]);
         let pubkey = U256::from(888);
@@ -442,7 +442,7 @@ mod tests {
             Address::ZERO,
             vec![
                 WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
-                FixedBytes::from(leaf_index),
+                FixedBytes::from(U256::from(leaf_index)),
                 auth_address.into_word(),
                 FixedBytes::from(pubkey),
             ],
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_decode_account_recovered_event() {
-        let leaf_index = U256::from(1);
+        let leaf_index = 1u64;
         let new_address = Address::from([5u8; 20]);
         let new_pubkey = U256::from(777);
         let old_commitment = U256::from(100);
@@ -489,7 +489,7 @@ mod tests {
             Address::ZERO,
             vec![
                 WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
-                FixedBytes::from(leaf_index),
+                FixedBytes::from(U256::from(leaf_index)),
                 new_address.into_word(),
                 FixedBytes::from(new_pubkey),
             ],
@@ -683,7 +683,7 @@ mod tests {
 
     #[test]
     fn test_decode_account_created_with_multiple_authenticators() {
-        let leaf_index = U256::from(1);
+        let leaf_index = 1u64;
         let recovery_address = Address::from([1u8; 20]);
         let auth_addresses = vec![
             Address::from([2u8; 20]),
@@ -707,7 +707,7 @@ mod tests {
             Address::ZERO,
             vec![
                 WorldIdRegistry::AccountCreated::SIGNATURE_HASH,
-                FixedBytes::from(leaf_index),
+                FixedBytes::from(U256::from(leaf_index)),
                 recovery_address.into_word(),
             ],
             encoded.into(),

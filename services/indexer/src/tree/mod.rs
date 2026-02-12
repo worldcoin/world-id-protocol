@@ -1,7 +1,8 @@
 use alloy::primitives::U256;
 use ark_bn254::Fr;
 use semaphore_rs_hasher::Hasher;
-pub use semaphore_rs_trees::lazy::LazyMerkleTree as MerkleTree;
+use semaphore_rs_storage::MmapVec;
+use semaphore_rs_trees::cascading::CascadingMerkleTree;
 use thiserror::Error;
 
 pub mod cached_tree;
@@ -10,6 +11,8 @@ pub mod state;
 pub use state::TreeState;
 
 pub type TreeResult<T> = Result<T, TreeError>;
+
+pub type MerkleTree = CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>;
 
 #[derive(Debug, Error)]
 pub enum TreeError {

@@ -1,5 +1,4 @@
-use alloy::primitives::U256;
-use sqlx::{Acquire, PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+use sqlx::{Acquire, PgConnection, PgPool, Postgres, Transaction, postgres::PgPoolOptions};
 use thiserror::Error;
 
 mod accounts;
@@ -154,37 +153,4 @@ impl<'a> PostgresDBTransaction<'a> {
     pub async fn rollback(self) -> DBResult<()> {
         Ok(self.tx.rollback().await?)
     }
-}
-
-// =============================================================================
-// Tree-related DB queries (extracted from tree module)
-// =============================================================================
-
-pub async fn fetch_leaves_batch<'a, E>(
-    executor: E,
-    last_cursor: &U256,
-    batch_size: i64,
-) -> DBResult<Vec<(U256, U256)>>
-where
-    E: sqlx::Executor<'a, Database = Postgres>,
-{
-    let rows = sqlx::query(
-        "SELECT leaf_index, offchain_signer_commitment
-         FROM accounts
-         WHERE leaf_index > $1
-         ORDER BY leaf_index ASC
-         LIMIT $2",
-    )
-    .bind(last_cursor)
-    .bind(batch_size)
-    .fetch_all(executor)
-    .await?;
-
-    rows.iter()
-        .map(|row| {
-            let leaf_index = row.get::<U256, _>("leaf_index");
-            let commitment = row.get::<U256, _>("offchain_signer_commitment");
-            Ok((leaf_index, commitment))
-        })
-        .collect()
 }

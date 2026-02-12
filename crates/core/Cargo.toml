@@ -25,27 +25,25 @@ required-features = ["issuer"]
 default = ["authenticator", "embed-zkeys"]
 
 authenticator = [
-    "dep:world-id-signer",
     "dep:world-id-proof",
-    "dep:world-id-request",
-    "dep:world-id-registry",
     "dep:world-id-authenticator",
 ]
 
 # Embed zkeys into binary (requires authenticator feature)
 embed-zkeys = ["authenticator", "world-id-proof/embed-zkeys"]
-# Compress the embedded zkeys to reduce binary size
+# Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/compress-zkeys"]
+# Compress the tar archive with zstd
+zstd-compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
 
 issuer = [
     "dep:world-id-issuer",
-    "dep:world-id-signer",
 ]
 
-rp = ["dep:world-id-request"]
+rp = []
 
 # OpenAPI/Swagger docs
-openapi = ["world-id-types/openapi"]
+openapi = ["world-id-primitives/openapi"]
 
 [dependencies]
 eddsa-babyjubjub = { workspace = true }
@@ -53,18 +51,14 @@ eddsa-babyjubjub = { workspace = true }
 # Internal
 world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
-world-id-request = { workspace = true, optional = true }
-world-id-signer = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
-world-id-registry = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
-world-id-types = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true }
 reqwest = { workspace = true }
-test-utils = { workspace = true }
-world-id-gateway = { workspace = true }
+world-id-test-utils = { path = "../test-utils" }
+world-id-gateway = { path = "../../services/gateway" }
 taceo-oprf-test-utils = { workspace = true }
 taceo-oprf = { workspace = true }
 backon = { workspace = true }

@@ -2,9 +2,8 @@
 
 use eyre::Result;
 use taceo_oprf_test_utils::PEER_ADDRESSES;
-use test_utils::anvil::{CredentialSchemaIssuerRegistry, TestAnvil};
 use world_id_core::Issuer;
-use world_id_primitives::Config;
+use world_id_test_utils::anvil::{CredentialSchemaIssuerRegistry, TestAnvil};
 
 /// Complete test for registering an issuer schema
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -27,33 +26,30 @@ async fn test_register_issuer_schema() -> Result<()> {
         )
         .await?;
 
-    let registry_address = anvil
+    let issuer_registry_address = anvil
         .deploy_credential_schema_issuer_registry(issuer_signer.clone(), oprf_key_registry)
         .await?;
 
     // Add CredentialSchemaIssuerRegistry as OprfKeyRegistry admin so it can call initKeyGen
     anvil
-        .add_oprf_key_registry_admin(oprf_key_registry, issuer_signer.clone(), registry_address)
+        .add_oprf_key_registry_admin(
+            oprf_key_registry,
+            issuer_signer.clone(),
+            issuer_registry_address,
+        )
         .await?;
 
     let mut issuer = Issuer::new(
         issuer_seed_bytes.as_slice(),
-        Config::new(
-            Some(anvil.endpoint().to_string()),
-            anvil.instance.chain_id(),
-            registry_address,
-            "http://127.0.0.1:0".to_string(),
-            "http://127.0.0.1:0".to_string(),
-            Vec::new(),
-            3,
-        )?,
+        anvil.endpoint().to_string(),
+        issuer_registry_address,
     )?;
 
     let issuer_schema_id = 1u64;
     issuer.register_schema(issuer_schema_id).await?;
 
     let provider = anvil.provider()?;
-    let registry = CredentialSchemaIssuerRegistry::new(registry_address, provider);
+    let registry = CredentialSchemaIssuerRegistry::new(issuer_registry_address, provider);
 
     let signer_address = issuer_signer.address();
 

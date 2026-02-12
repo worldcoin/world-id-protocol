@@ -13,13 +13,13 @@ async fn test_events_are_buffered_and_committed() {
     let mut committer = EventsCommitter::new(db);
 
     // Create AccountCreated event
-    let event1 = mock_account_created_event(100, 0, U256::from(1), Address::ZERO, U256::from(123));
+    let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(123));
 
     // Create AccountUpdated event
     let event2 = mock_account_updated_event(
         100,
         1,
-        U256::from(1),
+        1,
         0,
         Address::ZERO,
         U256::from(456),
@@ -61,7 +61,7 @@ async fn test_event_idempotency() {
     let mut committer = EventsCommitter::new(db);
 
     // Create the same event twice
-    let event = mock_account_created_event(100, 0, U256::from(1), Address::ZERO, U256::from(123));
+    let event = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(123));
     let root_event = mock_root_recorded_event(100, 1, U256::from(999), U256::from(1000));
 
     // Process first event
@@ -93,7 +93,7 @@ async fn test_account_update_modifies_existing_account() {
 
     let mut committer = EventsCommitter::new(db);
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let recovery_address = Address::ZERO;
     let initial_address = Address::from([1u8; 20]);
     let initial_pubkey = U256::from(111);
@@ -133,7 +133,7 @@ async fn test_account_update_modifies_existing_account() {
 
     // Verify account was created with UPDATED values (not initial values)
     // This confirms that the update event modified the account before it was committed
-    let account = db.accounts().get_account(&leaf_index).await.unwrap();
+    let account = db.accounts().get_account(leaf_index).await.unwrap();
     assert!(account.is_some(), "Account should exist after root event");
     let account = account.unwrap();
     assert_eq!(account.leaf_index, leaf_index);
@@ -160,14 +160,14 @@ async fn test_multiple_event_batches() {
     let mut committer = EventsCommitter::new(db);
 
     // First batch
-    let event1 = mock_account_created_event(100, 0, U256::from(1), Address::ZERO, U256::from(100));
+    let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let root1 = mock_root_recorded_event(100, 1, U256::from(500), U256::from(1000));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
 
     // Second batch
-    let event2 = mock_account_created_event(101, 0, U256::from(2), Address::ZERO, U256::from(200));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
     let root2 = mock_root_recorded_event(101, 1, U256::from(600), U256::from(2000));
 
     committer.handle_event(event2).await.unwrap();
@@ -189,7 +189,7 @@ async fn test_authenticator_inserted() {
 
     let mut committer = EventsCommitter::new(db);
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let create_event =
         mock_account_created_event(100, 0, leaf_index, Address::ZERO, U256::from(100));
     let insert_event = mock_authenticator_inserted_event(
@@ -224,7 +224,7 @@ async fn test_authenticator_removed() {
 
     let mut committer = EventsCommitter::new(db);
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let create_event =
         mock_account_created_event(100, 0, leaf_index, Address::ZERO, U256::from(100));
     let remove_event = mock_authenticator_removed_event(
@@ -259,7 +259,7 @@ async fn test_account_recovered() {
 
     let mut committer = EventsCommitter::new(db);
 
-    let leaf_index = U256::from(1);
+    let leaf_index = 1u64;
     let create_event =
         mock_account_created_event(100, 0, leaf_index, Address::ZERO, U256::from(100));
     let recover_event = mock_account_recovered_event(
@@ -292,7 +292,7 @@ async fn test_transaction_rollback_on_error() {
     let db = &test_db.db;
 
     // Pre-insert an account with leaf_index 1
-    insert_test_account(db, U256::from(1), Address::ZERO, U256::from(500))
+    insert_test_account(db, 1, Address::ZERO, U256::from(500))
         .await
         .unwrap();
 
@@ -302,7 +302,7 @@ async fn test_transaction_rollback_on_error() {
     let duplicate_create_event = mock_account_created_event(
         100,
         0,
-        U256::from(1), // Same leaf_index as existing account
+        1, // Same leaf_index as existing account
         Address::from([1u8; 20]),
         U256::from(789),
     );
@@ -325,7 +325,7 @@ async fn test_transaction_rollback_on_error() {
     assert_eq!(event_count, 0, "Events should be rolled back on error");
 
     // Original account should still exist
-    let exists = account_exists(db.pool(), U256::from(1)).await.unwrap();
+    let exists = account_exists(db.pool(), 1).await.unwrap();
     assert!(exists, "Account should still exist after rollback");
 }
 
@@ -338,14 +338,14 @@ async fn test_buffer_cleared_after_commit() {
     let mut committer = EventsCommitter::new(db);
 
     // First batch
-    let event1 = mock_account_created_event(100, 0, U256::from(1), Address::ZERO, U256::from(100));
+    let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let root1 = mock_root_recorded_event(100, 1, U256::from(500), U256::from(1000));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
 
     // Second batch - buffer should be empty, so only this event should be committed
-    let event2 = mock_account_created_event(101, 0, U256::from(2), Address::ZERO, U256::from(200));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
     let root2 = mock_root_recorded_event(101, 1, U256::from(600), U256::from(2000));
 
     committer.handle_event(event2).await.unwrap();

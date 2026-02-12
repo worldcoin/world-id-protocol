@@ -11,13 +11,7 @@ use eyre::Context;
 use taceo_oprf::service::secret_manager::postgres::PostgresSecretManager;
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 
-#[tokio::main]
-async fn main() -> eyre::Result<ExitCode> {
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .expect("can install");
-    let tracing_config = taceo_nodes_observability::TracingConfig::try_from_env()?;
-    let _tracing_handle = taceo_nodes_observability::initialize_tracing(&tracing_config)?;
+async fn run() -> eyre::Result<()> {
     taceo_oprf::service::metrics::describe_metrics();
     world_id_oprf_node::metrics::describe_metrics();
 
@@ -32,6 +26,9 @@ async fn main() -> eyre::Result<ExitCode> {
             &config.node_config.db_connection_string,
             &config.node_config.db_schema,
             config.node_config.db_max_connections,
+            config.node_config.db_acquire_timeout,
+            config.node_config.db_max_retries,
+            config.node_config.db_retry_delay,
         )
         .await
         .context("while initializing Postgres secret manager")?,
@@ -76,15 +73,33 @@ async fn main() -> eyre::Result<ExitCode> {
     {
         Ok(Ok(_)) => {
             tracing::info!("successfully finished graceful shutdown in time");
-            Ok(ExitCode::SUCCESS)
+            Ok(())
         }
-        Ok(Err(err)) => {
-            tracing::error!("oprf-node encountered an error: {err:?}");
-            Ok(ExitCode::FAILURE)
-        }
+        Ok(Err(err)) => Err(err),
         Err(_) => {
-            tracing::warn!("could not finish shutdown in time");
-            Ok(ExitCode::FAILURE)
+            eyre::bail!("could not finish shutdown in time");
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("can install");
+    let tracing_config =
+        taceo_nodes_observability::TracingConfig::try_from_env().expect("Can create TryingConfig");
+    let _tracing_handle = taceo_nodes_observability::initialize_tracing(&tracing_config)
+        .expect("Can get tracing handle");
+    match run().await {
+        Ok(_) => {
+            tracing::info!("good night");
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            tracing::error!("oprf-node did shutdown: {err:?}");
+            tracing::error!("good night anyways");
+            ExitCode::FAILURE
         }
     }
 }

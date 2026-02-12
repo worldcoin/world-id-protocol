@@ -10,19 +10,23 @@ async fn test_max_u256_values() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
+    let max_leaf_index = u64::MAX;
     let max_u256 = U256::MAX;
 
     // Insert account with max values
     db.accounts()
-        .insert(&max_u256, &Address::ZERO, &[], &[], &max_u256)
+        .insert(max_leaf_index, &Address::ZERO, &[], &[], &max_u256)
         .await
         .unwrap();
 
     // Verify account was created with MAX values
-    let account = db.accounts().get_account(&max_u256).await.unwrap();
+    let account = db.accounts().get_account(max_leaf_index).await.unwrap();
     assert!(account.is_some(), "Account should exist");
     let account = account.unwrap();
-    assert_eq!(account.leaf_index, max_u256, "Leaf index should be MAX");
+    assert_eq!(
+        account.leaf_index, max_leaf_index,
+        "Leaf index should be MAX"
+    );
     assert_eq!(
         account.offchain_signer_commitment, max_u256,
         "Commitment should be MAX"
@@ -37,15 +41,15 @@ async fn test_zero_values() {
 
     // Insert account with zero values
     db.accounts()
-        .insert(&U256::ZERO, &Address::ZERO, &[], &[], &U256::ZERO)
+        .insert(0, &Address::ZERO, &[], &[], &U256::ZERO)
         .await
         .unwrap();
 
     // Verify account was created with zero values
-    let account = db.accounts().get_account(&U256::ZERO).await.unwrap();
+    let account = db.accounts().get_account(0).await.unwrap();
     assert!(account.is_some(), "Account should exist");
     let account = account.unwrap();
-    assert_eq!(account.leaf_index, U256::ZERO, "Leaf index should be ZERO");
+    assert_eq!(account.leaf_index, 0, "Leaf index should be ZERO");
     assert_eq!(
         account.recovery_address,
         Address::ZERO,
@@ -67,7 +71,7 @@ async fn test_empty_authenticator_arrays() {
     // Insert account with empty authenticator arrays
     let result = db
         .accounts()
-        .insert(&U256::from(1), &Address::ZERO, &[], &[], &U256::from(100))
+        .insert(1, &Address::ZERO, &[], &[], &U256::from(100))
         .await;
 
     result.expect("Should handle empty authenticator arrays");
@@ -84,7 +88,7 @@ async fn test_max_block_number() {
     // Insert event with max block number
     db.world_tree_events()
         .insert_event(
-            &U256::from(1),
+            1,
             WorldTreeEventType::AccountCreated,
             &U256::from(100),
             max_block_number,
@@ -113,7 +117,7 @@ async fn test_max_log_index() {
     // Insert event with max log index
     db.world_tree_events()
         .insert_event(
-            &U256::from(1),
+            1,
             WorldTreeEventType::AccountCreated,
             &U256::from(100),
             100,
@@ -145,13 +149,7 @@ async fn test_max_authenticators() {
     let pubkeys: Vec<U256> = (0..max_auth).map(|i| U256::from(i)).collect();
 
     db.accounts()
-        .insert(
-            &U256::from(1),
-            &Address::ZERO,
-            &addresses,
-            &pubkeys,
-            &U256::from(100),
-        )
+        .insert(1, &Address::ZERO, &addresses, &pubkeys, &U256::from(100))
         .await
         .expect("Should handle reasonably large authenticator arrays");
 }
@@ -173,7 +171,7 @@ async fn test_all_event_types() {
     for (i, event_type) in event_types.iter().enumerate() {
         db.world_tree_events()
             .insert_event(
-                &U256::from(i),
+                i as u64,
                 *event_type,
                 &U256::from(i * 100),
                 100,

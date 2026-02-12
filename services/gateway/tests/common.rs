@@ -1,6 +1,6 @@
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
-use world_id_core::types::{GatewayRequestState, GatewayStatusResponse};
+use world_id_core::api_types::{GatewayRequestState, GatewayStatusResponse};
 
 #[allow(dead_code)]
 pub(crate) async fn wait_http_ready(client: &Client, port: u16) {

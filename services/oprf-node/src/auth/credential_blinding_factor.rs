@@ -349,8 +349,9 @@ mod tests {
         setup
             .setup
             .anvil
-            .remove_issuer_unchecked(
+            .remove_issuer(
                 setup.setup.credential_schema_issuer_registry,
+                deployer.clone(),
                 deployer,
                 setup.setup.issuer_schema_id,
             )

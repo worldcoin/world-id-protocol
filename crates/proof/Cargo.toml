@@ -12,7 +12,6 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
-    "../../contracts/abi/*",
     "build.rs",
     "Cargo.toml",
     "README.md",
@@ -21,9 +20,11 @@ include = [
 [features]
 default = ["embed-zkeys"]
 # Embed zkeys into binary
-embed-zkeys = []
-# Compress the embedded zkeys to reduce binary size
+embed-zkeys = ["dep:tar"]
+# Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
+# Compress the tar archive with zstd
+zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
 [dependencies]
 ark-babyjubjub = { workspace = true }
@@ -32,18 +33,19 @@ ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serialize = { workspace = true, optional = true }
 circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"], optional = true }
+tar = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
 rand = { workspace = true }
 groth16-material = { workspace = true }
-taceo-oprf = { workspace = true }
+taceo-oprf = { workspace = true, features = ["client"] }
 eyre = { workspace = true }
 zeroize = { workspace = true }
 
 # Internal
-world-id-request = { workspace = true }
-world-id-primitives = { workspace = true }
+world-id-primitives = { workspace = true, features = ["circuits"] }
 
 [build-dependencies]
 eyre = { workspace = true }
@@ -51,3 +53,5 @@ reqwest = { workspace = true, features = ["blocking"] }
 ark-serialize = { workspace = true }
 circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
 rayon = { workspace = true }
+tar = { workspace = true }
+zstd = { workspace = true }
