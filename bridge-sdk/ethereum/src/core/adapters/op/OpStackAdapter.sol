@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ITransport} from "../../../interfaces/ITransport.sol";
+import {ITransport} from "../../interfaces/ITransport.sol";
 import {ICrossDomainMessenger} from "../../../vendor/optimism/ICrossDomainMessenger.sol";
 
 /// @title OpStackAdapter

@@ -14,7 +14,7 @@ import {
 import {Unauthorized} from "../src/core/interfaces/INativeReceiver.sol";
 import {InvalidRoot, InvalidatedProofId} from "../src/core/lib/CrossDomainWorldIdVerifier.sol";
 import {UnknownL1BlockHash} from "../src/core/UniversalWorldIdVerifier.sol";
-import {ITransport} from "../src/interfaces/ITransport.sol";
+import {ITransport} from "../src/core/interfaces/ITransport.sol";
 import {INativeReceiver} from "../src/core/interfaces/INativeReceiver.sol";
 import {CommitmentHelpers} from "./helpers/CommitmentHelpers.sol";
 import {WorldIdBridge} from "../src/core/lib/WorldIdBridge.sol";

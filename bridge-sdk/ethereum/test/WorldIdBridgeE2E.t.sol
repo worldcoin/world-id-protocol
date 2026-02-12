@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {ProofsLib} from "../src/lib/ProofsLib.sol";
 import {InvalidChainHead} from "../src/lib/ProofsLib.sol";
 import {NothingChanged} from "../src/core/interfaces/IWorldIdBridge.sol";
-import {ITransport} from "../src/interfaces/ITransport.sol";
+import {ITransport} from "../src/core/interfaces/ITransport.sol";
 import {IL1BlockHashOracle} from "../src/interfaces/IL1BlockHashOracle.sol";
 import {CommitmentHelpers} from "./helpers/CommitmentHelpers.sol";
 

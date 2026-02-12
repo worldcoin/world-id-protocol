@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ITransport} from "../../../interfaces/ITransport.sol";
+import {ITransport} from "../../interfaces/ITransport.sol";
 import {IWormhole} from "../../../vendor/wormhole/IWormhole.sol";
 import {WormholePayloadLib} from "../../../lib/WormholePayloadLib.sol";
 import {ProofsLib} from "../../../lib/ProofsLib.sol";

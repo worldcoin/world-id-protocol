@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {IDisputeGameFactory} from "../vendor/optimism/IDisputeGameFactory.sol";
 import {IDisputeGame} from "../vendor/optimism/IDisputeGame.sol";
 import {GameStatus, Claim} from "../vendor/optimism/DisputeTypes.sol";
-import {ITransport} from "../interfaces/ITransport.sol";
+import {ITransport} from "./interfaces/ITransport.sol";
 import {INativeReceiver} from "./interfaces/INativeReceiver.sol";
 import {ProofsLib} from "../lib/ProofsLib.sol";
 import {CrossDomainWorldIdVerifier} from "./lib/CrossDomainWorldIdVerifier.sol";

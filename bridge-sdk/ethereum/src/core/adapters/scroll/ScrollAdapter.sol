@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ITransport} from "../../../interfaces/ITransport.sol";
+import {ITransport} from "../../interfaces/ITransport.sol";
 import {IL1ScrollMessenger} from "../../../vendor/scroll/IL1ScrollMessenger.sol";
 
 /// @title ScrollAdapter

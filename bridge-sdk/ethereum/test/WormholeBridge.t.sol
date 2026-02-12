@@ -22,7 +22,7 @@ import {
 import {WormholeMessagePublished} from "../src/core/adapters/wormhole/WormholeAdapter.sol";
 import {WormholeAdapter} from "../src/core/adapters/wormhole/WormholeAdapter.sol";
 import {IWormhole} from "../src/vendor/wormhole/IWormhole.sol";
-import {ITransport} from "../src/interfaces/ITransport.sol";
+import {ITransport} from "../src/core/interfaces/ITransport.sol";
 import {INativeReceiver} from "../src/core/interfaces/INativeReceiver.sol";
 import {EthereumWorldIdVerifier} from "../src/core/EthereumWorldIdVerifier.sol";
 import {WorldIdBridge} from "../src/core/lib/WorldIdBridge.sol";
