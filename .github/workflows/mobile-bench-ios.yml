@@ -195,7 +195,7 @@ jobs:
           file.write_text(updated, encoding="utf-8")
           print("Patched BrowserStack device endpoints to app-automate/devices.json")
           PY
-          rg -n "app-automate/.*/devices|app-automate/devices.json" crates/mobench/src/browserstack.rs
+          grep -nE "app-automate/.*/devices|app-automate/devices.json" crates/mobench/src/browserstack.rs
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
@@ -568,7 +568,7 @@ jobs:
           file.write_text(updated, encoding="utf-8")
           print("Patched BrowserStack device endpoints to app-automate/devices.json")
           PY
-          rg -n "app-automate/.*/devices|app-automate/devices.json" crates/mobench/src/browserstack.rs
+          grep -nE "app-automate/.*/devices|app-automate/devices.json" crates/mobench/src/browserstack.rs
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
