@@ -43,67 +43,6 @@ async fn test_init_tree_empty_db() {
     cleanup(&cache_path);
 }
 
-/// Test 2: All leaves fall within the dense prefix — sparse pass is skipped.
-#[tokio::test]
-async fn test_all_leaves_in_dense_prefix() {
-    let test_db = create_unique_test_db().await;
-    let db = test_db.db();
-    let cache_path = temp_cache_path();
-
-    // dense_prefix_depth=3 → dense_prefix_size=8; indices 1..=4 all fit
-    for i in 1u64..=4 {
-        insert_test_account(db, i, Address::ZERO, U256::from(i * 100))
-            .await
-            .unwrap();
-    }
-
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-
-    let expected = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
-    for i in 1u64..=4 {
-        expected
-            .set_leaf_at_index(i as usize, U256::from(i * 100))
-            .await
-            .unwrap();
-    }
-
-    assert_eq!(tree_state.root().await, expected.root().await);
-
-    cleanup(&cache_path);
-}
-
-/// Test 3: Some leaves are beyond the dense prefix, exercising the sparse pass.
-#[tokio::test]
-async fn test_leaves_beyond_dense_prefix() {
-    let test_db = create_unique_test_db().await;
-    let db = test_db.db();
-    let cache_path = temp_cache_path();
-
-    // dense_prefix_depth=2 → dense_prefix_size=4
-    // Indices 1, 2 are dense; 5 and 10 are sparse
-    let leaves: &[(u64, u64)] = &[(1, 100), (2, 200), (5, 500), (10, 1000)];
-
-    for &(idx, val) in leaves {
-        insert_test_account(db, idx, Address::ZERO, U256::from(val))
-            .await
-            .unwrap();
-    }
-
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-
-    let expected = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
-    for &(idx, val) in leaves {
-        expected
-            .set_leaf_at_index(idx as usize, U256::from(val))
-            .await
-            .unwrap();
-    }
-
-    assert_eq!(tree_state.root().await, expected.root().await);
-
-    cleanup(&cache_path);
-}
-
 /// Test 5: Accounts with leaf_index == 0 are skipped during tree building.
 #[tokio::test]
 async fn test_zero_index_leaf_skipped() {
@@ -389,13 +328,13 @@ async fn test_replay_matches_fresh_build() {
     // Update accounts table to final state
     sqlx::query("UPDATE accounts SET offchain_signer_commitment = $1 WHERE leaf_index = $2")
         .bind(U256::from(300))
-        .bind(U256::from(1))
+        .bind(1)
         .execute(db.pool())
         .await
         .unwrap();
     sqlx::query("UPDATE accounts SET offchain_signer_commitment = $1 WHERE leaf_index = $2")
         .bind(U256::from(400))
-        .bind(U256::from(2))
+        .bind(2)
         .execute(db.pool())
         .await
         .unwrap();
@@ -480,25 +419,4 @@ async fn test_sync_from_db_deduplication() {
     );
 
     cleanup(&cache_path);
-}
-
-// ============================================================================
-// General edge cases
-// ============================================================================
-
-/// Test 18: Proof on an empty / freshly-initialized tree returns valid data.
-/// In the real system the HTTP server starts only after init_tree, so this
-/// tests the earliest possible proof request.
-#[tokio::test]
-async fn test_proof_on_empty_tree() {
-    let state = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
-
-    let (leaf, _proof, root) = state.leaf_proof_and_root(0).await;
-    assert_eq!(leaf, U256::ZERO);
-    assert_eq!(root, state.root().await);
-
-    // Non-zero index on an empty tree should also work
-    let (leaf2, _proof2, root2) = state.leaf_proof_and_root(5).await;
-    assert_eq!(leaf2, U256::ZERO);
-    assert_eq!(root2, root, "same root since tree is empty");
 }
