@@ -31,8 +31,10 @@ authenticator = [
 
 # Embed zkeys into binary (requires authenticator feature)
 embed-zkeys = ["authenticator", "world-id-proof/embed-zkeys"]
-# Compress the embedded zkeys to reduce binary size
+# Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/compress-zkeys"]
+# Compress the tar archive with zstd
+zstd-compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
 
 issuer = [
     "dep:world-id-issuer",

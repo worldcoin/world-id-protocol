@@ -1,7 +1,4 @@
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
-use circom_types::{ark_bn254::Bn254, groth16::ArkZkey};
 use eyre::{OptionExt, bail};
-use rayon::prelude::*;
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -50,47 +47,53 @@ fn main() -> eyre::Result<()> {
         fetch_circuit_file(path, &out_dir)?;
     }
 
-    if std::env::var("CARGO_FEATURE_COMPRESS_ZKEYS").is_err() {
-        return Ok(());
+    // ARK point compression (when compress-zkeys feature is active)
+    let use_ark = std::env::var("CARGO_FEATURE_COMPRESS_ZKEYS").is_ok();
+    if use_ark {
+        ark_compress_zkeys(&out_dir)?;
     }
 
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let workspace_root = manifest_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .ok_or_eyre("failed to resolve workspace root from CARGO_MANIFEST_DIR")?;
-    let circom_dir = workspace_root.join("circom");
+    // Create tar archive of all circuit files
+    let use_zstd = std::env::var("CARGO_FEATURE_ZSTD_COMPRESS_ZKEYS").is_ok();
+    let archive_name = if use_zstd {
+        "circuit_files.tar.zst"
+    } else {
+        "circuit_files.tar"
+    };
+    let archive_path = out_dir.join(archive_name);
 
-    if !circom_dir.is_dir() {
-        bail!("circom directory not found at {}", circom_dir.display());
+    // Collect files: use .compressed zkeys if ARK compression active, raw otherwise
+    let mut files_to_bundle: Vec<(&str, PathBuf)> = Vec::new();
+    for path_str in CIRCUIT_FILES {
+        let file_name = Path::new(path_str).file_name().unwrap().to_str().unwrap();
+        if is_arks_zkey(Path::new(file_name)) && use_ark {
+            files_to_bundle.push((file_name, out_dir.join(format!("{file_name}.compressed"))));
+        } else {
+            files_to_bundle.push((file_name, out_dir.join(file_name)));
+        }
     }
 
-    // Watch the directory itself for new/removed files
-    println!("cargo:rerun-if-changed={}", circom_dir.display());
+    let needs_rebuild = files_to_bundle
+        .iter()
+        .any(|(_, src)| !is_up_to_date(src, &archive_path));
 
-    // Collect all zkey files first
-    fs::read_dir(&out_dir)?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| is_arks_zkey(path))
-        .par_bridge()
-        .try_for_each(|path| {
-            let file_name = path
-                .file_name()
-                .ok_or_eyre("missing filename")?
-                .to_str()
-                .unwrap();
-            let output_path = out_dir.join(format!("{file_name}.compressed"));
-
-            // Skip if output exists and is newer than input
-            if is_up_to_date(&path, &output_path) {
-                return eyre::Ok(());
+    if needs_rebuild {
+        let file = fs::File::create(&archive_path)?;
+        if use_zstd {
+            let encoder = zstd::Encoder::new(file, 0)?;
+            let mut tar = tar::Builder::new(encoder);
+            for (name, path) in &files_to_bundle {
+                tar.append_path_with_name(path, name)?;
             }
-
-            compress_zkey(&path, &output_path)?;
-
-            Ok(())
-        })?;
+            tar.into_inner()?.finish()?;
+        } else {
+            let mut tar = tar::Builder::new(file);
+            for (name, path) in &files_to_bundle {
+                tar.append_path_with_name(path, name)?;
+            }
+            tar.finish()?;
+        }
+    }
 
     Ok(())
 }
@@ -133,7 +136,8 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<()> {
         }
     }
 
-    // Download from GitHub
+    // Download from GitHub: we need to do this because crates.io enforce a hard limit on the
+    // size of a crate upload of ~10MB and the circuit files are heavier than that.
     #[cfg(feature = "embed-zkeys")]
     {
         let url = format!(
@@ -171,7 +175,54 @@ fn is_up_to_date(input: &Path, output: &Path) -> bool {
     output_modified >= input_modified
 }
 
+fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
+    use rayon::prelude::*;
+
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_eyre("failed to resolve workspace root from CARGO_MANIFEST_DIR")?;
+    let circom_dir = workspace_root.join("circom");
+
+    if !circom_dir.is_dir() {
+        bail!("circom directory not found at {}", circom_dir.display());
+    }
+
+    // Watch the directory itself for new/removed files
+    println!("cargo:rerun-if-changed={}", circom_dir.display());
+
+    // Collect all zkey files first
+    fs::read_dir(out_dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| is_arks_zkey(path))
+        .par_bridge()
+        .try_for_each(|path| {
+            let file_name = path
+                .file_name()
+                .ok_or_eyre("missing filename")?
+                .to_str()
+                .unwrap();
+            let output_path = out_dir.join(format!("{file_name}.compressed"));
+
+            // Skip if output exists and is newer than input
+            if is_up_to_date(&path, &output_path) {
+                return eyre::Ok(());
+            }
+
+            compress_zkey(&path, &output_path)?;
+
+            Ok(())
+        })?;
+
+    Ok(())
+}
+
 fn compress_zkey(input: &Path, output: &Path) -> eyre::Result<()> {
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
+    use circom_types::{ark_bn254::Bn254, groth16::ArkZkey};
+
     let input_bytes = fs::read(input)?;
     let zkey = ArkZkey::<Bn254>::deserialize_with_mode(
         input_bytes.as_slice(),

@@ -29,7 +29,7 @@ mod error;
 pub mod events_committer;
 mod routes;
 mod sanity_check;
-mod tree;
+pub mod tree;
 
 static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);
 

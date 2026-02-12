@@ -177,6 +177,7 @@ impl RpRegistryWatcher {
         Ok((rp_registry, subscribe_task))
     }
 
+    #[instrument(level = "debug", skip_all, fields(rp_id=%rp_id))]
     pub(crate) async fn get_rp(
         &self,
         rp_id: &RpId,

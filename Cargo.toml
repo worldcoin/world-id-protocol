@@ -85,6 +85,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 uuid = { version = "1" }
 webpki-roots = "1.0"
 zeroize = "1"
+zstd = "0.13"
 axum = { version = "0.8", features = ["macros", "json"] }
 moka = { version = "0.12.12", features = ["future"] }
 metrics = "0.24"
@@ -114,6 +115,7 @@ semaphore-rs-storage = "0.5.0"
 serial_test = "3"
 sqlx = "0.8"
 take_mut = "0.2.2"
+tar = "0.4"
 taceo-nodes-common = "0.2.1"
 taceo-nodes-observability = "0.1"
 tempfile = "3"
