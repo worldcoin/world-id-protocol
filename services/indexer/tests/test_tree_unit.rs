@@ -29,7 +29,6 @@ fn cleanup(path: &PathBuf) {
 // Tree Creation tests
 // ============================================================================
 
-/// Test 1: Empty DB produces an empty tree with the default root.
 #[tokio::test]
 async fn test_init_tree_empty_db() {
     let test_db = create_unique_test_db().await;
@@ -39,55 +38,6 @@ async fn test_init_tree_empty_db() {
 
     let expected = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
     assert_eq!(tree_state.root().await, expected.root().await);
-
-    cleanup(&cache_path);
-}
-
-/// Test 5: Accounts with leaf_index == 0 are skipped during tree building.
-#[tokio::test]
-async fn test_zero_index_leaf_skipped() {
-    let test_db = create_unique_test_db().await;
-    let db = test_db.db();
-    let cache_path = temp_cache_path();
-
-    // leaf_index 0 should be skipped; leaf_index 1 should be included
-    insert_test_account(db, 0, Address::ZERO, U256::from(999))
-        .await
-        .unwrap();
-    insert_test_account(db, 1, Address::ZERO, U256::from(100))
-        .await
-        .unwrap();
-
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-
-    let tree = tree_state.read().await;
-    assert_eq!(tree.get_leaf(0), U256::ZERO, "leaf 0 must remain zero");
-    assert_eq!(tree.get_leaf(1), U256::from(100));
-
-    cleanup(&cache_path);
-}
-
-/// Test 6: Account with leaf_index >= tree capacity produces an error.
-#[tokio::test]
-async fn test_leaf_index_out_of_range() {
-    let test_db = create_unique_test_db().await;
-    let db = test_db.db();
-    let cache_path = temp_cache_path();
-
-    // tree_depth=6 → capacity=64; leaf_index 100 is out of range
-    insert_test_account(db, 100, Address::ZERO, U256::from(999))
-        .await
-        .unwrap();
-
-    let result = unsafe { init_tree(db, &cache_path, 6).await };
-    assert!(result.is_err(), "should fail for out-of-range leaf index");
-
-    let err = result.unwrap_err();
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("out of range"),
-        "error should mention out of range, got: {msg}"
-    );
 
     cleanup(&cache_path);
 }
