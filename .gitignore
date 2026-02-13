@@ -7,8 +7,15 @@ contracts/out/*
 contracts/cache/
 contracts/broadcast/
 
+bridge-sdk/ethereum/out/*
+bridge-sdk/ethereum/cache/*
+bridge-sdk/ethereum/broadcast/*
+
 # Ignore local deployment because it changes every run
 contracts/deployments/local.json
+bridge-sdk/ethereum/contracts/deployments/local.json
+bridge-sdk/ethereum/lib/*
+bridge-sdk/claude-context/*
 
 # Node (if used later)
 node_modules/
