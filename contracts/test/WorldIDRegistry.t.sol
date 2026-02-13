@@ -14,7 +14,6 @@ import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract WorldIDRegistryTest is Test {
-
     WorldIDRegistry public worldIDRegistry;
 
     uint256 public constant RECOVERY_PRIVATE_KEY = 0xA11CE;
@@ -635,13 +634,7 @@ contract WorldIDRegistryTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.RecoveryNotEnabled.selector));
         worldIDRegistry.recoverAccount(
-            1,
-            authenticatorAddress1,
-            0,
-            OFFCHAIN_SIGNER_COMMITMENT,
-            OFFCHAIN_SIGNER_COMMITMENT,
-            bytes(""),
-            0
+            1, authenticatorAddress1, 0, OFFCHAIN_SIGNER_COMMITMENT, OFFCHAIN_SIGNER_COMMITMENT, bytes(""), 0
         );
     }
 

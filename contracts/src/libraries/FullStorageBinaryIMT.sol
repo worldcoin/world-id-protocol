@@ -106,7 +106,11 @@ library FullStorageBinaryIMT {
 
     /// @dev Returns the node value at (level, index). Unset nodes return the
     ///      default zero for that level.
-    function _getNode(FullBinaryIMTData storage self, uint256 level, uint256 idx, uint256 numLeaves) private view returns (uint256) {
+    function _getNode(FullBinaryIMTData storage self, uint256 level, uint256 idx, uint256 numLeaves)
+        private
+        view
+        returns (uint256)
+    {
         // For an incremental tree with numLeaves leaves, at level L any node
         // with index > (numLeaves - 1) >> L has never been written.
         if (numLeaves == 0 || idx > (numLeaves - 1) >> level) {
@@ -194,7 +198,9 @@ library FullStorageBinaryIMT {
                 revert ValueGreaterThanSnarkScalarField();
             }
             self.nodes[_key(0, start + i)] = leaf;
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         // ── Phase 2: bottom-up recomputation ──────────────────────────
@@ -211,22 +217,28 @@ library FullStorageBinaryIMT {
 
         for (uint256 level = 0; level < depth;) {
             uint256 parentStart = levelStart >> 1;
-            uint256 parentEnd   = levelEnd >> 1;
+            uint256 parentEnd = levelEnd >> 1;
             uint256 parentLevel;
-            unchecked { parentLevel = level + 1; }
+            unchecked {
+                parentLevel = level + 1;
+            }
 
             for (uint256 p = parentStart; p <= parentEnd;) {
                 uint256 leftChild = p << 1;
-                uint256 left  = _getNode(self, level, leftChild, effectiveLeaves);
+                uint256 left = _getNode(self, level, leftChild, effectiveLeaves);
                 uint256 right = _getNode(self, level, leftChild | 1, effectiveLeaves);
 
                 self.nodes[_key(parentLevel, p)] = Poseidon2T2.compress([left, right]);
-                unchecked { ++p; }
+                unchecked {
+                    ++p;
+                }
             }
 
             levelStart = parentStart;
-            levelEnd   = parentEnd;
-            unchecked { ++level; }
+            levelEnd = parentEnd;
+            unchecked {
+                ++level;
+            }
         }
 
         uint256 newRoot = self.nodes[_key(depth, 0)];
@@ -290,11 +302,7 @@ library FullStorageBinaryIMT {
     }
 
     /// @dev Verify if a leaf is part of the tree.
-    function verify(FullBinaryIMTData storage self, uint256 leaf, uint256 index)
-        internal
-        view
-        returns (bool)
-    {
+    function verify(FullBinaryIMTData storage self, uint256 leaf, uint256 index) internal view returns (bool) {
         uint256 numLeaves = self.numberOfLeaves;
         if (index >= numLeaves) return false;
         return _getNode(self, 0, index, numLeaves) == leaf;
@@ -302,11 +310,7 @@ library FullStorageBinaryIMT {
 
     /// @dev Get the inclusion proof (sibling nodes) for a leaf.
     ///      Useful for off-chain consumers that still need proofs.
-    function getProof(FullBinaryIMTData storage self, uint256 index)
-        internal
-        view
-        returns (uint256[] memory siblings)
-    {
+    function getProof(FullBinaryIMTData storage self, uint256 index) internal view returns (uint256[] memory siblings) {
         uint256 depth = self.depth;
         uint256 numLeaves = self.numberOfLeaves;
         siblings = new uint256[](depth);

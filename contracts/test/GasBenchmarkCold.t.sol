@@ -72,7 +72,9 @@ contract ColdInsertManyBench is Test {
 
     function test_cold_current_insertMany_10() public {
         uint256[] memory leaves = new uint256[](10);
-        for (uint256 i = 0; i < 10; i++) leaves[i] = 1337 + i;
+        for (uint256 i = 0; i < 10; i++) {
+            leaves[i] = 1337 + i;
+        }
         uint256 g0 = gasleft();
         currentTree.insertMany(leaves);
         uint256 g1 = gasleft();
@@ -81,7 +83,9 @@ contract ColdInsertManyBench is Test {
 
     function test_cold_fs_insertMany_10() public {
         uint256[] memory leaves = new uint256[](10);
-        for (uint256 i = 0; i < 10; i++) leaves[i] = 1337 + i;
+        for (uint256 i = 0; i < 10; i++) {
+            leaves[i] = 1337 + i;
+        }
         uint256 g0 = gasleft();
         fsTree.insertMany(leaves);
         uint256 g1 = gasleft();
@@ -92,7 +96,9 @@ contract ColdInsertManyBench is Test {
 
     function test_cold_current_insertMany_100() public {
         uint256[] memory leaves = new uint256[](100);
-        for (uint256 i = 0; i < 100; i++) leaves[i] = 1337 + i;
+        for (uint256 i = 0; i < 100; i++) {
+            leaves[i] = 1337 + i;
+        }
         uint256 g0 = gasleft();
         currentTree.insertMany(leaves);
         uint256 g1 = gasleft();
@@ -101,7 +107,9 @@ contract ColdInsertManyBench is Test {
 
     function test_cold_fs_insertMany_100() public {
         uint256[] memory leaves = new uint256[](100);
-        for (uint256 i = 0; i < 100; i++) leaves[i] = 1337 + i;
+        for (uint256 i = 0; i < 100; i++) {
+            leaves[i] = 1337 + i;
+        }
         uint256 g0 = gasleft();
         fsTree.insertMany(leaves);
         uint256 g1 = gasleft();
@@ -112,7 +120,9 @@ contract ColdInsertManyBench is Test {
 
     function test_cold_current_insertMany_1000() public {
         uint256[] memory leaves = new uint256[](1000);
-        for (uint256 i = 0; i < 1000; i++) leaves[i] = 1337 + i;
+        for (uint256 i = 0; i < 1000; i++) {
+            leaves[i] = 1337 + i;
+        }
         uint256 g0 = gasleft();
         currentTree.insertMany(leaves);
         uint256 g1 = gasleft();
@@ -121,7 +131,9 @@ contract ColdInsertManyBench is Test {
 
     function test_cold_fs_insertMany_1000() public {
         uint256[] memory leaves = new uint256[](1000);
-        for (uint256 i = 0; i < 1000; i++) leaves[i] = 1337 + i;
+        for (uint256 i = 0; i < 1000; i++) {
+            leaves[i] = 1337 + i;
+        }
         uint256 g0 = gasleft();
         fsTree.insertMany(leaves);
         uint256 g1 = gasleft();
