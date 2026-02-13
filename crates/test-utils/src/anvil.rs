@@ -306,33 +306,19 @@ impl TestAnvil {
             .await
             .context("failed to deploy Poseidon2T2 library")?;
 
-        // Step 2: Link Poseidon2T2 and deploy BinaryIMT library
-        let binary_imt_bytecode = Self::link_library(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../contracts/out/BinaryIMT.sol/BinaryIMT.json"
-            )),
-            "src/hash/Poseidon2.sol:Poseidon2T2",
-            *poseidon.address(),
-        )?;
-
-        let binary_imt_address =
-            Self::deploy_contract(provider.clone(), binary_imt_bytecode, Bytes::new())
-                .await
-                .context("failed to deploy BinaryIMT library")?;
-
-        // Step 3: Deploy PackedAccountData library (no dependencies)
+        // Step 2: Deploy PackedAccountData library (no dependencies)
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
 
-        // Step 4: Link both BinaryIMT and PackedAccountData to WorldIDRegistry
+        // Step 3: Link Poseidon2T2 and PackedAccountData to WorldIDRegistry
+        // (FullStorageBinaryIMT is an internal library inlined into WorldIDRegistry,
+        // but it uses Poseidon2T2 which is a public library requiring linking.)
         let world_id_registry_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
         ));
 
-        // Link both libraries to WorldIDRegistry (keep as hex string until both are linked)
         let json_value: serde_json::Value = serde_json::from_str(world_id_registry_json)?;
         let mut bytecode_str = json_value["bytecode"]["object"]
             .as_str()
@@ -348,8 +334,8 @@ impl TestAnvil {
         bytecode_str = Self::link_bytecode_hex(
             world_id_registry_json,
             &bytecode_str,
-            "src/libraries/BinaryIMT.sol:BinaryIMT",
-            binary_imt_address,
+            "src/hash/Poseidon2.sol:Poseidon2T2",
+            *poseidon.address(),
         )?;
 
         bytecode_str = Self::link_bytecode_hex(
@@ -790,24 +776,6 @@ impl TestAnvil {
             .expect("setRootValidityWindow transaction failed");
     }
 
-    /// Links a library address into contract bytecode by replacing all placeholder references.
-    ///
-    /// Alloy only supports the linking of libraries that are already deployed, or linking at compile time, hence this manual handling.
-    fn link_library(json: &str, library_path: &str, library_address: Address) -> Result<Bytes> {
-        let json_value: serde_json::Value = serde_json::from_str(json)?;
-        let bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            });
-
-        Self::link_bytecode_str(json, bytecode_str, library_path, library_address)
-    }
-
     /// Links a library to bytecode hex string and returns the hex string (no decoding).
     ///
     /// Use this when you need to link multiple libraries before decoding.
@@ -851,20 +819,6 @@ impl TestAnvil {
         }
 
         Ok(linked_bytecode)
-    }
-
-    /// Core linking logic: links a library address into a bytecode hex string and decodes it.
-    ///
-    /// This handles the actual replacement of library placeholders with addresses.
-    fn link_bytecode_str(
-        json: &str,
-        bytecode_str: &str,
-        library_path: &str,
-        library_address: Address,
-    ) -> Result<Bytes> {
-        let linked_hex =
-            Self::link_bytecode_hex(json, bytecode_str, library_path, library_address)?;
-        Ok(Bytes::from(hex::decode(linked_hex)?))
     }
 
     /// Deploys a contract with the given bytecode and constructor arguments

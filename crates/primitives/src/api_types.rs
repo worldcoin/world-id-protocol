@@ -61,10 +61,6 @@ pub struct UpdateAuthenticatorRequest {
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
-    /// The sibling nodes.
-    #[serde(with = "hex_u256_vec")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
-    pub sibling_nodes: Vec<U256>,
     /// The signature.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
@@ -103,10 +99,6 @@ pub struct InsertAuthenticatorRequest {
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
-    /// The sibling nodes.
-    #[serde(with = "hex_u256_vec")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
-    pub sibling_nodes: Vec<U256>,
     /// The signature.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
@@ -145,10 +137,6 @@ pub struct RemoveAuthenticatorRequest {
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
-    /// The sibling nodes.
-    #[serde(with = "hex_u256_vec")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
-    pub sibling_nodes: Vec<U256>,
     /// The signature.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
@@ -187,10 +175,6 @@ pub struct RecoverAccountRequest {
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
-    /// The sibling nodes.
-    #[serde(with = "hex_u256_vec")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
-    pub sibling_nodes: Vec<U256>,
     /// The signature.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
     pub signature: Vec<u8>,
@@ -326,6 +310,16 @@ pub struct IndexerSignatureNonceResponse {
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x0"))]
     pub signature_nonce: U256,
+}
+
+/// Response containing authenticator public keys for an account from the indexer.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerAuthenticatorPubkeysResponse {
+    /// The compressed authenticator public keys for the account.
+    #[serde(with = "hex_u256_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    pub authenticator_pubkeys: Vec<U256>,
 }
 
 /// Health response for an API service (gateway or indexer).
