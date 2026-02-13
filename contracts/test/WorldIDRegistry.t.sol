@@ -733,7 +733,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            emptyProof(),
             nonce
         );
 
@@ -775,7 +774,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            emptyProof(),
             nonce
         );
 

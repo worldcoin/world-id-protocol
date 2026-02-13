@@ -1,5 +1,4 @@
 use crate::{config::AppState, error::IndexerErrorResponse};
-use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use world_id_core::api_types::{
     IndexerAuthenticatorPubkeysResponse, IndexerErrorCode, IndexerQueryRequest,
@@ -31,9 +30,9 @@ pub(crate) async fn handler(
     let (_offchain_signer_commitment, authenticator_pubkeys) = state
         .db
         .accounts()
-        .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(&U256::from(
+        .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
             req.leaf_index,
-        ))
+        )
         .await
         .map_err(|err| {
             tracing::error!(leaf_index = %req.leaf_index, "DB error fetching authenticator pubkeys: {err}");
