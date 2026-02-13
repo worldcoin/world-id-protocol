@@ -20,10 +20,7 @@ fn main() {
         match status {
             Ok(s) if s.success() => {}
             Ok(_) => panic!("forge build failed"),
-            Err(e) => {
-                // Don't fail if forge isn't installed - contracts may already be built
-                println!("cargo:warning=forge not available: {e}");
-            }
+            Err(e) => panic!("forge build failed {}, forge is likely not installed", e),
         }
     }
 
