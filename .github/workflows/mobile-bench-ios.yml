@@ -176,7 +176,8 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: worldcoin/mobile-bench-rs
-          ref: ${{ inputs.mobench_ref }}
+          # Pinned for this draft PR CI flow.
+          ref: codex/ci-devex
           path: mobile-bench-rs
 
       - name: Hotfix mobench BrowserStack device endpoint
@@ -567,7 +568,8 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: worldcoin/mobile-bench-rs
-          ref: ${{ inputs.mobench_ref }}
+          # Pinned for this draft PR CI flow.
+          ref: codex/ci-devex
           path: mobile-bench-rs
 
       - name: Hotfix mobench BrowserStack device endpoint
