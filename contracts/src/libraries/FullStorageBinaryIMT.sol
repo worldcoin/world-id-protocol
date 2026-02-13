@@ -27,6 +27,7 @@ error TreeIsFull();
 error NewLeafCannotEqualOldLeaf();
 error LeafDoesNotExist();
 error LeafIndexOutOfRange();
+error AlreadyInitialized();
 
 /// @title Full-storage binary Merkle tree.
 /// @dev All internal nodes are persisted in storage so that update operations
@@ -121,11 +122,13 @@ library FullStorageBinaryIMT {
         return defaultZero(level);
     }
 
-    /// @dev Initializes a tree with default zeroes.
+    /// @dev Initializes a tree with default zeroes. Can only be called once
+    ///      (depth == 0 is the uninitialized sentinel).
     function initWithDefaultZeroes(FullBinaryIMTData storage self, uint256 depth) internal {
         if (depth == 0 || depth > MAX_DEPTH) {
             revert DepthNotSupported();
         }
+        if (self.depth != 0) revert AlreadyInitialized();
         self.depth = depth;
         self.root = defaultZero(depth);
     }
@@ -313,6 +316,7 @@ library FullStorageBinaryIMT {
     function getProof(FullBinaryIMTData storage self, uint256 index) internal view returns (uint256[] memory siblings) {
         uint256 depth = self.depth;
         uint256 numLeaves = self.numberOfLeaves;
+        if (index >= numLeaves) revert LeafIndexOutOfRange();
         siblings = new uint256[](depth);
         uint256 idx = index;
         for (uint256 level = 0; level < depth;) {
