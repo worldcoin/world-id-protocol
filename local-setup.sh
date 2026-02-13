@@ -48,7 +48,7 @@ deploy_contracts() {
     echo "OprfKeyRegistry: $oprf_key_registry"
 
     # deploy all other contracts
-    (cd contracts && forge script script/Deploy.s.sol --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
+    (cd contracts && forge script script/Deploy.s.sol --tc Deploy --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
     world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
     echo "WorldIDRegistry: $world_id_registry"
     rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
