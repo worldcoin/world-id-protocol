@@ -389,6 +389,16 @@ impl Authenticator {
             leaf_index: self.leaf_index(),
         };
         let response = self.http_client.post(&url).json(&req).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(AuthenticatorError::IndexerError {
+                status,
+                body: response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+            });
+        }
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
         Ok((response.inclusion_proof, response.authenticator_pubkeys))
@@ -410,6 +420,16 @@ impl Authenticator {
             leaf_index: self.leaf_index(),
         };
         let response = self.http_client.post(&url).json(&req).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(AuthenticatorError::IndexerError {
+                status,
+                body: response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+            });
+        }
         let response = response
             .json::<IndexerAuthenticatorPubkeysResponse>()
             .await?;

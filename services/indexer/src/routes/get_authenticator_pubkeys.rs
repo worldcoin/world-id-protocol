@@ -35,7 +35,10 @@ pub(crate) async fn handler(
             req.leaf_index,
         ))
         .await
-        .map_err(|_err| IndexerErrorResponse::internal_server_error())?
+        .map_err(|err| {
+            tracing::error!(leaf_index = %req.leaf_index, "DB error fetching authenticator pubkeys: {err}");
+            IndexerErrorResponse::internal_server_error()
+        })?
         .ok_or(IndexerErrorResponse::not_found())?;
 
     Ok(Json(IndexerAuthenticatorPubkeysResponse {
