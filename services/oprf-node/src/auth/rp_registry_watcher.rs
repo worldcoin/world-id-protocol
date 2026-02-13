@@ -56,7 +56,7 @@ pub(crate) enum RpRegistryWatcherError {
 /// Monitors the RPs from the RpRegistry contract.
 ///
 /// RPs are lazily loaded, meaning in the beginning the store will be empty.
-/// 
+///
 /// When valid requests are coming in from users, this service will go to chain
 /// and try fetching the ecdsa keys and store them up to a configurable maximum.
 ///
