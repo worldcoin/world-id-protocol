@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.0...world-id-primitives-v0.4.1) - 2026-02-13
+
+### Added
+
+- *(contract)* full tree in storage ([#402](https://github.com/worldcoin/world-id-protocol/pull/402))
+- *(indexer)* add deserialization from 0x hex or decimal ([#419](https://github.com/worldcoin/world-id-protocol/pull/419))
+- *(request)* add enumerate constraint ([#388](https://github.com/worldcoin/world-id-protocol/pull/388))
+
+### Fixed
+
+- filter credentials_to_prove by issuer_schema_id ([#410](https://github.com/worldcoin/world-id-protocol/pull/410))
+
 ## [0.4.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.3.0...world-id-primitives-v0.4.0) - 2026-02-10
 
 ### Added
