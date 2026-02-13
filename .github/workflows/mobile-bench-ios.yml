@@ -382,8 +382,9 @@ jobs:
               sys.exit(1)
 
           with open("device-matrix.ios.runtime.yaml", "w", encoding="utf-8") as fh:
+              device_identifier = f"{device_name}-{os_version}"
               fh.write("devices:\n")
-              fh.write(f'  - name: "{device_name}"\n')
+              fh.write(f'  - name: "{device_identifier}"\n')
               fh.write('    os: "ios"\n')
               fh.write(f'    os_version: "{os_version}"\n')
               fh.write('    tags: ["runtime", "ios"]\n')
@@ -770,8 +771,9 @@ jobs:
               sys.exit(1)
 
           with open("device-matrix.android.runtime.yaml", "w", encoding="utf-8") as fh:
+              device_identifier = f"{device_name}-{os_version}"
               fh.write("devices:\n")
-              fh.write(f'  - name: "{device_name}"\n')
+              fh.write(f'  - name: "{device_identifier}"\n')
               fh.write('    os: "android"\n')
               fh.write(f'    os_version: "{os_version}"\n')
               fh.write('    tags: ["runtime", "android"]\n')
