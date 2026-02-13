@@ -2,11 +2,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    paths:
-      - contracts/**/*
-      - crates/authenticator/abi/**/*
-      - crates/issuer/abi/**/*
 
 permissions:
   contents: read

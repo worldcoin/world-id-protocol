@@ -1,11 +1,7 @@
 name: Mobile Bench PR Helper
 
 on:
-  pull_request_target:
-    types:
-      - opened
-      - reopened
-      - synchronize
+  workflow_dispatch:
 
 permissions:
   contents: read
