@@ -12,7 +12,6 @@ use alloy_node_bindings::{Anvil, AnvilInstance};
 use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
-use taceo_oprf::types::OprfKeyId;
 use taceo_oprf_test_utils::TestOprfKeyRegistry;
 use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
