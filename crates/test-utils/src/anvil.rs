@@ -12,7 +12,6 @@ use alloy_node_bindings::{Anvil, AnvilInstance};
 use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
-use taceo_oprf::types::OprfKeyId;
 use taceo_oprf_test_utils::TestOprfKeyRegistry;
 use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
@@ -99,7 +98,6 @@ sol!(
 sol! {
     struct UpdateRp {
         uint64 rpId;
-        uint160 oprfKeyId;
         address manager;
         address signer;
         bool toggleActive;
@@ -578,7 +576,6 @@ impl TestAnvil {
         signer: PrivateKeySigner,
         manager_signer: PrivateKeySigner,
         rp_id: RpId,
-        oprf_key_id: OprfKeyId,
         toggle_active: bool,
         rp_manager: Address,
         rp_signer: Address,
@@ -602,7 +599,6 @@ impl TestAnvil {
 
         let payload = UpdateRp {
             rpId: rp_id.into_inner(),
-            oprfKeyId: oprf_key_id.into_inner(),
             manager: rp_manager,
             signer: rp_signer,
             toggleActive: toggle_active,
@@ -619,7 +615,6 @@ impl TestAnvil {
         let receipt = rp_registry
             .updateRp(
                 rp_id.into_inner(),
-                oprf_key_id.into_inner(),
                 rp_manager,
                 rp_signer,
                 toggle_active,
