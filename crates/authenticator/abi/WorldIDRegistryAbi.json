@@ -1322,6 +1322,11 @@
   },
   {
     "type": "error",
+    "name": "AlreadyInitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "AuthenticatorAddressAlreadyInUse",
     "inputs": [
       {
