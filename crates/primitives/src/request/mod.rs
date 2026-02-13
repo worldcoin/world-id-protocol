@@ -326,24 +326,23 @@ impl ProofRequest {
     /// Panics if constraints are present but invalid according to the type invariants
     /// (this should not occur as constraints are provided by trusted request issuer).
     #[must_use]
-    pub fn credentials_to_prove(&self, available: &HashSet<String>) -> Option<Vec<&RequestItem>> {
-        // Build set of requested identifiers
-        let requested: HashSet<&str> = self
+    pub fn credentials_to_prove(&self, available: &HashSet<u64>) -> Option<Vec<&RequestItem>> {
+        // Pre-compute which identifiers have an available issuer_schema_id
+        let available_identifiers: HashSet<&str> = self
             .requests
             .iter()
+            .filter(|r| available.contains(&r.issuer_schema_id))
             .map(|r| r.identifier.as_str())
             .collect();
 
-        // Predicate: only select if both available and requested
-        let is_selectable =
-            |identifier: &str| available.contains(identifier) && requested.contains(identifier);
+        let is_selectable = |identifier: &str| available_identifiers.contains(identifier);
 
         // If no explicit constraints: require all requested be available
         if self.constraints.is_none() {
             return if self
                 .requests
                 .iter()
-                .all(|r| available.contains(&r.identifier))
+                .all(|r| available.contains(&r.issuer_schema_id))
             {
                 Some(self.requests.iter().collect())
             } else {
@@ -1653,15 +1652,13 @@ mod tests {
             constraints: None,
         };
 
-        let available_ok: HashSet<String> = ["orb".to_string(), "passport".to_string()]
-            .into_iter()
-            .collect();
+        let available_ok: HashSet<u64> = [100, 101].into_iter().collect();
         let sel_ok = req.credentials_to_prove(&available_ok).unwrap();
         assert_eq!(sel_ok.len(), 2);
         assert_eq!(sel_ok[0].issuer_schema_id, 100);
         assert_eq!(sel_ok[1].issuer_schema_id, 101);
 
-        let available_missing: HashSet<String> = std::iter::once("orb".to_string()).collect();
+        let available_missing: HashSet<u64> = std::iter::once(100).collect();
         assert!(req.credentials_to_prove(&available_missing).is_none());
     }
 
@@ -1720,25 +1717,21 @@ mod tests {
         };
 
         // Available has orb + passport → should pick [orb, passport]
-        let available1: HashSet<String> = ["orb".to_string(), "passport".to_string()]
-            .into_iter()
-            .collect();
+        let available1: HashSet<u64> = [orb_id, passport_id].into_iter().collect();
         let sel1 = req.credentials_to_prove(&available1).unwrap();
         assert_eq!(sel1.len(), 2);
         assert_eq!(sel1[0].issuer_schema_id, orb_id);
         assert_eq!(sel1[1].issuer_schema_id, passport_id);
 
         // Available has orb + national-id → should pick [orb, national-id]
-        let available2: HashSet<String> = ["orb".to_string(), "national_id".to_string()]
-            .into_iter()
-            .collect();
+        let available2: HashSet<u64> = [orb_id, national_id].into_iter().collect();
         let sel2 = req.credentials_to_prove(&available2).unwrap();
         assert_eq!(sel2.len(), 2);
         assert_eq!(sel2[0].issuer_schema_id, orb_id);
         assert_eq!(sel2[1].issuer_schema_id, national_id);
 
         // Missing orb → cannot satisfy "all" → None
-        let available3: HashSet<String> = std::iter::once("passport".to_string()).collect();
+        let available3: HashSet<u64> = std::iter::once(passport_id).collect();
         assert!(req.credentials_to_prove(&available3).is_none());
     }
 
@@ -1791,28 +1784,20 @@ mod tests {
         };
 
         // One of enumerate candidates available -> one selected
-        let available1: HashSet<String> = ["orb".to_string(), "passport".to_string()]
-            .into_iter()
-            .collect();
+        let available1: HashSet<u64> = [orb_id, passport_id].into_iter().collect();
         let sel1 = req.credentials_to_prove(&available1).unwrap();
         assert_eq!(sel1.len(), 1);
         assert_eq!(sel1[0].issuer_schema_id, passport_id);
 
         // Both enumerate candidates available -> both selected in request order
-        let available2: HashSet<String> = [
-            "orb".to_string(),
-            "passport".to_string(),
-            "national_id".to_string(),
-        ]
-        .into_iter()
-        .collect();
+        let available2: HashSet<u64> = [orb_id, passport_id, national_id].into_iter().collect();
         let sel2 = req.credentials_to_prove(&available2).unwrap();
         assert_eq!(sel2.len(), 2);
         assert_eq!(sel2[0].issuer_schema_id, passport_id);
         assert_eq!(sel2[1].issuer_schema_id, national_id);
 
         // None of enumerate candidates available -> cannot satisfy
-        let available3: HashSet<String> = std::iter::once("orb".to_string()).collect();
+        let available3: HashSet<u64> = std::iter::once(orb_id).collect();
         assert!(req.credentials_to_prove(&available3).is_none());
     }
 
@@ -1870,22 +1855,14 @@ mod tests {
         };
 
         // orb + passport -> select both
-        let available1: HashSet<String> = ["orb".to_string(), "passport".to_string()]
-            .into_iter()
-            .collect();
+        let available1: HashSet<u64> = [orb_id, passport_id].into_iter().collect();
         let sel1 = req.credentials_to_prove(&available1).unwrap();
         assert_eq!(sel1.len(), 2);
         assert_eq!(sel1[0].issuer_schema_id, orb_id);
         assert_eq!(sel1[1].issuer_schema_id, passport_id);
 
         // orb + passport + national_id -> select all three
-        let available2: HashSet<String> = [
-            "orb".to_string(),
-            "passport".to_string(),
-            "national_id".to_string(),
-        ]
-        .into_iter()
-        .collect();
+        let available2: HashSet<u64> = [orb_id, passport_id, national_id].into_iter().collect();
         let sel2 = req.credentials_to_prove(&available2).unwrap();
         assert_eq!(sel2.len(), 3);
         assert_eq!(sel2[0].issuer_schema_id, orb_id);
@@ -1893,7 +1870,7 @@ mod tests {
         assert_eq!(sel2[2].issuer_schema_id, national_id);
 
         // orb alone -> enumerate branch unsatisfied
-        let available3: HashSet<String> = std::iter::once("orb".to_string()).collect();
+        let available3: HashSet<u64> = std::iter::once(orb_id).collect();
         assert!(req.credentials_to_prove(&available3).is_none());
     }
 
