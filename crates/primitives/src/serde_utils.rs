@@ -1,11 +1,31 @@
-//! Serialization utilities for consistent hex encoding across the protocol.
+//! Serialization utilities for numeric API values across the protocol.
+//!
+//! Convention used by helpers in this module:
+//! - serialization always emits `0x`-prefixed hex strings;
+//! - deserialization accepts either decimal (no prefix) or hex (`0x`/`0X` prefix).
 
 #![allow(clippy::missing_errors_doc)]
 
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-/// Serialize/deserialize `U256` as a `0x`-prefixed hex string.
+fn parse_radix_and_digits(input: &str) -> Result<(u64, &str), String> {
+    let s = input.trim();
+    if s.is_empty() {
+        return Err("empty numeric string".to_string());
+    }
+
+    if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        if rest.is_empty() {
+            return Err("missing digits after 0x prefix".to_string());
+        }
+        Ok((16, rest))
+    } else {
+        Ok((10, s))
+    }
+}
+
+/// Serialize as `0x`-prefixed hex and deserialize from decimal or `0x`/`0X` hex.
 pub mod hex_u256 {
     use super::*;
 
@@ -17,18 +37,21 @@ pub mod hex_u256 {
         serializer.serialize_str(&format!("{value:#x}"))
     }
 
-    /// Deserialize a `U256` from a hex string (with or without `0x` prefix).
+    /// Deserialize a `U256` from a numeric string.
+    ///
+    /// `0x`/`0X`-prefixed values are parsed as hex, while unprefixed values are parsed as decimal.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
     where
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let s = s.trim_start_matches("0x");
-        U256::from_str_radix(s, 16).map_err(|e| D::Error::custom(format!("invalid hex U256: {e}")))
+        let (radix, digits) = parse_radix_and_digits(&s).map_err(D::Error::custom)?;
+        U256::from_str_radix(digits, radix)
+            .map_err(|e| D::Error::custom(format!("invalid numeric U256: {e}")))
     }
 }
 
-/// Serialize/deserialize `Option<U256>` as an optional `0x`-prefixed hex string.
+/// Serialize as optional `0x`-prefixed hex and deserialize from decimal or `0x`/`0X` hex.
 pub mod hex_u256_opt {
     use super::*;
 
@@ -43,7 +66,9 @@ pub mod hex_u256_opt {
         }
     }
 
-    /// Deserialize an `Option<U256>` from an optional hex string.
+    /// Deserialize an `Option<U256>` from an optional numeric string.
+    ///
+    /// `0x`/`0X`-prefixed values are parsed as hex, while unprefixed values are parsed as decimal.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<U256>, D::Error>
     where
         D: Deserializer<'de>,
@@ -51,9 +76,9 @@ pub mod hex_u256_opt {
         let opt: Option<String> = Option::deserialize(deserializer)?;
         match opt {
             Some(s) => {
-                let s = s.trim_start_matches("0x");
-                let v = U256::from_str_radix(s, 16)
-                    .map_err(|e| D::Error::custom(format!("invalid hex U256: {e}")))?;
+                let (radix, digits) = parse_radix_and_digits(&s).map_err(D::Error::custom)?;
+                let v = U256::from_str_radix(digits, radix)
+                    .map_err(|e| D::Error::custom(format!("invalid numeric U256: {e}")))?;
                 Ok(Some(v))
             }
             None => Ok(None),
@@ -61,7 +86,7 @@ pub mod hex_u256_opt {
     }
 }
 
-/// Serialize/deserialize `Vec<U256>` as a vector of `0x`-prefixed hex strings.
+/// Serialize as `0x`-prefixed hex strings and deserialize from decimal or `0x`/`0X` hex.
 pub mod hex_u256_vec {
     use super::*;
 
@@ -74,7 +99,9 @@ pub mod hex_u256_vec {
         hex_strings.serialize(serializer)
     }
 
-    /// Deserialize a `Vec<U256>` from a vector of hex strings.
+    /// Deserialize a `Vec<U256>` from a vector of numeric strings.
+    ///
+    /// `0x`/`0X`-prefixed values are parsed as hex, while unprefixed values are parsed as decimal.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<U256>, D::Error>
     where
         D: Deserializer<'de>,
@@ -83,15 +110,15 @@ pub mod hex_u256_vec {
         strings
             .into_iter()
             .map(|s| {
-                let s = s.trim_start_matches("0x");
-                U256::from_str_radix(s, 16)
-                    .map_err(|e| D::Error::custom(format!("invalid hex U256: {e}")))
+                let (radix, digits) = parse_radix_and_digits(&s).map_err(D::Error::custom)?;
+                U256::from_str_radix(digits, radix)
+                    .map_err(|e| D::Error::custom(format!("invalid numeric U256: {e}")))
             })
             .collect()
     }
 }
 
-/// Serialize/deserialize `u64` as a `0x`-prefixed hex string.
+/// Serialize as `0x`-prefixed hex and deserialize from decimal or `0x`/`0X` hex.
 pub mod hex_u64 {
     use super::*;
 
@@ -103,18 +130,21 @@ pub mod hex_u64 {
         serializer.serialize_str(&format!("{value:#x}"))
     }
 
-    /// Deserialize a `u64` from a hex string (with or without `0x` prefix).
+    /// Deserialize a `u64` from a numeric string.
+    ///
+    /// `0x`/`0X`-prefixed values are parsed as hex, while unprefixed values are parsed as decimal.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
     where
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let s = s.trim_start_matches("0x");
-        u64::from_str_radix(s, 16).map_err(|e| D::Error::custom(format!("invalid hex u64: {e}")))
+        let (radix, digits) = parse_radix_and_digits(&s).map_err(D::Error::custom)?;
+        u64::from_str_radix(digits, radix as u32)
+            .map_err(|e| D::Error::custom(format!("invalid numeric u64: {e}")))
     }
 }
 
-/// Serialize/deserialize `u32` as a `0x`-prefixed hex string.
+/// Serialize as `0x`-prefixed hex and deserialize from decimal or `0x`/`0X` hex.
 pub mod hex_u32 {
     use super::*;
 
@@ -126,18 +156,21 @@ pub mod hex_u32 {
         serializer.serialize_str(&format!("{value:#x}"))
     }
 
-    /// Deserialize a `u32` from a hex string (with or without `0x` prefix).
+    /// Deserialize a `u32` from a numeric string.
+    ///
+    /// `0x`/`0X`-prefixed values are parsed as hex, while unprefixed values are parsed as decimal.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<u32, D::Error>
     where
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let s = s.trim_start_matches("0x");
-        u32::from_str_radix(s, 16).map_err(|e| D::Error::custom(format!("invalid hex u32: {e}")))
+        let (radix, digits) = parse_radix_and_digits(&s).map_err(D::Error::custom)?;
+        u32::from_str_radix(digits, radix as u32)
+            .map_err(|e| D::Error::custom(format!("invalid numeric u32: {e}")))
     }
 }
 
-/// Serialize/deserialize `Option<u32>` as an optional `0x`-prefixed hex string.
+/// Serialize as optional `0x`-prefixed hex and deserialize from decimal or `0x`/`0X` hex.
 pub mod hex_u32_opt {
     use super::*;
 
@@ -152,7 +185,9 @@ pub mod hex_u32_opt {
         }
     }
 
-    /// Deserialize an `Option<u32>` from an optional hex string.
+    /// Deserialize an `Option<u32>` from an optional numeric string.
+    ///
+    /// `0x`/`0X`-prefixed values are parsed as hex, while unprefixed values are parsed as decimal.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
     where
         D: Deserializer<'de>,
@@ -160,9 +195,9 @@ pub mod hex_u32_opt {
         let opt: Option<String> = Option::deserialize(deserializer)?;
         match opt {
             Some(s) => {
-                let s = s.trim_start_matches("0x");
-                let v = u32::from_str_radix(s, 16)
-                    .map_err(|e| D::Error::custom(format!("invalid hex u32: {e}")))?;
+                let (radix, digits) = parse_radix_and_digits(&s).map_err(D::Error::custom)?;
+                let v = u32::from_str_radix(digits, radix as u32)
+                    .map_err(|e| D::Error::custom(format!("invalid numeric u32: {e}")))?;
                 Ok(Some(v))
             }
             None => Ok(None),
@@ -195,5 +230,25 @@ mod tests {
 
         let parsed: Test = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn test_deserialize_decimal_without_prefix() {
+        let parsed: Test = serde_json::from_str(r#"{"u256_val":"42","u64_val":"42"}"#).unwrap();
+        assert_eq!(parsed.u256_val, U256::from(42));
+        assert_eq!(parsed.u64_val, 42);
+    }
+
+    #[test]
+    fn test_deserialize_hex_with_prefix() {
+        let parsed: Test = serde_json::from_str(r#"{"u256_val":"0x2a","u64_val":"0x2a"}"#).unwrap();
+        assert_eq!(parsed.u256_val, U256::from(42));
+        assert_eq!(parsed.u64_val, 42);
+    }
+
+    #[test]
+    fn test_unprefixed_hex_like_value_is_rejected() {
+        let err = serde_json::from_str::<Test>(r#"{"u256_val":"ff","u64_val":"255"}"#).unwrap_err();
+        assert!(err.to_string().contains("invalid numeric U256"));
     }
 }
