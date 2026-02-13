@@ -266,6 +266,10 @@ jobs:
                   key.append(int(p) if p.isdigit() else p)
               return tuple(key)
 
+          def major_version(text):
+              first = normalize_version(text).split(".")[0]
+              return int(first) if first.isdigit() else 0
+
           def name_match(actual, expected):
               a = normalize_name(actual)
               e = normalize_name(expected)
@@ -288,10 +292,10 @@ jobs:
               return None
 
           low_candidates = [
-              ("iPhone 7", "10"),
-              ("iPhone 11", "13"),
               ("iPhone SE 2020", "16"),
-              ("iPhone 12", "14"),
+              ("iPhone 13", "16"),
+              ("iPhone 14", "16"),
+              ("iPhone 12", "17"),
           ]
           mid_candidates = [
               ("iPhone 13", "15"),
@@ -341,7 +345,10 @@ jobs:
                       ios_devices,
                       key=lambda d: (version_key(version_of(d)), normalize_name(name_of(d))),
                   )
-                  fallback = sorted_ios[0]
+                  supported_ios = [
+                      d for d in sorted_ios if major_version(version_of(d)) >= 15
+                  ]
+                  fallback = (supported_ios or sorted_ios)[0]
                   selected = (name_of(fallback), version_of(fallback))
 
           if not selected:
