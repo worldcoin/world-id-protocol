@@ -642,6 +642,11 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (actualPubkeyId != pubkeyId) {
             revert MismatchedPubkeyId(pubkeyId, actualPubkeyId);
         }
+        uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedToRemove);
+        uint256 expectedRecoveryCounter = _leafIndexToRecoveryCounter[leafIndex];
+        if (actualRecoveryCounter != expectedRecoveryCounter) {
+            revert MismatchedRecoveryCounter(leafIndex, expectedRecoveryCounter, actualRecoveryCounter);
+        }
 
         // Delete authenticator
         delete _authenticatorAddressToPackedAccountData[authenticatorAddress];

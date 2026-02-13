@@ -392,6 +392,67 @@ contract WorldIDRegistryTest is Test {
         assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), leafIndex);
     }
 
+    function test_RemoveAuthenticator_RevertWhenRemovingStaleAuthenticatorAfterRecovery() public {
+        uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
+        address recoverySigner = vm.addr(recoveryPrivateKey);
+
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress2;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        worldIDRegistry.createAccount(
+            recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 recoverNonce = 0;
+        uint256 recoveredCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        bytes memory recoverySignature = eip712Sign(
+            worldIDRegistry.RECOVER_ACCOUNT_TYPEHASH(),
+            abi.encode(leafIndex, authenticatorAddress3, recoveredCommitment, recoveredCommitment, recoverNonce),
+            recoveryPrivateKey
+        );
+
+        worldIDRegistry.recoverAccount(
+            leafIndex,
+            authenticatorAddress3,
+            recoveredCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            recoveredCommitment,
+            recoverySignature,
+            emptyProof(),
+            recoverNonce
+        );
+
+        uint256 removeNonce = 1;
+        uint256 removeCommitment = recoveredCommitment + 1;
+        bytes memory removeSignature = eip712Sign(
+            worldIDRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
+            abi.encode(leafIndex, authenticatorAddress1, uint256(0), uint256(0), removeCommitment, removeNonce),
+            AUTH3_PRIVATE_KEY
+        );
+
+        assertEq(worldIDRegistry.getRecoveryCounter(leafIndex), 1);
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 0);
+
+        uint256[] memory proof = emptyProof();
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedRecoveryCounter.selector, leafIndex, 1, 0));
+        worldIDRegistry.removeAuthenticator(
+            leafIndex,
+            authenticatorAddress1,
+            0,
+            0,
+            recoveredCommitment,
+            removeCommitment,
+            removeSignature,
+            proof,
+            removeNonce
+        );
+    }
+
     function test_UpdateRecoveryAddress_SetNewAddress() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = authenticatorAddress1;
