@@ -30,10 +30,7 @@ alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc)]
     CredentialSchemaIssuerRegistry,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistry.json"
-    )
+    "abi/CredentialSchemaIssuerRegistryAbi.json"
 }
 
 /// Error returned by the [`IssuerSchemaRegistryWatcher`] implementation.
