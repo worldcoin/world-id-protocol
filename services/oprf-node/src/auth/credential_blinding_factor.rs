@@ -1,11 +1,8 @@
-use crate::{
-    auth::{
-        merkle_watcher::MerkleWatcher,
-        schema_issuer_registry_watcher::{
-            SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
-        },
+use crate::auth::{
+    merkle_watcher::MerkleWatcher,
+    schema_issuer_registry_watcher::{
+        SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
     },
-    metrics::{METRICS_ID_NODE_REQUEST_AUTH_START, METRICS_ID_NODE_REQUEST_AUTH_VERIFIED},
 };
 use alloy::primitives::U160;
 use ark_ff::AdditiveGroup;
@@ -89,8 +86,6 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, Self::RequestAuthError> {
-        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
-
         tracing::trace!("checking that action is not 0...");
         // check that the action is valid (must be 0 for now, might change in the future)
         if request.auth.action != ark_babyjubjub::Fq::ZERO {
@@ -116,8 +111,6 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
                 request.auth.nonce,
             )
             .await?;
-
-        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_VERIFIED).increment(1);
 
         tracing::trace!("authentication successful!");
         Ok(oprf_key_id)
