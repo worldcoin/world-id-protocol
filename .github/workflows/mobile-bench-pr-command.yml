@@ -1,0 +1,230 @@
+name: Mobile Bench PR Command
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  dispatch:
+    name: Dispatch benchmark from PR command
+    if: >-
+      ${{
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/mobench')
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse command and dispatch workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const commenter = context.payload.comment.user.login;
+            const assoc = context.payload.comment.author_association || "NONE";
+            const commentBody = (context.payload.comment.body || "").trim();
+
+            const allowedAssoc = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+            if (!allowedAssoc.has(assoc)) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: `@${commenter} benchmark dispatch is restricted to repository collaborators.`,
+              });
+              return;
+            }
+
+            const firstLine = commentBody.split("\n")[0].trim();
+            const command = firstLine.replace(/^\/mobench\b/i, "").trim();
+
+            const parsed = {};
+            const re = /([a-zA-Z_][a-zA-Z0-9_]*)=(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
+            let m;
+            while ((m = re.exec(command)) !== null) {
+              const key = m[1];
+              const value = m[2] ?? m[3] ?? m[4] ?? "";
+              parsed[key] = value;
+            }
+
+            const allowedKeys = new Set([
+              "mobench_ref",
+              "iterations",
+              "warmup",
+              "fetch_timeout_secs",
+              "platforms",
+              "proof_scope",
+              "modes",
+              "device_profile",
+              "ios_device",
+              "ios_os_version",
+              "android_device",
+              "android_os_version",
+            ]);
+
+            const unknown = Object.keys(parsed).filter((k) => !allowedKeys.has(k));
+            if (unknown.length > 0) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body:
+                  `@${commenter} unknown parameter(s): ${unknown.map((k) => `\`${k}\``).join(", ")}.\n` +
+                  `Use \`/mobench platforms=both iterations=30 warmup=5 proof_scope=both modes=all device_profile=auto-low-spec\``,
+              });
+              return;
+            }
+
+            const defaults = {
+              mobench_ref: "codex/ci-devex",
+              iterations: "30",
+              warmup: "5",
+              fetch_timeout_secs: "1800",
+              platforms: "both",
+              proof_scope: "both",
+              modes: "all",
+              device_profile: "low-spec",
+              ios_device: "",
+              ios_os_version: "",
+              android_device: "",
+              android_os_version: "",
+              also_bench_query: "false",
+            };
+
+            const inputs = { ...defaults, ...parsed };
+
+            const enums = {
+              platforms: new Set(["both", "ios", "android"]),
+              proof_scope: new Set(["both", "pi2", "pi1"]),
+              device_profile: new Set(["low-spec", "mid-spec", "high-spec", "auto-low-spec", "custom"]),
+            };
+
+            for (const key of ["platforms", "proof_scope", "device_profile"]) {
+              const value = String(inputs[key]).toLowerCase();
+              if (!enums[key].has(value)) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number,
+                  body: `@${commenter} invalid \`${key}\`: \`${inputs[key]}\`.`,
+                });
+                return;
+              }
+              inputs[key] = value;
+            }
+
+            for (const key of ["iterations", "warmup", "fetch_timeout_secs"]) {
+              const num = Number(inputs[key]);
+              const ok = Number.isInteger(num) && num >= 0;
+              if (!ok || (key !== "warmup" && num === 0)) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number,
+                  body: `@${commenter} invalid numeric value for \`${key}\`: \`${inputs[key]}\`.`,
+                });
+                return;
+              }
+              inputs[key] = String(num);
+            }
+
+            const modes = String(inputs.modes || "all")
+              .toLowerCase()
+              .split(",")
+              .map((x) => x.trim())
+              .filter(Boolean);
+            const modeSet = new Set(["all", "witness", "proving", "full"]);
+            if (modes.length === 0 || modes.some((m) => !modeSet.has(m))) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: `@${commenter} invalid \`modes\`: \`${inputs.modes}\`. Use \`all\` or comma list of \`witness,proving,full\`.`,
+              });
+              return;
+            }
+            if (modes.includes("all") && modes.length > 1) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: `@${commenter} \`modes=all\` cannot be combined with other modes.`,
+              });
+              return;
+            }
+            inputs.modes = modes.join(",");
+
+            if (inputs.device_profile === "custom") {
+              const needsIos =
+                inputs.platforms === "both" || inputs.platforms === "ios";
+              const needsAndroid =
+                inputs.platforms === "both" || inputs.platforms === "android";
+              if (needsIos && (!inputs.ios_device || !inputs.ios_os_version)) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number,
+                  body: `@${commenter} with \`device_profile=custom\`, provide both \`ios_device\` and \`ios_os_version\` for iOS runs.`,
+                });
+                return;
+              }
+              if (needsAndroid && (!inputs.android_device || !inputs.android_os_version)) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number,
+                  body: `@${commenter} with \`device_profile=custom\`, provide both \`android_device\` and \`android_os_version\` for Android runs.`,
+                });
+                return;
+              }
+            }
+
+            const pr = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: issue_number,
+            });
+
+            if (pr.data.head.repo.full_name !== `${owner}/${repo}`) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body:
+                  `@${commenter} benchmark dispatch from PR comments is currently limited to branches in this repository.\n` +
+                  `Fork PR detected: \`${pr.data.head.repo.full_name}\`.`,
+              });
+              return;
+            }
+
+            const ref = pr.data.head.ref;
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: "mobile-bench-ios.yml",
+              ref,
+              inputs,
+            });
+
+            const workflowUrl = `https://github.com/${owner}/${repo}/actions/workflows/mobile-bench-ios.yml?query=branch%3A${encodeURIComponent(ref)}`;
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body:
+                `@${commenter} dispatched mobile benchmark on branch \`${ref}\` with:\n` +
+                `- \`platforms=${inputs.platforms}\`\n` +
+                `- \`proof_scope=${inputs.proof_scope}\`\n` +
+                `- \`modes=${inputs.modes}\`\n` +
+                `- \`iterations=${inputs.iterations}\`, \`warmup=${inputs.warmup}\`\n` +
+                `- \`device_profile=${inputs.device_profile}\`\n` +
+                `Track runs: ${workflowUrl}`,
+            });

@@ -45,7 +45,7 @@ impl Issuer {
         rpc_url: String,
         issuer_registry_address: Address,
     ) -> Result<Self, IssuerError> {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let _ = rustls::crypto::ring::default_provider().install_default();
 
         let mut signer = Signer::from_seed_bytes(seed)?;
 
