@@ -4,10 +4,32 @@ pragma solidity ^0.8.13;
 import {Script, console2} from "forge-std/Script.sol";
 import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {CredentialSchemaIssuerRegistry} from "../src/CredentialSchemaIssuerRegistry.sol";
 import {RpRegistry} from "../src/RpRegistry.sol";
 import {WorldIDVerifier} from "../src/WorldIDVerifier.sol";
 import {Verifier} from "../src/Verifier.sol";
+
+/// @title WorldIDDeployer
+/// @notice Helper contract that deploys proxies via CREATE2 and transfers ownership to the caller.
+contract WorldIDDeployer {
+    /// @notice Deploys a contract using CREATE2 and initiates ownership transfer to msg.sender.
+    /// @param salt The salt to use for the CREATE2 deployment.
+    /// @param initCode The init code of the contract to deploy.
+    /// @return addr The address of the deployed contract.
+    function deploy(bytes32 salt, bytes memory initCode) external returns (address addr) {
+        assembly {
+            addr := create2(0, add(initCode, 0x20), mload(initCode), salt)
+            if iszero(extcodesize(addr)) {
+                mstore(0x00, 0x2f8f8019)
+                revert(0x1c, 0x04)
+            }
+        }
+        // The proxy's owner is this contract (msg.sender in initialize = address(this)).
+        // Initiate 2-step transfer to the caller (the EOA).
+        Ownable2StepUpgradeable(addr).transferOwnership(msg.sender);
+    }
+}
 
 /// @title Deploy
 /// @notice Bootstraps and deploys all World ID contracts for a given environment.
@@ -23,14 +45,24 @@ contract Deploy is Script {
     address public rpRegistryImplAddress;
     address public worldIDVerifierImplAddress;
 
+    WorldIDDeployer internal _deployer;
+
     /// @notice Deploy all contracts for the given environment.
-    /// @dev Usage: forge script script/DeployBase.sol --sig "run(string)" "staging" --broadcast --private-key $PK
+    /// @dev Usage: forge script script/Deploy.s.sol --sig "run(string)" "staging" --broadcast --private-key $PK
     /// @param env The environment name matching a file in script/config/ (e.g. "local", "staging", "production").
     function run(string calldata env) public {
         string memory config = _loadConfig(env);
 
         vm.startBroadcast();
+
+        // Deploy the CREATE2 deployer helper first
+        _deployer = new WorldIDDeployer();
+
         _run(config);
+
+        // Accept ownership on all proxies (completing the 2-step transfer)
+        _acceptOwnership();
+
         vm.stopBroadcast();
 
         _writeDeployment(env);
@@ -41,6 +73,15 @@ contract Deploy is Script {
         deployCredentialSchemaIssuerRegistry(config);
         deployRpRegistry(config);
         deployWorldIdVerifier(config);
+    }
+
+    /// @notice Accepts ownership on all deployed proxies, completing the 2-step transfer
+    ///         from the WorldIDDeployer to the broadcaster (PRIVATE_KEY address).
+    function _acceptOwnership() internal virtual {
+        Ownable2StepUpgradeable(worldIDRegistryAddress).acceptOwnership();
+        Ownable2StepUpgradeable(credentialSchemaIssuerRegistryAddress).acceptOwnership();
+        Ownable2StepUpgradeable(rpRegistryAddress).acceptOwnership();
+        Ownable2StepUpgradeable(worldIDVerifierAddress).acceptOwnership();
     }
 
     function deployWorldIdRegistry(string memory config) public {
@@ -191,16 +232,12 @@ contract Deploy is Script {
         console2.log("Deployment written to", path);
     }
 
-    /// @notice Deploys a contract using CREATE2.
+    /// @notice Deploys a contract using CREATE2 via the WorldIDDeployer.
+    /// @dev The deployer creates the proxy and initiates ownership transfer to the broadcaster.
+    ///      Call `_acceptOwnership()` after all deploys to complete the transfer.
     /// @param salt The salt to use for the CREATE2 deployment.
     /// @param initCode The init code of the contract to deploy.
     function deploy(bytes32 salt, bytes memory initCode) public returns (address addr) {
-        assembly {
-            addr := create2(0, add(initCode, 0x20), mload(initCode), salt)
-            if iszero(extcodesize(addr)) {
-                mstore(0x00, 0x2f8f8019)
-                revert(0x1c, 0x04)
-            }
-        }
+        addr = _deployer.deploy(salt, initCode);
     }
 }
