@@ -180,7 +180,7 @@ async fn try_restore(
 /// Restore tree from mmap file (no validation).
 fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<MerkleTree> {
     let storage = unsafe { MmapVec::<U256>::restore_from_path(cache_path)? };
-    let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
+    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO)?;
     info!(
         cache_file = %cache_path.display(),
         root = %format!("0x{:x}", tree.root()),
