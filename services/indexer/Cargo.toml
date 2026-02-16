@@ -45,7 +45,6 @@ utoipa = { workspace = true }
 world-id-core = { workspace = true, features = [
   "authenticator",
   "embed-zkeys",
-  "openapi",
 ] }
 world-id-primitives = { workspace = true }
 
