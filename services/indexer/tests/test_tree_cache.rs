@@ -103,7 +103,8 @@ async fn test_cache_creation_and_restoration() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_incremental_replay() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create initial accounts and build cache
@@ -301,7 +302,8 @@ async fn test_missing_cache_creates_new() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_http_only_cache_refresh() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create initial account and build cache with Both mode
@@ -422,7 +424,8 @@ async fn test_http_only_cache_refresh() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_authenticator_removed_replay() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
     let (tree_cache_config_fresh, cache_path_fresh) = create_temp_cache_config();
 
