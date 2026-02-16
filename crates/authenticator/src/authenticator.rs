@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use crate::api_types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-    IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-    IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
-    RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+    IndexerAuthenticatorPubkeysResponse, IndexerErrorCode, IndexerPackedAccountRequest,
+    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+    InsertAuthenticatorRequest, RemoveAuthenticatorRequest, ServiceApiError,
+    UpdateAuthenticatorRequest,
 };
 use world_id_primitives::{
     Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
@@ -388,9 +389,64 @@ impl Authenticator {
             leaf_index: self.leaf_index(),
         };
         let response = self.http_client.post(&url).json(&req).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(AuthenticatorError::IndexerError {
+                status,
+                body: response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+            });
+        }
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
         Ok((response.inclusion_proof, response.authenticator_pubkeys))
+    }
+
+    /// Fetches the current authenticator public key set for the account.
+    ///
+    /// This is used by mutation operations to compute old/new offchain signer commitments
+    /// without requiring Merkle proof generation.
+    ///
+    /// # Errors
+    /// - Will error if the provided indexer URL is not valid or if there are HTTP call failures.
+    /// - Will error if the user is not registered on the `WorldIDRegistry`.
+    pub async fn fetch_authenticator_pubkeys(
+        &self,
+    ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
+        let url = format!("{}/authenticator-pubkeys", self.config.indexer_url());
+        let req = IndexerQueryRequest {
+            leaf_index: self.leaf_index(),
+        };
+        let response = self.http_client.post(&url).json(&req).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(AuthenticatorError::IndexerError {
+                status,
+                body: response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+            });
+        }
+        let response = response
+            .json::<IndexerAuthenticatorPubkeysResponse>()
+            .await?;
+
+        let decoded_pubkeys = response
+            .authenticator_pubkeys
+            .into_iter()
+            .map(|pubkey| {
+                EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|e| {
+                    PrimitiveError::Deserialization(format!(
+                        "invalid authenticator public key returned by indexer: {e}"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(AuthenticatorPublicKeySet::new(Some(decoded_pubkeys))?)
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -626,7 +682,7 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_offchain_signer_commitment = key_set.leaf_hash();
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
         key_set.try_push(new_authenticator_pubkey)?;
@@ -661,11 +717,6 @@ impl Authenticator {
             new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            sibling_nodes: inclusion_proof
-                .siblings
-                .iter()
-                .map(|s| (*s).into())
-                .collect(),
             signature: signature.as_bytes().to_vec(),
             nonce,
         };
@@ -710,7 +761,7 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
         key_set.try_set_at_index(index as usize, new_authenticator_pubkey)?;
@@ -734,19 +785,12 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign update authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = inclusion_proof
-            .siblings
-            .iter()
-            .map(|s| (*s).into())
-            .collect();
-
         let req = UpdateAuthenticatorRequest {
             leaf_index,
             old_authenticator_address,
             new_authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: index,
@@ -791,7 +835,7 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
         let existing_pubkey = key_set
             .get(index as usize)
@@ -821,18 +865,11 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign remove authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = inclusion_proof
-            .siblings
-            .iter()
-            .map(|s| (*s).into())
-            .collect();
-
         let req = RemoveAuthenticatorRequest {
             leaf_index,
             authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: Some(index),

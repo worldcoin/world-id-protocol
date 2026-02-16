@@ -1,10 +1,7 @@
-use crate::{
-    auth::{
-        merkle_watcher::MerkleWatcher,
-        rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
-        signature_history::{DuplicateSignatureError, SignatureHistory},
-    },
-    metrics::{METRICS_ID_NODE_REQUEST_AUTH_START, METRICS_ID_NODE_REQUEST_AUTH_VERIFIED},
+use crate::auth::{
+    merkle_watcher::MerkleWatcher,
+    rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+    signature_history::{DuplicateSignatureError, SignatureHistory},
 };
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
@@ -111,8 +108,6 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, Self::RequestAuthError> {
-        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
-
         tracing::trace!("checking timestamp...");
         // check the time stamp against system time +/- difference
         let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
@@ -157,8 +152,6 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
                 request.auth.nonce,
             )
             .await?;
-
-        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_VERIFIED).increment(1);
 
         tracing::trace!("authentication successful!");
         Ok(rp.oprf_key_id)
@@ -438,7 +431,6 @@ mod tests {
                 deployer,
                 rp_signer.clone(),
                 rp_fixture.world_rp_id,
-                rp_fixture.oprf_key_id,
                 true,
                 rp_signer.address(),
                 rp_signer.address(),
