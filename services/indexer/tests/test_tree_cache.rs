@@ -810,7 +810,7 @@ async fn test_replay_root_matches_contract() {
 /// Test that corrupted cache triggers full rebuild instead of failing
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn test_corrupted_cache_triggers_rebuild() {
+async fn test_corrupted_cache_returns_error() {
     // Use tree_depth=6 to match create_temp_cache_config()
     let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -881,7 +881,7 @@ async fn test_corrupted_cache_triggers_rebuild() {
     // CORRUPT THE CACHE - truncate the mmap file to simulate corruption
     fs::write(&cache_path, b"corrupted data").expect("Should write corrupted cache");
 
-    // Start indexer in HttpOnly mode - should detect corruption and rebuild from DB
+    // Start indexer in HttpOnly mode - should fail due to corrupted cache
     let cfg2 = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {
@@ -898,19 +898,17 @@ async fn test_corrupted_cache_triggers_rebuild() {
         registry_address: setup.registry_address,
     };
 
-    let indexer_task2 = tokio::spawn(async move {
-        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
-    });
+    let result = unsafe { world_id_indexer::run_indexer(cfg2).await };
+    assert!(
+        result.is_err(),
+        "Corrupted cache should cause run_indexer to fail"
+    );
 
-    // Wait for HttpOnly to start (proves rebuild succeeded)
-    TestSetup::wait_for_health("http://127.0.0.1:8104").await;
-
-    // Stop indexer
-    indexer_task2.abort();
-
-    // Verify accounts in the database are still intact
-    let final_count = query_count(&setup.pool).await;
-    assert_eq!(final_count, 2, "Should have 2 accounts indexed");
+    // Cache file should have been deleted so next restart can do a clean rebuild
+    assert!(
+        !cache_path.exists(),
+        "Cache file should be deleted on corruption"
+    );
 
     cleanup_cache_files(&cache_path);
 }
