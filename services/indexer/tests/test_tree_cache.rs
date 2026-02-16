@@ -492,7 +492,7 @@ async fn test_authenticator_removed_replay() {
         VALUES ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind(1i64)
-    .bind("removed")
+    .bind("authentication_removed")
     .bind(new_commitment_after_removal)
     .bind((last_block + 1) as i64)
     .bind(U256::from(1234))
