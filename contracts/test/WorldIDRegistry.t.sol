@@ -433,14 +433,7 @@ contract WorldIDRegistryTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedRecoveryCounter.selector, leafIndex, 1, 0));
         worldIDRegistry.removeAuthenticator(
-            leafIndex,
-            authenticatorAddress1,
-            0,
-            0,
-            recoveredCommitment,
-            removeCommitment,
-            removeSignature,
-            removeNonce
+            leafIndex, authenticatorAddress1, 0, 0, recoveredCommitment, removeCommitment, removeSignature, removeNonce
         );
     }
 
