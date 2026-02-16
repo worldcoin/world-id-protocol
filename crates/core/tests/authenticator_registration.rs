@@ -37,6 +37,7 @@ async fn test_authenticator_registration() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: None,
+        rate_limit: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await

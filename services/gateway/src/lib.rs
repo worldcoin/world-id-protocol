@@ -1,4 +1,4 @@
-pub use crate::config::GatewayConfig;
+pub use crate::config::{GatewayConfig, RateLimitConfig};
 use crate::{routes::build_app, types::AppState};
 use request_tracker::RequestTracker;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
@@ -52,6 +52,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
         cfg.redis_url,
+        cfg.rate_limit.map(|c| (c.window_secs, c.max_requests)),
     )
     .await?;
 
@@ -92,12 +93,14 @@ pub async fn run() -> GatewayResult<()> {
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!("Config is ready. Building app...");
+
     let app = build_app(
         registry,
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
         cfg.redis_url,
+        cfg.rate_limit.map(|c| (c.window_secs, c.max_requests)),
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

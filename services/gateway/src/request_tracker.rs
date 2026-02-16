@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use alloy::primitives::Address;
 use moka::{
@@ -64,6 +64,7 @@ impl Expiry<String, RequestRecord> for RequestExpiry {
 ///
 /// Tracks all requests made to the gateway by ID for async querying.
 /// Also tracks in-flight authenticator addresses to prevent duplicate requests.
+/// Includes rate limiting for leaf_index-based requests.
 ///
 /// Using Redis is strongly recommended for production environments, and especially multi-node setups.
 #[derive(Clone)]
@@ -72,8 +73,13 @@ pub struct RequestTracker {
     cache: Cache<String, RequestRecord>,
     /// Local cache for in-flight authenticator addresses (single-instance fallback).
     inflight_cache: Cache<Address, ()>,
+    /// Local cache for rate limiting (leaf_index -> sorted set of timestamps).
+    /// Only used when Redis is not available.
+    rate_limit_cache: Cache<u64, Vec<(u64, String)>>, // leaf_index -> [(timestamp, request_id)]
     /// The db (redis) connection.
     redis_manager: Option<ConnectionManager>,
+    /// Rate limiting configuration (window in seconds, max requests).
+    rate_limit_config: Option<(u64, u64)>,
 }
 
 impl RequestTracker {
@@ -81,7 +87,7 @@ impl RequestTracker {
     ///
     /// # Panics
     /// If a Redis URL is provided but the connection to Redis fails.
-    pub async fn new(redis_url: Option<String>) -> Self {
+    pub async fn new(redis_url: Option<String>, rate_limit_config: Option<(u64, u64)>) -> Self {
         let redis_manager = if let Some(url) = redis_url {
             let client = Client::open(url.as_str()).expect("Unable to connect to Redis");
             let manager = ConnectionManager::new(client)
@@ -105,10 +111,21 @@ impl RequestTracker {
         // Build moka cache for in-flight authenticator addresses
         let inflight_cache = Cache::builder().time_to_live(INFLIGHT_TTL).build();
 
+        // Build moka cache for rate limiting (local fallback)
+        let rate_limit_cache = Cache::builder()
+            .time_to_live(Duration::from_secs(
+                rate_limit_config
+                    .map(|(rate_limit_window_secs, _)| rate_limit_window_secs)
+                    .unwrap_or(0),
+            ))
+            .build();
+
         Self {
             cache,
             inflight_cache,
+            rate_limit_cache,
             redis_manager,
+            rate_limit_config,
         }
     }
 
@@ -409,6 +426,193 @@ impl RequestTracker {
     async fn remove_inflight_local(&self, addresses: &[Address]) {
         for addr in addresses {
             self.inflight_cache.invalidate(addr).await;
+        }
+    }
+
+    // =========================================================================
+    // Rate limiting
+    // =========================================================================
+
+    /// Returns the Redis key for a rate limit entry.
+    fn rate_limit_key(leaf_index: u64) -> String {
+        format!("gateway:ratelimit:leaf:{}", leaf_index)
+    }
+
+    /// Checks if a request for the given leaf_index should be allowed.
+    ///
+    /// Returns `Ok(())` if the request is allowed.
+    /// Returns `Err(GatewayErrorResponse)` with rate limit error if exceeded.
+    ///
+    /// If rate limiting is not configured, always returns `Ok(())`.
+    pub async fn check_rate_limit(
+        &self,
+        leaf_index: u64,
+        request_id: &str,
+    ) -> Result<(), GatewayErrorResponse> {
+        // If rate limiting is not configured, allow all requests
+        let Some((window_secs, max_requests)) = self.rate_limit_config else {
+            return Ok(());
+        };
+
+        if let Some(manager) = &self.redis_manager {
+            self.check_rate_limit_redis(
+                manager.clone(),
+                leaf_index,
+                request_id,
+                window_secs,
+                max_requests,
+            )
+            .await
+        } else {
+            self.check_rate_limit_local(leaf_index, request_id, window_secs, max_requests)
+                .await
+        }
+    }
+
+    /// Check rate limit using Redis.
+    async fn check_rate_limit_redis(
+        &self,
+        mut manager: ConnectionManager,
+        leaf_index: u64,
+        request_id: &str,
+        window_secs: u64,
+        max_requests: u64,
+    ) -> Result<(), GatewayErrorResponse> {
+        let key = Self::rate_limit_key(leaf_index);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        // Execute the rate limiting script
+        let script = redis::Script::new(
+            r#"
+            local key = KEYS[1]
+            local now = tonumber(ARGV[1])
+            local window = tonumber(ARGV[2])
+            local limit = tonumber(ARGV[3])
+            local request_id = ARGV[4]
+
+            -- Remove old entries outside the window
+            local min_timestamp = now - window
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', min_timestamp)
+
+            -- Count current entries in the window
+            local current = redis.call('ZCARD', key)
+
+            -- Check if we're under the limit
+            if current < limit then
+                -- Add the new request with current timestamp as score
+                redis.call('ZADD', key, now, request_id)
+                -- Set expiration on the key to cleanup old keys
+                redis.call('EXPIRE', key, window)
+                return current + 1
+            else
+                -- Rate limit exceeded
+                return -1
+            end
+            "#,
+        );
+        let result: Result<i64, redis::RedisError> = script
+            .key(&key)
+            .arg(now)
+            .arg(window_secs)
+            .arg(max_requests)
+            .arg(request_id)
+            .invoke_async(&mut manager)
+            .await;
+
+        match result {
+            Ok(-1) => {
+                tracing::warn!(
+                    leaf_index = leaf_index,
+                    request_id = request_id,
+                    "Rate limit exceeded"
+                );
+                Err(GatewayErrorResponse::rate_limit_exceeded(
+                    window_secs,
+                    max_requests,
+                ))
+            }
+            Ok(count) => {
+                tracing::debug!(
+                    leaf_index = leaf_index,
+                    request_id = request_id,
+                    count = count,
+                    max = max_requests,
+                    "Rate limit check passed"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!("Redis error during rate limit check: {}", e);
+                // On Redis error, fail open (allow the request) to avoid blocking legitimate traffic
+                tracing::warn!("Rate limit check failed due to Redis error, allowing request");
+                Ok(())
+            }
+        }
+    }
+
+    /// Check rate limit using local cache.
+    async fn check_rate_limit_local(
+        &self,
+        leaf_index: u64,
+        request_id: &str,
+        window_secs: u64,
+        max_requests: u64,
+    ) -> Result<(), GatewayErrorResponse> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        let min_timestamp = now.saturating_sub(window_secs);
+
+        let result = self
+            .rate_limit_cache
+            .entry_by_ref(&leaf_index)
+            .and_compute_with(|entry| async move {
+                let mut entries = entry.map(|e| e.into_value()).unwrap_or_default();
+
+                // Remove expired entries
+                entries.retain(|(ts, _)| *ts > min_timestamp);
+
+                // Check if we're under the limit
+                if entries.len() < max_requests as usize {
+                    entries.push((now, request_id.to_string()));
+                    Op::Put(entries)
+                } else {
+                    // Rate limit exceeded, put back the unchanged entries
+                    Op::Put(entries)
+                }
+            })
+            .await;
+
+        match result {
+            CompResult::Inserted(entries) | CompResult::ReplacedWith(entries) => {
+                let count = entries.value().len();
+                if count > max_requests as usize {
+                    tracing::warn!(
+                        leaf_index = leaf_index,
+                        request_id = request_id,
+                        "Rate limit exceeded (local)"
+                    );
+                    Err(GatewayErrorResponse::rate_limit_exceeded(
+                        window_secs,
+                        max_requests,
+                    ))
+                } else {
+                    tracing::debug!(
+                        leaf_index = leaf_index,
+                        request_id = request_id,
+                        count = count,
+                        max = max_requests,
+                        "Rate limit check passed (local)"
+                    );
+                    Ok(())
+                }
+            }
+            _ => Ok(()),
         }
     }
 }

@@ -4,6 +4,18 @@ use alloy::primitives::Address;
 use clap::Parser;
 use world_id_services_common::ProviderArgs;
 
+/// Rate limiting configuration for leaf_index-based requests.
+#[derive(Clone, Debug, Parser)]
+pub struct RateLimitConfig {
+    /// Rate limit window in seconds for leaf_index-based requests (sliding window)
+    #[arg(long, env = "RATE_LIMIT_WINDOW_SECS")]
+    pub window_secs: u64,
+
+    /// Maximum number of requests per leaf_index within the rate limit window
+    #[arg(long, env = "RATE_LIMIT_MAX_REQUESTS")]
+    pub max_requests: u64,
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct GatewayConfig {
@@ -35,6 +47,10 @@ pub struct GatewayConfig {
     /// If not provided, requests will be stored in-memory
     #[arg(long, env = "REDIS_URL")]
     pub redis_url: Option<String>,
+
+    /// Rate limiting configuration (optional - enabled only when Redis is configured)
+    #[command(flatten)]
+    pub rate_limit: Option<RateLimitConfig>,
 }
 
 impl GatewayConfig {
