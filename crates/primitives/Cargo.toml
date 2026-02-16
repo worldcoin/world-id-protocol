@@ -36,7 +36,7 @@ eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
 taceo-groth16-sol = { workspace = true }
-taceo-oprf-types = { workspace = true }
+taceo-oprf = { workspace = true, features = ["types"] }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
 serde = { workspace = true }

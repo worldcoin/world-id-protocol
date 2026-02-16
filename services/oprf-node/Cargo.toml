@@ -26,7 +26,7 @@ secrecy = { workspace = true }
 serde_json = { workspace = true }
 taceo-nodes-common = { workspace = true }
 taceo-nodes-observability = { workspace = true }
-taceo-oprf = { workspace = true, features = ["service"] }
+taceo-oprf = { workspace = true, features = ["service", "types", "core"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
