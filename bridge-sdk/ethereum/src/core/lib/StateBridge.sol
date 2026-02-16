@@ -1,47 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "../Error.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {
-    ERC7786RecipientUpgradeable
-} from "@openzeppelin/contracts-upgradeable/crosschain/ERC7786RecipientUpgradeable.sol";
-
-import {ProvenRootInfo, ProvenPubKeyInfo, UnknownAction, ChainCommitted} from "../interfaces/IWorldIDBridge.sol";
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
 import {ProofsLib} from "./ProofsLib.sol";
-import {Verifier} from "@world-id/Verifier.sol";
+import {Attributes} from "../gateways/Attributes.sol";
+import {IStateBridge} from "../interfaces/IStateBridge.sol";
 
-/// @title StateBridgeBase
+/// @title StateBridge
 /// @author World Contributors
-/// TODO: Good Description
-abstract contract StateBridgeBase is
-    ERC7786RecipientUpgradeable,
-    UUPSUpgradeable,
-    OwnableUpgradeable,
-    EIP712Upgradeable
-{
+/// @notice Abstract upgradeable base for all World ID bridge contracts. Manages a keccak hash chain
+///   accumulator, proven root/pubkey state, and gateway authorization. Concrete subclasses
+///   (`WorldIDSource`, `CrossDomainWorldID`) extend this with their own state ingestion logic.
+abstract contract StateBridge is IStateBridge, UUPSUpgradeable, OwnableUpgradeable, EIP712Upgradeable {
     using ProofsLib for *;
 
-    /// @notice Emitted when a gateway is authorized.
-    event GatewayAdded(address indexed gateway);
-
-    /// @notice Emitted when a gateway is deauthorized.
-    event GatewayRemoved(address indexed gateway);
-
-    /// @dev Thrown when the storage layout has changed after a contract upgrade.
-    error StorageLayoutChanged();
+    /// @dev The deployment version of the bridge. Used for reinitialization checks.
+    uint64 private immutable _UPGRADE_VERSION = 1;
 
     /// @dev keccak256("worldid.storage.WorldIDStateBridgeStorage")
     bytes32 private constant _STATE_BRIDGE_STORAGE_SLOT =
         0x8ea751544b8bbcbc8929c26e76fb7b6c3629dd0f7da849a522d50f1a3c170d00;
 
     /// @custom:storage-location erc7201:worldid.storage.WorldIDStateBridge
+    /// @dev All storage is intentionally packed, and enshrined as to prevent storage layout changes.
     struct StateBridgeStorage {
         /// @dev A rolling keccak hash accumulator commiting to the history of state changes.
-        ///       keccakChain is intentionally immutable as overriding it would mean losing the entire history of changes.
         ProofsLib.Chain keccakChain;
         /// @dev The latest proven Merkle root.
         uint256 latestRoot;
@@ -55,10 +42,6 @@ abstract contract StateBridgeBase is
         mapping(uint160 oprfKeyId => ProvenPubKeyInfo info) oprfKeyIdToPubkeyAndProofId;
     }
 
-    constructor() {
-        _disableInitializers();
-    }
-
     /// @dev Configuration for proxy initialization.
     struct InitConfig {
         string name;
@@ -69,7 +52,7 @@ abstract contract StateBridgeBase is
 
     /// @dev Internal initializer called by concrete subclass `initialize()` functions.
     // solhint-disable-next-line func-name-mixedcase
-    function __StateBridgeBase_init(InitConfig memory cfg) internal onlyInitializing {
+    function initialize(InitConfig memory cfg) external onlyInitializing reinitializer(_UPGRADE_VERSION) {
         require(cfg.owner != address(0), "Owner cannot be zero address");
         require(bytes(cfg.name).length > 0, "Name cannot be empty");
         require(bytes(cfg.version).length > 0, "Version cannot be empty");
@@ -84,44 +67,9 @@ abstract contract StateBridgeBase is
         }
     }
 
-    ///////////////////////////////////////////////////////////
-    //                     ERC-7786                          //
-    ///////////////////////////////////////////////////////////
-
-    /// @dev Abstract function to apply a gateway commit. The `commitPayload` is ABI-encoded to allow flexibility in the
-    function _processGatewayMessage(address gateway, bytes32 receiveId, bytes calldata sender, bytes calldata payload)
-        internal
-        virtual {}
-
-    /// @inheritdoc ERC7786RecipientUpgradeable
-    function _isAuthorizedGateway(address gateway, bytes calldata) internal view virtual override returns (bool) {
-        return _worldIDStateBridgeStorage().authorizedGateways[gateway];
-    }
-
-    /// @inheritdoc ERC7786RecipientUpgradeable
-    function _processMessage(address gateway, bytes32 receiveId, bytes calldata sender, bytes calldata payload)
-        internal
-        virtual
-        override
-    {
-        _processGatewayMessage(gateway, receiveId, sender, payload);
-    }
-
-    /// @notice Authorizes a gateway for receiving cross-chain messages.
-    function addGateway(address gateway) external virtual onlyOwner {
-        _worldIDStateBridgeStorage().authorizedGateways[gateway] = true;
-        emit GatewayAdded(gateway);
-    }
-
-    /// @notice Deauthorizes a gateway.
-    function removeGateway(address gateway) external virtual onlyOwner {
-        _worldIDStateBridgeStorage().authorizedGateways[gateway] = false;
-        emit GatewayRemoved(gateway);
-    }
-
     ////////////////////////////////////////////////////////////
-    //                     Storage                            //
-    ///////////////////////////////////////////////////////////
+    //                   STORAGE ACCESSORS                    //
+    ////////////////////////////////////////////////////////////
 
     /// @dev Returns a pointer to the main storage struct.
     function _worldIDStateBridgeStorage() private pure returns (StateBridgeStorage storage $) {
@@ -130,18 +78,38 @@ abstract contract StateBridgeBase is
         }
     }
 
-    ////////////////////////////////////////////////////////////////
-    //                      State Commitments                     //
-    ////////////////////////////////////////////////////////////////
+    /// @dev Returns whether the given gateway is authorized.
+    function _authorized(address gateway) internal view virtual returns (bool) {
+        return _worldIDStateBridgeStorage().authorizedGateways[gateway];
+    }
+
+    /// @dev Adds a gateway to the authorized list.
+    function _addGateway(address gateway) internal {
+        StateBridgeStorage storage $ = _worldIDStateBridgeStorage();
+        $.authorizedGateways[gateway] = true;
+        emit GatewayAdded(gateway);
+    }
+
+    /// @dev Removes a gateway from the authorized list.
+    function _removeGateway(address gateway) internal {
+        StateBridgeStorage storage $ = _worldIDStateBridgeStorage();
+        $.authorizedGateways[gateway] = false;
+        emit GatewayRemoved(gateway);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                   STATE COMMITMENTS                    //
+    ////////////////////////////////////////////////////////////
 
     /// @dev Applies commitments, extends keccak chain, and emits `ChainCommitted`.
     function _applyAndCommit(ProofsLib.Commitment[] memory commits) internal virtual {
         ProofsLib.Chain storage chain = _worldIDStateBridgeStorage().keccakChain;
 
         _applyCommitments(commits);
+
         chain.commitChained(commits);
 
-        emit ChainCommitted(chain.head, block.number, abi.encode(commits));
+        emit ChainCommitted(chain.head, block.number, block.chainid, abi.encode(commits));
     }
 
     /// @dev Applies an array of commitments in order.
@@ -153,7 +121,7 @@ abstract contract StateBridgeBase is
 
     /// @dev Applies a single commitment's state change based on its action selector.
     function _applyCommitment(ProofsLib.Commitment memory commit) private {
-        (bytes4 sel, bytes memory payload) = ProofsLib.stripSelector(commit.data);
+        (bytes4 sel, bytes memory payload) = Attributes.splitMem(commit.data);
 
         if (sel == ProofsLib.UPDATE_ROOT_SELECTOR) {
             (uint256 root, uint256 timestamp, bytes32 proofId) = payload.decodeUpdateRoot();
@@ -165,7 +133,7 @@ abstract contract StateBridgeBase is
             (uint160 oprfKeyId, uint256 x, uint256 y, bytes32 proofId) = payload.decodeSetOprfKey();
             _setOprfKey(oprfKeyId, x, y, proofId);
         } else {
-            revert UnknownAction(uint8(uint32(sel)));
+            revert InvalidCommitmentSelector(sel);
         }
     }
 
@@ -189,32 +157,30 @@ abstract contract StateBridgeBase is
     }
 
     ////////////////////////////////////////////////////////////
-    //                    Public View                         //
+    //                      PUBLIC VIEW                       //
     ////////////////////////////////////////////////////////////
 
-    /// @notice Returns the keccak chain state.
-    // solhint-disable-next-line func-name-mixedcase
+    /// @inheritdoc IStateBridge
     function KECCAK_CHAIN() public view returns (ProofsLib.Chain memory) {
         return _worldIDStateBridgeStorage().keccakChain;
     }
 
-    /// @notice Returns the latest proven Merkle root.
-    // solhint-disable-next-line func-name-mixedcase
+    /// @inheritdoc IStateBridge
     function LATEST_ROOT() public view returns (uint256) {
         return _worldIDStateBridgeStorage().latestRoot;
     }
 
-    /// @notice Returns the proven info for a given issuer schema ID.
+    /// @inheritdoc IStateBridge
     function issuerSchemaIdToPubkeyAndProofId(uint64 schemaId) public view returns (ProvenPubKeyInfo memory info) {
         info = _worldIDStateBridgeStorage().issuerSchemaIdToPubkeyAndProofId[schemaId];
     }
 
-    /// @notice Returns the proven info for a given OPRF key ID.
+    /// @inheritdoc IStateBridge
     function oprfKeyIdToPubkeyAndProofId(uint160 oprfKeyId) public view returns (ProvenPubKeyInfo memory info) {
         info = _worldIDStateBridgeStorage().oprfKeyIdToPubkeyAndProofId[oprfKeyId];
     }
 
-    /// @notice Returns the proven root info for a given root.
+    /// @inheritdoc IStateBridge
     function rootToTimestampAndProofId(uint256 root) public view returns (ProvenRootInfo memory info) {
         info = _worldIDStateBridgeStorage().rootToTimestampAndProofId[root];
     }

@@ -12,6 +12,14 @@ gas_limit = "18446744073709551615"
 
 allow_paths = ["../../contracts/src/", "../../contracts/lib/"]
 
+# Suppress compiler warnings from vendored submodules
+ignored_warnings_from = ["lib/", "../../contracts/lib/"]
+ignored_error_codes = [
+    2424,  # Natspec memory-safe-assembly deprecated
+    3420,  # Source file does not specify required compiler version
+    5667,  # Unused function parameter
+]
+
 remappings = [
     # Cross-project imports
     "@world-id/=../../contracts/src/",

@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {RLPReader} from "@optimism-bedrock/src/libraries/rlp/RLPReader.sol";
 import {SecureMerkleTrie} from "@optimism-bedrock/src/libraries/trie/SecureMerkleTrie.sol";
+import {Hashing} from "@optimism-bedrock/src/libraries/Hashing.sol";
 
 /// @dev Thrown when the computed chain head does not match the expected value.
 error InvalidChainHead();
@@ -15,6 +16,12 @@ error InvalidAccountFields();
 
 /// @dev Thrown when a decoded storage value exceeds 32 bytes.
 error StorageValueTooLarge();
+
+/// @dev Thrown when the dispute game UUID maps to zero (game not found in the factory).
+error GameNotFound();
+
+/// @dev Thrown when the output root preimage is invalid.
+error InvalidOutputRootPreimage();
 
 /// @title ProofsLib
 /// @author World Contributors
@@ -116,6 +123,45 @@ library ProofsLib {
         }
     }
 
+    /// @dev Verifies the output root preimage against the root claim and extracts the L2 state root.
+    /// @param outputRootProof_ The output root proof components: [version, stateRoot, messagePasserStorageRoot, latestBlockhash].
+    /// @param rootClaim_ The expected root claim from the dispute game.
+    /// @return stateRoot The verified L2 state root.
+    function verifyOutputRootPreimage(bytes[] memory outputRootProof_, bytes32 rootClaim_)
+        internal
+        pure
+        returns (bytes32 stateRoot)
+    {
+        bytes32 version = bytes32(outputRootProof_[0]);
+        stateRoot = bytes32(outputRootProof_[1]);
+        bytes32 messagePasserStorageRoot = bytes32(outputRootProof_[2]);
+        bytes32 latestBlockhash = bytes32(outputRootProof_[3]);
+
+        bytes32 computedRoot =
+            keccak256(abi.encodePacked(version, stateRoot, messagePasserStorageRoot, latestBlockhash));
+
+        if (computedRoot != rootClaim_) revert InvalidOutputRootPreimage();
+    }
+
+    /// @notice Proves a contract's storage slot value via two-step MPT (account proof + storage proof)
+    ///   against a state root.
+    /// @param account_ The contract address to prove.
+    /// @param slot_ The storage slot to read.
+    /// @param accountProof_ MPT account proof for the contract.
+    /// @param storageProof_ MPT storage proof for the slot.
+    /// @param stateRoot_ The execution state root to verify against.
+    /// @return value The proven storage slot value as bytes32.
+    function proveStorageSlot(
+        address account_,
+        bytes32 slot_,
+        bytes[] memory accountProof_,
+        bytes[] memory storageProof_,
+        bytes32 stateRoot_
+    ) internal pure returns (bytes32 value) {
+        bytes32 storageRoot = verifyAccountAndGetStorageRoot(account_, accountProof_, stateRoot_);
+        value = bytes32(storageFromProof(storageProof_, storageRoot, slot_));
+    }
+
     ////////////////////////////////////////////////////////////
     //                  COMMITMENT DECODING                   //
     ////////////////////////////////////////////////////////////
@@ -141,27 +187,5 @@ library ProofsLib {
         returns (uint160 oprfKeyId, uint256 x, uint256 y, bytes32 proofId)
     {
         (oprfKeyId, x, y, proofId) = abi.decode(data_, (uint160, uint256, uint256, bytes32));
-    }
-
-    /// @dev Strips the first 4 bytes (selector) from ABI-encoded commitment data.
-    ///   Uses word-sized assembly copies for efficiency.
-    function stripSelector(bytes memory data_) internal pure returns (bytes4 sel, bytes memory stripped) {
-        assembly {
-            sel := mload(add(data_, 0x20))
-        }
-
-        uint256 len = data_.length - 4;
-        stripped = new bytes(len);
-
-        assembly {
-            let src := add(data_, 0x24)
-            let dst := add(stripped, 0x20)
-            let end := add(src, len)
-
-            for {} lt(src, end) {
-                src := add(src, 0x20)
-                dst := add(dst, 0x20)
-            } { mstore(dst, mload(src)) }
-        }
     }
 }

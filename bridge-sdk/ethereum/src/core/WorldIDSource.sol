@@ -4,21 +4,20 @@ pragma solidity ^0.8.28;
 import {IWorldIDRegistry} from "@world-id/interfaces/IWorldIDRegistry.sol";
 import {ICredentialSchemaIssuerRegistry} from "@world-id/interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {OprfKeyGen} from "lib/oprf-key-registry/src/OprfKeyGen.sol";
-import {StateBridgeBase} from "../lib/StateBridgeBase.sol";
-import {ProofsLib} from "../lib/ProofsLib.sol";
-import {IOprfKeyRegistry} from "../../interfaces/IOprfKeyRegistry.sol";
-import {ProvenPubKeyInfo, NothingChanged, ZeroAddress} from "../interfaces/IWorldIDBridge.sol";
+import {IERC7786GatewaySource} from "@openzeppelin/contracts/interfaces/draft-IERC7786.sol";
+import {StateBridge} from "./lib/StateBridge.sol";
+import {IStateBridge} from "./interfaces/IStateBridge.sol";
+import {ZeroAddress, NothingChanged} from "./Error.sol";
+import {ProofsLib} from "./lib/ProofsLib.sol";
+import {IOprfKeyRegistry} from "../interfaces/IOprfKeyRegistry.sol";
 
-/// @title WorldChainBridge
+/// @title WorldIDSource
 /// @author World Contributors
 /// @notice World Chain source-of-truth state. Reads WC registries directly via `propagateState`,
 ///   extends the rolling keccak state chain, and marks new chain heads as valid for L1 verification via MPT.
 ///   This is NOT a verifier — it only produces state for downstream consumption.
-contract WorldChainBridge is StateBridgeBase {
+contract WorldIDSource is StateBridge {
     using ProofsLib for *;
-
-    /// @dev The deployment version of the bridge. Used for reinitialization checks.
-    uint64 public constant VERSION = 1;
 
     /// @notice The WorldIDRegistry contract on World Chain.
     IWorldIDRegistry public immutable WC_REGISTRY;
@@ -41,57 +40,48 @@ contract WorldChainBridge is StateBridgeBase {
         WC_REGISTRY = IWorldIDRegistry(worldChainRegistry);
         WC_ISSUER_REGISTRY = ICredentialSchemaIssuerRegistry(worldChainIssuerRegistry);
         WC_OPRF_REGISTRY = IOprfKeyRegistry(worldChainOprfRegistry);
+
+        _disableInitializers();
     }
-
-    ////////////////////////////////////////////////////////////
-    //                      INITIALIZER                       //
-    ////////////////////////////////////////////////////////////
-
-    /// @notice Initializes the World Chain source bridge proxy.
-    function initialize(string memory name_, string memory version_, address owner_, address[] memory initialGateways_)
-        public
-        virtual
-        reinitializer(VERSION)
-    {
-        __StateBridgeBase_init(
-            InitConfig({name: name_, version: version_, owner: owner_, authorizedGateways: initialGateways_})
-        );
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                    PROPAGATE STATE                     //
-    ////////////////////////////////////////////////////////////
 
     /// @notice Reads all relevant state from WC registries and propagates any changes
     ///   into bridge state as a single batched chain extension.
     /// @param issuerSchemaIds The issuer schema IDs whose pubkeys should be checked.
     /// @param oprfKeyIds The OPRF key IDs whose pubkeys should be checked.
+    /// @dev Emits `ChainCommitted` with the new chain head and the commitment data for L1 verification via MPT.
     function propagateState(uint64[] calldata issuerSchemaIds, uint160[] calldata oprfKeyIds) external virtual {
-        // Worst-case: root + all issuers + all OPRFs
-        ProofsLib.Commitment[] memory commits =
-            new ProofsLib.Commitment[](1 + issuerSchemaIds.length + oprfKeyIds.length);
-
-        bytes32 blockHash = blockhash(block.number - 1);
-        bytes32 proofId = bytes32(block.number);
-
-        uint256 count;
-        count = _propagateRoot(commits, count, blockHash, proofId);
-        count = _propagateIssuerPubkeys(commits, count, issuerSchemaIds, blockHash, proofId);
-        count = _propagateOprfKeys(commits, count, oprfKeyIds, blockHash, proofId);
-
+        (ProofsLib.Commitment[] memory commits, uint256 count) = _buildCommitments(issuerSchemaIds, oprfKeyIds);
         if (count == 0) revert NothingChanged();
-
-        // Trim to actual count
-        assembly {
-            mstore(commits, count)
-        }
-
         _applyAndCommit(commits);
     }
 
     ////////////////////////////////////////////////////////////
     //                       INTERNAL                         //
     ////////////////////////////////////////////////////////////
+
+    /// @dev Reads WC registries and builds commitments for any detected changes.
+    /// @return commits The commitment array (trimmed to actual count).
+    /// @return count The number of commitments produced.
+    function _buildCommitments(uint64[] calldata issuerSchemaIds, uint160[] calldata oprfKeyIds)
+        internal
+        view
+        returns (ProofsLib.Commitment[] memory commits, uint256 count)
+    {
+        // Worst-case: root + all issuers + all OPRFs
+        commits = new ProofsLib.Commitment[](1 + issuerSchemaIds.length + oprfKeyIds.length);
+
+        bytes32 blockHash = blockhash(block.number - 1);
+        bytes32 proofId = bytes32(block.number);
+
+        count = _propagateRoot(commits, 0, blockHash, proofId);
+        count = _propagateIssuerPubkeys(commits, count, issuerSchemaIds, blockHash, proofId);
+        count = _propagateOprfKeys(commits, count, oprfKeyIds, blockHash, proofId);
+
+        // store count at length
+        assembly ("memory-safe") {
+            mstore(commits, count)
+        }
+    }
 
     /// @dev Checks if the root has changed on WC and, if so, writes state and appends a commitment.
     function _propagateRoot(ProofsLib.Commitment[] memory commits, uint256 count, bytes32 blockHash, bytes32 proofId)
