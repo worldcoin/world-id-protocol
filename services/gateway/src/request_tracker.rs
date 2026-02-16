@@ -577,24 +577,22 @@ impl RequestTracker {
                 // Remove expired entries
                 entries.retain(|(ts, _)| *ts > min_timestamp);
 
-                // Check if we're under the limit
-                if entries.len() < max_requests as usize {
-                    entries.push((now, request_id.to_string()));
-                    Op::Put(entries)
-                } else {
-                    // Rate limit exceeded, put back the unchanged entries
-                    Op::Put(entries)
-                }
+                // Always add the new entry (we'll check the limit after)
+                entries.push((now, request_id.to_string()));
+                Op::Put(entries)
             })
             .await;
 
         match result {
             CompResult::Inserted(entries) | CompResult::ReplacedWith(entries) => {
                 let count = entries.value().len();
+                // Check if we exceeded the limit (after adding the current request)
                 if count > max_requests as usize {
                     tracing::warn!(
                         leaf_index = leaf_index,
                         request_id = request_id,
+                        count = count,
+                        max = max_requests,
                         "Rate limit exceeded (local)"
                     );
                     Err(GatewayErrorResponse::rate_limit_exceeded(
