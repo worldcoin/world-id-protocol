@@ -73,9 +73,7 @@ async fn tree_sync_loop(
     loop {
         tokio::time::sleep(Duration::from_secs(interval_secs)).await;
 
-        let count = tree::cached_tree::sync_from_db(&db, &tree_state)
-            .await
-            .expect("fatal: failed to sync tree from DB");
+        let count = tree::cached_tree::sync_from_db(&db, &tree_state).await?;
 
         if count > 0 {
             tracing::info!(count, "Synced events from DB to tree");
@@ -207,46 +205,50 @@ async fn run_http_only(
     let sync_pool = db.clone();
     let sync_interval = http_cfg.db_poll_interval_secs;
     let sync_tree_state = tree_state.clone();
-    let sync_handle = tokio::spawn(async move {
-        if let Err(e) = tree_sync_loop(sync_pool, sync_interval, sync_tree_state).await {
-            tracing::error!(?e, "Tree sync loop failed");
-        }
-    });
+    let sync_handle =
+        tokio::spawn(
+            async move { tree_sync_loop(sync_pool, sync_interval, sync_tree_state).await },
+        );
 
     // Start root sanity checker in the background
-    let mut sanity_handle = None;
-    if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
+    let sanity_handle = if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = rpc_url.to_string();
         let sanity_tree_state = tree_state.clone();
-        sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) = sanity_check::root_sanity_check_loop(
+        Some(tokio::spawn(async move {
+            sanity_check::root_sanity_check_loop(
                 rpc_url,
                 registry_address,
                 sanity_interval,
                 sanity_tree_state,
             )
             .await
-            {
-                tracing::error!(?e, "Root sanity checker failed");
-            }
-        }));
-    }
+        }))
+    } else {
+        None
+    };
 
     // Start HTTP server
-    let http_result = start_http_server(
-        rpc_url,
-        registry_address,
-        http_cfg.http_addr,
-        db,
-        tree_state,
-    )
-    .await;
+    let rpc_url = rpc_url.to_string();
+    let http_addr = http_cfg.http_addr;
+    let http_handle = tokio::spawn(async move {
+        start_http_server(&rpc_url, registry_address, http_addr, db, tree_state).await
+    });
 
-    sync_handle.abort();
-    if let Some(handle) = sanity_handle {
-        handle.abort();
+    // Wait for the first task to complete — any failure is fatal.
+    tokio::select! {
+        result = sync_handle => {
+            result??;
+            eyre::bail!("tree sync loop exited unexpectedly");
+        }
+        result = http_handle => {
+            result??;
+            Ok(())
+        }
+        result = async { sanity_handle.unwrap().await }, if sanity_handle.is_some() => {
+            result??;
+            eyre::bail!("sanity check loop exited unexpectedly");
+        }
     }
-    http_result
 }
 
 /// Runs both the indexer and HTTP server in the same process, sharing the same DB and in-memory tree.
@@ -322,39 +324,44 @@ async unsafe fn run_both(
         .await
     });
 
-    let mut sanity_handle = None;
-    if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
+    let sanity_handle = if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
         let rpc_url = http_rpc_url.to_string();
-        sanity_handle = Some(tokio::spawn(async move {
-            if let Err(e) = sanity_check::root_sanity_check_loop(
+        Some(tokio::spawn(async move {
+            sanity_check::root_sanity_check_loop(
                 rpc_url,
                 registry_address,
                 sanity_interval,
                 sanity_tree_state,
             )
             .await
-            {
-                tracing::error!(?e, "Root sanity checker failed");
-            }
-        }));
+        }))
+    } else {
+        None
+    };
+
+    // --- Phase 4: Stream live events, updating tree after each batch ---
+    // Wait for the first task to complete — any failure is fatal.
+    tokio::select! {
+        result = process_registry_events(
+            http_rpc_url,
+            ws_rpc_url,
+            registry_address,
+            indexer_cfg,
+            &db,
+            Some(&tree_state),
+        ) => {
+            result?;
+            Ok(())
+        }
+        result = http_handle => {
+            result??;
+            eyre::bail!("HTTP server exited unexpectedly");
+        }
+        result = async { sanity_handle.unwrap().await }, if sanity_handle.is_some() => {
+            result??;
+            eyre::bail!("sanity check loop exited unexpectedly");
+        }
     }
-
-    process_registry_events(
-        http_rpc_url,
-        ws_rpc_url,
-        registry_address,
-        indexer_cfg,
-        &db,
-        Some(&tree_state),
-    )
-    .await?;
-
-    http_handle.abort();
-    if let Some(sanity_handle) = sanity_handle {
-        sanity_handle.abort();
-    }
-
-    Ok(())
 }
 
 pub async fn handle_registry_event<'a>(
@@ -379,10 +386,11 @@ pub async fn handle_registry_event<'a>(
             .await?
             .is_none()
         {
-            panic!(
-                "tree root mismatch after sync: root 0x{:x} not found in world_tree_roots",
-                root
-            );
+            return Err(tree::TreeError::RootMismatch {
+                actual: format!("0x{:x}", root),
+                expected: "any known root in world_tree_roots".to_string(),
+            }
+            .into());
         }
     }
 
@@ -450,11 +458,7 @@ pub async fn process_registry_events(
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
-                    if let Err(e) =
-                        handle_registry_event(db, &mut events_committer, &event, tree_state).await
-                    {
-                        panic!("fatal error processing registry event: {e:?}");
-                    }
+                    handle_registry_event(db, &mut events_committer, &event, tree_state).await?;
                 }
                 Err(e) => {
                     tracing::error!(?e, "blockchain event stream error");

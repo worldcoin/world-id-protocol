@@ -42,7 +42,7 @@ pub async unsafe fn init_tree(
                 if let Err(remove_err) = std::fs::remove_file(cache_path) {
                     tracing::error!(?remove_err, "failed to delete cache file");
                 }
-                panic!("tree restore from cache failed: {e}");
+                return Err(e);
             }
         }
     } else {
