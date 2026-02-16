@@ -73,15 +73,12 @@ async fn tree_sync_loop(
     loop {
         tokio::time::sleep(Duration::from_secs(interval_secs)).await;
 
-        match tree::cached_tree::sync_from_db(&db, &tree_state).await {
-            Ok(count) => {
-                if count > 0 {
-                    tracing::info!(count, "Synced events from DB to tree");
-                }
-            }
-            Err(e) => {
-                tracing::error!(?e, "Failed to sync tree from DB");
-            }
+        let count = tree::cached_tree::sync_from_db(&db, &tree_state)
+            .await
+            .expect("fatal: failed to sync tree from DB");
+
+        if count > 0 {
+            tracing::info!(count, "Synced events from DB to tree");
         }
     }
 }
@@ -376,7 +373,12 @@ pub async fn handle_registry_event<'a>(
 
         // Validate that the tree root matches a known root in the DB
         let root = tree_state.root().await;
-        if db.world_tree_roots().get_root_by_value(&root).await?.is_none() {
+        if db
+            .world_tree_roots()
+            .get_root_by_value(&root)
+            .await?
+            .is_none()
+        {
             panic!(
                 "tree root mismatch after sync: root 0x{:x} not found in world_tree_roots",
                 root
