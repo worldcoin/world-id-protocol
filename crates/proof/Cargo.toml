@@ -45,7 +45,7 @@ eyre = { workspace = true }
 zeroize = { workspace = true }
 
 # Internal
-world-id-primitives = { workspace = true, features = ["circuits"] }
+world-id-primitives = { workspace = true }
 
 [build-dependencies]
 eyre = { workspace = true }

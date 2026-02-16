@@ -32,8 +32,6 @@ pub use config::Config;
 /// Contains the raw circuit input types for the World ID Protocol.
 ///
 /// These types are used to prepare the inputs for the Groth16 circuits.
-/// Requires the `circuits` feature (not available in WASM builds).
-#[cfg(feature = "circuits")]
 pub mod circuit_inputs;
 
 /// SAFE-style sponge utilities and helpers.
@@ -50,8 +48,6 @@ pub mod merkle;
 pub mod api_types;
 
 /// Contains types specifically related to the OPRF services.
-/// Requires the `circuits` feature (not available in WASM builds).
-#[cfg(feature = "circuits")]
 pub mod oprf;
 
 /// Contains the session nullifier type for session proof responses.
