@@ -431,9 +431,6 @@ pub async fn process_registry_events(
 ) -> IndexerResult<()> {
     // We re-create the blockchain connection (including backfill and websocket) when the stream
     // returns an error or the websocket connection is dropped.
-    //
-    // TOOD: Add smarter error handling. This could likely happen one level higher when there is
-    // mismatch between root of the tree and on-chain tree.
     loop {
         tracing::info!("starting blockchain connection");
 
