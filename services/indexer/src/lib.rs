@@ -371,9 +371,17 @@ pub async fn handle_registry_event<'a>(
     // After a DB commit, sync the in-memory tree from DB
     if let Some(tree_state) = tree_state
         && committed
-        && let Err(e) = tree::cached_tree::sync_from_db(db, tree_state).await
     {
-        tracing::error!(?e, "failed to sync tree from DB after commit");
+        tree::cached_tree::sync_from_db(db, tree_state).await?;
+
+        // Validate that the tree root matches a known root in the DB
+        let root = tree_state.root().await;
+        if db.world_tree_roots().get_root_by_value(&root).await?.is_none() {
+            panic!(
+                "tree root mismatch after sync: root 0x{:x} not found in world_tree_roots",
+                root
+            );
+        }
     }
 
     Ok(())
@@ -443,8 +451,7 @@ pub async fn process_registry_events(
                     if let Err(e) =
                         handle_registry_event(db, &mut events_committer, &event, tree_state).await
                     {
-                        tracing::error!(?e, "error processing registry event");
-                        break;
+                        panic!("fatal error processing registry event: {e:?}");
                     }
                 }
                 Err(e) => {

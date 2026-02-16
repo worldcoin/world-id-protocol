@@ -38,8 +38,11 @@ pub async unsafe fn init_tree(
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
             Err(e) => {
-                tracing::warn!(?e, "restore failed, falling back to full rebuild");
-                build_from_db_with_cache(db, cache_path, tree_depth).await?
+                tracing::error!(?e, "restore failed, deleting cache file");
+                if let Err(remove_err) = std::fs::remove_file(cache_path) {
+                    tracing::error!(?remove_err, "failed to delete cache file");
+                }
+                panic!("tree restore from cache failed: {e}");
             }
         }
     } else {
