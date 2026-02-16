@@ -1,6 +1,7 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
+use ark_serialize::CanonicalSerialize;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
@@ -15,7 +16,11 @@ use taceo_oprf_test_utils::PEER_PRIVATE_KEYS;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use world_id_oprf_node::config::WorldOprfNodeConfig;
-use world_id_primitives::{TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{
+    TREE_DEPTH,
+    api_types::{IndexerAuthenticatorPubkeysResponse, IndexerQueryRequest},
+    merkle::AccountInclusionProof,
+};
 
 use std::sync::RwLock;
 
@@ -23,6 +28,27 @@ use std::sync::RwLock;
 struct IndexerState {
     leaf_index: u64,
     proof: AccountInclusionProof<{ TREE_DEPTH }>,
+}
+
+fn proof_pubkeys_response(
+    proof: &AccountInclusionProof<{ TREE_DEPTH }>,
+) -> IndexerAuthenticatorPubkeysResponse {
+    let authenticator_pubkeys = proof
+        .authenticator_pubkeys
+        .iter()
+        .map(|pubkey| {
+            let mut compressed = Vec::new();
+            pubkey
+                .pk
+                .serialize_compressed(&mut compressed)
+                .expect("failed to serialize compressed authenticator pubkey");
+            U256::from_le_slice(&compressed)
+        })
+        .collect();
+
+    IndexerAuthenticatorPubkeysResponse {
+        authenticator_pubkeys,
+    }
 }
 
 /// Spawns a minimal HTTP server that serves the provided inclusion proof.
@@ -38,24 +64,34 @@ pub async fn spawn_indexer_stub(
         .wrap_err("failed to read listener address")?;
     let state = IndexerState { leaf_index, proof };
     let handle = tokio::spawn(async move {
-        let app = Router::new()
-            .route(
-                "/inclusion-proof",
-                post(
-                    |State(state): State<IndexerState>, Json(body): Json<serde_json::Value>| async move {
-                        let requested_leaf_index = body.get("leaf_index")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| s.parse::<U256>().ok())
-                            .ok_or(StatusCode::BAD_REQUEST)?;
+        let app =
+            Router::new()
+                .route(
+                    "/inclusion-proof",
+                    post(
+                        |State(state): State<IndexerState>,
+                         Json(body): Json<IndexerQueryRequest>| async move {
+                            if body.leaf_index != state.leaf_index {
+                                return Err(StatusCode::NOT_FOUND);
+                            }
+                            Ok::<_, StatusCode>(Json(state.proof.clone()))
+                        },
+                    ),
+                )
+                .route(
+                    "/authenticator-pubkeys",
+                    post(
+                        |State(state): State<IndexerState>,
+                         Json(body): Json<IndexerQueryRequest>| async move {
+                            if body.leaf_index != state.leaf_index {
+                                return Err(StatusCode::NOT_FOUND);
+                            }
 
-                        if requested_leaf_index.as_limbs()[0] != state.leaf_index {
-                            return Err(StatusCode::NOT_FOUND);
-                        }
-                        Ok::<_, StatusCode>(Json(state.proof.clone()))
-                    },
-                ),
-            )
-            .with_state(state);
+                            Ok::<_, StatusCode>(Json(proof_pubkeys_response(&state.proof)))
+                        },
+                    ),
+                )
+                .with_state(state);
         axum::serve(listener, app)
             .await
             .expect("indexer stub server crashed");
@@ -93,20 +129,29 @@ impl MutableIndexerStub {
                     "/inclusion-proof",
                     post(
                         |State(state): State<Arc<RwLock<IndexerState>>>,
-                         Json(body): Json<serde_json::Value>| async move {
-                            let requested_leaf_index = body
-                                .get("leaf_index")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse::<U256>().ok())
-                                .ok_or(StatusCode::BAD_REQUEST)?;
-
+                         Json(body): Json<IndexerQueryRequest>| async move {
                             let guard = state
                                 .read()
                                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                            if requested_leaf_index.as_limbs()[0] != guard.leaf_index {
+                            if body.leaf_index != guard.leaf_index {
                                 return Err(StatusCode::NOT_FOUND);
                             }
                             Ok::<_, StatusCode>(Json(guard.proof.clone()))
+                        },
+                    ),
+                )
+                .route(
+                    "/authenticator-pubkeys",
+                    post(
+                        |State(state): State<Arc<RwLock<IndexerState>>>,
+                         Json(body): Json<IndexerQueryRequest>| async move {
+                            let guard = state
+                                .read()
+                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                            if body.leaf_index != guard.leaf_index {
+                                return Err(StatusCode::NOT_FOUND);
+                            }
+                            Ok::<_, StatusCode>(Json(proof_pubkeys_response(&guard.proof)))
                         },
                     ),
                 )
