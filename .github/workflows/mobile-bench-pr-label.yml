@@ -1,0 +1,18 @@
+name: Mobile Bench PR Label Trigger (legacy disabled)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  disabled:
+    name: Disabled in favor of /mobench command dispatch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain trigger model
+        run: |
+          echo "Legacy label trigger is intentionally disabled."
+          echo "Use PR comment command '/mobench ...' or manual workflow_dispatch on mobile-bench-ios.yml."
