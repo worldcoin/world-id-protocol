@@ -1,0 +1,48 @@
+{
+  "owner": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "bridgeName": "WorldID Bridge",
+  "bridgeVersion": "1",
+  "rootValidityWindow": 3600,
+  "treeDepth": 30,
+  "minExpirationThreshold": 18000,
+
+  "salts": {
+    "worldIDSource": "0x0000000000000000000000000000000000000000000000000000000000000100",
+    "crossDomainWorldID": "0x0000000000000000000000000000000000000000000000000000000000000200",
+    "ownedGateway": "0x0000000000000000000000000000000000000000000000000000000000000300",
+    "l1Gateway": "0x0000000000000000000000000000000000000000000000000000000000000400",
+    "zkGateway": "0x0000000000000000000000000000000000000000000000000000000000000500",
+    "verifier": "0x0000000000000000000000000000000000000000000000000000000000000600"
+  },
+
+  "worldchain": {
+    "chainId": 480,
+    "rpc": "http://127.0.0.1:8545",
+    "alchemySlug": "worldchain-mainnet",
+    "registry": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "issuerRegistry": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "oprfRegistry": "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
+  },
+
+  "networkOrder": ["ethereum", "op"],
+
+  "ethereum": {
+    "chainId": 1,
+    "rpc": "http://127.0.0.1:8546",
+    "alchemySlug": "eth-mainnet",
+    "verifier": "0x0000000000000000000000000000000000000000",
+    "l1Gateway": {
+      "disputeGameFactory": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+      "requireFinalized": false
+    },
+    "ownedGateway": {}
+  },
+
+  "op": {
+    "chainId": 10,
+    "rpc": "http://127.0.0.1:8547",
+    "alchemySlug": "opt-mainnet",
+    "verifier": "0x0000000000000000000000000000000000000000",
+    "ownedGateway": {}
+  }
+}

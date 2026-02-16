@@ -106,7 +106,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual onlyProxy onlyInitialized {
-        this._verifyProofAndSignals(
+        verifyProofAndSignals(
             nullifier,
             action,
             rpId,
@@ -133,7 +133,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256[2] calldata sessionNullifier,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual onlyProxy onlyInitialized {
-        this._verifyProofAndSignals(
+        verifyProofAndSignals(
             sessionNullifier[0],
             sessionNullifier[1],
             rpId,
@@ -148,7 +148,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     }
 
     /// @inheritdoc IWorldIDVerifier
-    function _verifyProofAndSignals(
+    function verifyProofAndSignals(
         uint256 nullifier,
         uint256 action,
         uint64 rpId,
@@ -159,7 +159,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256 credentialGenesisIssuedAtMin,
         uint256 sessionId,
         uint256[5] calldata zeroKnowledgeProof
-    ) external view virtual onlyProxy onlyInitialized {
+    ) public view virtual onlyProxy onlyInitialized {
         uint256 worldIdRegistryMerkleRoot = zeroKnowledgeProof[4];
         if (!_worldIDRegistry.isValidRoot(worldIdRegistryMerkleRoot)) {
             revert InvalidMerkleRoot();
@@ -207,14 +207,17 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         _verifier.verifyCompressedProof(groth16CompressedProof, pubSignals);
     }
 
+    /// @inheritdoc IWorldIDVerifier
     function getCredentialSchemaIssuerRegistry() external view virtual onlyProxy onlyInitialized returns (address) {
         return address(_credentialSchemaIssuerRegistry);
     }
 
+    /// @inheritdoc IWorldIDVerifier
     function getWorldIDRegistry() external view virtual onlyProxy onlyInitialized returns (address) {
         return address(_worldIDRegistry);
     }
 
+    /// @inheritdoc IWorldIDVerifier
     function getOprfKeyRegistry() external view virtual onlyProxy onlyInitialized returns (address) {
         return address(_oprfKeyRegistry);
     }
@@ -238,6 +241,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
     //                    OWNER FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
+    /// @inheritdoc IWorldIDVerifier
     function updateCredentialSchemaIssuerRegistry(address newCredentialSchemaIssuerRegistry)
         external
         virtual
@@ -251,6 +255,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         emit CredentialSchemaIssuerRegistryUpdated(oldCredentialSchemaIssuerRegistry, newCredentialSchemaIssuerRegistry);
     }
 
+    /// @inheritdoc IWorldIDVerifier
     function updateWorldIDRegistry(address newWorldIDRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newWorldIDRegistry == address(0)) revert ZeroAddress();
         address oldWorldIDRegistry = address(_worldIDRegistry);
@@ -259,6 +264,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         emit WorldIDRegistryUpdated(oldWorldIDRegistry, newWorldIDRegistry);
     }
 
+    /// @inheritdoc IWorldIDVerifier
     function updateOprfKeyRegistry(address newOprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newOprfKeyRegistry == address(0)) revert ZeroAddress();
         address oldOprfKeyRegistry = address(_oprfKeyRegistry);
@@ -266,6 +272,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, newOprfKeyRegistry);
     }
 
+    /// @inheritdoc IWorldIDVerifier
     function updateVerifier(address newVerifier) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newVerifier == address(0)) revert ZeroAddress();
         address oldVerifier = address(_verifier);
@@ -273,6 +280,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         emit VerifierUpdated(oldVerifier, newVerifier);
     }
 
+    /// @inheritdoc IWorldIDVerifier
     function updateMinExpirationThreshold(uint64 newMinExpirationThreshold)
         external
         virtual

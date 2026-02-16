@@ -1,33 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {Verifier} from "@world-id/Verifier.sol";
+import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
+
 /**
- * @title IWorldIDVerifier
+ * @title IWorldID
  * @author World Contributors
  * @notice Interface for verifying World ID proofs (Uniqueness and Session proofs).
  * @dev In addition to verifying the Groth16 Proof, it verifies relevant public inputs to the
  *  circuits through checks with the WorldIDRegistry, CredentialSchemaIssuerRegistry, and OprfKeyRegistry.
  */
-interface IWorldIDVerifier {
-    ////////////////////////////////////////////////////////////
-    //                        ERRORS                          //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Thrown when the credential minimum expiration constraint is too old. A new proof should be requested with a fresher expiration.
-     */
-    error ExpirationTooOld();
-
-    /**
-     * @dev Thrown when the provided Merkle root is not valid in the `WorldIDRegistry`.
-     */
-    error InvalidMerkleRoot();
-
-    /**
-     * @dev Thrown when the credential issuer schema ID is not registered in the `CredentialSchemaIssuerRegistry`.
-     */
-    error UnregisteredIssuerSchemaId();
-
+interface IWorldID {
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
@@ -169,73 +153,34 @@ interface IWorldIDVerifier {
         uint256[5] calldata zeroKnowledgeProof
     ) external view;
 
-    ////////////////////////////////////////////////////////////
-    //                    OWNER FUNCTIONS                     //
-    ////////////////////////////////////////////////////////////
-
     /**
-     * @notice Updates the credential schema issuer registry address.
-     * @param newCredentialSchemaIssuerRegistry The new credential schema issuer registry address.
+     * @notice Checks if a given Merkle root is valid in the `WorldIDRegistry`.
+     * @param root The Merkle root to check for validity.
+     * @return True if the root is valid, false otherwise.
      */
-    function updateCredentialSchemaIssuerRegistry(address newCredentialSchemaIssuerRegistry) external;
-
-    /**
-     * @notice Updates the World ID registry address.
-     * @param newWorldIDRegistry The new World ID registry address.
-     */
-    function updateWorldIDRegistry(address newWorldIDRegistry) external;
-
-    /**
-     * @notice Updates the OPRF key registry address.
-     * @param newOprfKeyRegistry The new OPRF key registry address.
-     */
-    function updateOprfKeyRegistry(address newOprfKeyRegistry) external;
-
-    /**
-     * @notice Updates the Verifier address.
-     * @param newVerifier The new verifier address.
-     */
-    function updateVerifier(address newVerifier) external;
-
-    /**
-     * @notice Updates the minimum expiration threshold.
-     * @param newMinExpirationThreshold The new minimum expiration threshold value in seconds.
-     */
-    function updateMinExpirationThreshold(uint64 newMinExpirationThreshold) external;
-
-    /**
-     * @notice Returns the credential schema issuer registry address.
-     * @return The address of the CredentialSchemaIssuerRegistry contract.
-     */
-    function getCredentialSchemaIssuerRegistry() external view returns (address);
-
-    /**
-     * @notice Returns the World ID registry address.
-     * @return The address of the WorldIDRegistry contract.
-     */
-    function getWorldIDRegistry() external view returns (address);
-
-    /**
-     * @notice Returns the OPRF key registry address.
-     * @return The address of the OprfKeyRegistry contract.
-     */
-    function getOprfKeyRegistry() external view returns (address);
+    function isValidRoot(uint256 root) external view returns (bool);
 
     /**
      * @notice Returns the verifier contract address.
      * @return The address of the Verifier contract.
      */
-    function getVerifier() external view returns (address);
+    function VERIFIER() external view returns (Verifier);
 
     /**
      * @notice Returns the minimum expiration threshold.
      * @return The minimum expiration threshold in seconds.
      */
-    function getMinExpirationThreshold() external view returns (uint256);
+    function MIN_EXPIRATION_THRESHOLD() external view returns (uint64);
+
+    /**
+     * @notice Returns the root validity window.
+     * @return The root validity window in seconds.
+     */
+    function ROOT_VALIDITY_WINDOW() external view returns (uint256);
 
     /**
      * @notice Returns the tree depth.
      * @return The depth of the Merkle tree in WorldIDRegistry.
      */
-    function getTreeDepth() external view returns (uint256);
+    function TREE_DEPTH() external view returns (uint256);
 }

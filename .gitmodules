@@ -13,3 +13,18 @@
 [submodule "contracts/lib/oprf-key-registry"]
 	path = contracts/lib/oprf-key-registry
 	url = https://github.com/TaceoLabs/oprf-key-registry
+[submodule "bridge/contracts/lib/optimism"]
+	path = bridge/contracts/lib/optimism
+	url = https://github.com/ethereum-optimism/optimism
+[submodule "bridge/contracts/lib/openzeppelin-contracts"]
+	path = bridge/contracts/lib/openzeppelin-contracts
+	url = https://github.com/openzeppelin/openzeppelin-contracts
+[submodule "bridge/contracts/lib/openzeppelin-contracts-upgradeable"]
+	path = bridge/contracts/lib/openzeppelin-contracts-upgradeable
+	url = https://github.com/openzeppelin/openzeppelin-contracts-upgradeable
+[submodule "bridge/contracts/lib/nitro-contracts"]
+	path = bridge/contracts/lib/nitro-contracts
+	url = https://github.com/OffchainLabs/nitro-contracts
+[submodule "bridge/contracts/lib/scroll-contracts"]
+	path = bridge/contracts/lib/scroll-contracts
+	url = https://github.com/scroll-tech/scroll-contracts
