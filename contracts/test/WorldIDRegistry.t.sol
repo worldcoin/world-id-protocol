@@ -417,7 +417,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             recoveredCommitment,
             recoverySignature,
-            emptyProof(),
             recoverNonce
         );
 
@@ -432,7 +431,6 @@ contract WorldIDRegistryTest is Test {
         assertEq(worldIDRegistry.getRecoveryCounter(leafIndex), 1);
         assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 0);
 
-        uint256[] memory proof = emptyProof();
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedRecoveryCounter.selector, leafIndex, 1, 0));
         worldIDRegistry.removeAuthenticator(
             leafIndex,
@@ -442,7 +440,6 @@ contract WorldIDRegistryTest is Test {
             recoveredCommitment,
             removeCommitment,
             removeSignature,
-            proof,
             removeNonce
         );
     }
