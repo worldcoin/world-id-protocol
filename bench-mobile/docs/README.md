@@ -23,7 +23,7 @@ cargo-mobench run \
   --function bench_mobile::bench_nullifier_proving_only \
   --iterations 30 \
   --warmup 5 \
-  --config bench-config.ios.toml \
+  --config bench-mobile/bench-config.ios.toml \
   --release \
   --fetch \
   --summary-csv \
@@ -31,3 +31,12 @@ cargo-mobench run \
 ```
 
 Note: `warmup` is an iteration count (not milliseconds).
+
+Config and matrix templates live in:
+
+- `bench-mobile/bench-config.toml`
+- `bench-mobile/bench-config.ios.toml`
+- `bench-mobile/bench-config.android.toml`
+- `bench-mobile/device-matrix.yaml`
+- `bench-mobile/device-matrix.ios.low-spec.yaml`
+- `bench-mobile/device-matrix.android.low-spec.yaml`

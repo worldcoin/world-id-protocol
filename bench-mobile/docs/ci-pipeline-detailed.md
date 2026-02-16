@@ -133,7 +133,7 @@ High-level steps:
 4. Setup Rust + iOS targets.
 5. Install XcodeGen and local `cargo-mobench`.
 6. Resolve iOS device from BrowserStack device list (profile/custom logic).
-7. Write runtime iOS config (`bench-config.ios.runtime*.toml`).
+7. Write runtime iOS config (`bench-mobile/bench-config.ios.runtime*.toml`).
 8. Build iOS BrowserStack artifacts:
 - `target/mobench/ios/BenchRunner.ipa`
 - `target/mobench/ios/BenchRunnerUITests.zip`
@@ -142,7 +142,7 @@ High-level steps:
 - `target/mobench/ci/ios/*.json`
 - `target/mobench/ci/ios/*.csv`
 - `target/browserstack/**`
-- `bench-config.ios.runtime*.toml`
+- `bench-mobile/bench-config.ios.runtime*.toml`
 
 ## 5.2 Android job (`android-browserstack`)
 
@@ -153,13 +153,13 @@ High-level steps:
 4. Setup Rust + Android SDK/NDK and required targets.
 5. Install local `cargo-mobench`.
 6. Resolve Android device from BrowserStack device list (profile/custom logic).
-7. Write runtime Android config (`bench-config.android.runtime*.toml`).
+7. Write runtime Android config (`bench-mobile/bench-config.android.runtime*.toml`).
 8. Run selected benchmarks (`proof_scope` + `modes` selection).
 9. Upload Android artifacts:
 - `target/mobench/ci/android/*.json`
 - `target/mobench/ci/android/*.csv`
 - `target/browserstack/**`
-- `bench-config.android.runtime*.toml`
+- `bench-mobile/bench-config.android.runtime*.toml`
 
 ## 5.3 Benchmark selection mechanics
 

@@ -397,7 +397,7 @@ jobs:
           PY
 
       - name: Write runtime iOS config
-        working-directory: world-id-protocol
+        working-directory: world-id-protocol/bench-mobile
         env:
           IOS_DEVICE_NAME: ${{ steps.resolve_ios.outputs.device_name }}
           IOS_OS_VERSION: ${{ steps.resolve_ios.outputs.os_version }}
@@ -453,7 +453,7 @@ jobs:
           test -f target/mobench/ios/BenchRunnerUITests.zip
 
       - name: Run iOS benchmark matrix
-        working-directory: world-id-protocol
+        working-directory: world-id-protocol/bench-mobile
         env:
           PROOF_SCOPE: ${{ inputs.proof_scope }}
           BENCH_MODES: ${{ inputs.modes }}
@@ -577,7 +577,7 @@ jobs:
             world-id-protocol/target/mobench/ci/ios/*.json
             world-id-protocol/target/mobench/ci/ios/*.csv
             world-id-protocol/target/browserstack/**
-            world-id-protocol/bench-config.ios.runtime*.toml
+            world-id-protocol/bench-mobile/bench-config.ios.runtime*.toml
 
   android-browserstack:
     name: Android BrowserStack benchmark
@@ -787,7 +787,7 @@ jobs:
           PY
 
       - name: Write runtime Android config
-        working-directory: world-id-protocol
+        working-directory: world-id-protocol/bench-mobile
         env:
           ANDROID_DEVICE_NAME: ${{ steps.resolve_android.outputs.device_name }}
           ANDROID_OS_VERSION: ${{ steps.resolve_android.outputs.os_version }}
@@ -830,7 +830,7 @@ jobs:
           PY
 
       - name: Run Android benchmark matrix
-        working-directory: world-id-protocol
+        working-directory: world-id-protocol/bench-mobile
         env:
           PROOF_SCOPE: ${{ inputs.proof_scope }}
           BENCH_MODES: ${{ inputs.modes }}
@@ -956,7 +956,7 @@ jobs:
             world-id-protocol/target/mobench/ci/android/*.json
             world-id-protocol/target/mobench/ci/android/*.csv
             world-id-protocol/target/browserstack/**
-            world-id-protocol/bench-config.android.runtime*.toml
+            world-id-protocol/bench-mobile/bench-config.android.runtime*.toml
 
   summarize:
     name: Summarize mobench results

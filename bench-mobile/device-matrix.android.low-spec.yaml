@@ -1,0 +1,5 @@
+devices:
+  - name: "Google Pixel 6-12"
+    os: "android"
+    os_version: "12"
+    tags: ["low-spec", "android"]

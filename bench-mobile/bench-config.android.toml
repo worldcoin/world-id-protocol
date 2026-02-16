@@ -1,0 +1,11 @@
+target = "android"
+function = "bench_mobile::bench_nullifier_proving_only"
+iterations = 30
+warmup = 5
+device_matrix = "bench-mobile/device-matrix.android.low-spec.yaml"
+device_tags = ["low-spec"]
+
+[browserstack]
+app_automate_username = "${BROWSERSTACK_USERNAME}"
+app_automate_access_key = "${BROWSERSTACK_ACCESS_KEY}"
+project = "mobile-bench-rs"
