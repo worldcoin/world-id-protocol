@@ -10,14 +10,11 @@ target/
 **/contracts/test/fixtures/e2e_mpt/
 
 # Ignore local deployment because it changes every run
-
-bridge/contracts/deployments/local.json
-bridge/contracts/script/config/local.json
-
 bridge/contracts/deployments/local.json
 bridge/contracts/out/
 bridge/contracts/cache/
 bridge/contracts/test/fixtures/e2e_mpt/
+
 
 # Node (if used later)
 node_modules/
