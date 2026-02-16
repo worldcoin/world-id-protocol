@@ -1,7 +1,13 @@
 name: "Validate PR"
 
 on:
-  workflow_dispatch:
+  # for forks, it'll take the config of the target branch (i.e. `main`)
+  # reference: <https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request_target>
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
 
 permissions:
   pull-requests: read

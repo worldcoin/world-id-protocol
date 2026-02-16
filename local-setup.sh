@@ -36,19 +36,19 @@ wait_for_health() {
 
 deploy_contracts() {
     # deploy ERC20Mock as fee token
-    (cd contracts && forge script script/ERC20Mock.s.sol:DeployScript --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
+    (cd contracts && forge script script/ERC20Mock.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
     erc20_mock=$(jq -r '.transactions[] | select(.contractName == "ERC20Mock") | .contractAddress' ./contracts/broadcast/ERC20Mock.s.sol/31337/run-latest.json)
     echo "ERC20Mock: $erc20_mock"
 
     # deploy OprfKeyRegistry for 3 nodes and register anvil wallets 7,8,9 as participants
-    (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 THRESHOLD=2 NUM_PEERS=3 forge script lib/oprf-key-registry/script/deploy/OprfKeyRegistryWithDeps.s.sol:DeployOprfKeyRegistryWithDepsScript --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
+    (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 THRESHOLD=2 NUM_PEERS=3 forge script lib/oprf-key-registry/script/deploy/OprfKeyRegistryWithDeps.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
     # this should stay constant unless the contract changes, is also hardcoded in contracts/script/config/local.json
     oprf_key_registry=$(jq -r '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./contracts/broadcast/OprfKeyRegistryWithDeps.s.sol/31337/run-latest.json)
-    (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry PARTICIPANT_ADDRESSES=0x14dC79964da2C08b23698B3D3cc7Ca32193d9955,0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f,0xa0Ee7A142d267C1f36714E4a8F75612F20a79720 forge script lib/oprf-key-registry/script/RegisterParticipants.s.sol:RegisterParticipantScript --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
+    (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry PARTICIPANT_ADDRESSES=0x14dC79964da2C08b23698B3D3cc7Ca32193d9955,0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f,0xa0Ee7A142d267C1f36714E4a8F75612F20a79720 forge script lib/oprf-key-registry/script/RegisterParticipants.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
     echo "OprfKeyRegistry: $oprf_key_registry"
 
     # deploy all other contracts
-    (cd contracts && forge script script/Deploy.s.sol:Deploy --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
+    (cd contracts && forge script script/Deploy.s.sol --tc Deploy --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
     world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
     echo "WorldIDRegistry: $world_id_registry"
     rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
@@ -57,8 +57,8 @@ deploy_contracts() {
     echo "CredentialSchemaIssuerRegistry: $credential_schema_issuer_registry"
 
     # register RpRegistry and CredentialSchemaIssuerRegistry as OPRF key-gen admins
-    (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$rp_registry forge script lib/oprf-key-registry/script/RegisterKeyGenAdmin.s.sol:RevokeKeyGenAdminScript --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
-    (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$credential_schema_issuer_registry forge script lib/oprf-key-registry/script/RegisterKeyGenAdmin.s.sol:RevokeKeyGenAdminScript --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
+    (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$rp_registry forge script lib/oprf-key-registry/script/RegisterKeyGenAdmin.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
+    (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$credential_schema_issuer_registry forge script lib/oprf-key-registry/script/RegisterKeyGenAdmin.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
 }
 
 start_node() {

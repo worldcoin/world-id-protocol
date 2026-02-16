@@ -33,7 +33,7 @@ const GW_PORT: u16 = 4104;
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
     let mut rng = rand::thread_rng();
-    rustls::crypto::ring::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
 

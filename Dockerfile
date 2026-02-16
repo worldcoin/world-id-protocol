@@ -22,7 +22,6 @@ RUN apt-get update && apt-get install -y \
 # Set RUSTUP_TMP to avoid "Invalid cross-device link" errors in Docker
 # This ensures rustup's temp directory is on the same filesystem as RUSTUP_HOME
 ENV RUSTUP_TMP=/root/.rustup/tmp
-ENV RUSTUP_PERMIT_COPY_RENAME=1
 
 # Remove the pre-installed toolchain and add the MUSL target
 RUN mkdir -p $RUSTUP_TMP \

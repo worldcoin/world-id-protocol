@@ -25,7 +25,7 @@ fn install_tracing() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    rustls::crypto::ring::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");
     install_tracing();

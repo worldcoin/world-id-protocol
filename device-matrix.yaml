@@ -1,5 +1,0 @@
-devices:
-  - name: "iPhone 15-17.3"
-    os: "ios"
-    os_version: "17.3"
-    tags: ["default", "iphone"]
