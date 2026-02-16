@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Lib} from "@lib-core/Lib.sol";
 import {WorldIDGateway} from "@lib-core/Gateway.sol";
-import "../../Error.sol";
+import "../Error.sol";
 
 /// @title PermissionedGatewayAdapter
 /// @author World Contributors

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC7786GatewaySource, IERC7786Recipient} from "@openzeppelin/contracts/interfaces/draft-IERC7786.sol";
 import {InteroperableAddress} from "openzeppelin-contracts/contracts/utils/draft-InteroperableAddress.sol";
-import {IGateway} from "../interfaces/IGateway.sol";
+import {IGateway} from "../types/IGateway.sol";
 import "../Error.sol";
 
 /// @title Gateway
@@ -25,13 +25,13 @@ abstract contract WorldIDGateway is IGateway {
         keccak256("zkProofGatewayAttributes(bytes,uint256,bytes32,bytes32,uint256,bytes32,bytes32,bytes[],bytes[])")
     );
 
-    /// @notice The WorldIDBridge (destination) contract on this chain.
+    /// @notice The Destination Bridge address.
     address public immutable STATE_BRIDGE;
 
-    /// @notice The Source Bridge address.
+    /// @notice The Bridge which the Satellite should use as the source of truth.
     address public immutable ANCHOR_BRIDGE;
 
-    /// @notice The World Chain chain ID.
+    /// @notice The Chain ID which the Destination should use to verify provided proofs/attestations.
     uint256 public immutable ANCHOR_CHAIN_ID;
 
     /// @dev Counter for generating unique receiveIds for ERC-7786 delivery.

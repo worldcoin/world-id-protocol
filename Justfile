@@ -1,76 +1,33 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# World ID Protocol — Root Justfile
-#
-# Forwards to subdirectory Justfiles.
-# ──────────────────────────────────────────────────────────────────────────────
+# smart contract utilities
 
-set dotenv-load := true
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
 set positional-arguments
 
-bridge_dir := "bridge/contracts"
+set dotenv-filename := "bridge/contracts/script/.env"
 
-# Install dependencies (git submodules)
-install:
-    git submodule update --init --recursive
+ROOT          := justfile_directory()
+CONTRACTS_DIR := ROOT / "contracts"
+BRIDGE_DIR    := ROOT / "bridge" / "contracts"
+DEPLOY_DIR    := CONTRACTS_DIR / "deployments"
+ENV           := env("DEPLOY_ENV", "staging")
 
-# ── Bridge ────────────────────────────────────────────────────────────────────
+# Local dev defaults (overridden by .env or shell env vars)
+PRIVATE_KEY   := env("PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+WC_PORT       := "18545"
+ETH_PORT      := "18546"
+WC_RPC        := env("WC_RPC", "http://localhost:" + WC_PORT)
+ETH_RPC       := env("ETH_RPC", "http://localhost:" + ETH_PORT)
 
-# Deploy all bridge contracts
-deploy-all *args='':
-    just --justfile {{ bridge_dir }}/Justfile deploy-all {{ args }}
+# Semver from git tags
+RELEASE_PREFIX := env('RELEASE_PREFIX', 'world-id-core-')
+_TAG           := shell("git tag --list \"${1}v*\" --sort=-v:refname 2>/dev/null | head -1 || true", RELEASE_PREFIX)
+VERSION        := if _TAG != "" { trim_start_match(trim_start_match(_TAG, RELEASE_PREFIX), "v") } else { "0.0.0" }
 
-# Deploy a single destination chain
-deploy-chain *args='':
-    just --justfile {{ bridge_dir }}/Justfile deploy-chain {{ args }}
+import 'bridge/contracts/Justfile'
 
-# Dry-run bridge deployment
-dry-run *args='':
-    just --justfile {{ bridge_dir }}/Justfile dry-run {{ args }}
+import 'justfiles/deploy.just'
+import 'justfiles/forge.just'
 
-# Show bridge deployment status
-status *args='':
-    just --justfile {{ bridge_dir }}/Justfile status {{ args }}
+alias t := test
 
-# Verify bridge contracts on block explorer
-verify *args='':
-    just --justfile {{ bridge_dir }}/Justfile verify {{ args }}
-
-# Authorize a gateway on a satellite
-authorize-gateway *args='':
-    just --justfile {{ bridge_dir }}/Justfile authorize-gateway {{ args }}
-
-# Revoke a gateway from a satellite
-revoke-gateway *args='':
-    just --justfile {{ bridge_dir }}/Justfile revoke-gateway {{ args }}
-
-# Transfer ownership of a bridge contract
-transfer-ownership *args='':
-    just --justfile {{ bridge_dir }}/Justfile transfer-ownership {{ args }}
-
-# Print resolved bridge env vars
-print-env *args='':
-    just --justfile {{ bridge_dir }}/Justfile print-env {{ args }}
-
-# Build bridge contracts
-build:
-    just --justfile {{ bridge_dir }}/Justfile build
-
-# Run bridge tests
-test *args='':
-    just --justfile {{ bridge_dir }}/Justfile test {{ args }}
-
-# Format bridge contracts
-fmt:
-    just --justfile {{ bridge_dir }}/Justfile fmt
-
-# Check bridge formatting
-fmt-check:
-    just --justfile {{ bridge_dir }}/Justfile fmt-check
-
-# Full bridge CI check
-check:
-    just --justfile {{ bridge_dir }}/Justfile check
-
-# Clean bridge build artifacts
-clean:
-    just --justfile {{ bridge_dir }}/Justfile clean

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IWorldID} from "@core/interfaces/IWorldID.sol";
+import {IWorldID} from "@core/types/IWorldID.sol";
 import {Lib} from "@lib-core/Lib.sol";
 import {StateBridge} from "@lib-core/StateBridge.sol";
 import {Verifier} from "@common/Common.sol";

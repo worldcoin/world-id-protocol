@@ -7,8 +7,6 @@ optimizer = true
 optimizer_runs = 10000
 via_ir = true
 ffi = true
-memory_limit = 1073741824
-gas_limit = "18446744073709551615"
 
 allow_paths = ["../../contracts/src/", "../../contracts/lib/"]
 
@@ -23,9 +21,9 @@ ignored_error_codes = [
 remappings = [
     # Cross-project imports
     "@world-id/=../../contracts/src/",
-    "@common=./src/interfaces/",
-    "@core/=./src/core/",
-    "@lib-core/=./src/core/lib/",
+    "@common=./src/types/",
+    "@core/=./src/",
+    "@lib-core/=./src/lib/",
     
     "lib/oprf-key-registry/=../../contracts/lib/oprf-key-registry/",
     "forge-std/=../../contracts/lib/forge-std/src/",
@@ -49,6 +47,7 @@ remappings = [
 
 fs_permissions = [
     { access = "read", path = "test/fixtures" },
+    { access = "read-write", path = "test/fixtures/e2e_mpt" },
     { access = "read", path = "script/config" },
     { access = "read-write", path = "deployments" },
 ]

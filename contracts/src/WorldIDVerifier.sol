@@ -106,7 +106,7 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual onlyProxy onlyInitialized {
-        this._verifyProofAndSignals(
+        verifyProofAndSignals(
             nullifier,
             action,
             rpId,

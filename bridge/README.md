@@ -20,14 +20,6 @@ World Chain                          Destination Chain
                                      └──────────────────┘
 ```
 
-### Core Contracts
-
-**`WorldIDSource`** — Deployed on World Chain. Reads state from the on-chain registries (`WorldIDRegistry`, `CredentialSchemaIssuerRegistry`, `OprfKeyRegistry`) and accumulates changes into a keccak hash chain. Anyone can call `propagateState()` to snapshot current registry state into the chain.
-
-**`WorldIDSatellite`** — Deployed on each destination chain. Receives bridged state via [ERC-7786](https://eips.ethereum.org/EIPS/eip-7786) gateways, verifies that the committed chain head matches, and applies the state updates. Exposes `verify()` for Groth16 proof verification against the bridged Merkle root.
-
-**`StateBridge`** — Abstract UUPS-upgradeable base shared by Source and Satellite. Manages the keccak hash chain accumulator, proven root/pubkey storage, and gateway authorization.
-
 ### Keccak Hash Chain
 
 State changes are batched into `Commitment[]` arrays. Each commitment is hashed into a running keccak chain:
@@ -37,18 +29,6 @@ head_{n+1} = keccak256(head_n ‖ blockHash ‖ commitmentData)
 ```
 
 The chain head is a single `bytes32` stored on-chain. Destination chains verify that a relayed set of commitments hashes to the proven chain head, ensuring integrity without replaying every historical state change.
-
-### Gateway Adapters
-
-Gateways are ERC-7786 source contracts that verify cross-chain state and deliver it to the Satellite. Each adapter implements a different trust model:
-
-| Adapter | Trust Model | Where | Status |
-|---------|------------|-------|--------|
-| **PermissionedGatewayAdapter** | Owner-attested — the adapter owner signs off on the chain head | Any chain (fallback) | ✅ |
-| **EthereumMPTGatewayAdapter** | Trustless — verifies World Chain state via OP Stack DisputeGame + MPT storage proofs against L1 | Ethereum L1 / OP Stack | ✅ |
-| **LightClientGatewayAdapter** | Trustless — verifies L1 consensus via SP1 Helios ZK proof, then MPT-proves the L1 StateBridge's chain head | L2s and non-Ethereum chains | WIP |
-
-Every destination chain gets a **PermissionedGateway** as a temporary fallback until the light client adapter is production-ready, plus a trustless adapter appropriate for that chain's position in the trust hierarchy.
 
 ### Bridging Flow
 
@@ -70,53 +50,194 @@ The bridge propagates three types of state, each identified by a commitment sele
 ```
 bridge/contracts/
 ├── src/
-│   ├── Core.sol                          # Top-level re-exports
-│   ├── interfaces/Common.sol             # Shared interface imports
-│   └── core/
-│       ├── Source.sol                     # WorldIDSource (World Chain)
-│       ├── Satellite.sol                 # WorldIDSatellite (destinations)
-│       ├── Error.sol                     # Custom errors
-│       ├── interfaces/
-│       │   ├── IStateBridge.sol          # Bridge storage and events
-│       │   ├── IGateway.sol              # Gateway interface
-│       │   └── IWorldID.sol              # Verification interface
-│       └── lib/
-│           ├── Lib.sol                   # MPT proofs, hash chain, codec
-│           ├── StateBridge.sol           # Abstract upgradeable base
-│           ├── Gateway.sol               # Abstract ERC-7786 gateway
-│           └── adapters/
-│               ├── PermissionedGatewayAdapter.sol
-│               ├── EthereumMPTGatewayAdapter.sol
-│               └── LightClientGatewayAdapter.sol
-├── test/
-│   ├── Gateway.t.sol                     # Gateway adapter tests
-│   └── Attributes.t.sol                 # Attribute encoding tests
+│   ├── Source.sol                         # WorldIDSource (World Chain)
+│   ├── Satellite.sol                      # WorldIDSatellite (destination)
+│   ├── Error.sol                          # Custom errors
+│   ├── types/
+│   │   ├── Common.sol                     # Shared types & imports
+│   │   ├── IStateBridge.sol               # Bridge storage and events
+│   │   ├── IGateway.sol                   # Gateway interface
+│   │   └── IWorldID.sol                   # Verification interface
+│   ├── lib/
+│   │   ├── Lib.sol                        # MPT proofs, hash chain, codec
+│   │   ├── StateBridge.sol                # Abstract upgradeable base
+│   │   └── Gateway.sol                    # Abstract ERC-7786 gateway
+│   └── adapters/
+│       ├── PermissionedGatewayAdapter.sol # Owner-attested
+│       ├── EthereumMPTGatewayAdapter.sol  # DisputeGame + MPT (trustless)
+│       └── LightClientGatewayAdapter.sol  # SP1 Helios ZK + MPT (trustless)
 ├── script/
-│   ├── Deploy.s.sol                      # Multi-chain deployment script
+│   ├── Deploy.s.sol                       # Multi-chain deployment script
+│   ├── E2E_MPT.s.sol                      # E2E integration test script
 │   └── config/
-│       ├── local.json                    # Local dev config
-│       └── staging.json                  # Staging config (10 chains)
-├── Justfile                              # Deployment and dev recipes
+│       ├── staging.json                   # Staging deployment config
+│       └── local.json                     # Local anvil config
+├── test/
+│   ├── Gateway.t.sol                      # Gateway unit tests
+│   ├── E2E.t.sol                          # E2E bridge tests
+│   └── Attributes.t.sol                   # ERC-7786 attribute tests
+├── deployments/
+│   └── {env}.json                         # Deployment artifacts
 └── foundry.toml
 ```
 
-## Usage
+### Quick Start
 
 ```bash
-# Build
-just build
+# 1. Copy and fill in .env (only PRIVATE_KEY + ALCHEMY_API_KEY needed)
+cp bridge/contracts/script/.env.example bridge/contracts/script/.env
 
-# Test
-just bridge-test
+# 2. Simulate deployment (no broadcast, no gas spent)
+just dry-run staging
 
-# Print resolved deployment env
-ALCHEMY_API_KEY=... just bridge-print-env staging
+# 3. Deploy for real
+just deploy staging
 
-# Dry-run deployment
-ALCHEMY_API_KEY=... PRIVATE_KEY=... just bridge-dry-run staging
-
-# Deploy
-ALCHEMY_API_KEY=... PRIVATE_KEY=... just bridge-deploy-all staging
+# 4. Check what was deployed
+just status staging
 ```
 
-See the [Justfile](contracts/Justfile) header for full recipe documentation.
+### Environment Variables
+
+Only three env vars exist. Everything else lives in the config JSON.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PRIVATE_KEY` | Yes | Deployer key (must be funded on all target chains) |
+| `ALCHEMY_API_KEY` | Yes* | Resolves per-chain RPCs via `alchemySlug` in config |
+| `ETHERSCAN_API_KEY` | For verify | Block explorer contract verification |
+| `DEPLOY_CHAINS` | No | Comma-separated filter, e.g. `ethereum,base` |
+
+\*Not required if every chain has an explicit `"rpc"` field in config.
+
+### Configuration
+
+Config files live in `bridge/contracts/script/config/{env}.json`. The default environment is `staging`.
+
+**Global parameters** apply to all chains:
+
+```jsonc
+{
+  "owner": "0x...",                      // contract owner (receives ownership after deploy)
+  "bridgeName": "WorldID Bridge",       // EIP-712 domain name
+  "bridgeVersion": "1.0.0",             // EIP-712 domain version
+  "rootValidityWindow": 3600,           // seconds a root stays valid
+  "treeDepth": 30,                      // Semaphore Merkle tree depth
+  "minExpirationThreshold": 18000,      // minimum proof expiration (seconds)
+  "salts": {                            // CREATE2 salts for deterministic addresses
+    "worldIDSource": "0x...",
+    "worldIDSatellite": "0x...",
+    "ownedGateway": "0x...",
+    "l1Gateway": "0x...",
+    "zkGateway": "0x...",
+    "verifier": "0x..."
+  }
+}
+```
+
+**World Chain** (source of truth):
+
+```jsonc
+{
+  "worldchain": {
+    "chainId": 480,
+    "alchemySlug": "worldchain-mainnet",  // or "rpc": "https://..."
+    "registry": "0x...",                  // WorldIDRegistry address
+    "issuerRegistry": "0x...",            // CredentialSchemaIssuerRegistry
+    "oprfRegistry": "0x..."               // OprfKeyRegistry
+  }
+}
+```
+
+**Destination networks** — listed in the `"networks"` array, each with its own config block:
+
+```jsonc
+{
+  "networks": ["ethereum", "base"],
+
+  "ethereum": {
+    "chainId": 1,
+    "alchemySlug": "eth-mainnet",
+    "verifier": "0x000...000",            // zero address = deploy fresh Verifier
+    "ownedGateway": {},                   // presence = deploy PermissionedGatewayAdapter
+    "l1Gateway": {                        // presence = deploy EthereumMPTGatewayAdapter
+      "disputeGameFactory": "0x...",
+      "requireFinalized": false
+    }
+  },
+
+  "base": {
+    "chainId": 8453,
+    "alchemySlug": "base-mainnet",
+    "verifier": "0x000...000",
+    "ownedGateway": {},
+    "zkGateway": {                        // presence = deploy LightClientGatewayAdapter
+      "sp1Verifier": "0x...",
+      "programVKey": "0x...",
+      "initialHead": 0,
+      "initialHeader": "0x...",
+      "initialSyncCommitteeHash": "0x..."
+    }
+  }
+}
+```
+
+### Just Recipes
+
+All commands run from the repo root. Default env is `staging`.
+
+```bash
+# ── Deploy ────────────────────────────────────────────────────
+just deploy                          # deploy all networks
+just deploy staging                  # deploy to staging env
+DEPLOY_CHAINS=ethereum just deploy   # deploy only ethereum
+
+# ── Simulate ──────────────────────────────────────────────────
+just dry-run                         # simulate without broadcasting
+
+# ── Inspect ───────────────────────────────────────────────────
+just status                          # print deployment artifact JSON
+
+# ── Verify on Block Explorers ─────────────────────────────────
+just verify worldchain               # verify WorldIDSource
+just verify ethereum                 # verify all ethereum contracts
+
+# ── Admin ─────────────────────────────────────────────────────
+just authorize ethereum 0xGATEWAY    # authorize a gateway
+just revoke ethereum 0xGATEWAY       # revoke a gateway
+just transfer ethereum 0xADDR 0xNEW  # transfer ownership
+
+# ── Testing ───────────────────────────────────────────────────
+just test                            # all tests (core + bridge + e2e)
+just test-bridge                     # bridge unit tests only
+just it                              # full multi-anvil E2E MPT test
+just it 50                           # E2E with batch size 50
+just it-all                          # E2E at batch sizes 1, 50, 100
+```
+
+### Adding a New Chain
+
+1. Add the chain config to `bridge/contracts/script/config/{env}.json`:
+   ```json
+   {
+     "networks": ["ethereum", "base", "mynewchain"],
+     "mynewchain": {
+       "chainId": 12345,
+       "alchemySlug": "mynewchain-mainnet",
+       "verifier": "0x0000000000000000000000000000000000000000",
+       "ownedGateway": {}
+     }
+   }
+   ```
+2. Ensure the deployer key is funded on the new chain.
+3. Deploy: `just deploy` (or `DEPLOY_CHAINS=mynewchain just deploy` to deploy only it).
+4. Verify: `just verify mynewchain`.
+
+### Re-deploying
+
+The deployment is idempotent — re-running `just deploy` skips contracts that already exist in the artifact file. To force a fresh deploy:
+
+1. Remove the chain's entry from `bridge/contracts/deployments/{env}.json`
+2. Run `just deploy` again
+
+To redeploy everything, delete the entire artifact file.

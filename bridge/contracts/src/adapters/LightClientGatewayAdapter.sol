@@ -3,10 +3,10 @@ pragma solidity ^0.8.28;
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {ISP1Verifier} from "@optimism-bedrock/src/dispute/zk/ISP1Verifier.sol";
-import {Lib} from "../Lib.sol";
-import {WorldIDGateway} from "../Gateway.sol";
-import {STATE_BRIDGE_STORAGE_SLOT} from "../StateBridge.sol";
-import "../../Error.sol";
+import {Lib} from "@lib-core/Lib.sol";
+import {WorldIDGateway} from "@lib-core/Gateway.sol";
+import {STATE_BRIDGE_STORAGE_SLOT} from "@lib-core/StateBridge.sol";
+import "../Error.sol";
 
 /// @notice Emitted when the light client state is advanced via a verified ZK proof.
 event LightClientUpdated(uint256 indexed slot, bytes32 executionStateRoot);
@@ -45,40 +45,13 @@ struct ProofOutputs {
 
 /// @title LightClientGatewayAdapter
 /// @author World Contributors
-/// @notice Trustless verification adapter that verifies SP1 Helios ZK proofs of Ethereum consensus
-///   inline during relay. Verification pipeline:
-///
-///   1. Reconstruct ProofOutputs from on-chain state + relayer-provided new values
-///   2. Verify SP1 proof against reconstructed public values (binds proof to on-chain state)
-///   3. MPT prove L1 StateBridge's keccak chain head from the verified L1 state root
-///
-/// @dev Trust model:
-///   - L1 consensus: ZK-proven (trustless — BLS signature verification via ZK proof)
-///   - L1 StateBridge state: Proven via MPT against the ZK-verified L1 state root
-///   - Chain head authenticity: The L1 StateBridge already verified WC state via DisputeGame + MPT
-///     before committing the chain head, so this adapter inherits that trust transitively
-///
-/// @dev Light client state management:
-///   The adapter maintains minimal beacon chain state for incremental proof chaining:
-///   - `headers[slot]`: Beacon block header hash for each proven slot
-///   - `syncCommitteeHashes[period]`: Hash of the sync committee for each period
-///   - `head`: Latest verified slot
-///   Each proof must chain from the current on-chain state — the contract reconstructs the
-///   ProofOutputs struct with `prevHeader`, `prevHead`, and `prevSyncCommitteeHash` from its own
-///   storage, ensuring continuity.
+/// @notice Trustless verification adapter that verifies SP1 Helios ZK proofs of Ethereum consensus.
+/// NOTE: WIP
 contract LightClientGatewayAdapter is WorldIDGateway, Ownable {
     using Lib for *;
 
-    ////////////////////////////////////////////////////////////
-    //                       CONSTANTS                        //
-    ////////////////////////////////////////////////////////////
-
     /// @dev Number of slots per sync committee period (8192 slots = ~27 hours).
     uint256 internal constant SLOTS_PER_PERIOD = 8192;
-
-    ////////////////////////////////////////////////////////////
-    //                         STATE                          //
-    ////////////////////////////////////////////////////////////
 
     /// @notice The SP1 verifier gateway contract (e.g. Succinct's SP1VerifierGateway).
     ISP1Verifier public verifier;
@@ -94,10 +67,6 @@ contract LightClientGatewayAdapter is WorldIDGateway, Ownable {
 
     /// @notice Hash of the sync committee for each period.
     mapping(uint256 => bytes32) public syncCommitteeHashes;
-
-    ////////////////////////////////////////////////////////////
-    //                      CONSTRUCTOR                       //
-    ////////////////////////////////////////////////////////////
 
     /// @param owner_ The owner who can update verifier and vkey addresses.
     /// @param verifier_ The SP1 verifier gateway address.
@@ -126,10 +95,6 @@ contract LightClientGatewayAdapter is WorldIDGateway, Ownable {
         headers[initialHead_] = initialHeader_;
         syncCommitteeHashes[initialHead_ / SLOTS_PER_PERIOD] = initialSyncCommitteeHash_;
     }
-
-    ////////////////////////////////////////////////////////////
-    //                     ERC-7786 SOURCE                    //
-    ////////////////////////////////////////////////////////////
 
     /// @inheritdoc WorldIDGateway
     function supportsAttribute(bytes4 selector) public view virtual override returns (bool) {

@@ -8,7 +8,7 @@ import {GameStatus, Claim, GameType} from "@optimism-bedrock/src/dispute/lib/Typ
 import {Lib} from "@lib-core/Lib.sol";
 import "@lib-core/StateBridge.sol";
 import {WorldIDGateway} from "@lib-core/Gateway.sol";
-import "../../Error.sol";
+import "../Error.sol";
 
 /// @title EthereumMPTGatewayAdapter
 /// @author World Contributors

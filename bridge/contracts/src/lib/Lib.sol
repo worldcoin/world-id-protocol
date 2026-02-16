@@ -33,16 +33,6 @@ library Lib {
     /// @dev Number of fields in an RLP-encoded account (nonce, balance, storageRoot, codeHash).
     uint256 internal constant ACCOUNT_RLP_FIELD_COUNT = 4;
 
-    /// @dev Selector for `updateRoot(uint256,uint256,bytes32)`.
-    bytes4 internal constant UPDATE_ROOT_SELECTOR = bytes4(keccak256("updateRoot(uint256,uint256,bytes32)"));
-
-    /// @dev Selector for `setIssuerPubkey(uint64,uint256,uint256,bytes32)`.
-    bytes4 internal constant SET_ISSUER_PUBKEY_SELECTOR =
-        bytes4(keccak256("setIssuerPubkey(uint64,uint256,uint256,bytes32)"));
-
-    /// @dev Selector for `setOprfKey(uint160,uint256,uint256,bytes32)`.
-    bytes4 internal constant SET_OPRF_KEY_SELECTOR = bytes4(keccak256("setOprfKey(uint160,uint256,uint256,bytes32)"));
-
     /// @dev Appends multiple commitments to the storage chain. Reads storage once at the start
     ///   and writes the final head + length once at the end (2 SSTOREs total, regardless of N).
     function commitChained(Chain storage chain, Commitment[] memory commitments) internal {

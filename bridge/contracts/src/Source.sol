@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {ICredentialSchemaIssuerRegistry, IWorldIDRegistry, OprfKeyRegistry, OprfKeyGen} from "@common/Common.sol";
 import {IERC7786GatewaySource} from "@openzeppelin/contracts/interfaces/draft-IERC7786.sol";
-import {IStateBridge} from "@core/interfaces/IStateBridge.sol";
+import {IStateBridge} from "@core/types/IStateBridge.sol";
 import {Lib} from "@lib-core/Lib.sol";
 import {StateBridge} from "@lib-core/StateBridge.sol";
 import {ZeroAddress, NothingChanged} from "./Error.sol";
@@ -19,22 +19,22 @@ contract WorldIDSource is StateBridge {
     uint8 public constant override VERSION = 1;
 
     /// @notice The WorldIDRegistry contract on World Chain.
-    IWorldIDRegistry public immutable WC_REGISTRY;
+    IWorldIDRegistry internal immutable WORLD_CHAIN_REGISTRY;
 
     /// @notice The CredentialSchemaIssuerRegistry contract on World Chain.
-    ICredentialSchemaIssuerRegistry public immutable WC_ISSUER_REGISTRY;
+    ICredentialSchemaIssuerRegistry internal immutable WORLD_CHAIN_ISSUER_REGISTRY;
 
     /// @notice The OprfKeyRegistry contract on World Chain.
-    OprfKeyRegistry public immutable WC_OPRF_REGISTRY;
+    OprfKeyRegistry internal immutable WORLD_CHAIN_OPRF_REGISTRY;
 
     constructor(address worldChainRegistry, address worldChainIssuerRegistry, address worldChainOprfRegistry) {
         if (worldChainRegistry == address(0)) revert ZeroAddress();
         if (worldChainIssuerRegistry == address(0)) revert ZeroAddress();
         if (worldChainOprfRegistry == address(0)) revert ZeroAddress();
 
-        WC_REGISTRY = IWorldIDRegistry(worldChainRegistry);
-        WC_ISSUER_REGISTRY = ICredentialSchemaIssuerRegistry(worldChainIssuerRegistry);
-        WC_OPRF_REGISTRY = OprfKeyRegistry(worldChainOprfRegistry);
+        WORLD_CHAIN_REGISTRY = IWorldIDRegistry(worldChainRegistry);
+        WORLD_CHAIN_ISSUER_REGISTRY = ICredentialSchemaIssuerRegistry(worldChainIssuerRegistry);
+        WORLD_CHAIN_OPRF_REGISTRY = OprfKeyRegistry(worldChainOprfRegistry);
 
         _disableInitializers();
     }
@@ -85,11 +85,10 @@ contract WorldIDSource is StateBridge {
         view
         returns (uint256)
     {
-        uint256 root = WC_REGISTRY.getLatestRoot();
+        uint256 root = WORLD_CHAIN_REGISTRY.getLatestRoot();
         if (root != LATEST_ROOT()) {
             commits[count++] = Lib.Commitment({
-                blockHash: blockHash,
-                data: abi.encodeWithSelector(Lib.UPDATE_ROOT_SELECTOR, root, block.timestamp, proofId)
+                blockHash: blockHash, data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, root, block.timestamp, proofId)
             });
         }
         return count;
@@ -105,13 +104,13 @@ contract WorldIDSource is StateBridge {
     ) internal view returns (uint256) {
         for (uint256 i; i < issuerSchemaIds.length; ++i) {
             uint64 id = issuerSchemaIds[i];
-            ICredentialSchemaIssuerRegistry.Pubkey memory key = WC_ISSUER_REGISTRY.issuerSchemaIdToPubkey(id);
+            ICredentialSchemaIssuerRegistry.Pubkey memory key = WORLD_CHAIN_ISSUER_REGISTRY.issuerSchemaIdToPubkey(id);
             ProvenPubKeyInfo memory stored = issuerSchemaIdToPubkeyAndProofId(id);
 
             if (key.x != stored.pubKey.x || key.y != stored.pubKey.y) {
                 commits[count++] = Lib.Commitment({
                     blockHash: blockHash,
-                    data: abi.encodeWithSelector(Lib.SET_ISSUER_PUBKEY_SELECTOR, id, key.x, key.y, proofId)
+                    data: abi.encodeWithSelector(SET_ISSUER_PUBKEY_SELECTOR, id, key.x, key.y, proofId)
                 });
             }
         }
@@ -128,13 +127,13 @@ contract WorldIDSource is StateBridge {
     ) internal view returns (uint256) {
         for (uint256 i; i < oprfKeyIds.length; ++i) {
             uint160 id = oprfKeyIds[i];
-            OprfKeyGen.RegisteredOprfPublicKey memory key = WC_OPRF_REGISTRY.getOprfPublicKeyAndEpoch(id);
+            OprfKeyGen.RegisteredOprfPublicKey memory key = WORLD_CHAIN_OPRF_REGISTRY.getOprfPublicKeyAndEpoch(id);
             ProvenPubKeyInfo memory stored = oprfKeyIdToPubkeyAndProofId(id);
 
             if (key.key.x != stored.pubKey.x || key.key.y != stored.pubKey.y) {
                 commits[count++] = Lib.Commitment({
                     blockHash: blockHash,
-                    data: abi.encodeWithSelector(Lib.SET_OPRF_KEY_SELECTOR, id, key.key.x, key.key.y, proofId)
+                    data: abi.encodeWithSelector(SET_OPRF_KEY_SELECTOR, id, key.key.x, key.key.y, proofId)
                 });
             }
         }

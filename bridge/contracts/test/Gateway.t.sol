@@ -5,141 +5,32 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {InteroperableAddress} from "openzeppelin-contracts/contracts/utils/draft-InteroperableAddress.sol";
 
-import {PermissionedGatewayAdapter} from "../src/core/lib/adapters/PermissionedGatewayAdapter.sol";
-import {EthereumMPTGatewayAdapter} from "../src/core/lib/adapters/EthereumMPTGatewayAdapter.sol";
-import {WorldIDGateway} from "../src/core/lib/Gateway.sol";
-import {WorldIDSource} from "../src/core/Source.sol";
-import {WorldIDSatellite} from "../src/core/Satellite.sol";
-import {StateBridge} from "../src/core/lib/StateBridge.sol";
-import {IStateBridge} from "../src/core/interfaces/IStateBridge.sol";
-import {Lib} from "../src/core/lib/Lib.sol";
+import {PermissionedGatewayAdapter} from "@core/adapters/PermissionedGatewayAdapter.sol";
+import {WorldIDGateway} from "@lib-core/Gateway.sol";
+import {WorldIDSource} from "@core/Source.sol";
+import {WorldIDSatellite} from "@core/Satellite.sol";
+import {StateBridge} from "@lib-core/StateBridge.sol";
+import {IStateBridge} from "@core/types/IStateBridge.sol";
+import {Lib} from "@lib-core/Lib.sol";
 import {Verifier} from "@world-id/Verifier.sol";
-import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
-import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
-import {GameStatus, Claim, GameType, Timestamp} from "@optimism-bedrock/src/dispute/lib/Types.sol";
 
-// ─── Mock Registries ────────────────────────────────────────────────────────
-
-contract MockRegistry {
-    uint256 public latestRoot = 42;
-
-    function getLatestRoot() external view returns (uint256) {
-        return latestRoot;
-    }
-
-    function setLatestRoot(uint256 root) external {
-        latestRoot = root;
-    }
-}
-
-contract MockIssuerRegistry {
-    struct Pubkey {
-        uint256 x;
-        uint256 y;
-    }
-
-    mapping(uint64 => Pubkey) internal _keys;
-
-    function issuerSchemaIdToPubkey(uint64 id) external view returns (Pubkey memory) {
-        return _keys[id];
-    }
-
-    function setPubkey(uint64 id, uint256 x, uint256 y) external {
-        _keys[id] = Pubkey(x, y);
-    }
-}
-
-contract MockOprfRegistry {
-    struct RegisteredOprfPublicKey {
-        Key key;
-        uint256 epoch;
-    }
-
-    struct Key {
-        uint256 x;
-        uint256 y;
-    }
-
-    mapping(uint160 => RegisteredOprfPublicKey) internal _keys;
-
-    function getOprfPublicKeyAndEpoch(uint160 id) external view returns (RegisteredOprfPublicKey memory) {
-        return _keys[id];
-    }
-
-    function setKey(uint160 id, uint256 x, uint256 y) external {
-        _keys[id] = RegisteredOprfPublicKey(Key(x, y), 1);
-    }
-}
-
-// ─── Mock DisputeGameFactory + Game ──────────────────────────────────────────
-
-contract MockDisputeGame {
-    GameStatus public status;
-
-    constructor(GameStatus status_) {
-        status = status_;
-    }
-}
-
-contract MockDisputeGameFactory {
-    mapping(bytes32 => address) internal _games;
-
-    function registerGame(GameType gameType, Claim rootClaim, bytes memory extraData, address game) external {
-        bytes32 key = keccak256(abi.encode(GameType.unwrap(gameType), Claim.unwrap(rootClaim), extraData));
-        _games[key] = game;
-    }
-
-    function games(GameType gameType, Claim rootClaim, bytes memory extraData)
-        external
-        view
-        returns (IDisputeGame proxy_, Timestamp timestamp_)
-    {
-        bytes32 key = keccak256(abi.encode(GameType.unwrap(gameType), Claim.unwrap(rootClaim), extraData));
-        proxy_ = IDisputeGame(_games[key]);
-        timestamp_ = Timestamp.wrap(uint64(block.timestamp));
-    }
-}
-
-// ─── EthereumMPTGatewayAdapter test harness that bypasses MPT ────────────────
-
-contract TestableEthereumMPTAdapter is EthereumMPTGatewayAdapter {
-    bytes32 private _overrideChainHead;
-    bool private _useOverride;
-
-    constructor(
-        address owner_,
-        address disputeGameFactory_,
-        bool requireFinalized_,
-        address bridge_,
-        address wcSource_,
-        uint256 wcChainId_
-    ) EthereumMPTGatewayAdapter(owner_, disputeGameFactory_, requireFinalized_, bridge_, wcSource_, wcChainId_) {}
-
-    /// @dev Set a chain head to return from _verifyAndExtract, bypassing MPT proof verification.
-    function setOverrideChainHead(bytes32 head_) external {
-        _overrideChainHead = head_;
-        _useOverride = true;
-    }
-
-    function _verifyAndExtract(bytes calldata payload, bytes[] calldata attributes)
-        internal
-        override
-        returns (bytes32 chainHead)
-    {
-        if (_useOverride) {
-            // Still validate the attribute selector so the test exercises the attribute format
-            (bytes4 selector,) = split(attributes[0]);
-            if (!supportsAttribute(selector)) revert();
-            return _overrideChainHead;
-        }
-        return super._verifyAndExtract(payload, attributes);
-    }
-}
+import {
+    MockRegistry,
+    MockIssuerRegistry,
+    MockOprfRegistry,
+    MockDisputeGame,
+    MockDisputeGameFactory,
+    TestableEthereumMPTAdapter
+} from "./helpers/Mocks.sol";
 
 // ─── Test Contract ───────────────────────────────────────────────────────────
 
 contract GatewayTest is Test {
     using InteroperableAddress for bytes;
+
+    bytes4 constant UPDATE_ROOT_SELECTOR = bytes4(keccak256("updateRoot(uint256,uint256,bytes32)"));
+    bytes4 constant SET_ISSUER_PUBKEY_SELECTOR = bytes4(keccak256("setIssuerPubkey(uint64,uint256,uint256,bytes32)"));
+    bytes4 constant SET_OPRF_KEY_SELECTOR = bytes4(keccak256("setOprfKey(uint160,uint256,uint256,bytes32)"));
 
     uint256 constant WC_CHAIN_ID = 480;
     uint256 constant ROOT_VALIDITY_WINDOW = 3600;
@@ -223,21 +114,21 @@ contract GatewayTest is Test {
         // root commit
         commits[0] = Lib.Commitment({
             blockHash: blockHash,
-            data: abi.encodeWithSelector(Lib.UPDATE_ROOT_SELECTOR, registry.latestRoot(), block.timestamp, proofId)
+            data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, registry.latestRoot(), block.timestamp, proofId)
         });
 
         // issuer pubkey commit
         commits[1] = Lib.Commitment({
             blockHash: blockHash,
             data: abi.encodeWithSelector(
-                Lib.SET_ISSUER_PUBKEY_SELECTOR, ISSUER_SCHEMA_ID, uint256(111), uint256(222), proofId
+                SET_ISSUER_PUBKEY_SELECTOR, ISSUER_SCHEMA_ID, uint256(111), uint256(222), proofId
             )
         });
 
         // oprf key commit
         commits[2] = Lib.Commitment({
             blockHash: blockHash,
-            data: abi.encodeWithSelector(Lib.SET_OPRF_KEY_SELECTOR, OPRF_KEY_ID, uint256(333), uint256(444), proofId)
+            data: abi.encodeWithSelector(SET_OPRF_KEY_SELECTOR, OPRF_KEY_ID, uint256(333), uint256(444), proofId)
         });
 
         return abi.encode(commits);
@@ -512,7 +403,7 @@ contract GatewayTest is Test {
         Lib.Commitment[] memory commits2 = new Lib.Commitment[](1);
         commits2[0] = Lib.Commitment({
             blockHash: blockHash2,
-            data: abi.encodeWithSelector(Lib.UPDATE_ROOT_SELECTOR, uint256(99999), block.timestamp, proofId2)
+            data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, uint256(99999), block.timestamp, proofId2)
         });
         bytes memory payload2 = abi.encode(commits2);
 

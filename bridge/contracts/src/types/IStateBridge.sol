@@ -9,7 +9,8 @@ import {Lib} from "../lib/Lib.sol";
 /// @notice Public interface for World ID state bridge contracts (`WorldIDSource` and `WorldIDSatellite`).
 interface IStateBridge {
     /// @custom:storage-location erc7201:worldid.storage.WorldIDStateBridge
-    /// @dev All storage is intentionally packed, and enshrined as to prevent storage layout changes.
+    /// @dev EIP7201 Style Storage for all Bridged State.
+    ///      DO __NOT__ REORDER THIS STRUCT
     struct StateBridgeStorage {
         /// @dev A rolling keccak hash accumulator commiting to the history of state changes.
         Lib.Chain keccakChain;
@@ -66,6 +67,10 @@ interface IStateBridge {
         bytes32 indexed keccakChain, uint256 indexed blockNumber, uint256 indexed chainId, bytes commitment
     );
 
+    /// @dev The contract Version
+    /// @custom:semver v1.0.0
+    function VERSION() external view returns (uint8);
+
     /// @notice Returns the current keccak chain state (head hash and length).
     /// @return The chain struct containing the rolling hash head and the number of commitments applied.
     // solhint-disable-next-line func-name-mixedcase
@@ -90,8 +95,4 @@ interface IStateBridge {
     /// @param root The Merkle root to query.
     /// @return info The timestamp and proof ID, or zero values if the root was never proven.
     function rootToTimestampAndProofId(uint256 root) external view returns (ProvenRootInfo memory info);
-
-    /// @dev The contract Version
-    /// @custom:semver v1.0.0
-    function VERSION() external view returns (uint8);
 }

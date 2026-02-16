@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Lib} from "../src/core/lib/Lib.sol";
-import {WorldIDGateway} from "../src/core/lib/Gateway.sol";
+import {Lib} from "@lib-core/Lib.sol";
+import {WorldIDGateway} from "@lib-core/Gateway.sol";
 
 contract AttributesTest is Test {
     // ── Test-only selectors used as splitMem fixtures ────────
