@@ -99,7 +99,13 @@ jobs:
               also_bench_query: "false",
             };
 
-            const inputs = { ...defaults, ...parsed };
+            const inputs = {
+              ...defaults,
+              ...parsed,
+              pr_number: String(issue_number),
+              requested_by: commenter,
+              request_command: firstLine,
+            };
 
             const enums = {
               platforms: new Set(["both", "ios", "android"]),

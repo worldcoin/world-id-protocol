@@ -1,36 +1,18 @@
-name: Mobile Bench PR Label Trigger
+name: Mobile Bench PR Label Trigger (legacy disabled)
 
 on:
-  pull_request:
-    types:
-      - labeled
-      - synchronize
-      - reopened
+  workflow_dispatch:
 
 permissions:
   contents: read
   pull-requests: read
 
 jobs:
-  run-mobile-bench:
-    if: >-
-      ${{
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        contains(github.event.pull_request.labels.*.name, 'mobench')
-      }}
-    uses: ./.github/workflows/mobile-bench-ios.yml
-    with:
-      mobench_ref: codex/ci-devex
-      iterations: 30
-      warmup: 5
-      fetch_timeout_secs: 1800
-      platforms: both
-      proof_scope: both
-      modes: all
-      device_profile: auto-low-spec
-      ios_device: ""
-      ios_os_version: ""
-      android_device: ""
-      android_os_version: ""
-      also_bench_query: false
-    secrets: inherit
+  disabled:
+    name: Disabled in favor of /mobench command dispatch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain trigger model
+        run: |
+          echo "Legacy label trigger is intentionally disabled."
+          echo "Use PR comment command '/mobench ...' or manual workflow_dispatch on mobile-bench-ios.yml."

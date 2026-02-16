@@ -1,4 +1,7 @@
 name: Mobile Bench (BrowserStack iOS + Android)
+run-name: >-
+  mobench [${{ inputs.platforms }}] scope=${{ inputs.proof_scope }} modes=${{ inputs.modes }}
+  profile=${{ inputs.device_profile }} ref=${{ inputs.mobench_ref }}
 
 on:
   workflow_dispatch:
@@ -77,6 +80,21 @@ on:
         required: false
         default: ""
         type: string
+      pr_number:
+        description: "Optional PR number for sticky summary comment"
+        required: false
+        default: ""
+        type: string
+      requested_by:
+        description: "Optional requester login for summary context"
+        required: false
+        default: ""
+        type: string
+      request_command:
+        description: "Optional /mobench command line used to dispatch this run"
+        required: false
+        default: ""
+        type: string
       also_bench_query:
         description: "Deprecated: query benchmarks are controlled by proof_scope/modes"
         required: false
@@ -133,6 +151,18 @@ on:
         required: false
         default: ""
         type: string
+      pr_number:
+        required: false
+        default: ""
+        type: string
+      requested_by:
+        required: false
+        default: ""
+        type: string
+      request_command:
+        required: false
+        default: ""
+        type: string
       also_bench_query:
         required: false
         default: false
@@ -176,8 +206,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: worldcoin/mobile-bench-rs
-          # Pinned for this draft PR CI flow.
-          ref: codex/ci-devex
+          ref: ${{ inputs.mobench_ref }}
           path: mobile-bench-rs
 
       - name: Hotfix mobench BrowserStack device endpoint
@@ -548,6 +577,7 @@ jobs:
             world-id-protocol/target/mobench/ci/ios/*.json
             world-id-protocol/target/mobench/ci/ios/*.csv
             world-id-protocol/target/browserstack/**
+            world-id-protocol/bench-config.ios.runtime*.toml
 
   android-browserstack:
     name: Android BrowserStack benchmark
@@ -568,8 +598,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: worldcoin/mobile-bench-rs
-          # Pinned for this draft PR CI flow.
-          ref: codex/ci-devex
+          ref: ${{ inputs.mobench_ref }}
           path: mobile-bench-rs
 
       - name: Hotfix mobench BrowserStack device endpoint
@@ -927,3 +956,108 @@ jobs:
             world-id-protocol/target/mobench/ci/android/*.json
             world-id-protocol/target/mobench/ci/android/*.csv
             world-id-protocol/target/browserstack/**
+            world-id-protocol/bench-config.android.runtime*.toml
+
+  summarize:
+    name: Summarize mobench results
+    needs:
+      - ios-browserstack
+      - android-browserstack
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout world-id-protocol
+        uses: actions/checkout@v5
+        with:
+          path: world-id-protocol
+
+      - name: Download iOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mobench-ios-results
+          path: artifacts/ios
+          if-no-artifact-found: ignore
+
+      - name: Download Android artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mobench-android-results
+          path: artifacts/android
+          if-no-artifact-found: ignore
+
+      - name: Generate interpreted markdown summary
+        env:
+          IOS_RESULT: ${{ needs.ios-browserstack.result }}
+          ANDROID_RESULT: ${{ needs.android-browserstack.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 world-id-protocol/bench-mobile/scripts/summarize_mobench_ci.py \
+            --ios-dir artifacts/ios \
+            --android-dir artifacts/android \
+            --ios-result "${IOS_RESULT}" \
+            --android-result "${ANDROID_RESULT}" \
+            --platforms "${{ inputs.platforms }}" \
+            --proof-scope "${{ inputs.proof_scope }}" \
+            --modes "${{ inputs.modes }}" \
+            --device-profile "${{ inputs.device_profile }}" \
+            --mobench-ref "${{ inputs.mobench_ref }}" \
+            --run-url "${RUN_URL}" \
+            --pr-number "${{ inputs.pr_number }}" \
+            --requested-by "${{ inputs.requested_by }}" \
+            --request-command "${{ inputs.request_command }}" \
+            --output /tmp/mobench-summary.md
+
+      - name: Publish summary to workflow UI
+        run: |
+          cat /tmp/mobench-summary.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upsert PR summary comment
+        if: ${{ inputs.pr_number != '' }}
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          SUMMARY_FILE: /tmp/mobench-summary.md
+        with:
+          script: |
+            const fs = require("fs");
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = Number(process.env.PR_NUMBER || "");
+            if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+              core.warning(`Skipping PR summary comment: invalid PR number '${process.env.PR_NUMBER}'`);
+              return;
+            }
+
+            const marker = "<!-- mobench-summary -->";
+            const summary = fs.readFileSync(process.env.SUMMARY_FILE, "utf8");
+            const body = `${marker}\n${summary}`;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body,
+              });
+            }

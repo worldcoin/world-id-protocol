@@ -8,6 +8,7 @@ It supports iOS and Android and can be triggered:
 
 - manually (`workflow_dispatch`)
 - from PR comments via `/mobench ...` (see `.github/workflows/mobile-bench-pr-command.yml`)
+- not from automatic per-commit label/synchronize triggers (legacy label workflow is disabled)
 
 ## Default mobench source
 
@@ -53,3 +54,21 @@ Use explicit devices:
 - `BROWSERSTACK_USERNAME`
 - `BROWSERSTACK_ACCESS_KEY`
 - optional: `MOBENCH_REPO_TOKEN`
+
+## Trigger and reporting UX
+
+Recommended PR flow:
+
+1. Comment on the PR with `/mobench ...` command parameters.
+2. Workflow dispatches against that PR head branch.
+3. Results are interpreted in natural language and published in:
+- GitHub Actions job summary (`GITHUB_STEP_SUMMARY`)
+- a sticky PR comment (`<!-- mobench-summary -->`) that is updated in-place
+
+The benchmark workflow accepts optional metadata inputs used for reporting:
+
+- `pr_number`
+- `requested_by`
+- `request_command`
+
+These are populated automatically by `.github/workflows/mobile-bench-pr-command.yml`.
