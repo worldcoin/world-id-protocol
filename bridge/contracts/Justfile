@@ -1,0 +1,598 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# World ID Bridge — Deployment Justfile
+#
+# Config-driven multi-chain deployment for the World ID State Bridge.
+# All chain topology, addresses, and gateway configuration live in
+# `script/config/{env}.json`. Deployment artifacts are written to
+# `deployments/{env}.json` and are checked for idempotent re-runs.
+#
+# Deployment order:
+#   1. World Chain  — WorldIDSource (proxy + impl)
+#   2. L1 (ethereum) — WorldIDSatellite + Verifier + EthereumMPTGateway + PermissionedGateway
+#   3. L2s (op, …)  — WorldIDSatellite + Verifier + LightClientGateway + PermissionedGateway
+#
+# Usage:
+#   just deploy-all                     # deploy everything (default: staging)
+#   just deploy-all production          # explicit environment
+#   just deploy-chain ethereum          # single chain (source must exist)
+#   just status                         # show deployment status
+#   just verify ethereum                # verify contracts on etherscan
+#
+# RPC resolution (in priority order):
+#   1. ALCHEMY_API_KEY env var + `alchemySlug` in config → https://{slug}.g.alchemy.com/v2/{key}
+#   2. Explicit `rpc` field in config (supports $ENV_VAR expansion)
+#
+# Prerequisites:
+#   - PRIVATE_KEY env var set (for broadcast)
+#   - ALCHEMY_API_KEY env var set (or explicit `rpc` fields in config)
+#   - `just`, `forge`, `cast`, `jq` installed
+# ──────────────────────────────────────────────────────────────────────────────
+
+set dotenv-load := true
+set positional-arguments
+
+# ── Configurable defaults ─────────────────────────────────────────────────────
+
+# Environment name (local, staging, production)
+env := env("DEPLOY_ENV", "staging")
+
+# Override destination chains (comma-separated). Empty = read from config.
+chains_override := env("DEPLOY_CHAINS", "")
+
+# Config and output paths
+config := "script/config/" + env + ".json"
+output_dir := env("DEPLOY_OUTPUT_DIR", "deployments")
+
+# ── Recipes ───────────────────────────────────────────────────────────────────
+
+# Show deployment status across all chains
+status env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="script/config/{{ env_arg }}.json"
+    deploy_file="{{ output_dir }}/{{ env_arg }}.json"
+
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║  World ID Bridge — Deployment Status         ║"
+    echo "╚══════════════════════════════════════════════╝"
+    echo ""
+    echo "  Environment : {{ env_arg }}"
+    echo "  Config      : $cfg"
+    echo "  Artifacts   : $deploy_file"
+    echo ""
+
+    if [ ! -f "$deploy_file" ]; then
+        echo "  No deployment artifacts found."
+        exit 0
+    fi
+
+    # World Chain
+    echo "── World Chain ──────────────────────────────────"
+    wc_impl=$(jq -r '.worldchain.worldIDSource.implementation // "—"' "$deploy_file")
+    wc_proxy=$(jq -r '.worldchain.worldIDSource.proxy // "—"' "$deploy_file")
+    echo "  WorldIDSource impl  : $wc_impl"
+    echo "  WorldIDSource proxy : $wc_proxy"
+    echo ""
+
+    # Destination chains
+    chains=$(jq -r '.networks // .networkOrder // [] | join(",")' "$cfg" 2>/dev/null)
+    if [ -z "$chains" ]; then
+        echo "  No destination chains configured."
+        exit 0
+    fi
+
+    for chain in $(echo "$chains" | tr ',' ' '); do
+        echo "── $chain ──────────────────────────────────"
+        sat_proxy=$(jq -r ".${chain}.worldIDSatellite.proxy // \"—\"" "$deploy_file" 2>/dev/null || echo "—")
+        sat_impl=$(jq -r ".${chain}.worldIDSatellite.implementation // \"—\"" "$deploy_file" 2>/dev/null || echo "—")
+        verifier=$(jq -r ".${chain}.verifier // \"—\"" "$deploy_file" 2>/dev/null || echo "—")
+        owned=$(jq -r ".${chain}.gateways.permissionedGateway // \"—\"" "$deploy_file" 2>/dev/null || echo "—")
+        l1gw=$(jq -r ".${chain}.gateways.ethereumMPTGateway // \"—\"" "$deploy_file" 2>/dev/null || echo "—")
+        zkgw=$(jq -r ".${chain}.gateways.lightClientGateway // \"—\"" "$deploy_file" 2>/dev/null || echo "—")
+        echo "  Satellite impl  : $sat_impl"
+        echo "  Satellite proxy : $sat_proxy"
+        echo "  Verifier        : $verifier"
+        echo "  Permissioned GW : $owned"
+        echo "  L1 MPT GW       : $l1gw"
+        echo "  ZK Light Client : $zkgw"
+        echo ""
+    done
+
+# Deploy everything: World Chain source + all destination chains
+deploy-all env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="script/config/{{ env_arg }}.json"
+
+    if [ ! -f "$cfg" ]; then
+        echo "Error: config not found at $cfg"
+        exit 1
+    fi
+
+    # ── RPC resolver ──
+    # Priority: ALCHEMY_API_KEY + alchemySlug > explicit rpc field
+    resolve_rpc() {
+        local key="$1"
+        local slug=$(jq -r ".${key}.alchemySlug // \"\"" "$cfg")
+        local rpc=$(jq -r ".${key}.rpc // \"\"" "$cfg")
+        if [ -n "${ALCHEMY_API_KEY:-}" ] && [ -n "$slug" ] && [ "$slug" != "null" ]; then
+            echo "https://${slug}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+        elif [ -n "$rpc" ] && [ "$rpc" != "null" ]; then
+            eval echo "$rpc"
+        else
+            echo "Error: No RPC for '$key'. Set ALCHEMY_API_KEY or add 'rpc' to config." >&2
+            exit 1
+        fi
+    }
+
+    # Resolve chain list
+    chains="{{ chains_override }}"
+    if [ -z "$chains" ]; then
+        chains=$(jq -r '.networks // .networkOrder // [] | join(",")' "$cfg")
+    fi
+
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║  World ID Bridge — Deploy All                ║"
+    echo "╚══════════════════════════════════════════════╝"
+    echo ""
+    echo "  Environment : {{ env_arg }}"
+    echo "  Config      : $cfg"
+    echo "  Chains      : $chains"
+    echo ""
+
+    # ── Global config ──
+    export OWNER=$(jq -r '.owner' "$cfg")
+    export BRIDGE_NAME=$(jq -r '.bridgeName' "$cfg")
+    export BRIDGE_VERSION=$(jq -r '.bridgeVersion' "$cfg")
+    export ROOT_VALIDITY_WINDOW=$(jq -r '.rootValidityWindow' "$cfg")
+    export TREE_DEPTH=$(jq -r '.treeDepth' "$cfg")
+    export MIN_EXPIRATION_THRESHOLD=$(jq -r '.minExpirationThreshold' "$cfg")
+
+    # ── World Chain ──
+    export WC_CHAIN_ID=$(jq -r '.worldchain.chainId' "$cfg")
+    export WC_RPC_URL=$(resolve_rpc "worldchain")
+    export WC_REGISTRY=$(jq -r '.worldchain.registry' "$cfg")
+    export WC_ISSUER_REGISTRY=$(jq -r '.worldchain.issuerRegistry' "$cfg")
+    export WC_OPRF_REGISTRY=$(jq -r '.worldchain.oprfRegistry // "0x0000000000000000000000000000000000000000"' "$cfg")
+
+    # ── Salts ──
+    export SALT_WORLD_ID_SOURCE=$(jq -r '.salts.worldIDSource' "$cfg")
+    export SALT_CROSS_DOMAIN_WORLD_ID=$(jq -r '.salts.crossDomainWorldID' "$cfg")
+    export SALT_OWNED_GATEWAY=$(jq -r '.salts.ownedGateway' "$cfg")
+    export SALT_L1_GATEWAY=$(jq -r '.salts.l1Gateway' "$cfg")
+    export SALT_ZK_GATEWAY=$(jq -r '.salts.zkGateway' "$cfg")
+    export SALT_VERIFIER=$(jq -r '.salts.verifier' "$cfg")
+
+    # ── Network list ──
+    export NETWORKS="$chains"
+
+    # ── Per-chain env vars ──
+    for chain in $(echo "$chains" | tr ',' ' '); do
+        prefix=$(echo "$chain" | tr '[:lower:]' '[:upper:]')
+
+        # RPC + chain ID
+        export "${prefix}_RPC_URL=$(resolve_rpc "$chain")"
+        export "${prefix}_CHAIN_ID=$(jq -r ".${chain}.chainId" "$cfg")"
+
+        # Existing verifier (zero address = deploy new)
+        export "${prefix}_VERIFIER=$(jq -r ".${chain}.verifier // \"0x0000000000000000000000000000000000000000\"" "$cfg")"
+
+        # ── Permissioned gateway ──
+        if jq -e ".${chain}.ownedGateway" "$cfg" > /dev/null 2>&1; then
+            export "${prefix}_DEPLOY_OWNED_GATEWAY=true"
+        fi
+
+        # ── L1 MPT gateway (DisputeGame-based) ──
+        if jq -e ".${chain}.l1Gateway" "$cfg" > /dev/null 2>&1; then
+            export "${prefix}_DEPLOY_L1_GATEWAY=true"
+            export "${prefix}_L1_DISPUTE_GAME_FACTORY=$(jq -r ".${chain}.l1Gateway.disputeGameFactory" "$cfg")"
+            export "${prefix}_L1_REQUIRE_FINALIZED=$(jq -r ".${chain}.l1Gateway.requireFinalized // false" "$cfg")"
+        fi
+
+        # ── ZK light client gateway (SP1 Helios) ──
+        if jq -e ".${chain}.zkGateway" "$cfg" > /dev/null 2>&1; then
+            export "${prefix}_DEPLOY_ZK_GATEWAY=true"
+            export "${prefix}_ZK_SP1_VERIFIER=$(jq -r ".${chain}.zkGateway.sp1Verifier" "$cfg")"
+            export "${prefix}_ZK_PROGRAM_VKEY=$(jq -r ".${chain}.zkGateway.programVKey" "$cfg")"
+            export "${prefix}_ZK_INITIAL_HEAD=$(jq -r ".${chain}.zkGateway.initialHead" "$cfg")"
+            export "${prefix}_ZK_INITIAL_HEADER=$(jq -r ".${chain}.zkGateway.initialHeader" "$cfg")"
+            export "${prefix}_ZK_INITIAL_SYNC_COMMITTEE_HASH=$(jq -r ".${chain}.zkGateway.initialSyncCommitteeHash" "$cfg")"
+        fi
+    done
+
+    # ── Ensure output dir ──
+    mkdir -p "{{ output_dir }}"
+
+    # ── Run forge script ──
+    echo "Running forge script..."
+    echo ""
+    forge script script/Deploy.s.sol:DeployBridgeSDK \
+        --sig "run(string)" "{{ env_arg }}" \
+        --multi --broadcast
+
+    echo ""
+    echo "Deployment complete. Artifacts: {{ output_dir }}/{{ env_arg }}.json"
+
+# Deploy a single destination chain (World Chain source must already exist)
+deploy-chain chain env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Deploying single chain: {{ chain }}"
+    DEPLOY_CHAINS="{{ chain }}" just deploy-all "{{ env_arg }}"
+
+# Dry-run deployment (simulation only, no broadcast)
+dry-run env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="script/config/{{ env_arg }}.json"
+
+    if [ ! -f "$cfg" ]; then
+        echo "Error: config not found at $cfg"
+        exit 1
+    fi
+
+    # ── RPC resolver ──
+    resolve_rpc() {
+        local key="$1"
+        local slug=$(jq -r ".${key}.alchemySlug // \"\"" "$cfg")
+        local rpc=$(jq -r ".${key}.rpc // \"\"" "$cfg")
+        if [ -n "${ALCHEMY_API_KEY:-}" ] && [ -n "$slug" ] && [ "$slug" != "null" ]; then
+            echo "https://${slug}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+        elif [ -n "$rpc" ] && [ "$rpc" != "null" ]; then
+            eval echo "$rpc"
+        else
+            echo "Error: No RPC for '$key'. Set ALCHEMY_API_KEY or add 'rpc' to config." >&2
+            exit 1
+        fi
+    }
+
+    chains="{{ chains_override }}"
+    if [ -z "$chains" ]; then
+        chains=$(jq -r '.networks // .networkOrder // [] | join(",")' "$cfg")
+    fi
+
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║  World ID Bridge — Dry Run                   ║"
+    echo "╚══════════════════════════════════════════════╝"
+    echo ""
+    echo "  Environment : {{ env_arg }}"
+    echo "  Chains      : $chains"
+    echo ""
+
+    # Same env setup as deploy-all
+    export OWNER=$(jq -r '.owner' "$cfg")
+    export BRIDGE_NAME=$(jq -r '.bridgeName' "$cfg")
+    export BRIDGE_VERSION=$(jq -r '.bridgeVersion' "$cfg")
+    export ROOT_VALIDITY_WINDOW=$(jq -r '.rootValidityWindow' "$cfg")
+    export TREE_DEPTH=$(jq -r '.treeDepth' "$cfg")
+    export MIN_EXPIRATION_THRESHOLD=$(jq -r '.minExpirationThreshold' "$cfg")
+
+    export WC_CHAIN_ID=$(jq -r '.worldchain.chainId' "$cfg")
+    export WC_RPC_URL=$(resolve_rpc "worldchain")
+    export WC_REGISTRY=$(jq -r '.worldchain.registry' "$cfg")
+    export WC_ISSUER_REGISTRY=$(jq -r '.worldchain.issuerRegistry' "$cfg")
+    export WC_OPRF_REGISTRY=$(jq -r '.worldchain.oprfRegistry // "0x0000000000000000000000000000000000000000"' "$cfg")
+
+    export SALT_WORLD_ID_SOURCE=$(jq -r '.salts.worldIDSource' "$cfg")
+    export SALT_CROSS_DOMAIN_WORLD_ID=$(jq -r '.salts.crossDomainWorldID' "$cfg")
+    export SALT_OWNED_GATEWAY=$(jq -r '.salts.ownedGateway' "$cfg")
+    export SALT_L1_GATEWAY=$(jq -r '.salts.l1Gateway' "$cfg")
+    export SALT_ZK_GATEWAY=$(jq -r '.salts.zkGateway' "$cfg")
+    export SALT_VERIFIER=$(jq -r '.salts.verifier' "$cfg")
+
+    export NETWORKS="$chains"
+
+    for chain in $(echo "$chains" | tr ',' ' '); do
+        prefix=$(echo "$chain" | tr '[:lower:]' '[:upper:]')
+        export "${prefix}_RPC_URL=$(resolve_rpc "$chain")"
+        export "${prefix}_CHAIN_ID=$(jq -r ".${chain}.chainId" "$cfg")"
+        export "${prefix}_VERIFIER=$(jq -r ".${chain}.verifier // \"0x0000000000000000000000000000000000000000\"" "$cfg")"
+
+        if jq -e ".${chain}.ownedGateway" "$cfg" > /dev/null 2>&1; then
+            export "${prefix}_DEPLOY_OWNED_GATEWAY=true"
+        fi
+        if jq -e ".${chain}.l1Gateway" "$cfg" > /dev/null 2>&1; then
+            export "${prefix}_DEPLOY_L1_GATEWAY=true"
+            export "${prefix}_L1_DISPUTE_GAME_FACTORY=$(jq -r ".${chain}.l1Gateway.disputeGameFactory" "$cfg")"
+            export "${prefix}_L1_REQUIRE_FINALIZED=$(jq -r ".${chain}.l1Gateway.requireFinalized // false" "$cfg")"
+        fi
+        if jq -e ".${chain}.zkGateway" "$cfg" > /dev/null 2>&1; then
+            export "${prefix}_DEPLOY_ZK_GATEWAY=true"
+            export "${prefix}_ZK_SP1_VERIFIER=$(jq -r ".${chain}.zkGateway.sp1Verifier" "$cfg")"
+            export "${prefix}_ZK_PROGRAM_VKEY=$(jq -r ".${chain}.zkGateway.programVKey" "$cfg")"
+            export "${prefix}_ZK_INITIAL_HEAD=$(jq -r ".${chain}.zkGateway.initialHead" "$cfg")"
+            export "${prefix}_ZK_INITIAL_HEADER=$(jq -r ".${chain}.zkGateway.initialHeader" "$cfg")"
+            export "${prefix}_ZK_INITIAL_SYNC_COMMITTEE_HASH=$(jq -r ".${chain}.zkGateway.initialSyncCommitteeHash" "$cfg")"
+        fi
+    done
+
+    mkdir -p "{{ output_dir }}"
+
+    # Simulate only (no --broadcast)
+    forge script script/Deploy.s.sol:DeployBridgeSDK \
+        --sig "run(string)" "{{ env_arg }}" \
+        --multi
+
+    echo ""
+    echo "Dry run complete. No transactions were broadcast."
+
+# Verify deployed contracts on block explorer
+verify chain env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="script/config/{{ env_arg }}.json"
+    deploy_file="{{ output_dir }}/{{ env_arg }}.json"
+
+    if [ ! -f "$deploy_file" ]; then
+        echo "Error: no deployment file at $deploy_file"
+        exit 1
+    fi
+
+    # ── RPC resolver ──
+    resolve_rpc() {
+        local key="$1"
+        local slug=$(jq -r ".${key}.alchemySlug // \"\"" "$cfg")
+        local rpc=$(jq -r ".${key}.rpc // \"\"" "$cfg")
+        if [ -n "${ALCHEMY_API_KEY:-}" ] && [ -n "$slug" ] && [ "$slug" != "null" ]; then
+            echo "https://${slug}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+        elif [ -n "$rpc" ] && [ "$rpc" != "null" ]; then
+            eval echo "$rpc"
+        else
+            echo "Error: No RPC for '$key'. Set ALCHEMY_API_KEY or add 'rpc' to config." >&2
+            exit 1
+        fi
+    }
+
+    prefix=$(echo "{{ chain }}" | tr '[:lower:]' '[:upper:]')
+    chain_rpc=$(resolve_rpc "{{ chain }}")
+    chain_id=$(jq -r ".{{ chain }}.chainId" "$cfg")
+    etherscan_key_var="${prefix}_ETHERSCAN_API_KEY"
+    etherscan_key="${!etherscan_key_var:-$ETHERSCAN_API_KEY}"
+
+    echo "Verifying contracts on {{ chain }} (chain ID: $chain_id)..."
+    echo ""
+
+    # Satellite implementation
+    sat_impl=$(jq -r ".{{ chain }}.worldIDSatellite.implementation // \"\"" "$deploy_file")
+    if [ -n "$sat_impl" ] && [ "$sat_impl" != "null" ]; then
+        echo "Verifying WorldIDSatellite implementation: $sat_impl"
+        forge verify-contract "$sat_impl" WorldIDSatellite \
+            --chain-id "$chain_id" \
+            --etherscan-api-key "$etherscan_key" \
+            --watch || echo "  (may already be verified)"
+    fi
+
+    # Verifier
+    verifier=$(jq -r ".{{ chain }}.verifier // \"\"" "$deploy_file")
+    if [ -n "$verifier" ] && [ "$verifier" != "null" ] && [ "$verifier" != "0x0000000000000000000000000000000000000000" ]; then
+        echo "Verifying Verifier: $verifier"
+        forge verify-contract "$verifier" Verifier \
+            --chain-id "$chain_id" \
+            --etherscan-api-key "$etherscan_key" \
+            --watch || echo "  (may already be verified)"
+    fi
+
+    # Gateways
+    for gw_type in permissionedGateway ethereumMPTGateway lightClientGateway; do
+        gw_addr=$(jq -r ".{{ chain }}.gateways.${gw_type} // \"\"" "$deploy_file")
+        if [ -n "$gw_addr" ] && [ "$gw_addr" != "null" ]; then
+            case "$gw_type" in
+                permissionedGateway) contract="PermissionedGatewayAdapter" ;;
+                ethereumMPTGateway)  contract="EthereumMPTGatewayAdapter" ;;
+                lightClientGateway)  contract="LightClientGatewayAdapter" ;;
+            esac
+            echo "Verifying $contract: $gw_addr"
+            forge verify-contract "$gw_addr" "$contract" \
+                --chain-id "$chain_id" \
+                --etherscan-api-key "$etherscan_key" \
+                --watch || echo "  (may already be verified)"
+        fi
+    done
+
+    echo ""
+    echo "Verification complete."
+
+# Add a gateway to a satellite's authorized list
+authorize-gateway chain gateway_addr env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="script/config/{{ env_arg }}.json"
+    deploy_file="{{ output_dir }}/{{ env_arg }}.json"
+
+    # ── RPC resolver ──
+    resolve_rpc() {
+        local key="$1"
+        local slug=$(jq -r ".${key}.alchemySlug // \"\"" "$cfg")
+        local rpc=$(jq -r ".${key}.rpc // \"\"" "$cfg")
+        if [ -n "${ALCHEMY_API_KEY:-}" ] && [ -n "$slug" ] && [ "$slug" != "null" ]; then
+            echo "https://${slug}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+        elif [ -n "$rpc" ] && [ "$rpc" != "null" ]; then
+            eval echo "$rpc"
+        else
+            echo "Error: No RPC for '$key'. Set ALCHEMY_API_KEY or add 'rpc' to config." >&2
+            exit 1
+        fi
+    }
+
+    sat_proxy=$(jq -r ".{{ chain }}.worldIDSatellite.proxy" "$deploy_file")
+    if [ "$sat_proxy" = "null" ] || [ -z "$sat_proxy" ]; then
+        echo "Error: no WorldIDSatellite deployed for {{ chain }}"
+        exit 1
+    fi
+
+    chain_rpc=$(resolve_rpc "{{ chain }}")
+
+    echo "Authorizing gateway {{ gateway_addr }} on {{ chain }}"
+    echo "  Satellite: $sat_proxy"
+    echo "  RPC:       $chain_rpc"
+
+    cast send "$sat_proxy" \
+        "addGateway(address)" "{{ gateway_addr }}" \
+        --rpc-url "$chain_rpc" \
+        --private-key "$PRIVATE_KEY"
+
+    echo "Gateway authorized."
+
+# Remove a gateway from a satellite's authorized list
+revoke-gateway chain gateway_addr env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="script/config/{{ env_arg }}.json"
+    deploy_file="{{ output_dir }}/{{ env_arg }}.json"
+
+    # ── RPC resolver ──
+    resolve_rpc() {
+        local key="$1"
+        local slug=$(jq -r ".${key}.alchemySlug // \"\"" "$cfg")
+        local rpc=$(jq -r ".${key}.rpc // \"\"" "$cfg")
+        if [ -n "${ALCHEMY_API_KEY:-}" ] && [ -n "$slug" ] && [ "$slug" != "null" ]; then
+            echo "https://${slug}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+        elif [ -n "$rpc" ] && [ "$rpc" != "null" ]; then
+            eval echo "$rpc"
+        else
+            echo "Error: No RPC for '$key'. Set ALCHEMY_API_KEY or add 'rpc' to config." >&2
+            exit 1
+        fi
+    }
+
+    sat_proxy=$(jq -r ".{{ chain }}.worldIDSatellite.proxy" "$deploy_file")
+    if [ "$sat_proxy" = "null" ] || [ -z "$sat_proxy" ]; then
+        echo "Error: no WorldIDSatellite deployed for {{ chain }}"
+        exit 1
+    fi
+
+    chain_rpc=$(resolve_rpc "{{ chain }}")
+
+    echo "Revoking gateway {{ gateway_addr }} on {{ chain }}"
+    echo "  Satellite: $sat_proxy"
+
+    cast send "$sat_proxy" \
+        "removeGateway(address)" "{{ gateway_addr }}" \
+        --rpc-url "$chain_rpc" \
+        --private-key "$PRIVATE_KEY"
+
+    echo "Gateway revoked."
+
+# Transfer ownership of a satellite or gateway
+transfer-ownership chain contract_addr new_owner env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="script/config/{{ env_arg }}.json"
+
+    # ── RPC resolver ──
+    resolve_rpc() {
+        local key="$1"
+        local slug=$(jq -r ".${key}.alchemySlug // \"\"" "$cfg")
+        local rpc=$(jq -r ".${key}.rpc // \"\"" "$cfg")
+        if [ -n "${ALCHEMY_API_KEY:-}" ] && [ -n "$slug" ] && [ "$slug" != "null" ]; then
+            echo "https://${slug}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+        elif [ -n "$rpc" ] && [ "$rpc" != "null" ]; then
+            eval echo "$rpc"
+        else
+            echo "Error: No RPC for '$key'. Set ALCHEMY_API_KEY or add 'rpc' to config." >&2
+            exit 1
+        fi
+    }
+
+    chain_rpc=$(resolve_rpc "{{ chain }}")
+
+    echo "Transferring ownership of {{ contract_addr }} to {{ new_owner }} on {{ chain }}"
+
+    cast send "{{ contract_addr }}" \
+        "transferOwnership(address)" "{{ new_owner }}" \
+        --rpc-url "$chain_rpc" \
+        --private-key "$PRIVATE_KEY"
+
+    echo "Ownership transferred."
+
+# Print the full env that would be passed to forge script (for debugging)
+print-env env_arg=env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="script/config/{{ env_arg }}.json"
+
+    # ── RPC resolver ──
+    resolve_rpc() {
+        local key="$1"
+        local slug=$(jq -r ".${key}.alchemySlug // \"\"" "$cfg")
+        local rpc=$(jq -r ".${key}.rpc // \"\"" "$cfg")
+        if [ -n "${ALCHEMY_API_KEY:-}" ] && [ -n "$slug" ] && [ "$slug" != "null" ]; then
+            echo "https://${slug}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+        elif [ -n "$rpc" ] && [ "$rpc" != "null" ]; then
+            eval echo "$rpc"
+        else
+            echo "(unresolved — set ALCHEMY_API_KEY or add 'rpc' to config)"
+        fi
+    }
+
+    chains="{{ chains_override }}"
+    if [ -z "$chains" ]; then
+        chains=$(jq -r '.networks // .networkOrder // [] | join(",")' "$cfg")
+    fi
+
+    echo "OWNER=$(jq -r '.owner' "$cfg")"
+    echo "BRIDGE_NAME=$(jq -r '.bridgeName' "$cfg")"
+    echo "BRIDGE_VERSION=$(jq -r '.bridgeVersion' "$cfg")"
+    echo "ROOT_VALIDITY_WINDOW=$(jq -r '.rootValidityWindow' "$cfg")"
+    echo "TREE_DEPTH=$(jq -r '.treeDepth' "$cfg")"
+    echo "MIN_EXPIRATION_THRESHOLD=$(jq -r '.minExpirationThreshold' "$cfg")"
+    echo "WC_CHAIN_ID=$(jq -r '.worldchain.chainId' "$cfg")"
+    echo "WC_RPC_URL=$(resolve_rpc "worldchain")"
+    echo "WC_REGISTRY=$(jq -r '.worldchain.registry' "$cfg")"
+    echo "WC_ISSUER_REGISTRY=$(jq -r '.worldchain.issuerRegistry' "$cfg")"
+    echo "WC_OPRF_REGISTRY=$(jq -r '.worldchain.oprfRegistry // "0x0000000000000000000000000000000000000000"' "$cfg")"
+    echo "NETWORKS=$chains"
+    echo ""
+
+    for chain in $(echo "$chains" | tr ',' ' '); do
+        prefix=$(echo "$chain" | tr '[:lower:]' '[:upper:]')
+        echo "# --- $chain ---"
+        echo "${prefix}_RPC_URL=$(resolve_rpc "$chain")"
+        echo "${prefix}_CHAIN_ID=$(jq -r ".${chain}.chainId" "$cfg")"
+        echo "${prefix}_VERIFIER=$(jq -r ".${chain}.verifier // \"0x0000000000000000000000000000000000000000\"" "$cfg")"
+
+        if jq -e ".${chain}.ownedGateway" "$cfg" > /dev/null 2>&1; then
+            echo "${prefix}_DEPLOY_OWNED_GATEWAY=true"
+        fi
+        if jq -e ".${chain}.l1Gateway" "$cfg" > /dev/null 2>&1; then
+            echo "${prefix}_DEPLOY_L1_GATEWAY=true"
+            echo "${prefix}_L1_DISPUTE_GAME_FACTORY=$(jq -r ".${chain}.l1Gateway.disputeGameFactory" "$cfg")"
+            echo "${prefix}_L1_REQUIRE_FINALIZED=$(jq -r ".${chain}.l1Gateway.requireFinalized // false" "$cfg")"
+        fi
+        if jq -e ".${chain}.zkGateway" "$cfg" > /dev/null 2>&1; then
+            echo "${prefix}_DEPLOY_ZK_GATEWAY=true"
+            echo "${prefix}_ZK_SP1_VERIFIER=$(jq -r ".${chain}.zkGateway.sp1Verifier" "$cfg")"
+            echo "${prefix}_ZK_PROGRAM_VKEY=$(jq -r ".${chain}.zkGateway.programVKey" "$cfg")"
+            echo "${prefix}_ZK_INITIAL_HEAD=$(jq -r ".${chain}.zkGateway.initialHead" "$cfg")"
+            echo "${prefix}_ZK_INITIAL_HEADER=$(jq -r ".${chain}.zkGateway.initialHeader" "$cfg")"
+            echo "${prefix}_ZK_INITIAL_SYNC_COMMITTEE_HASH=$(jq -r ".${chain}.zkGateway.initialSyncCommitteeHash" "$cfg")"
+        fi
+        echo ""
+    done
+
+# ── Dev recipes ───────────────────────────────────────────────────────────────
+
+# Build contracts
+build:
+    forge build
+
+# Run tests
+test *args='':
+    forge test -vvv {{ args }}
+
+# Format check
+fmt-check:
+    forge fmt --check
+
+# Format fix
+fmt:
+    forge fmt
+
+# Full CI check (build + test + fmt)
+check: build test fmt-check
+    @echo "All checks passed."
+
+# Clean build artifacts
+clean:
+    forge clean
+    rm -rf out/ cache/

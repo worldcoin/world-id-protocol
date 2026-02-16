@@ -2,18 +2,18 @@
 target/
 **/target/
 
-# Foundry (forge)
-contracts/out/*
-contracts/cache/
-contracts/broadcast/
+contracts/lib/
 
-bridge-sdk/ethereum/out/*
-bridge-sdk/ethereum/cache/*
-bridge-sdk/ethereum/broadcast/*
+**/contracts/out/*
+**/contracts/cache/
+**/contracts/broadcast/
 
 # Ignore local deployment because it changes every run
 contracts/deployments/local.json
-bridge-sdk/ethereum/contracts/deployments/local.json
+bridge/contracts/deployments/local.json
+bridge/contracts/lib/
+bridge/contracts/out/
+bridge/contracts/cache/
 
 # Node (if used later)
 node_modules/
