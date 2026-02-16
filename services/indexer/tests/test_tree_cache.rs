@@ -1,6 +1,9 @@
 #![cfg(feature = "integration-tests")]
 mod helpers;
-use helpers::common::{TestSetup, query_count};
+use helpers::{
+    common::{TestSetup, query_count},
+    db_helpers::insert_test_account,
+};
 use serial_test::serial;
 
 use std::{fs, path::PathBuf, time::Duration};
@@ -911,6 +914,65 @@ async fn test_corrupted_cache_returns_error() {
     assert!(
         !cache_path.exists(),
         "Cache file should be deleted on corruption"
+    );
+
+    cleanup_cache_files(&cache_path);
+}
+
+/// Test that the sanity check detects a root mismatch and causes run_indexer
+/// to exit with an error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_sanity_check_exits_on_root_mismatch() {
+    let setup = TestSetup::new_with_tree_depth(6).await;
+    let (tree_cache_config, cache_path) = create_temp_cache_config();
+    cleanup_cache_files(&cache_path);
+
+    // Insert a fake account into the DB so the tree builds with a root
+    // that was never recorded on-chain. The on-chain contract has no accounts,
+    // so isValidRoot will return false for this fabricated root.
+    let db = world_id_indexer::db::DB::new(&setup.db_url, Some(1))
+        .await
+        .unwrap();
+    insert_test_account(
+        &db,
+        1,
+        address!("0x0000000000000000000000000000000000000001"),
+        U256::from(999),
+    )
+    .await
+    .unwrap();
+
+    // Start HttpOnly with sanity check enabled — tree will have a root
+    // that doesn't exist on-chain
+    let config = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::HttpOnly {
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8099".parse().unwrap(),
+                db_poll_interval_secs: 60,
+                sanity_check_interval_secs: Some(1),
+                tree_cache: tree_cache_config.clone(),
+            },
+        },
+        db_url: setup.db_url.clone(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
+        registry_address: setup.registry_address,
+    };
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::spawn(async move { unsafe { world_id_indexer::run_indexer(config).await } }),
+    )
+    .await;
+
+    // Should complete (not timeout) with an error (not Ok, not panic)
+    let join_result = result.expect("should not timeout — sanity check should catch mismatch");
+    let indexer_result = join_result.expect("task should not panic");
+    assert!(
+        indexer_result.is_err(),
+        "run_indexer should return error on root mismatch"
     );
 
     cleanup_cache_files(&cache_path);
