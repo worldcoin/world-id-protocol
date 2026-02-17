@@ -400,12 +400,16 @@ impl ProofRequest {
     }
 
     /// Gets the action value to use in the proof.
+    ///
+    /// - When an explicit action is provided, it is returned directly.
+    /// - For session proofs (action is `None`), a random action is generated.
+    ///
+    /// Callers should cache the action during proof generation to ensure consistency across proof steps.
     #[must_use]
-    pub fn computed_action(&self) -> FieldElement {
-        // if session_id -> compute differently
+    pub fn computed_action<R: rand::CryptoRng + rand::RngCore>(&self, rng: &mut R) -> FieldElement {
         match self.action {
             Some(action) => action,
-            None => todo!("Not ready"),
+            None => FieldElement::random(rng),
         }
     }
 
@@ -2036,6 +2040,49 @@ mod tests {
             assert_eq!(expected, custom_expires_at);
             assert_eq!(got, request_created_at);
         }
+    }
+
+    #[test]
+    fn computed_action_returns_explicit_action() {
+        let action = test_field_element(42);
+        let request = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_700_000_000,
+            expires_at: 1_700_100_000,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None,
+            action: Some(action),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![],
+            constraints: None,
+        };
+        assert_eq!(request.computed_action(&mut rand::rngs::OsRng), action);
+    }
+
+    #[test]
+    fn computed_action_generates_random_when_none() {
+        let request = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_700_000_000,
+            expires_at: 1_700_100_000,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: Some(test_field_element(99)),
+            action: None,
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![],
+            constraints: None,
+        };
+
+        let action1 = request.computed_action(&mut rand::rngs::OsRng);
+        let action2 = request.computed_action(&mut rand::rngs::OsRng);
+        // Each call generates a different random action
+        assert_ne!(action1, action2);
     }
 
     #[test]

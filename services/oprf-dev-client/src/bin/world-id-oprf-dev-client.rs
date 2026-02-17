@@ -280,8 +280,10 @@ struct NullifierStressTestItem {
     proof_request: ProofRequest,
 }
 
+#[expect(clippy::too_many_arguments)]
 fn generate_oprf_auth_request(
     proof_request: &ProofRequest,
+    action: FieldElement,
     blinding_factor: &BlindingFactor,
     authenticator_signature: EdDSASignature,
     key_set: AuthenticatorPublicKeySet,
@@ -307,7 +309,7 @@ fn generate_oprf_auth_request(
         siblings,
         beta: blinding_factor.beta(),
         rp_id: *FieldElement::from(proof_request.rp_id),
-        action: *proof_request.computed_action(),
+        action: *action,
         nonce: *proof_request.nonce,
     };
 
@@ -318,7 +320,7 @@ fn generate_oprf_auth_request(
 
     let auth = NullifierOprfRequestAuthV1 {
         proof: proof.into(),
-        action: *proof_request.computed_action(),
+        action: *action,
         nonce: *proof_request.nonce,
         merkle_root: *inclusion_proof.root,
         current_time_stamp: proof_request.created_at,
@@ -362,9 +364,10 @@ fn prepare_nullifier_stress_test_oprf_request(
         .context("while creating proof request")?;
 
     let request_id = Uuid::new_v4();
+    let action = proof_request.computed_action(&mut rng);
     let query_hash = world_id_primitives::authenticator::oprf_query_digest(
         leaf_index,
-        proof_request.computed_action(),
+        action,
         proof_request.rp_id.into(),
     );
     let oprf_blinding_factor = BlindingFactor::rand(&mut rng);
@@ -372,6 +375,7 @@ fn prepare_nullifier_stress_test_oprf_request(
 
     let (oprf_request_auth, query_input) = generate_oprf_auth_request(
         &proof_request,
+        action,
         &oprf_blinding_factor,
         signature,
         key_set,
