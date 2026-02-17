@@ -20,6 +20,9 @@
   "lib/oprf-key-registry": {
     "rev": "2837db7"
   },
+  "lib/optimism": {
+    "rev": "fc6cd911e5abc8ecb1f1631fcd24d41f2af031c3"
+  },
   "lib/poseidon-solidity": {
     "tag": {
       "name": "v0.0.5",

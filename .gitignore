@@ -2,12 +2,15 @@
 target/
 **/target/
 
-**/contracts/deployments/local.json
+**/contracts/deployments/core/local.json
+**/contracts/deployments/crosschain/local.json
+
 **/contracts/lib/*
 **/contracts/out/*
 **/contracts/cache/
 **/contracts/broadcast/
 **/contracts/test/fixtures/e2e_mpt/
+
 contracts/test/crosschain/fixtures/e2e_mpt/
 contracts/deployments/crosschain/local.json
 contracts/script/crosschain/config/local.json
