@@ -191,7 +191,7 @@ contract Deploy is Script {
     /// @param env The environment name (e.g. "local", "staging", "production").
     /// @return json The raw JSON string contents of the config file.
     function _loadConfig(string memory env) internal view returns (string memory json) {
-        string memory path = string.concat("script/config/", env, ".json");
+        string memory path = string.concat("script/core/config/", env, ".json");
         json = vm.readFile(path);
     }
 
@@ -227,7 +227,7 @@ contract Deploy is Script {
         vm.serializeString(root, "rpRegistry", rpJson);
         string memory json = vm.serializeString(root, "worldIDVerifier", wivJson);
 
-        string memory path = string.concat("deployments/", env, ".json");
+        string memory path = string.concat("deployments/core/", env, ".json");
         vm.writeJson(json, path);
         console2.log("Deployment written to", path);
     }

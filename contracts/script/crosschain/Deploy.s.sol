@@ -45,7 +45,7 @@ contract BridgeDeployer {
 /// @title Deploy
 /// @notice Multi-chain deployment script for the World ID Bridge SDK.
 ///
-///   All configuration is read from `script/config/{env}.json`. Deployment
+///   All configuration is read from `script/crosschain/config/{env}.json`. Deployment
 ///   addresses are persisted to `deployments/{env}.json` for idempotent re-runs.
 ///   Git commit SHA and tag are recorded in every deployment artifact.
 ///
@@ -86,9 +86,9 @@ contract Deploy is Script {
     ////////////////////////////////////////////////////////////
 
     /// @notice Deploy all bridge infrastructure across configured networks.
-    /// @param env Environment name — maps to `script/config/{env}.json`.
+    /// @param env Environment name — maps to `script/crosschain/config/{env}.json`.
     function run(string calldata env) public {
-        _config = vm.readFile(string.concat("script/config/", env, ".json"));
+        _config = vm.readFile(string.concat("script/crosschain/config/", env, ".json"));
         _loadGitInfo();
         _deployFilter = vm.envOr("DEPLOY_CHAINS", ",", new string[](0));
 
@@ -427,7 +427,7 @@ contract Deploy is Script {
 
         string memory networkJson = vm.serializeString(net, "worldIDSource", srcJson);
 
-        string memory deployPath = string.concat("deployments/", env, ".json");
+        string memory deployPath = string.concat("deployments/crosschain/", env, ".json");
         _ensureDeploymentFileExists(deployPath);
         vm.writeJson(networkJson, deployPath, ".worldchain");
         console2.log("  Written to", deployPath, "[worldchain]");
@@ -460,7 +460,7 @@ contract Deploy is Script {
             networkJson = vm.serializeString(net, "worldIDSatellite", cdwidJson);
         }
 
-        string memory deployPath = string.concat("deployments/", env, ".json");
+        string memory deployPath = string.concat("deployments/crosschain/", env, ".json");
         vm.writeJson(networkJson, deployPath, string.concat(".", network));
         console2.log("  Written to", deployPath, string.concat("[", network, "]"));
     }
@@ -541,7 +541,7 @@ contract Deploy is Script {
     }
 
     function _loadDeployments(string memory env) internal returns (string memory) {
-        string memory path = string.concat("deployments/", env, ".json");
+        string memory path = string.concat("deployments/crosschain/", env, ".json");
         try vm.readFile(path) returns (string memory content) {
             if (bytes(content).length > 0) return content;
         } catch {}

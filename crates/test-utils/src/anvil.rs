@@ -334,14 +334,14 @@ impl TestAnvil {
         bytecode_str = Self::link_bytecode_hex(
             world_id_registry_json,
             &bytecode_str,
-            "src/hash/Poseidon2.sol:Poseidon2T2",
+            "src/core/hash/Poseidon2.sol:Poseidon2T2",
             *poseidon.address(),
         )?;
 
         bytecode_str = Self::link_bytecode_hex(
             world_id_registry_json,
             &bytecode_str,
-            "src/libraries/PackedAccountData.sol:PackedAccountData",
+            "src/core/libraries/PackedAccountData.sol:PackedAccountData",
             *packed_account_data.address(),
         )?;
 
