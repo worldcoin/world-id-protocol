@@ -46,7 +46,7 @@ world-id-core = { workspace = true, features = [
   "authenticator",
   "embed-zkeys",
 ] }
-world-id-primitives = { workspace = true }
+world-id-primitives = { workspace = true, features = ["openapi"] }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }
