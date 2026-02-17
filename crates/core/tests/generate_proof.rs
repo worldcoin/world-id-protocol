@@ -64,6 +64,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: None,
+        rate_limit_max_requests: None,
+        rate_limit_window_secs: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -272,7 +274,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
-    let nullifier = authenticator.generate_nullifier(&proof_request).await?;
+    let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
+    let nullifier = authenticator
+        .generate_nullifier(&proof_request, inclusion_proof, key_set)
+        .await?;
     let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
     assert_ne!(raw_nullifier, FieldElement::ZERO);
 

@@ -55,6 +55,8 @@ async fn redis_integration() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: Some(redis_url),
+        rate_limit_window_secs: Some(5),
+        rate_limit_max_requests: Some(10),
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");

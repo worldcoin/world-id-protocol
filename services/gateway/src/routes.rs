@@ -60,8 +60,9 @@ pub(crate) async fn build_app(
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
+    rate_limit_config: Option<(u64, u64)>,
 ) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(redis_url).await;
+    let tracker = RequestTracker::new(redis_url, rate_limit_config).await;
 
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
