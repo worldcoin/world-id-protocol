@@ -29,6 +29,22 @@ use world_id_test_utils::{
 
 const GW_PORT: u16 = 4104;
 
+fn load_embedded_materials() -> (
+    world_id_core::proof::CircomGroth16Material,
+    world_id_core::proof::CircomGroth16Material,
+) {
+    let files = world_id_core::proof::load_embedded_circuit_files(Option::<&str>::None).unwrap();
+    let query_material =
+        world_id_core::proof::load_query_material_from_bytes(&files.query_zkey, &files.query_graph)
+            .unwrap();
+    let nullifier_material = world_id_core::proof::load_nullifier_material_from_bytes(
+        &files.nullifier_zkey,
+        &files.nullifier_graph,
+    )
+    .unwrap();
+    (query_material, nullifier_material)
+}
+
 /// Generates an entire end-to-end Uniqueness Proof Generator
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
@@ -88,9 +104,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         3,
     )
     .unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
 
     // World ID should not yet exist.
-    let init_result = Authenticator::init(&seed, creation_config.clone()).await;
+    let init_result = Authenticator::init(
+        &seed,
+        creation_config.clone(),
+        query_material,
+        nullifier_material,
+    )
+    .await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -98,10 +121,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone(),
+        query_material,
+        nullifier_material,
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
     println!(
         "Authentication creation took: {}ms",
         SystemTime::now().duration_since(start).unwrap().as_millis(),
@@ -111,9 +140,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let authenticator = Authenticator::init(&seed, creation_config)
-        .await
-        .wrap_err("expected authenticator to initialize after account creation")?;
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
+            .await
+            .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     // Local indexer stub serving inclusion proof.
@@ -221,9 +252,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
 
-    let authenticator = Authenticator::init(&seed, proof_config)
-        .await
-        .wrap_err("failed to reinitialize authenticator with proof config")?;
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
+            .await
+            .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     let leaf_index = authenticator.leaf_index();

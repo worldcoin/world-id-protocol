@@ -661,9 +661,26 @@ async fn main() -> eyre::Result<()> {
     )
     .unwrap();
 
+    let files = world_id_core::proof::load_embedded_circuit_files(Option::<PathBuf>::None)?;
+    let query_material = world_id_core::proof::load_query_material_from_bytes(
+        &files.query_zkey,
+        &files.query_graph,
+    )?;
+    let nullifier_material = world_id_core::proof::load_nullifier_material_from_bytes(
+        &files.nullifier_zkey,
+        &files.nullifier_graph,
+    )?;
+
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None).await?;
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        world_config.clone(),
+        query_material,
+        nullifier_material,
+        None,
+    )
+    .await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
 
     // setup TLS config - even if we are http

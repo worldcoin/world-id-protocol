@@ -32,8 +32,25 @@ async fn main() -> Result<()> {
     let json_config = std::fs::read_to_string("config.json").unwrap();
     let config = Config::from_json(&json_config).unwrap();
 
+    let files = world_id_core::proof::load_embedded_circuit_files(Option::<&str>::None)?;
+    let query_material = world_id_core::proof::load_query_material_from_bytes(
+        &files.query_zkey,
+        &files.query_graph,
+    )?;
+    let nullifier_material = world_id_core::proof::load_nullifier_material_from_bytes(
+        &files.nullifier_zkey,
+        &files.nullifier_graph,
+    )?;
+
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
-    let authenticator = Authenticator::init_or_register(seed, config.clone(), None).await?;
+    let authenticator = Authenticator::init_or_register(
+        seed,
+        config.clone(),
+        query_material,
+        nullifier_material,
+        None,
+    )
+    .await?;
 
     let credential_path = std::env::args()
         .nth(1)
