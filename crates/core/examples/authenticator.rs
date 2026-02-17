@@ -64,7 +64,10 @@ async fn main() -> Result<()> {
         .find_request_by_issuer_schema_id(credential.issuer_schema_id)
         .expect("the credential is not valid for the ProofRequest");
 
-    let nullifier = authenticator.generate_nullifier(&proof_request).await?;
+    let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
+    let nullifier = authenticator
+        .generate_nullifier(&proof_request, inclusion_proof, key_set)
+        .await?;
 
     let proof_response = authenticator.generate_single_proof(
         nullifier,
