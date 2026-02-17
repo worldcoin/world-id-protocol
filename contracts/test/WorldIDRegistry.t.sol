@@ -443,48 +443,6 @@ contract WorldIDRegistryTest is Test {
         );
     }
 
-    function test_UpdateRecoveryAddress_SetNewAddress() public {
-        address[] memory authenticatorAddresses = new address[](1);
-        authenticatorAddresses[0] = authenticatorAddress1;
-        uint256[] memory authenticatorPubkeys = new uint256[](1);
-        authenticatorPubkeys[0] = 0;
-        worldIDRegistry.createAccount(
-            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
-        );
-
-        uint64 leafIndex = 1;
-        uint256 nonce = 0;
-        address newRecovery = recoveryAddress;
-
-        bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
-
-        vm.prank(authenticatorAddress1);
-        worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
-
-        assertEq(worldIDRegistry.getRecoveryAddress(leafIndex), newRecovery);
-        assertEq(worldIDRegistry.getSignatureNonce(leafIndex), 1);
-    }
-
-    function test_UpdateRecoveryAddress_RevertInvalidNonce() public {
-        address[] memory authenticatorAddresses = new address[](1);
-        authenticatorAddresses[0] = authenticatorAddress1;
-        uint256[] memory authenticatorPubkeys = new uint256[](1);
-        authenticatorPubkeys[0] = 0;
-        worldIDRegistry.createAccount(
-            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
-        );
-
-        uint64 leafIndex = 1;
-        uint256 nonce = 1;
-        address newRecovery = recoveryAddress;
-
-        bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
-
-        vm.prank(authenticatorAddress1);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
-        worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
-    }
-
     function test_RecoverAccountSuccess() public {
         // Use a recovery address we control via a known private key
         uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
@@ -1826,7 +1784,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             recoverSignature,
-            emptyProof(),
             1
         );
 
@@ -1878,7 +1835,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             recoverSignature,
-            emptyProof(),
             1
         );
 
@@ -2013,7 +1969,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             validRecoverSignature,
-            emptyProof(),
             1
         );
 
