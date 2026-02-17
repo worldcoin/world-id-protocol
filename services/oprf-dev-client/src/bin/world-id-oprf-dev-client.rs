@@ -244,8 +244,13 @@ async fn run_nullifier(
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .ok_or_eyre("unexpectedly not found relevant request_item")?;
 
+    let (inclusion_proof, key_set) = authenticator
+        .fetch_inclusion_proof()
+        .await
+        .context("while fetching inclusion proof")?;
+
     let nullifier = authenticator
-        .generate_nullifier(&proof_request)
+        .generate_nullifier(&proof_request, inclusion_proof, key_set)
         .await
         .context("while generating nullifier")?;
 

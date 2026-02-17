@@ -517,10 +517,10 @@ impl Authenticator {
     pub async fn generate_nullifier(
         &self,
         proof_request: &ProofRequest,
+        inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+        key_set: AuthenticatorPublicKeySet,
     ) -> Result<OprfNullifier, AuthenticatorError> {
         let (services, threshold) = self.check_oprf_config()?;
-
-        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
             .iter()
             .position(|pk| pk.pk == self.offchain_pubkey().pk)
