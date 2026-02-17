@@ -21,14 +21,14 @@ abstract contract StateBridge is IStateBridge, UUPSUpgradeable, OwnableUpgradeab
     using Lib for *;
 
     /// @dev Selector for `updateRoot(uint256,uint256,bytes32)`.
-    bytes4 internal constant UPDATE_ROOT_SELECTOR = bytes4(keccak256("updateRoot(uint256,uint256,bytes32)"));
+    bytes4 internal constant _UPDATE_ROOT_SELECTOR = bytes4(keccak256("updateRoot(uint256,uint256,bytes32)"));
 
     /// @dev Selector for `setIssuerPubkey(uint64,uint256,uint256,bytes32)`.
-    bytes4 internal constant SET_ISSUER_PUBKEY_SELECTOR =
+    bytes4 internal constant _SET_ISSUER_PUBKEY_SELECTOR =
         bytes4(keccak256("setIssuerPubkey(uint64,uint256,uint256,bytes32)"));
 
     /// @dev Selector for `setOprfKey(uint160,uint256,uint256,bytes32)`.
-    bytes4 internal constant SET_OPRF_KEY_SELECTOR = bytes4(keccak256("setOprfKey(uint160,uint256,uint256,bytes32)"));
+    bytes4 internal constant _SET_OPRF_KEY_SELECTOR = bytes4(keccak256("setOprfKey(uint160,uint256,uint256,bytes32)"));
 
     /// @dev Initializes `StateBridge` with the given configuration. Only callable once.
     function _initialize(InitConfig memory cfg) internal {
@@ -93,13 +93,13 @@ abstract contract StateBridge is IStateBridge, UUPSUpgradeable, OwnableUpgradeab
     function _applyCommitment(Lib.Commitment memory commit) private {
         (bytes4 sel, bytes memory payload) = commit.data.splitSelectorAndData();
 
-        if (sel == UPDATE_ROOT_SELECTOR) {
+        if (sel == _UPDATE_ROOT_SELECTOR) {
             (uint256 root, uint256 timestamp, bytes32 proofId) = payload.decodeUpdateRoot();
             _updateRoot(root, timestamp, proofId);
-        } else if (sel == SET_ISSUER_PUBKEY_SELECTOR) {
+        } else if (sel == _SET_ISSUER_PUBKEY_SELECTOR) {
             (uint64 issuerSchemaId, uint256 x, uint256 y, bytes32 proofId) = payload.decodeSetIssuerPubkey();
             _setIssuerPubkey(issuerSchemaId, x, y, proofId);
-        } else if (sel == SET_OPRF_KEY_SELECTOR) {
+        } else if (sel == _SET_OPRF_KEY_SELECTOR) {
             (uint160 oprfKeyId, uint256 x, uint256 y, bytes32 proofId) = payload.decodeSetOprfKey();
             _setOprfKey(oprfKeyId, x, y, proofId);
         } else {

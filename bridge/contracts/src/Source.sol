@@ -88,7 +88,7 @@ contract WorldIDSource is StateBridge {
         uint256 root = WORLD_CHAIN_REGISTRY.getLatestRoot();
         if (root != LATEST_ROOT()) {
             commits[count++] = Lib.Commitment({
-                blockHash: blockHash, data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, root, block.timestamp, proofId)
+                blockHash: blockHash, data: abi.encodeWithSelector(_UPDATE_ROOT_SELECTOR, root, block.timestamp, proofId)
             });
         }
         return count;
@@ -110,7 +110,7 @@ contract WorldIDSource is StateBridge {
             if (key.x != stored.pubKey.x || key.y != stored.pubKey.y) {
                 commits[count++] = Lib.Commitment({
                     blockHash: blockHash,
-                    data: abi.encodeWithSelector(SET_ISSUER_PUBKEY_SELECTOR, id, key.x, key.y, proofId)
+                    data: abi.encodeWithSelector(_SET_ISSUER_PUBKEY_SELECTOR, id, key.x, key.y, proofId)
                 });
             }
         }
@@ -133,7 +133,7 @@ contract WorldIDSource is StateBridge {
             if (key.key.x != stored.pubKey.x || key.key.y != stored.pubKey.y) {
                 commits[count++] = Lib.Commitment({
                     blockHash: blockHash,
-                    data: abi.encodeWithSelector(SET_OPRF_KEY_SELECTOR, id, key.key.x, key.key.y, proofId)
+                    data: abi.encodeWithSelector(_SET_OPRF_KEY_SELECTOR, id, key.key.x, key.key.y, proofId)
                 });
             }
         }
