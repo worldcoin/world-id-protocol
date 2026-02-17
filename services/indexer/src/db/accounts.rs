@@ -5,6 +5,12 @@ use tracing::instrument;
 
 use crate::db::DBResult;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AccountLatestEventId {
+    pub latest_block_number: u64,
+    pub latest_log_index: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
     pub leaf_index: u64,
@@ -12,6 +18,7 @@ pub struct Account {
     pub authenticator_addresses: Vec<Address>,
     pub authenticator_pubkeys: Vec<U256>,
     pub offchain_signer_commitment: U256,
+    pub latest_event_id: AccountLatestEventId,
 }
 
 pub struct Accounts<'a, E>
@@ -270,6 +277,7 @@ where
             authenticator_addresses: Self::map_authenticator_addresses(row)?,
             authenticator_pubkeys: Self::map_authenticator_pub_keys(row)?,
             offchain_signer_commitment: Self::map_offchain_signer_commitment(row)?,
+            latest_event_id: Self::map_latest_event_id(row)?,
         })
     }
 
@@ -301,6 +309,13 @@ where
             .iter()
             .filter_map(|opt| opt.as_ref()?.parse::<U256>().ok())
             .collect())
+    }
+
+    fn map_latest_event_id(row: &PgRow) -> DBResult<AccountLatestEventId> {
+        Ok(AccountLatestEventId {
+            latest_block_number: row.get::<i64, _>("latest_block_number") as u64,
+            latest_log_index: row.get::<i64, _>("latest_log_index") as u64,
+        })
     }
 
     fn address_to_u160(address: &Address) -> U160 {
