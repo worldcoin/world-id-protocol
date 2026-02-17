@@ -1304,31 +1304,6 @@
   },
   {
     "type": "event",
-    "name": "RecoveryAddressUpdated",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "indexed": true,
-        "internalType": "uint64"
-      },
-      {
-        "name": "oldRecoveryAddress",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newRecoveryAddress",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "RecoveryAgentUpdateCancelled",
     "inputs": [
       {

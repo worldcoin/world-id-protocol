@@ -216,16 +216,6 @@ interface IWorldIDRegistry {
     );
 
     /**
-     * @dev Emitted when the recovery address for a World ID account is updated.
-     * @param leafIndex The leaf index of the account in the Merkle tree.
-     * @param oldRecoveryAddress The previous recovery address.
-     * @param newRecoveryAddress The new recovery address.
-     */
-    event RecoveryAddressUpdated(
-        uint64 indexed leafIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
-    );
-
-    /**
      * @dev Emitted when a new authenticator is inserted (added) to a World ID account.
      * @param leafIndex The leaf index of the account in the Merkle tree.
      * @param pubkeyId The pubkey ID assigned to the new authenticator.
