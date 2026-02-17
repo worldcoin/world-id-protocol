@@ -74,7 +74,8 @@ where
         }
     }
 
-    pub async fn get_root<T: Into<WorldTreeRootId>>(
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_root<T: Into<WorldTreeRootId> + fmt::Debug>(
         self,
         root_id: T,
     ) -> DBResult<Option<WorldTreeRoot>> {
@@ -101,6 +102,7 @@ where
         result.map(|row| Self::map_root(&row)).transpose()
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn get_latest_id(self) -> DBResult<Option<WorldTreeRootId>> {
         let result = sqlx::query(
             r#"
@@ -120,6 +122,7 @@ where
         result.map(|row| Self::map_root_id(&row)).transpose()
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn get_latest_block(self) -> DBResult<Option<u64>> {
         let rec: Option<(Option<i64>,)> =
             sqlx::query_as("SELECT MAX(block_number) FROM world_tree_roots")
@@ -129,6 +132,7 @@ where
     }
 
     /// Look up a root by its value (for restore validation).
+    #[instrument(level = "info", skip(self))]
     pub async fn get_root_by_value(self, root: &U256) -> DBResult<Option<WorldTreeRoot>> {
         let result = sqlx::query(
             r#"
@@ -181,6 +185,24 @@ where
         .execute(self.executor)
         .await?;
         Ok(())
+    }
+
+    /// Delete roots after the given event_id
+    #[instrument(level = "info", skip(self))]
+    pub async fn delete_after_event(self, event_id: &crate::db::WorldTreeEventId) -> DBResult<u64> {
+        let result = sqlx::query(
+            r#"
+                DELETE FROM world_tree_roots
+                WHERE (block_number > $1)
+                   OR (block_number = $1 AND log_index > $2)
+            "#,
+        )
+        .bind(event_id.block_number as i64)
+        .bind(event_id.log_index as i64)
+        .execute(self.executor)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 
     fn map_root_id(row: &PgRow) -> DBResult<WorldTreeRootId> {

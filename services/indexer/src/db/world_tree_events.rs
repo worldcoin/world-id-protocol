@@ -207,6 +207,61 @@ where
         Ok(())
     }
 
+    /// Delete events after the given event_id
+    #[instrument(level = "info", skip(self))]
+    pub async fn delete_after_event(self, event_id: &WorldTreeEventId) -> DBResult<u64> {
+        let result = sqlx::query(
+            r#"
+                    DELETE FROM world_tree_events
+                    WHERE (block_number > $1)
+                       OR (block_number = $1 AND log_index > $2)
+                "#,
+        )
+        .bind(event_id.block_number as i64)
+        .bind(event_id.log_index as i64)
+        .execute(self.executor)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Get all events for a specific leaf index up to (and including) the given event_id
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_events_for_leaf(
+        self,
+        leaf_index: u64,
+        event_id: &WorldTreeEventId,
+    ) -> DBResult<Vec<WorldTreeEvent>> {
+        let rows = sqlx::query(
+            r#"
+                    SELECT
+                        block_number,
+                        log_index,
+                        leaf_index,
+                        event_type,
+                        offchain_signer_commitment,
+                        tx_hash
+                    FROM world_tree_events
+                    WHERE
+                        leaf_index = $1
+                        AND (
+                            (block_number < $2)
+                            OR (block_number = $2 AND log_index <= $3)
+                        )
+                    ORDER BY
+                        block_number ASC,
+                        log_index ASC
+                "#,
+        )
+        .bind(leaf_index as i64)
+        .bind(event_id.block_number as i64)
+        .bind(event_id.log_index as i64)
+        .fetch_all(self.executor)
+        .await?;
+
+        rows.iter().map(Self::map_event).collect()
+    }
+
     fn map_event_id(row: &PgRow) -> DBResult<WorldTreeEventId> {
         Ok(WorldTreeEventId {
             block_number: row.get::<i64, _>("block_number") as u64,

@@ -27,6 +27,7 @@ pub mod config;
 pub mod db;
 mod error;
 pub mod events_committer;
+pub mod rollback_executor;
 mod routes;
 mod sanity_check;
 pub mod tree;

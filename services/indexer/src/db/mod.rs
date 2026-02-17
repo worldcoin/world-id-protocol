@@ -6,7 +6,9 @@ mod world_tree_events;
 mod world_tree_roots;
 
 pub use accounts::Accounts;
-pub use world_tree_events::{WorldTreeEventId, WorldTreeEventType, WorldTreeEvents};
+pub use world_tree_events::{
+    WorldTreeEvent, WorldTreeEventId, WorldTreeEventType, WorldTreeEvents,
+};
 pub use world_tree_roots::{
     WorldTreeRoot, WorldTreeRootEventType, WorldTreeRootId, WorldTreeRoots,
 };

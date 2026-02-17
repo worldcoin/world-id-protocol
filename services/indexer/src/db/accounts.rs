@@ -40,6 +40,7 @@ where
         }
     }
 
+    #[instrument(level = "info", skip(self))]
     pub fn stream_leaf_index_and_offchain_signer_commitment(
         self,
     ) -> impl Stream<Item = DBResult<(u64, U256)>> + 'a {
@@ -62,6 +63,7 @@ where
         })
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
         self,
         leaf_index: u64,
@@ -89,6 +91,7 @@ where
             .transpose()
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn get_account(self, leaf_index: u64) -> DBResult<Option<Account>> {
         let result = sqlx::query(
             r#"
@@ -150,6 +153,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn update_authenticator_at_index(
         self,
         leaf_index: u64,
@@ -179,6 +183,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn reset_authenticator(
         self,
         leaf_index: u64,
@@ -216,6 +221,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn insert_authenticator_at_index(
         self,
         leaf_index: u64,
@@ -245,6 +251,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "info", skip(self))]
     pub async fn remove_authenticator_at_index(
         self,
         leaf_index: u64,
@@ -268,6 +275,47 @@ where
         .execute(self.executor)
         .await?;
         Ok(())
+    }
+
+    /// Get leaf indices from accounts where latest event is after the given event_id
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_affected_leaf_indices(
+        self,
+        event_id: &crate::db::WorldTreeEventId,
+    ) -> DBResult<Vec<u64>> {
+        let rows = sqlx::query(
+            r#"
+                SELECT leaf_index
+                FROM accounts
+                WHERE (latest_block_number > $1)
+                   OR (latest_block_number = $1 AND latest_log_index > $2)
+                ORDER BY leaf_index
+            "#,
+        )
+        .bind(event_id.block_number as i64)
+        .bind(event_id.log_index as i64)
+        .fetch_all(self.executor)
+        .await?;
+
+        Ok(rows.iter().map(Self::map_leaf_index).flatten().collect())
+    }
+
+    /// Delete accounts where latest event is after the given event_id
+    #[instrument(level = "info", skip(self))]
+    pub async fn delete_after_event(self, event_id: &crate::db::WorldTreeEventId) -> DBResult<u64> {
+        let result = sqlx::query(
+            r#"
+                DELETE FROM accounts
+                WHERE (latest_block_number > $1)
+                   OR (latest_block_number = $1 AND latest_log_index > $2)
+            "#,
+        )
+        .bind(event_id.block_number as i64)
+        .bind(event_id.log_index as i64)
+        .execute(self.executor)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 
     fn map_account(row: &PgRow) -> DBResult<Account> {
