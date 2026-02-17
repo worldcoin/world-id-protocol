@@ -38,8 +38,11 @@ pub async unsafe fn init_tree(
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
             Err(e) => {
-                tracing::warn!(?e, "restore failed, falling back to full rebuild");
-                build_from_db_with_cache(db, cache_path, tree_depth).await?
+                tracing::error!(?e, "restore failed, deleting cache file");
+                if let Err(remove_err) = std::fs::remove_file(cache_path) {
+                    tracing::error!(?remove_err, "failed to delete cache file");
+                }
+                return Err(e);
             }
         }
     } else {
@@ -177,7 +180,7 @@ async fn try_restore(
 /// Restore tree from mmap file (no validation).
 fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<MerkleTree> {
     let storage = unsafe { MmapVec::<U256>::restore_from_path(cache_path)? };
-    let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
+    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO)?;
     info!(
         cache_file = %cache_path.display(),
         root = %format!("0x{:x}", tree.root()),
