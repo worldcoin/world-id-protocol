@@ -94,8 +94,7 @@ pub enum ProofError {
 /// # Errors
 /// Will return an error if the zkey file cannot be loaded.
 #[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_nullifier_material(
-) -> eyre::Result<CircomGroth16Material> {
+pub fn load_embedded_nullifier_material() -> eyre::Result<CircomGroth16Material> {
     let files = get_circuit_files();
     Ok(
         build_nullifier_builder()
@@ -112,8 +111,7 @@ pub fn load_embedded_nullifier_material(
 /// # Errors
 /// Will return an error if the zkey file cannot be loaded.
 #[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_query_material(
-) -> eyre::Result<CircomGroth16Material> {
+pub fn load_embedded_query_material() -> eyre::Result<CircomGroth16Material> {
     let files = get_circuit_files();
     Ok(build_query_builder().build_from_bytes(&files.query_zkey, &files.query_graph)?)
 }
@@ -166,9 +164,8 @@ pub fn load_query_material_from_paths(
 
 #[cfg(feature = "embed-zkeys")]
 fn get_circuit_files() -> &'static CircuitFiles {
-    CIRCUIT_FILES.get_or_init(|| {
-        init_circuit_files().expect("failed to initialize embedded circuit files")
-    })
+    CIRCUIT_FILES
+        .get_or_init(|| init_circuit_files().expect("failed to initialize embedded circuit files"))
 }
 
 #[cfg(feature = "embed-zkeys")]
