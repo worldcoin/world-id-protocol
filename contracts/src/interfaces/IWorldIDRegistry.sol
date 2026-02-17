@@ -308,7 +308,7 @@ interface IWorldIDRegistry {
      * @param oldCooldown The previous cooldown period in seconds.
      * @param newCooldown The new cooldown period in seconds.
      */
-    event RecoveryAgentUpdateCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
+    event RecoveryAgentUpdateCooldownUpdated(uint256 indexed oldCooldown, uint256 indexed newCooldown);
 
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
