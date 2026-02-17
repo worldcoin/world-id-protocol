@@ -157,17 +157,17 @@ interface IRpRegistry {
     /**
      * @dev Partially update a Relying Party record. Must be signed by the manager.
      * @param rpId The unique identifier of the relying party to update.
-     * @param oprfKeyId The OPRF key identifier from the OprfKeyRegistry contract.
      * @param manager The new manager address (or current if unchanged).
      * @param signer The new signer address (or current if unchanged).
      * @param toggleActive Whether to toggle the active status of the relying party.
      * @param unverifiedWellKnownDomain The new FQDN (or current if unchanged).
      * @param nonce The signature nonce for replay protection.
      * @param signature The signature from the current manager authorizing the update.
+     * @dev updating the oprfKeyId is currently not supported as this requires further rotation implementation with the `OprfKeyRegistry`,
+     * this may be introduced in the future.
      */
     function updateRp(
         uint64 rpId,
-        uint160 oprfKeyId,
         address manager,
         address signer,
         bool toggleActive,

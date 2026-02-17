@@ -30,10 +30,7 @@ alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc)]
     CredentialSchemaIssuerRegistry,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistry.json"
-    )
+    "abi/CredentialSchemaIssuerRegistryAbi.json"
 }
 
 /// Error returned by the [`IssuerSchemaRegistryWatcher`] implementation.
@@ -98,7 +95,10 @@ impl SchemaIssuerRegistryWatcher {
                 loop {
                     let log = tokio::select! {
                         log = stream.next() => {
-                            log.ok_or_else(||eyre::eyre!("SchemaIssuerRegistryWatcher subscribe stream was closed"))?
+                            log.ok_or_else(||{
+                                tracing::warn!("SchemaIssuerRegistryWatcher subscribe stream was closed");
+                                eyre::eyre!("SchemaIssuerRegistryWatcher subscribe stream was closed")
+                            })?
                         }
                         _ = cancellation_token.cancelled() => {
                             break;
@@ -147,6 +147,7 @@ impl SchemaIssuerRegistryWatcher {
         Ok((schema_issuer_registry, subscribe_task))
     }
 
+    #[instrument(level = "debug", skip_all, fields(issuer_schema_id=issuer_schema_id))]
     pub(crate) async fn is_valid_issuer(
         &self,
         issuer_schema_id: u64,

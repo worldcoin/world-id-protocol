@@ -5,16 +5,15 @@ import {Test, console} from "forge-std/Test.sol";
 import {WorldIDRegistry} from "../src/WorldIDRegistry.sol";
 import {IWorldIDRegistry} from "../src/interfaces/IWorldIDRegistry.sol";
 import {WorldIDBase} from "../src/abstract/WorldIDBase.sol";
-import {BinaryIMT, BinaryIMTData} from "../src/libraries/BinaryIMT.sol";
+import {FullStorageBinaryIMT, FullBinaryIMTData} from "../src/libraries/FullStorageBinaryIMT.sol";
 import {PackedAccountData} from "../src/libraries/PackedAccountData.sol";
+import {Poseidon2T2} from "../src/hash/Poseidon2.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC1271Wallet} from "./Mock1271Wallet.t.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract WorldIDRegistryTest is Test {
-    using BinaryIMT for BinaryIMTData;
-
     WorldIDRegistry public worldIDRegistry;
 
     uint256 public constant RECOVERY_PRIVATE_KEY = 0xA11CE;
@@ -65,27 +64,16 @@ contract WorldIDRegistryTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function emptyProof() private pure returns (uint256[] memory) {
-        uint256 depth = 30;
-        uint256[] memory proof = new uint256[](depth);
-        for (uint256 i = 0; i < depth; i++) {
-            proof[i] = BinaryIMT.defaultZero(i);
-        }
-        return proof;
-    }
-
-    function updateAuthenticatorProofAndSignature(uint64 leafIndex, uint32 pubkeyId, uint256 newLeaf, uint256 nonce)
+    function updateAuthenticatorSignature(uint64 leafIndex, uint32 pubkeyId, uint256 newLeaf, uint256 nonce)
         private
         view
-        returns (bytes memory, uint256[] memory)
+        returns (bytes memory)
     {
-        bytes memory signature = eip712Sign(
+        return eip712Sign(
             worldIDRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(leafIndex, authenticatorAddress1, authenticatorAddress2, pubkeyId, newLeaf, newLeaf, nonce),
             AUTH1_PRIVATE_KEY
         );
-
-        return (signature, emptyProof());
     }
 
     function initiateRecoveryAgentUpdateSignature(uint64 leafIndex, address newRecoveryAgent, uint256 nonce)
@@ -104,6 +92,26 @@ contract WorldIDRegistryTest is Test {
         return eip712Sign(
             worldIDRegistry.CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH(), abi.encode(leafIndex, nonce), AUTH1_PRIVATE_KEY
         );
+    }
+
+    function computeRootFromProof(uint256 leaf, uint64 leafIndex, uint256[] memory siblings)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 hash = leaf;
+        uint256 idx = leafIndex;
+        for (uint256 level = 0; level < siblings.length; level++) {
+            uint256 sibling = siblings[level];
+            if ((idx & 1) == 0) {
+                hash = Poseidon2T2.compress([hash, sibling]);
+            } else {
+                hash = Poseidon2T2.compress([sibling, hash]);
+            }
+            idx >>= 1;
+        }
+
+        return hash;
     }
 
     ////////////////////////////////////////////////////////////
@@ -168,8 +176,7 @@ contract WorldIDRegistryTest is Test {
         uint256 packed1 = worldIDRegistry.getPackedAccountData(authenticatorAddress1);
         assertEq(uint192(packed1), leafIndex);
 
-        (bytes memory signature, uint256[] memory proof) =
-            updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
+        bytes memory signature = updateAuthenticatorSignature(leafIndex, 0, newCommitment, nonce);
 
         uint256 startGas = gasleft();
         worldIDRegistry.updateAuthenticator(
@@ -181,7 +188,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            proof,
             nonce
         );
         uint256 endGas = gasleft();
@@ -207,8 +213,7 @@ contract WorldIDRegistryTest is Test {
         uint64 leafIndex = 2;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
-        (bytes memory signature, uint256[] memory proof) =
-            updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
+        bytes memory signature = updateAuthenticatorSignature(leafIndex, 0, newCommitment, nonce);
 
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.AccountDoesNotExist.selector, leafIndex));
 
@@ -221,7 +226,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            proof,
             nonce
         );
     }
@@ -243,8 +247,7 @@ contract WorldIDRegistryTest is Test {
         uint256 packed = worldIDRegistry.getPackedAccountData(authenticatorAddress1);
         assertEq(uint192(packed), leafIndex);
 
-        (bytes memory signature, uint256[] memory proof) =
-            updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
+        bytes memory signature = updateAuthenticatorSignature(leafIndex, 0, newCommitment, nonce);
 
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
 
@@ -257,7 +260,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            proof,
             nonce
         );
     }
@@ -290,7 +292,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            emptyProof(),
             nonce
         );
         uint256 endGas = gasleft();
@@ -313,8 +314,6 @@ contract WorldIDRegistryTest is Test {
         uint64 leafIndex = 1;
         uint256 nonce = 0;
 
-        uint256[] memory siblingNodes = new uint256[](30);
-
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.PubkeyIdInUse.selector));
         worldIDRegistry.insertAuthenticator(
             leafIndex,
@@ -324,7 +323,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             OFFCHAIN_SIGNER_COMMITMENT + 1,
             bytes(""), // we don't get to the signature verification
-            siblingNodes,
             nonce
         );
     }
@@ -344,8 +342,6 @@ contract WorldIDRegistryTest is Test {
         uint256 nonce = 0;
         address newAuthenticatorAddress = address(0x4);
 
-        uint256[] memory siblingNodes = new uint256[](30);
-
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.PubkeyIdInUse.selector));
         worldIDRegistry.insertAuthenticator(
             leafIndex,
@@ -355,7 +351,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             OFFCHAIN_SIGNER_COMMITMENT + 1,
             bytes(""), // we don't get to the signature verification
-            siblingNodes,
             nonce
         );
     }
@@ -389,13 +384,105 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            emptyProof(),
             nonce
         );
 
         // authenticatorAddress2 should be removed; authenticatorAddress1 remains
         assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress2), 0);
         assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), leafIndex);
+    }
+
+    function test_RemoveAuthenticator_RevertWhenRemovingStaleAuthenticatorAfterRecovery() public {
+        uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
+        address recoverySigner = vm.addr(recoveryPrivateKey);
+
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress2;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        worldIDRegistry.createAccount(
+            recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 recoverNonce = 0;
+        uint256 recoveredCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        bytes memory recoverySignature = eip712Sign(
+            worldIDRegistry.RECOVER_ACCOUNT_TYPEHASH(),
+            abi.encode(leafIndex, authenticatorAddress3, recoveredCommitment, recoveredCommitment, recoverNonce),
+            recoveryPrivateKey
+        );
+
+        worldIDRegistry.recoverAccount(
+            leafIndex,
+            authenticatorAddress3,
+            recoveredCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            recoveredCommitment,
+            recoverySignature,
+            recoverNonce
+        );
+
+        uint256 removeNonce = 1;
+        uint256 removeCommitment = recoveredCommitment + 1;
+        bytes memory removeSignature = eip712Sign(
+            worldIDRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
+            abi.encode(leafIndex, authenticatorAddress1, uint256(0), uint256(0), removeCommitment, removeNonce),
+            AUTH3_PRIVATE_KEY
+        );
+
+        assertEq(worldIDRegistry.getRecoveryCounter(leafIndex), 1);
+        assertEq(PackedAccountData.recoveryCounter(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), 0);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedRecoveryCounter.selector, leafIndex, 1, 0));
+        worldIDRegistry.removeAuthenticator(
+            leafIndex, authenticatorAddress1, 0, 0, recoveredCommitment, removeCommitment, removeSignature, removeNonce
+        );
+    }
+
+    function test_UpdateRecoveryAddress_SetNewAddress() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        address newRecovery = recoveryAddress;
+
+        bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
+
+        vm.prank(authenticatorAddress1);
+        worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
+
+        assertEq(worldIDRegistry.getRecoveryAddress(leafIndex), newRecovery);
+        assertEq(worldIDRegistry.getSignatureNonce(leafIndex), 1);
+    }
+
+    function test_UpdateRecoveryAddress_RevertInvalidNonce() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 1;
+        address newRecovery = recoveryAddress;
+
+        bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
+
+        vm.prank(authenticatorAddress1);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
+        worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
     }
 
     function test_RecoverAccountSuccess() public {
@@ -431,7 +518,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            emptyProof(),
             nonce
         );
 
@@ -517,7 +603,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            emptyProof(),
             nonce
         );
         uint256 endGas = gasleft();
@@ -594,18 +679,9 @@ contract WorldIDRegistryTest is Test {
             address(0), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
 
-        uint256[] memory siblingNodes = new uint256[](30);
-
         vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.RecoveryNotEnabled.selector));
         worldIDRegistry.recoverAccount(
-            1,
-            authenticatorAddress1,
-            0,
-            OFFCHAIN_SIGNER_COMMITMENT,
-            OFFCHAIN_SIGNER_COMMITMENT,
-            bytes(""),
-            siblingNodes,
-            0
+            1, authenticatorAddress1, 0, OFFCHAIN_SIGNER_COMMITMENT, OFFCHAIN_SIGNER_COMMITMENT, bytes(""), 0
         );
     }
 
@@ -665,6 +741,93 @@ contract WorldIDRegistryTest is Test {
         assertEq(worldIDRegistry.getMaxAuthenticators(), 1);
     }
 
+    /**
+     * @dev Tests the edge case of the max authenticators soft limit being lowered. In this scenario,
+     * users should still be able to update/remove existing authenticators.
+     */
+    function test_UpdateAuthenticator_SucceedsWhenPubkeyIdExceedsLoweredLimit() public {
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress2;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // Lower the limit so pubkeyId=1 is now out of bounds
+        worldIDRegistry.setMaxAuthenticators(1);
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        bytes memory signature = eip712Sign(
+            worldIDRegistry.UPDATE_AUTHENTICATOR_TYPEHASH(),
+            abi.encode(
+                leafIndex, authenticatorAddress2, authenticatorAddress3, uint256(1), newCommitment, newCommitment, nonce
+            ),
+            AUTH2_PRIVATE_KEY
+        );
+
+        worldIDRegistry.updateAuthenticator(
+            leafIndex,
+            authenticatorAddress2,
+            authenticatorAddress3,
+            1,
+            newCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            signature,
+            nonce
+        );
+
+        assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress2), 0);
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress3)), leafIndex);
+    }
+
+    function test_RemoveAuthenticator_SucceedsWhenPubkeyIdExceedsLoweredLimit() public {
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress2;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        // Lower the limit so pubkeyId=1 is now out of bounds
+        worldIDRegistry.setMaxAuthenticators(1);
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        assertEq(uint64(worldIDRegistry.getPackedAccountData(authenticatorAddress2)), leafIndex);
+
+        bytes memory signature = eip712Sign(
+            worldIDRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
+            abi.encode(leafIndex, authenticatorAddress2, uint256(1), OFFCHAIN_SIGNER_COMMITMENT, newCommitment, nonce),
+            AUTH1_PRIVATE_KEY
+        );
+
+        worldIDRegistry.removeAuthenticator(
+            leafIndex,
+            authenticatorAddress2,
+            1,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            signature,
+            nonce
+        );
+
+        assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress2), 0);
+        assertEq(PackedAccountData.leafIndex(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), leafIndex);
+    }
+
     ////////////////////////////////////////////////////////////
     //              Tests for Getter Functions                //
     ////////////////////////////////////////////////////////////
@@ -703,8 +866,7 @@ contract WorldIDRegistryTest is Test {
 
         // Update authenticator to increment nonce
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
-        (bytes memory signature, uint256[] memory proof) =
-            updateAuthenticatorProofAndSignature(leafIndex, 0, newCommitment, nonce);
+        bytes memory signature = updateAuthenticatorSignature(leafIndex, 0, newCommitment, nonce);
 
         worldIDRegistry.updateAuthenticator(
             leafIndex,
@@ -715,7 +877,6 @@ contract WorldIDRegistryTest is Test {
             OFFCHAIN_SIGNER_COMMITMENT,
             newCommitment,
             signature,
-            proof,
             nonce
         );
 
@@ -758,6 +919,39 @@ contract WorldIDRegistryTest is Test {
     function test_GetTreeDepth() public {
         uint256 depth = worldIDRegistry.getTreeDepth();
         assertEq(depth, 30, "Tree depth should match initialization value");
+    }
+
+    function test_GetProof() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256[] memory proof = worldIDRegistry.getProof(leafIndex);
+
+        assertEq(proof.length, worldIDRegistry.getTreeDepth(), "Proof length should match tree depth");
+        uint256 reconstructedRoot = computeRootFromProof(OFFCHAIN_SIGNER_COMMITMENT, leafIndex, proof);
+        assertEq(reconstructedRoot, worldIDRegistry.currentRoot(), "Proof should reconstruct the current root");
+    }
+
+    function test_GetProofRevertsForMissingAccount() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 missingLeafIndex = 2;
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.AccountDoesNotExist.selector, missingLeafIndex));
+        worldIDRegistry.getProof(missingLeafIndex);
     }
 
     function test_GetMaxAuthenticators() public {

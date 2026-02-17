@@ -32,10 +32,7 @@ alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc)]
     RpRegistry,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/RpRegistry.sol/RpRegistry.json"
-    )
+    "abi/RpRegistryAbi.json"
 }
 
 #[derive(Clone, Debug)]
@@ -58,7 +55,10 @@ pub(crate) enum RpRegistryWatcherError {
 
 /// Monitors the RPs from the RpRegistry contract.
 ///
-/// RPs are lazily loaded, meaning in the beginning the store will be empty. When valid requests are coming in from users, this service will go to chain and try fetching the ecdsa keys and store them up to a configurable maximum.
+/// RPs are lazily loaded, meaning in the beginning the store will be empty.
+///
+/// When valid requests are coming in from users, this service will go to chain
+/// and try fetching the ecdsa keys and store them up to a configurable maximum.
 ///
 /// Additionally, will subscribe to chain events to handle RpUpdate events.
 #[derive(Clone)]
@@ -105,7 +105,10 @@ impl RpRegistryWatcher {
                 loop {
                     let log = tokio::select! {
                         log = stream.next() => {
-                            log.ok_or_else(||eyre::eyre!("RpRegistry subscribe stream was closed"))?
+                            log.ok_or_else(||{
+                                tracing::warn!("RpRegistry subscribe stream was closed");
+                                eyre::eyre!("RpRegistry subscribe stream was closed")
+                            })?
                         }
                         _ = cancellation_token.cancelled() => {
                             break;
@@ -123,8 +126,8 @@ impl RpRegistryWatcher {
                                         if let Some(entry) = entry {
                                             tracing::debug!("updating rp {rp_id} in store");
                                             let mut rp = entry.into_value();
+                                            // Note: we don't update oprf key id because it cannot mutate
                                             rp.signer = event.signer;
-                                            rp.oprf_key_id = OprfKeyId::new(event.oprfKeyId);
                                             Op::Put(rp)
                                         } else {
                                             tracing::debug!(
@@ -174,6 +177,7 @@ impl RpRegistryWatcher {
         Ok((rp_registry, subscribe_task))
     }
 
+    #[instrument(level = "debug", skip_all, fields(rp_id=%rp_id))]
     pub(crate) async fn get_rp(
         &self,
         rp_id: &RpId,

@@ -187,7 +187,10 @@ impl MerkleWatcher {
                 loop {
                     let log = tokio::select! {
                         log = stream.next() => {
-                            log.ok_or_else(||eyre::eyre!("MerkleWatcher subscribe stream was closed"))?
+                            log.ok_or_else(||{
+                                tracing::warn!("MerkleWatcher subscribe stream was closed");
+                                eyre::eyre!("MerkleWatcher subscribe stream was closed")
+                            })?
                         }
                         _ = cancellation_token.cancelled() => {
                             break;
@@ -281,7 +284,7 @@ impl MerkleWatcher {
         Ok((merkle_watcher, subscribe_task))
     }
 
-    #[instrument(level = "debug", skip(self))]
+    #[instrument(level = "debug", skip_all, fields(root=%root))]
     pub(crate) async fn is_root_valid(
         &self,
         root: FieldElement,

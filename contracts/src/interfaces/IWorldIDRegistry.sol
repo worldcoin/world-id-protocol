@@ -360,7 +360,6 @@ interface IWorldIDRegistry {
      * @param oldOffchainSignerCommitment The current offchain signer commitment.
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      * @param signature The signature from the old authenticator authorizing the update.
-     * @param siblingNodes The Merkle proof sibling nodes for the current leaf.
      * @param nonce The signature nonce for replay protection.
      */
     function updateAuthenticator(
@@ -372,7 +371,6 @@ interface IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
-        uint256[] calldata siblingNodes,
         uint256 nonce
     ) external;
 
@@ -385,7 +383,6 @@ interface IWorldIDRegistry {
      * @param oldOffchainSignerCommitment The current offchain signer commitment.
      * @param newOffchainSignerCommitment The new offchain signer commitment.
      * @param signature The signature from an existing authenticator authorizing the insertion.
-     * @param siblingNodes The Merkle proof sibling nodes for the current leaf.
      * @param nonce The signature nonce for replay protection.
      */
     function insertAuthenticator(
@@ -396,7 +393,6 @@ interface IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
-        uint256[] calldata siblingNodes,
         uint256 nonce
     ) external;
 
@@ -409,7 +405,6 @@ interface IWorldIDRegistry {
      * @param oldOffchainSignerCommitment The current offchain signer commitment.
      * @param newOffchainSignerCommitment The new offchain signer commitment after removal.
      * @param signature The signature from the authenticator being removed authorizing the removal.
-     * @param siblingNodes The Merkle proof sibling nodes for the current leaf.
      * @param nonce The signature nonce for replay protection.
      */
     function removeAuthenticator(
@@ -420,7 +415,6 @@ interface IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
-        uint256[] calldata siblingNodes,
         uint256 nonce
     ) external;
 
@@ -432,7 +426,6 @@ interface IWorldIDRegistry {
      * @param oldOffchainSignerCommitment The current offchain signer commitment.
      * @param newOffchainSignerCommitment The new offchain signer commitment after recovery.
      * @param signature The signature from the recovery address authorizing the recovery.
-     * @param siblingNodes The Merkle proof sibling nodes for the current leaf.
      * @param nonce The signature nonce for replay protection.
      */
     function recoverAccount(
@@ -442,7 +435,6 @@ interface IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
-        uint256[] calldata siblingNodes,
         uint256 nonce
     ) external;
 
@@ -488,6 +480,12 @@ interface IWorldIDRegistry {
      * @dev Returns the current tree root.
      */
     function currentRoot() external view returns (uint256);
+
+    /**
+     * @dev Returns the Merkle inclusion proof (sibling nodes) for an account leaf.
+     * @param leafIndex The index of the leaf/account.
+     */
+    function getProof(uint64 leafIndex) external view returns (uint256[] memory);
 
     /**
      * @dev Returns the recovery agent for the given World ID (based on its leaf index).

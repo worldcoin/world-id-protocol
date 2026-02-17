@@ -8,8 +8,7 @@ pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTR
 use crate::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
-// we want to use taceo_oprf_types explicitly over the umbrella taceo_oprf create for WASM compatibility
-use taceo_oprf_types::OprfKeyId;
+use taceo_oprf::types::OprfKeyId;
 // The uuid crate is needed for wasm compatibility
 use uuid as _;
 
@@ -78,7 +77,7 @@ pub struct ProofRequest {
     /// Specific credential requests. This defines which credentials to ask for.
     #[serde(rename = "proof_requests")]
     pub requests: Vec<RequestItem>,
-    /// Constraint expression (all/any) optional.
+    /// Constraint expression (all/any/enumerate) optional.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constraints: Option<ConstraintExpr<'static>>,
 }
@@ -326,24 +325,23 @@ impl ProofRequest {
     /// Panics if constraints are present but invalid according to the type invariants
     /// (this should not occur as constraints are provided by trusted request issuer).
     #[must_use]
-    pub fn credentials_to_prove(&self, available: &HashSet<String>) -> Option<Vec<&RequestItem>> {
-        // Build set of requested identifiers
-        let requested: HashSet<&str> = self
+    pub fn credentials_to_prove(&self, available: &HashSet<u64>) -> Option<Vec<&RequestItem>> {
+        // Pre-compute which identifiers have an available issuer_schema_id
+        let available_identifiers: HashSet<&str> = self
             .requests
             .iter()
+            .filter(|r| available.contains(&r.issuer_schema_id))
             .map(|r| r.identifier.as_str())
             .collect();
 
-        // Predicate: only select if both available and requested
-        let is_selectable =
-            |identifier: &str| available.contains(identifier) && requested.contains(identifier);
+        let is_selectable = |identifier: &str| available_identifiers.contains(identifier);
 
         // If no explicit constraints: require all requested be available
         if self.constraints.is_none() {
             return if self
                 .requests
                 .iter()
-                .all(|r| available.contains(&r.identifier))
+                .all(|r| available.contains(&r.issuer_schema_id))
             {
                 Some(self.requests.iter().collect())
             } else {
@@ -402,12 +400,16 @@ impl ProofRequest {
     }
 
     /// Gets the action value to use in the proof.
+    ///
+    /// - When an explicit action is provided, it is returned directly.
+    /// - For session proofs (action is `None`), a random action is generated.
+    ///
+    /// Callers should cache the action during proof generation to ensure consistency across proof steps.
     #[must_use]
-    pub fn computed_action(&self) -> FieldElement {
-        // if session_id -> compute differently
+    pub fn computed_action<R: rand::CryptoRng + rand::RngCore>(&self, rng: &mut R) -> FieldElement {
         match self.action {
             Some(action) => action,
-            None => todo!("Not ready"),
+            None => FieldElement::random(rng),
         }
     }
 
@@ -639,6 +641,30 @@ where
             Some(out)
         }
         ConstraintExpr::Any { any } => any.iter().find_map(|n| select_node(n, pred)),
+        ConstraintExpr::Enumerate { enumerate } => {
+            // HashSet deduplicates identifiers, while Vec preserves first-seen output order.
+            let mut seen: std::collections::HashSet<&'a str> = std::collections::HashSet::new();
+            let mut selected: Vec<&'a str> = Vec::new();
+
+            // Enumerate semantics: collect every satisfiable child; skip unsatisfied children.
+            for child in enumerate {
+                let Some(child_selection) = select_node(child, pred) else {
+                    continue;
+                };
+
+                for identifier in child_selection {
+                    if seen.insert(identifier) {
+                        selected.push(identifier);
+                    }
+                }
+            }
+
+            if selected.is_empty() {
+                None
+            } else {
+                Some(selected)
+            }
+        }
     }
 }
 
@@ -713,6 +739,51 @@ mod tests {
             all: vec![
                 ConstraintNode::Type("test_req_1".into()),
                 ConstraintNode::Type("test_req_3".into()),
+            ],
+        };
+        assert!(!response.constraints_satisfied(&fail_expr));
+    }
+
+    #[test]
+    fn constraints_enumerate_partial_and_empty() {
+        // Build a response that has orb and passport provided
+        let response = ProofResponse {
+            id: "req_123".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: None,
+            responses: vec![
+                ResponseItem::new_uniqueness(
+                    "orb".into(),
+                    1,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    1_735_689_600,
+                ),
+                ResponseItem::new_uniqueness(
+                    "passport".into(),
+                    2,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1002),
+                    1_735_689_600,
+                ),
+            ],
+        };
+
+        // enumerate: [passport, national_id] should pass due to passport
+        let expr = ConstraintExpr::Enumerate {
+            enumerate: vec![
+                ConstraintNode::Type("passport".into()),
+                ConstraintNode::Type("national_id".into()),
+            ],
+        };
+        assert!(response.constraints_satisfied(&expr));
+
+        // enumerate: [national_id, document] should fail due to no matches
+        let fail_expr = ConstraintExpr::Enumerate {
+            enumerate: vec![
+                ConstraintNode::Type("national_id".into()),
+                ConstraintNode::Type("document".into()),
             ],
         };
         assert!(!response.constraints_satisfied(&fail_expr));
@@ -1332,6 +1403,71 @@ mod tests {
     }
 
     #[test]
+    fn request_validate_response_with_enumerate() {
+        let req = ProofRequest {
+            id: "req_enum".into(),
+            version: RequestVersion::V1,
+            created_at: 1_725_381_192,
+            expires_at: 1_725_381_492,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None,
+            action: Some(test_field_element(1)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![
+                RequestItem {
+                    identifier: "passport".into(),
+                    issuer_schema_id: 2,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None,
+                },
+                RequestItem {
+                    identifier: "national_id".into(),
+                    issuer_schema_id: 3,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None,
+                },
+            ],
+            constraints: Some(ConstraintExpr::Enumerate {
+                enumerate: vec![
+                    ConstraintNode::Type("passport".into()),
+                    ConstraintNode::Type("national_id".into()),
+                ],
+            }),
+        };
+
+        // Satisfies enumerate with passport
+        let ok_resp = ProofResponse {
+            id: req.id.clone(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: None,
+            responses: vec![ResponseItem::new_uniqueness(
+                "passport".into(),
+                2,
+                ZeroKnowledgeProof::default(),
+                test_field_element(2002),
+                1_725_381_192,
+            )],
+        };
+        assert!(req.validate_response(&ok_resp).is_ok());
+
+        // Fails enumerate because none of the enumerate candidates are present
+        let fail_resp = ProofResponse {
+            id: req.id.clone(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: None,
+            responses: vec![],
+        };
+        let err = req.validate_response(&fail_resp).unwrap_err();
+        assert!(matches!(err, ValidationError::ConstraintNotSatisfied));
+    }
+
+    #[test]
     fn response_json_parse() {
         // Success OK - Uniqueness nullifier (simple FieldElement)
         let ok_json = r#"{
@@ -1519,15 +1655,13 @@ mod tests {
             constraints: None,
         };
 
-        let available_ok: HashSet<String> = ["orb".to_string(), "passport".to_string()]
-            .into_iter()
-            .collect();
+        let available_ok: HashSet<u64> = [100, 101].into_iter().collect();
         let sel_ok = req.credentials_to_prove(&available_ok).unwrap();
         assert_eq!(sel_ok.len(), 2);
         assert_eq!(sel_ok[0].issuer_schema_id, 100);
         assert_eq!(sel_ok[1].issuer_schema_id, 101);
 
-        let available_missing: HashSet<String> = std::iter::once("orb".to_string()).collect();
+        let available_missing: HashSet<u64> = std::iter::once(100).collect();
         assert!(req.credentials_to_prove(&available_missing).is_none());
     }
 
@@ -1536,7 +1670,7 @@ mod tests {
         // proof_requests: orb, passport, national-id
         let orb_id = 100;
         let passport_id = 101;
-        let national_id_id = 102;
+        let national_id = 102;
 
         let req = ProofRequest {
             id: "req".into(),
@@ -1566,7 +1700,7 @@ mod tests {
                 },
                 RequestItem {
                     identifier: "national_id".into(),
-                    issuer_schema_id: national_id_id,
+                    issuer_schema_id: national_id,
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
@@ -1586,25 +1720,160 @@ mod tests {
         };
 
         // Available has orb + passport → should pick [orb, passport]
-        let available1: HashSet<String> = ["orb".to_string(), "passport".to_string()]
-            .into_iter()
-            .collect();
+        let available1: HashSet<u64> = [orb_id, passport_id].into_iter().collect();
         let sel1 = req.credentials_to_prove(&available1).unwrap();
         assert_eq!(sel1.len(), 2);
         assert_eq!(sel1[0].issuer_schema_id, orb_id);
         assert_eq!(sel1[1].issuer_schema_id, passport_id);
 
         // Available has orb + national-id → should pick [orb, national-id]
-        let available2: HashSet<String> = ["orb".to_string(), "national_id".to_string()]
-            .into_iter()
-            .collect();
+        let available2: HashSet<u64> = [orb_id, national_id].into_iter().collect();
         let sel2 = req.credentials_to_prove(&available2).unwrap();
         assert_eq!(sel2.len(), 2);
         assert_eq!(sel2[0].issuer_schema_id, orb_id);
-        assert_eq!(sel2[1].issuer_schema_id, national_id_id);
+        assert_eq!(sel2[1].issuer_schema_id, national_id);
 
         // Missing orb → cannot satisfy "all" → None
-        let available3: HashSet<String> = std::iter::once("passport".to_string()).collect();
+        let available3: HashSet<u64> = std::iter::once(passport_id).collect();
+        assert!(req.credentials_to_prove(&available3).is_none());
+    }
+
+    #[test]
+    fn credentials_to_prove_with_constraints_enumerate() {
+        let orb_id = 100;
+        let passport_id = 101;
+        let national_id = 102;
+
+        let req = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None,
+            action: Some(test_field_element(1)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![
+                RequestItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: orb_id,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None,
+                },
+                RequestItem {
+                    identifier: "passport".into(),
+                    issuer_schema_id: passport_id,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None,
+                },
+                RequestItem {
+                    identifier: "national_id".into(),
+                    issuer_schema_id: national_id,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None,
+                },
+            ],
+            constraints: Some(ConstraintExpr::Enumerate {
+                enumerate: vec![
+                    ConstraintNode::Type("passport".into()),
+                    ConstraintNode::Type("national_id".into()),
+                ],
+            }),
+        };
+
+        // One of enumerate candidates available -> one selected
+        let available1: HashSet<u64> = [orb_id, passport_id].into_iter().collect();
+        let sel1 = req.credentials_to_prove(&available1).unwrap();
+        assert_eq!(sel1.len(), 1);
+        assert_eq!(sel1[0].issuer_schema_id, passport_id);
+
+        // Both enumerate candidates available -> both selected in request order
+        let available2: HashSet<u64> = [orb_id, passport_id, national_id].into_iter().collect();
+        let sel2 = req.credentials_to_prove(&available2).unwrap();
+        assert_eq!(sel2.len(), 2);
+        assert_eq!(sel2[0].issuer_schema_id, passport_id);
+        assert_eq!(sel2[1].issuer_schema_id, national_id);
+
+        // None of enumerate candidates available -> cannot satisfy
+        let available3: HashSet<u64> = std::iter::once(orb_id).collect();
+        assert!(req.credentials_to_prove(&available3).is_none());
+    }
+
+    #[test]
+    fn credentials_to_prove_with_constraints_all_and_enumerate() {
+        let orb_id = 100;
+        let passport_id = 101;
+        let national_id = 102;
+
+        let req = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_600,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None,
+            action: Some(test_field_element(1)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![
+                RequestItem {
+                    identifier: "orb".into(),
+                    issuer_schema_id: orb_id,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None,
+                },
+                RequestItem {
+                    identifier: "passport".into(),
+                    issuer_schema_id: passport_id,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None,
+                },
+                RequestItem {
+                    identifier: "national_id".into(),
+                    issuer_schema_id: national_id,
+                    signal: None,
+                    genesis_issued_at_min: None,
+                    expires_at_min: None,
+                },
+            ],
+            constraints: Some(ConstraintExpr::All {
+                all: vec![
+                    ConstraintNode::Type("orb".into()),
+                    ConstraintNode::Expr(ConstraintExpr::Enumerate {
+                        enumerate: vec![
+                            ConstraintNode::Type("passport".into()),
+                            ConstraintNode::Type("national_id".into()),
+                        ],
+                    }),
+                ],
+            }),
+        };
+
+        // orb + passport -> select both
+        let available1: HashSet<u64> = [orb_id, passport_id].into_iter().collect();
+        let sel1 = req.credentials_to_prove(&available1).unwrap();
+        assert_eq!(sel1.len(), 2);
+        assert_eq!(sel1[0].issuer_schema_id, orb_id);
+        assert_eq!(sel1[1].issuer_schema_id, passport_id);
+
+        // orb + passport + national_id -> select all three
+        let available2: HashSet<u64> = [orb_id, passport_id, national_id].into_iter().collect();
+        let sel2 = req.credentials_to_prove(&available2).unwrap();
+        assert_eq!(sel2.len(), 3);
+        assert_eq!(sel2[0].issuer_schema_id, orb_id);
+        assert_eq!(sel2[1].issuer_schema_id, passport_id);
+        assert_eq!(sel2[2].issuer_schema_id, national_id);
+
+        // orb alone -> enumerate branch unsatisfied
+        let available3: HashSet<u64> = std::iter::once(orb_id).collect();
         assert!(req.credentials_to_prove(&available3).is_none());
     }
 
@@ -1771,6 +2040,49 @@ mod tests {
             assert_eq!(expected, custom_expires_at);
             assert_eq!(got, request_created_at);
         }
+    }
+
+    #[test]
+    fn computed_action_returns_explicit_action() {
+        let action = test_field_element(42);
+        let request = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_700_000_000,
+            expires_at: 1_700_100_000,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None,
+            action: Some(action),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![],
+            constraints: None,
+        };
+        assert_eq!(request.computed_action(&mut rand::rngs::OsRng), action);
+    }
+
+    #[test]
+    fn computed_action_generates_random_when_none() {
+        let request = ProofRequest {
+            id: "req".into(),
+            version: RequestVersion::V1,
+            created_at: 1_700_000_000,
+            expires_at: 1_700_100_000,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: Some(test_field_element(99)),
+            action: None,
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![],
+            constraints: None,
+        };
+
+        let action1 = request.computed_action(&mut rand::rngs::OsRng);
+        let action2 = request.computed_action(&mut rand::rngs::OsRng);
+        // Each call generates a different random action
+        assert_ne!(action1, action2);
     }
 
     #[test]

@@ -1,11 +1,8 @@
-use crate::{
-    auth::{
-        merkle_watcher::MerkleWatcher,
-        schema_issuer_registry_watcher::{
-            SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
-        },
+use crate::auth::{
+    merkle_watcher::MerkleWatcher,
+    schema_issuer_registry_watcher::{
+        SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
     },
-    metrics::{METRICS_ID_NODE_REQUEST_AUTH_START, METRICS_ID_NODE_REQUEST_AUTH_VERIFIED},
 };
 use alloy::primitives::U160;
 use ark_ff::AdditiveGroup;
@@ -15,6 +12,7 @@ use taceo_oprf::types::{
     OprfKeyId,
     api::{OprfRequest, OprfRequestAuthenticator},
 };
+use tracing::instrument;
 use uuid::Uuid;
 use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
 
@@ -83,12 +81,12 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
     type RequestAuth = CredentialBlindingFactorOprfRequestAuthV1;
     type RequestAuthError = CredentialBlindingFactorOprfRequestAuthError;
 
+    #[instrument(level = "debug", skip_all)]
     async fn authenticate(
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, Self::RequestAuthError> {
-        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
-
+        tracing::trace!("checking that action is not 0...");
         // check that the action is valid (must be 0 for now, might change in the future)
         if request.auth.action != ark_babyjubjub::Fq::ZERO {
             return Err(CredentialBlindingFactorOprfRequestAuthError::InvalidAction);
@@ -96,6 +94,7 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
 
         let oprf_key_id = OprfKeyId::new(U160::from(request.auth.issuer_schema_id));
 
+        tracing::trace!("checking schema-issuer...");
         // check that the issuer schema id is valid
         self.schema_issuer_registry_watcher
             .is_valid_issuer(request.auth.issuer_schema_id)
@@ -113,8 +112,7 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
             )
             .await?;
 
-        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_VERIFIED).increment(1);
-
+        tracing::trace!("authentication successful!");
         Ok(oprf_key_id)
     }
 }

@@ -6,19 +6,6 @@
   },
   {
     "type": "function",
-    "name": "CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "EIP712_NAME",
     "inputs": [],
     "outputs": [
@@ -39,19 +26,6 @@
         "name": "",
         "type": "string",
         "internalType": "string"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -123,6 +97,19 @@
   },
   {
     "type": "function",
+    "name": "UPDATE_RECOVERY_ADDRESS_TYPEHASH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "UPGRADE_INTERFACE_VERSION",
     "inputs": [],
     "outputs": [
@@ -138,29 +125,6 @@
     "type": "function",
     "name": "acceptOwnership",
     "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "cancelRecoveryAgentUpdate",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "signature",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
-        "name": "nonce",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -291,19 +255,6 @@
   },
   {
     "type": "function",
-    "name": "executeRecoveryAgentUpdate",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "getFeeRecipient",
     "inputs": [],
     "outputs": [
@@ -388,7 +339,7 @@
   },
   {
     "type": "function",
-    "name": "getPendingRecoveryAgentUpdate",
+    "name": "getProof",
     "inputs": [
       {
         "name": "leafIndex",
@@ -398,21 +349,16 @@
     ],
     "outputs": [
       {
-        "name": "newRecoveryAgent",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "executeAfter",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
       }
     ],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "getRecoveryAgent",
+    "name": "getRecoveryAddress",
     "inputs": [
       {
         "name": "leafIndex",
@@ -425,19 +371,6 @@
         "name": "",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getRecoveryAgentUpdateCooldown",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -568,34 +501,6 @@
   },
   {
     "type": "function",
-    "name": "initiateRecoveryAgentUpdate",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "newRecoveryAgent",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "signature",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
-        "name": "nonce",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "insertAuthenticator",
     "inputs": [
       {
@@ -632,11 +537,6 @@
         "name": "signature",
         "type": "bytes",
         "internalType": "bytes"
-      },
-      {
-        "name": "siblingNodes",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
       },
       {
         "name": "nonce",
@@ -740,11 +640,6 @@
         "internalType": "bytes"
       },
       {
-        "name": "siblingNodes",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
         "name": "nonce",
         "type": "uint256",
         "internalType": "uint256"
@@ -791,11 +686,6 @@
         "name": "signature",
         "type": "bytes",
         "internalType": "bytes"
-      },
-      {
-        "name": "siblingNodes",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
       },
       {
         "name": "nonce",
@@ -845,19 +735,6 @@
     "inputs": [
       {
         "name": "newMaxAuthenticators",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setRecoveryAgentUpdateCooldown",
-    "inputs": [
-      {
-        "name": "newCooldown",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -949,9 +826,32 @@
         "internalType": "bytes"
       },
       {
-        "name": "siblingNodes",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "updateRecoveryAddress",
+    "inputs": [
+      {
+        "name": "leafIndex",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "newRecoveryAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
       },
       {
         "name": "nonce",
@@ -1330,100 +1230,6 @@
   },
   {
     "type": "event",
-    "name": "RecoveryAgentUpdateCancelled",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "indexed": true,
-        "internalType": "uint64"
-      },
-      {
-        "name": "cancelledRecoveryAgent",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "RecoveryAgentUpdateCooldownUpdated",
-    "inputs": [
-      {
-        "name": "oldCooldown",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "newCooldown",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "RecoveryAgentUpdateExecuted",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "indexed": true,
-        "internalType": "uint64"
-      },
-      {
-        "name": "oldRecoveryAgent",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newRecoveryAgent",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "RecoveryAgentUpdateInitiated",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "indexed": true,
-        "internalType": "uint64"
-      },
-      {
-        "name": "oldRecoveryAgent",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newRecoveryAgent",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "executeAfter",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "RegistrationFeeUpdated",
     "inputs": [
       {
@@ -1516,6 +1322,11 @@
   },
   {
     "type": "error",
+    "name": "AlreadyInitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "AuthenticatorAddressAlreadyInUse",
     "inputs": [
       {
@@ -1566,6 +1377,11 @@
   {
     "type": "error",
     "name": "BitmapOverflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DepthNotSupported",
     "inputs": []
   },
   {
@@ -1639,6 +1455,16 @@
   {
     "type": "error",
     "name": "InvalidSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LeafDoesNotExist",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LeafIndexOutOfRange",
     "inputs": []
   },
   {
@@ -1738,14 +1564,8 @@
   },
   {
     "type": "error",
-    "name": "NoPendingRecoveryAgentUpdate",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ]
+    "name": "NewLeafCannotEqualOldLeaf",
+    "inputs": []
   },
   {
     "type": "error",
@@ -1818,22 +1638,6 @@
   },
   {
     "type": "error",
-    "name": "RecoveryAgentUpdateStillInCooldown",
-    "inputs": [
-      {
-        "name": "leafIndex",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "executeAfter",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "RecoveryCounterOverflow",
     "inputs": []
   },
@@ -1860,6 +1664,11 @@
   },
   {
     "type": "error",
+    "name": "TreeIsFull",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -1873,6 +1682,16 @@
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ValueGreaterThanSnarkScalarField",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongDefaultZeroIndex",
+    "inputs": []
   },
   {
     "type": "error",

@@ -12,19 +12,6 @@ GREEN='\033[0;32m'
 
 PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
-create_secret() {
-    local name="$1"
-    local value="$2"
-    AWS_ACCESS_KEY_ID=test \
-    AWS_SECRET_ACCESS_KEY=test \
-    aws \
-        --region us-east-1 \
-        --endpoint-url http://localhost:4566 \
-        secretsmanager create-secret \
-        --name "$name" \
-        --secret-string "$value"
-}
-
 wait_for_health() {
     local port=$1
     local name=$2
@@ -61,7 +48,7 @@ deploy_contracts() {
     echo "OprfKeyRegistry: $oprf_key_registry"
 
     # deploy all other contracts
-    (cd contracts && forge script script/Deploy.s.sol --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
+    (cd contracts && forge script script/Deploy.s.sol --tc Deploy --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
     world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
     echo "WorldIDRegistry: $world_id_registry"
     rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
@@ -132,10 +119,10 @@ setup() {
     run_indexer_and_gateway
 
     echo -e "${GREEN}starting OPRF key-gen nodes..${NOCOLOR}"
-    create_secret "oprf/eth/n0" "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
-    create_secret "oprf/eth/n1" "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
-    create_secret "oprf/eth/n2" "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
-    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
+    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n0 --secret-string 0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
+    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n1 --secret-string 0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
+    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n2 --secret-string 0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
+    OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     wait_for_health 20000 "oprf-key-gen0" 300
     wait_for_health 20001 "oprf-key-gen1" 300
     wait_for_health 20002 "oprf-key-gen2" 300
@@ -151,12 +138,21 @@ setup() {
 }
 
 client() {
-    oprf_key_registry=$(jq -r '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./contracts/broadcast/OprfKeyRegistryWithDeps.s.sol/31337/run-latest.json)
-    world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
-    rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
-    credential_schema_issuer_registry=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/local.json)
-    # use addresses from deploy logs or use existing env vars
-    OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT:-$oprf_key_registry} OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT:-$world_id_registry} OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT:-$rp_registry} OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=${OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT:-$credential_schema_issuer_registry} cargo run --release --bin world-id-oprf-dev-client -- "$@"
+    # Set env vars only if they are not already set
+    if [ -z "${OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT=$(jq -r '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./contracts/broadcast/OprfKeyRegistryWithDeps.s.sol/31337/run-latest.json)
+    fi
+    if [ -z "${OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
+    fi
+    if [ -z "${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
+    fi
+    if [ -z "${OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/local.json)
+    fi
+
+    cargo run --release --bin world-id-oprf-dev-client -- "$@"
 }
 
 main() {

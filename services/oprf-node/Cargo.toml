@@ -26,7 +26,7 @@ secrecy = { workspace = true }
 serde_json = { workspace = true }
 taceo-nodes-common = { workspace = true }
 taceo-nodes-observability = { workspace = true }
-taceo-oprf = { workspace = true, features = ["service"] }
+taceo-oprf = { workspace = true, features = ["service", "types", "core"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
@@ -40,7 +40,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
-world-id-primitives = { workspace = true, features = ["circuits"] }
+world-id-primitives = { workspace = true }
 moka = { workspace = true }
 metrics = { workspace = true }
 

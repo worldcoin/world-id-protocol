@@ -37,28 +37,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .install_default()
         .unwrap();
 
-    let containers = tokio::join!(
-        taceo_oprf_test_utils::localstack_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-    );
-    let (_localstack_container, localstack_url) = containers.0?;
-    let (_postgres_container_0, postgres_url_0) = containers.1?;
-    let (_postgres_container_1, postgres_url_1) = containers.2?;
-    let (_postgres_container_2, postgres_url_2) = containers.3?;
-    let (_postgres_container_3, postgres_url_3) = containers.4?;
-    let (_postgres_container_4, postgres_url_4) = containers.5?;
-    let postgres_urls = [
-        postgres_url_0,
-        postgres_url_1,
-        postgres_url_2,
-        postgres_url_3,
-        postgres_url_4,
-    ];
-
     let RegistryTestContext {
         anvil,
         world_id_registry,
@@ -86,6 +64,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: None,
+        rate_limit_max_requests: None,
+        rate_limit_window_secs: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -156,11 +136,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
+    let (key_gen_secret_managers, node_secret_managers) =
+        world_id_test_utils::stubs::init_test_secret_managers();
+
     // OPRF key-gen instances
     let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
         anvil.ws_endpoint(),
-        &localstack_url,
-        &postgres_urls,
+        key_gen_secret_managers,
         oprf_key_registry,
     )
     .await;
@@ -168,7 +150,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // OPRF nodes
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         anvil.ws_endpoint(),
-        &postgres_urls,
+        node_secret_managers,
         oprf_key_registry,
         world_id_registry,
         rp_registry,
@@ -292,7 +274,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
-    let nullifier = authenticator.generate_nullifier(&proof_request).await?;
+    let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
+    let nullifier = authenticator
+        .generate_nullifier(&proof_request, inclusion_proof, key_set)
+        .await?;
     let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
     assert_ne!(raw_nullifier, FieldElement::ZERO);
 

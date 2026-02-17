@@ -24,7 +24,6 @@ services:
   # world-id-oprf-node
   localstack:
     image: localstack/localstack
-    container_name: localstack
     ports:
       - "4566:4566"
     environment:
@@ -32,49 +31,49 @@ services:
       - DEBUG=1
   oprf-key-gen0:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.2
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.5
     network_mode: "host"
     environment:
-      OPRF_NODE_ENVIRONMENT: dev
-      OPRF_NODE_BIND_ADDR: 0.0.0.0:20000
-      OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT:
-      OPRF_NODE_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
-      OPRF_NODE_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n0
-      OPRF_NODE_KEY_GEN_ZKEY: /app/OPRFKeyGen.13.arks.zkey
-      OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
-      OPRF_NODE_TRANSACTION_CONFIRMATIONS: 1
-      OPRF_NODE_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5440/postgres
-      OPRF_NODE_DB_SCHEMA: oprf
+      OPRF_KEY_GEN_ENVIRONMENT: dev
+      OPRF_KEY_GEN_BIND_ADDR: 0.0.0.0:20000
+      OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
+      OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
+      OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n0
+      OPRF_KEY_GEN_ZKEY_PATH: /app/OPRFKeyGen.13.arks.zkey
+      OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/OPRFKeyGenGraph.13.bin
+      OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
+      OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5440/postgres
+      OPRF_KEY_GEN_DB_SCHEMA: oprf
   oprf-key-gen1:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.2
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.5
     network_mode: "host"
     environment:
-      OPRF_NODE_ENVIRONMENT: dev
-      OPRF_NODE_BIND_ADDR: 0.0.0.0:20001
-      OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT:
-      OPRF_NODE_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
-      OPRF_NODE_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n1
-      OPRF_NODE_KEY_GEN_ZKEY: /app/OPRFKeyGen.13.arks.zkey
-      OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
-      OPRF_NODE_TRANSACTION_CONFIRMATIONS: 1
-      OPRF_NODE_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5441/postgres
-      OPRF_NODE_DB_SCHEMA: oprf
+      OPRF_KEY_GEN_ENVIRONMENT: dev
+      OPRF_KEY_GEN_BIND_ADDR: 0.0.0.0:20001
+      OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
+      OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
+      OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n1
+      OPRF_KEY_GEN_ZKEY_PATH: /app/OPRFKeyGen.13.arks.zkey
+      OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/OPRFKeyGenGraph.13.bin
+      OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
+      OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5441/postgres
+      OPRF_KEY_GEN_DB_SCHEMA: oprf
   oprf-key-gen2:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.2
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.5
     network_mode: "host"
     environment:
-      OPRF_NODE_ENVIRONMENT: dev
-      OPRF_NODE_BIND_ADDR: 0.0.0.0:20002
-      OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT:
-      OPRF_NODE_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
-      OPRF_NODE_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n2
-      OPRF_NODE_KEY_GEN_ZKEY: /app/OPRFKeyGen.13.arks.zkey
-      OPRF_NODE_KEY_GEN_GRAPH: /app/OPRFKeyGenGraph.13.bin
-      OPRF_NODE_TRANSACTION_CONFIRMATIONS: 1
-      OPRF_NODE_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5442/postgres
-      OPRF_NODE_DB_SCHEMA: oprf
+      OPRF_KEY_GEN_ENVIRONMENT: dev
+      OPRF_KEY_GEN_BIND_ADDR: 0.0.0.0:20002
+      OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
+      OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
+      OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n2
+      OPRF_KEY_GEN_ZKEY_PATH: /app/OPRFKeyGen.13.arks.zkey
+      OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/OPRFKeyGenGraph.13.bin
+      OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
+      OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5442/postgres
+      OPRF_KEY_GEN_DB_SCHEMA: oprf
   oprf-node-db0:
     image: postgres:latest
     ports:

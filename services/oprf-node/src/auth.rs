@@ -87,17 +87,17 @@ impl OprfRequestAuthenticator {
         action: ark_babyjubjub::Fq,
         nonce: ark_babyjubjub::Fq,
     ) -> Result<(), OprfRequestAuthError> {
-        tracing::debug!("checking if merkle root is valid...");
+        tracing::trace!("checking if merkle root is valid...");
         let valid = self
             .merkle_watcher
             .is_root_valid(merkle_root.into())
             .await?;
         if !valid {
-            tracing::debug!("merkle root INVALID");
+            tracing::trace!("merkle root INVALID");
             return Err(OprfRequestAuthError::InvalidMerkleRoot)?;
         }
 
-        tracing::debug!("verifying user proof...");
+        tracing::trace!("verifying user proof...");
         let public = [
             blinded_query.x,
             blinded_query.y,
@@ -110,10 +110,10 @@ impl OprfRequestAuthenticator {
         let valid = ark_groth16::Groth16::<Bn254>::verify_proof(&self.vk, proof, &public)
             .expect("We expect that we loaded the correct key");
         if valid {
-            tracing::debug!("proof valid");
+            tracing::trace!("proof valid");
             Ok(())
         } else {
-            tracing::debug!("proof INVALID");
+            tracing::trace!("proof INVALID");
             Err(OprfRequestAuthError::InvalidProof)
         }
     }

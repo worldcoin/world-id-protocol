@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {BinaryIMT, BinaryIMTData} from "./libraries/BinaryIMT.sol";
+import {FullStorageBinaryIMT, FullBinaryIMTData} from "./libraries/FullStorageBinaryIMT.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
@@ -16,7 +16,7 @@ import {WorldIDBase} from "./abstract/WorldIDBase.sol";
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
-    using BinaryIMT for BinaryIMTData;
+    using FullStorageBinaryIMT for FullBinaryIMTData;
 
     ////////////////////////////////////////////////////////////
     //                        Members                         //
@@ -39,8 +39,8 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     /// @dev leafIndex -> recovery counter (incremented on each recovery)
     mapping(uint64 => uint256) internal _leafIndexToRecoveryCounter;
 
-    /// @dev Binary Merkle tree storing account commitments
-    BinaryIMTData internal _tree;
+    /// @dev Binary Merkle tree storing account commitments (full-storage variant)
+    FullBinaryIMTData internal _tree;
 
     /// @dev Next available leaf index for new accounts
     uint64 internal _nextLeafIndex;
@@ -119,7 +119,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         _treeDepth = initialTreeDepth;
         _tree.initWithDefaultZeroes(_treeDepth);
 
-        // Insert the initial leaf to start leaf indexes at 1
+        // Insert a sentinel leaf to start leaf indexes at 1.
         // The 0-index of the tree is RESERVED.
         _tree.insert(uint256(0));
         _nextLeafIndex = 1;
@@ -147,6 +147,14 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     /// @inheritdoc IWorldIDRegistry
     function getRecoveryAgent(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
         return _getRecoveryAgent(leafIndex);
+    }
+
+    /// @inheritdoc IWorldIDRegistry
+    function getProof(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256[] memory) {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
+            revert AccountDoesNotExist(leafIndex);
+        }
+        return _tree.getProof(uint256(leafIndex));
     }
 
     /// @inheritdoc IWorldIDRegistry
@@ -351,15 +359,13 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
      * @param leafIndex The leaf index to update.
      * @param oldOffchainSignerCommitment The old offchain signer commitment (current leaf value).
      * @param newOffchainSignerCommitment The new offchain signer commitment (new leaf value).
-     * @param siblingNodes The Merkle proof sibling nodes.
      */
     function _updateLeafAndRecord(
         uint64 leafIndex,
         uint256 oldOffchainSignerCommitment,
-        uint256 newOffchainSignerCommitment,
-        uint256[] calldata siblingNodes
+        uint256 newOffchainSignerCommitment
     ) internal virtual {
-        _tree.update(uint256(leafIndex), oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _tree.update(uint256(leafIndex), oldOffchainSignerCommitment, newOffchainSignerCommitment);
         _recordCurrentRoot();
     }
 
@@ -501,7 +507,6 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
-        uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
         if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
@@ -509,11 +514,9 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         }
 
         _validateNewAuthenticatorAddress(newAuthenticatorAddress);
+
         if (oldAuthenticatorAddress == newAuthenticatorAddress) {
             revert ReusedAuthenticatorAddress();
-        }
-        if (pubkeyId >= _maxAuthenticators) {
-            revert PubkeyIdOutOfBounds();
         }
 
         bytes32 messageHash = _hashTypedDataV4(
@@ -575,7 +578,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             oldOffchainSignerCommitment,
             newOffchainSignerCommitment
         );
-        _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment);
     }
 
     /// @inheritdoc IWorldIDRegistry
@@ -587,7 +590,6 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
-        uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
         _validateNewAuthenticatorAddress(newAuthenticatorAddress);
@@ -644,7 +646,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             oldOffchainSignerCommitment,
             newOffchainSignerCommitment
         );
-        _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment);
     }
 
     /// @inheritdoc IWorldIDRegistry
@@ -656,13 +658,8 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
-        uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
-        if (pubkeyId >= _maxAuthenticators) {
-            revert PubkeyIdOutOfBounds();
-        }
-
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -701,6 +698,11 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         if (actualPubkeyId != pubkeyId) {
             revert MismatchedPubkeyId(pubkeyId, actualPubkeyId);
         }
+        uint256 actualRecoveryCounter = PackedAccountData.recoveryCounter(packedToRemove);
+        uint256 expectedRecoveryCounter = _leafIndexToRecoveryCounter[leafIndex];
+        if (actualRecoveryCounter != expectedRecoveryCounter) {
+            revert MismatchedRecoveryCounter(leafIndex, expectedRecoveryCounter, actualRecoveryCounter);
+        }
 
         // Delete authenticator
         delete _authenticatorAddressToPackedAccountData[authenticatorAddress];
@@ -715,7 +717,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             oldOffchainSignerCommitment,
             newOffchainSignerCommitment
         );
-        _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment);
     }
 
     /// @inheritdoc IWorldIDRegistry
@@ -726,7 +728,6 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
-        uint256[] calldata siblingNodes,
         uint256 nonce
     ) external virtual onlyProxy onlyInitialized {
         if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
@@ -787,7 +788,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             oldOffchainSignerCommitment,
             newOffchainSignerCommitment
         );
-        _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment, siblingNodes);
+        _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment);
     }
 
     /// @inheritdoc IWorldIDRegistry
