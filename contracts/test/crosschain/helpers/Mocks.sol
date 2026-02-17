@@ -5,7 +5,7 @@ import {EthereumMPTGatewayAdapter} from "../../../src/crosschain/adapters/Ethere
 import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
 import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
 import {GameStatus, Claim, GameType, Timestamp} from "@optimism-bedrock/src/dispute/lib/Types.sol";
-
+import {Lib} from "../../../src/crosschain/lib/Lib.sol";
 // ─── Mock Registries ────────────────────────────────────────────────────────
 
 contract MockRegistry {
@@ -109,17 +109,15 @@ contract TestableEthereumMPTAdapter is EthereumMPTGatewayAdapter {
         _useOverride = true;
     }
 
-    function _verifyAndExtract(bytes calldata payload, bytes[] calldata attributes)
+    function _verifyAndExtract(bytes calldata payload, bytes memory attributes)
         internal
         override
         returns (bytes32 chainHead)
     {
         if (_useOverride) {
-            // Still validate the attribute selector so the test exercises the attribute format
-            (bytes4 selector,) = split(attributes[0]);
-            if (!supportsAttribute(selector)) revert();
             return _overrideChainHead;
         }
+        // Still validate the attribute selector so the test exercises the attribute format
         return super._verifyAndExtract(payload, attributes);
     }
 }

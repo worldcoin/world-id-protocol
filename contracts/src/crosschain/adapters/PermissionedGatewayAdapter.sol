@@ -12,6 +12,9 @@ import "../Error.sol";
 contract PermissionedGatewayAdapter is WorldIDGateway, Ownable {
     using Lib for *;
 
+    /// @inheritdoc WorldIDGateway
+    bytes4 public constant override ATTRIBUTE = bytes4(keccak256("chainHead(bytes32)"));
+
     /// @param owner_ The owner who can relay state.
     /// @param bridge_ The `StateBridge` contract on this chain.
     /// @param anchorSource_ The bridge contract on the Source Chain.
@@ -21,14 +24,9 @@ contract PermissionedGatewayAdapter is WorldIDGateway, Ownable {
         Ownable(owner_)
     {}
 
-    /// @inheritdoc WorldIDGateway
-    function supportsAttribute(bytes4 selector) public view virtual override returns (bool) {
-        return selector == OWNED_GATEWAY_ATTRIBUTES;
-    }
-
     /// @dev Verifies the caller is the owner and extracts the chain head from attributes.
     ///   Expects a single attribute: `chainHead(bytes32)`.
-    function _verifyAndExtract(bytes calldata, bytes[] calldata attributes)
+    function _verifyAndExtract(bytes calldata, bytes memory proofData)
         internal
         virtual
         override
@@ -36,11 +34,6 @@ contract PermissionedGatewayAdapter is WorldIDGateway, Ownable {
     {
         _checkOwner();
 
-        (bytes4 selector, bytes memory data) = split(attributes[0]);
-        if (!supportsAttribute(selector)) {
-            revert MissingAttribute(OWNED_GATEWAY_ATTRIBUTES);
-        }
-
-        (chainHead) = abi.decode(data, (bytes32));
+        (chainHead) = abi.decode(proofData, (bytes32));
     }
 }

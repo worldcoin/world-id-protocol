@@ -26,4 +26,7 @@ interface IGateway is IERC7786GatewaySource {
     /// @notice The chain ID of the anchor chain.
     // solhint-disable-next-line func-name-mixedcase
     function ANCHOR_CHAIN_ID() external view returns (uint256);
+
+    /// @notice Returns this gateway's supported authentication strategy.
+    function ATTRIBUTE() external returns (bytes4);
 }

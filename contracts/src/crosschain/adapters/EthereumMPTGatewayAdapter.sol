@@ -17,6 +17,10 @@ import "../Error.sol";
 contract EthereumMPTGatewayAdapter is WorldIDGateway, Ownable {
     using Lib for *;
 
+    /// @inheritdoc WorldIDGateway
+    bytes4 public constant override ATTRIBUTE =
+        bytes4(keccak256("l1ProofAttributes(uint32,bytes,bytes32[4],bytes[],bytes[])"));
+
     /// @notice The L1 DisputeGameFactory contract.
     IDisputeGameFactory public immutable DISPUTE_GAME_FACTORY;
 
@@ -42,29 +46,20 @@ contract EthereumMPTGatewayAdapter is WorldIDGateway, Ownable {
         requireFinalized = requireFinalized_;
     }
 
-    /// @inheritdoc WorldIDGateway
-    function supportsAttribute(bytes4 selector) public view virtual override returns (bool) {
-        return selector == L1_GATEWAY_ATTRIBUTES;
-    }
-
     /// @dev Verifies dispute game + MPT proofs and extracts the proven WC chain head.
-    function _verifyAndExtract(bytes calldata, bytes[] calldata attributes)
+    function _verifyAndExtract(bytes calldata, bytes memory proof)
         internal
         virtual
         override
         returns (bytes32 chainHead)
     {
-        (bytes4 selector, bytes memory data) = split(attributes[0]);
-
-        if (!supportsAttribute(selector)) revert MissingAttribute(L1_GATEWAY_ATTRIBUTES);
-
         (
             uint32 gameType,
             bytes memory extraData,
             bytes32[4] memory outputRootPreimage,
             bytes[] memory wcAccountProof,
             bytes[] memory wcStorageProof
-        ) = abi.decode(data, (uint32, bytes, bytes32[4], bytes[], bytes[]));
+        ) = abi.decode(proof, (uint32, bytes, bytes32[4], bytes[], bytes[]));
 
         bytes32 outputRoot = keccak256(
             abi.encodePacked(

@@ -50,6 +50,10 @@ struct ProofOutputs {
 contract LightClientGatewayAdapter is WorldIDGateway, Ownable {
     using Lib for *;
 
+    /// @inheritdoc WorldIDGateway
+    bytes4 public constant override ATTRIBUTE = bytes4(
+        keccak256("zkProofGatewayAttributes(bytes,uint256,bytes32,bytes32,uint256,bytes32,bytes32,bytes[],bytes[])")
+    );
     /// @dev Number of slots per sync committee period (8192 slots = ~27 hours).
     uint256 internal constant SLOTS_PER_PERIOD = 8192;
 
@@ -96,22 +100,14 @@ contract LightClientGatewayAdapter is WorldIDGateway, Ownable {
         syncCommitteeHashes[initialHead_ / SLOTS_PER_PERIOD] = initialSyncCommitteeHash_;
     }
 
-    /// @inheritdoc WorldIDGateway
-    function supportsAttribute(bytes4 selector) public view virtual override returns (bool) {
-        return selector == ZK_GATEWAY_ATTRIBUTES;
-    }
-
     /// @dev Verifies SP1 Helios ZK proof of L1 consensus + single-hop MPT proof to extract
     ///   the proven chain head from the L1 StateBridge.
-    function _verifyAndExtract(bytes calldata, bytes[] calldata attributes)
+    function _verifyAndExtract(bytes calldata, bytes memory proofData)
         internal
         virtual
         override
         returns (bytes32 chainHead)
     {
-        (bytes4 sel, bytes memory data) = split(attributes[0]);
-        if (sel != ZK_GATEWAY_ATTRIBUTES) revert MissingAttribute(ZK_GATEWAY_ATTRIBUTES);
-
         // Decode relay parameters from attribute data
         (
             bytes memory proof,
@@ -123,7 +119,7 @@ contract LightClientGatewayAdapter is WorldIDGateway, Ownable {
             bytes32 nextSyncCommitteeHash,
             bytes[] memory accountProof,
             bytes[] memory storageProof
-        ) = abi.decode(data, (bytes, uint256, bytes32, bytes32, uint256, bytes32, bytes32, bytes[], bytes[]));
+        ) = abi.decode(proofData, (bytes, uint256, bytes32, bytes32, uint256, bytes32, bytes32, bytes[], bytes[]));
 
         // 1. Verify sync committee for current period is set
         bytes32 currentSyncCommitteeHash = syncCommitteeHashes[head / SLOTS_PER_PERIOD];

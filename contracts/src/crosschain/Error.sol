@@ -47,7 +47,13 @@ error EmptyPayload();
 error UnexpectedETH();
 
 /// @dev Thrown when a required attribute is missing.
-error MissingAttribute(bytes4 expected);
+error InvalidAttribute();
+
+/// @dev Thrown when an attribute with an unrecognized selector is provided.
+error UnsupportedAttribute(bytes4 selector);
+
+/// @dev Thrown when an attribute with an unrecognized selector is provided.
+error InvalidAttributes();
 
 /// @dev Thrown when the proof's sync committee root doesn't match the stored root for that period.
 error InvalidSyncCommitteeRoot();
@@ -86,3 +92,7 @@ error StorageValueTooLarge();
 
 /// @dev Thrown when the proven chain head does not match the expected keccak chain head.
 error InvalidChainHead();
+
+error InvalidContractName();
+
+error InvalidContractVersion();

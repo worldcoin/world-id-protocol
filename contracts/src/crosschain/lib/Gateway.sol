@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 import {IERC7786GatewaySource, IERC7786Recipient} from "@openzeppelin/contracts/interfaces/draft-IERC7786.sol";
 import {InteroperableAddress} from "openzeppelin-contracts/contracts/utils/draft-InteroperableAddress.sol";
 import {IGateway} from "../types/IGateway.sol";
+import {Lib} from "./Lib.sol";
+
 import "../Error.sol";
 
 /// @title Gateway
@@ -12,18 +14,6 @@ import "../Error.sol";
 ///   into the `StateBridge` for cross-chain messaging.
 abstract contract WorldIDGateway is IGateway {
     using InteroperableAddress for bytes;
-
-    /// @dev 4-byte selector for `chainHead(bytes32)` attribute, which carries the proven World Chain head for the message.
-    bytes4 internal constant OWNED_GATEWAY_ATTRIBUTES = bytes4(keccak256("chainHead(bytes32)"));
-
-    /// @dev 4-byte selector for `l1ProofAttributes(uint32,bytes,bytes32[4],bytes[],bytes[])`
-    bytes4 internal constant L1_GATEWAY_ATTRIBUTES =
-        bytes4(keccak256("l1ProofAttributes(uint32,bytes,bytes32[4],bytes[],bytes[])"));
-
-    /// @dev 4-byte selector for ZKGateway SP1 Helios + MPT proof attributes.
-    bytes4 internal constant ZK_GATEWAY_ATTRIBUTES = bytes4(
-        keccak256("zkProofGatewayAttributes(bytes,uint256,bytes32,bytes32,uint256,bytes32,bytes32,bytes[],bytes[])")
-    );
 
     /// @notice The Destination Bridge address.
     address public immutable STATE_BRIDGE;
@@ -46,6 +36,9 @@ abstract contract WorldIDGateway is IGateway {
         ANCHOR_CHAIN_ID = anchorChainId_;
     }
 
+    /// @inheritdoc IGateway
+    function ATTRIBUTE() external view virtual override returns (bytes4);
+
     /// @inheritdoc IERC7786GatewaySource
     function sendMessage(bytes calldata recipient, bytes calldata payload, bytes[] calldata attributes)
         external
@@ -58,8 +51,11 @@ abstract contract WorldIDGateway is IGateway {
         if (!ok || target != STATE_BRIDGE) revert InvalidRecipient();
         if (payload.length == 0) revert EmptyPayload();
 
+        // pre-flight check the attributes.
+        bytes memory attributeData = validateAttributes(attributes);
+
         // extract the proven (or attested) chain head.
-        bytes32 chainHead = _verifyAndExtract(payload, attributes);
+        bytes32 chainHead = _verifyAndExtract(payload, attributeData);
 
         bytes memory sender = InteroperableAddress.formatEvmV1(ANCHOR_CHAIN_ID, ANCHOR_BRIDGE);
         bytes memory encoded = abi.encode(chainHead, payload);
@@ -80,21 +76,24 @@ abstract contract WorldIDGateway is IGateway {
     }
 
     /// @inheritdoc IERC7786GatewaySource
-    function supportsAttribute(bytes4) external view virtual returns (bool);
+    function supportsAttribute(bytes4 selector) public view virtual returns (bool) {
+        return selector == this.ATTRIBUTE();
+    }
 
     /// @dev Verifies the provided payload and attributes, ensuring they meet the gateway's access control requirements, and extracts the proven chain head.
     /// @param payload The commit payload (ABI-encoded Commitment[]).
-    /// @param attributes Gateway-specific proof/auth data.
+    /// @param proof Gateway-specific proof/auth data.
     /// @return chainHead The verified keccak chain head.
-    function _verifyAndExtract(bytes calldata payload, bytes[] calldata attributes)
-        internal
-        virtual
-        returns (bytes32 chainHead);
+    function _verifyAndExtract(bytes calldata payload, bytes memory proof) internal virtual returns (bytes32 chainHead);
 
-    /// @dev Splits a calldata attribute into its selector and data components.
-    function split(bytes calldata attribute) internal pure returns (bytes4 selector, bytes memory data) {
-        require(attribute.length >= 4, "Attribute too short");
-        selector = bytes4(attribute[:4]);
-        data = attribute[4:];
+    /// @dev Validates that the required attributes are present and correctly formatted for this gateway.
+    function validateAttributes(bytes[] calldata attributes) internal view virtual returns (bytes memory) {
+        if (attributes.length == 0) revert InvalidAttribute();
+
+        (bytes4 selector, bytes memory data) = Lib.splitSelectorAndData(attributes[0]);
+
+        if (!supportsAttribute(selector)) revert UnsupportedAttribute(selector);
+
+        return data;
     }
 }

@@ -32,9 +32,9 @@ abstract contract StateBridge is IStateBridge, UUPSUpgradeable, OwnableUpgradeab
 
     /// @dev Initializes `StateBridge` with the given configuration. Only callable once.
     function _initialize(InitConfig memory cfg) internal {
-        require(cfg.owner != address(0), "Owner cannot be zero address");
-        require(bytes(cfg.name).length > 0, "Name cannot be empty");
-        require(bytes(cfg.version).length > 0, "Version cannot be empty");
+        require(cfg.owner != address(0), ZeroAddress());
+        require(bytes(cfg.name).length > 0, InvalidContractName());
+        require(bytes(cfg.version).length > 0, InvalidContractVersion());
 
         StateBridgeStorage storage $ = __storage();
 
