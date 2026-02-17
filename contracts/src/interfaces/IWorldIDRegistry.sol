@@ -13,7 +13,7 @@ interface IWorldIDRegistry {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev @dev Pending recovery agent update for each leaf index
+     * @dev Pending recovery agent update for each leaf index
      */
     struct PendingRecoveryAgentUpdate {
         address newRecoveryAgent;
@@ -270,7 +270,7 @@ interface IWorldIDRegistry {
      * @param oldMax The previous maximum number of authenticators.
      * @param newMax The new maximum number of authenticators.
      */
-    event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
+    event MaxAuthenticatorsUpdated(uint256 indexed oldMax, uint256 indexed newMax);
 
     /**
      * @dev Emitted when a recovery agent update is initiated.
