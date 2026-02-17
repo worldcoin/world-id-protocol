@@ -4,11 +4,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 set positional-arguments
 
-set dotenv-filename := "bridge/contracts/script/.env"
+set dotenv-filename := "contracts/script/crosschain/.env"
 
 ROOT          := justfile_directory()
 CONTRACTS_DIR := ROOT / "contracts"
-BRIDGE_DIR    := ROOT / "bridge" / "contracts"
+BRIDGE_DIR    := CONTRACTS_DIR
 DEPLOY_DIR    := CONTRACTS_DIR / "deployments"
 ENV           := env("DEPLOY_ENV", "staging")
 
@@ -24,7 +24,7 @@ RELEASE_PREFIX := env('RELEASE_PREFIX', 'world-id-core-')
 _TAG           := shell("git tag --list \"${1}v*\" --sort=-v:refname 2>/dev/null | head -1 || true", RELEASE_PREFIX)
 VERSION        := if _TAG != "" { trim_start_match(trim_start_match(_TAG, RELEASE_PREFIX), "v") } else { "0.0.0" }
 
-import 'bridge/contracts/Justfile'
+import 'contracts/Justfile'
 
 import 'justfiles/deploy.just'
 import 'justfiles/forge.just'

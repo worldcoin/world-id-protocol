@@ -10,10 +10,33 @@ optimizer_runs = 10000
 via_ir = true
 memory_limit = 1073741824
 gas_limit = "18446744073709551615"
+ffi = true
+
+# Suppress compiler warnings from vendored submodules
+ignored_warnings_from = ["lib/"]
+
+remappings = [
+    # OpenZeppelin
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    # Optimism contracts-bedrock
+    "@optimism-bedrock/=lib/optimism/packages/contracts-bedrock/",
+    # Optimism interfaces (used by bridge adapters)
+    "interfaces/=lib/optimism/packages/contracts-bedrock/interfaces/",
+    # Optimism transitive deps — scoped to lib/optimism/ to avoid collisions with our src/libraries/
+    "lib/optimism/:src/libraries/=lib/optimism/packages/contracts-bedrock/src/libraries/",
+    "lib/optimism/:src/dispute/=lib/optimism/packages/contracts-bedrock/src/dispute/",
+    "lib/optimism/:src/L2/=lib/optimism/packages/contracts-bedrock/src/L2/",
+    "lib/optimism/:src/universal/=lib/optimism/packages/contracts-bedrock/src/universal/",
+    "lib/optimism/:scripts/libraries/=lib/optimism/packages/contracts-bedrock/scripts/libraries/",
+]
 
 fs_permissions = [
-    { access = "read", path = "script/config/" },
-    { access = "read-write", path = "deployments/" }
+    { access = "read", path = "script/core/config/" },
+    { access = "read-write", path = "deployments/" },
+    { access = "read-write", path = "test/crosschain/fixtures" },
+    { access = "read-write", path = "test/crosschain/fixtures/e2e_mpt" },
+    { access = "read", path = "script/crosschain/config" },
 ]
 
 [lint]

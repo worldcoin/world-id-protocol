@@ -1,5 +1,5 @@
 # Deploy, verify & admin recipes.
-# Imported by the root Justfile. Uses BRIDGE_DIR, CONTRACTS_DIR, ENV,
+# Imported by the root Justfile. Uses CONTRACTS_DIR, ENV,
 # PRIVATE_KEY, and other variables from root scope.
 
 alias d := deploy
@@ -8,27 +8,27 @@ alias s := status
 # Deploy all (or filter with DEPLOY_CHAINS=ethereum)
 [group('deploy')]
 deploy env=ENV *args='':
-    cd {{ BRIDGE_DIR }} && forge script script/Deploy.s.sol:Deploy \
+    cd {{ CONTRACTS_DIR }} && forge script script/crosschain/Deploy.s.sol:Deploy \
         --sig "run(string)" "{{ env }}" --multi --broadcast {{ args }}
 
 # Simulate deployment (no broadcast)
 [group('deploy')]
 dry-run env=ENV *args='':
-    cd {{ BRIDGE_DIR }} && forge script script/Deploy.s.sol:Deploy \
+    cd {{ CONTRACTS_DIR }} && forge script script/crosschain/Deploy.s.sol:Deploy \
         --sig "run(string)" "{{ env }}" --multi {{ args }}
 
 # Show deployment artifact
 [group('deploy')]
 status env=ENV:
-    @jq '.' {{ BRIDGE_DIR }}/deployments/{{ env }}.json 2>/dev/null || echo "No deployment found for '{{ env }}'."
+    @jq '.' {{ CONTRACTS_DIR }}/deployments/crosschain/{{ env }}.json 2>/dev/null || echo "No deployment found for '{{ env }}'."
 
 # Verify deployed contracts on block explorers
 [group('deploy')]
 verify chain env=ENV:
     #!/usr/bin/env bash
     set -euo pipefail
-    cfg="{{ BRIDGE_DIR }}/script/config/{{ env }}.json"
-    deploy="{{ BRIDGE_DIR }}/deployments/{{ env }}.json"
+    cfg="{{ CONTRACTS_DIR }}/script/crosschain/config/{{ env }}.json"
+    deploy="{{ CONTRACTS_DIR }}/deployments/crosschain/{{ env }}.json"
     [ -f "$deploy" ] || { echo "No deployment at $deploy"; exit 1; }
     [ -n "${ETHERSCAN_API_KEY:-}" ] || { echo "Set ETHERSCAN_API_KEY"; exit 1; }
 
@@ -62,8 +62,8 @@ verify chain env=ENV:
 authorize chain gateway env=ENV:
     #!/usr/bin/env bash
     set -euo pipefail
-    cfg="{{ BRIDGE_DIR }}/script/config/{{ env }}.json"
-    deploy="{{ BRIDGE_DIR }}/deployments/{{ env }}.json"
+    cfg="{{ CONTRACTS_DIR }}/script/crosschain/config/{{ env }}.json"
+    deploy="{{ CONTRACTS_DIR }}/deployments/crosschain/{{ env }}.json"
     proxy=$(jq -r '.{{ chain }}.worldIDSatellite.proxy // empty' "$deploy")
     [ -n "$proxy" ] || { echo "No WorldIDSatellite for {{ chain }}"; exit 1; }
     slug=$(jq -r '.{{ chain }}.alchemySlug // empty' "$cfg")
@@ -78,8 +78,8 @@ authorize chain gateway env=ENV:
 revoke chain gateway env=ENV:
     #!/usr/bin/env bash
     set -euo pipefail
-    cfg="{{ BRIDGE_DIR }}/script/config/{{ env }}.json"
-    deploy="{{ BRIDGE_DIR }}/deployments/{{ env }}.json"
+    cfg="{{ CONTRACTS_DIR }}/script/crosschain/config/{{ env }}.json"
+    deploy="{{ CONTRACTS_DIR }}/deployments/crosschain/{{ env }}.json"
     proxy=$(jq -r '.{{ chain }}.worldIDSatellite.proxy // empty' "$deploy")
     [ -n "$proxy" ] || { echo "No WorldIDSatellite for {{ chain }}"; exit 1; }
     slug=$(jq -r '.{{ chain }}.alchemySlug // empty' "$cfg")
@@ -94,7 +94,7 @@ revoke chain gateway env=ENV:
 transfer chain contract_addr new_owner env=ENV:
     #!/usr/bin/env bash
     set -euo pipefail
-    cfg="{{ BRIDGE_DIR }}/script/config/{{ env }}.json"
+    cfg="{{ CONTRACTS_DIR }}/script/crosschain/config/{{ env }}.json"
     slug=$(jq -r '.{{ chain }}.alchemySlug // empty' "$cfg")
     rpc=$(jq -r '.{{ chain }}.rpc // empty' "$cfg")
     [ -n "${ALCHEMY_API_KEY:-}" ] && [ -n "$slug" ] && rpc="https://${slug}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
