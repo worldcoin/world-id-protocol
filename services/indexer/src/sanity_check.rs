@@ -54,10 +54,13 @@ pub async fn root_sanity_check_loop(
             tracing::error!(
                 local_root = %format!("0x{:x}", local_root),
                 current_onchain_root = %format!("0x{:x}", current_onchain_root),
-                "Local Merkle root is not valid on-chain - exiting to trigger restart"
+                "Local Merkle root is not valid on-chain"
             );
-            // Exit the process – restarts the pod.
-            std::process::exit(1);
+            return Err(crate::tree::TreeError::RootMismatch {
+                actual: format!("0x{:x}", local_root),
+                expected: format!("0x{:x}", current_onchain_root),
+            }
+            .into());
         } else {
             tracing::debug!(local_root = %format!("0x{:x}", local_root), "Local Merkle root is valid on-chain");
         }

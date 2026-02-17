@@ -339,6 +339,25 @@
   },
   {
     "type": "function",
+    "name": "getProof",
+    "inputs": [
+      {
+        "name": "leafIndex",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getRecoveryAddress",
     "inputs": [
       {
@@ -520,11 +539,6 @@
         "internalType": "bytes"
       },
       {
-        "name": "siblingNodes",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
         "name": "nonce",
         "type": "uint256",
         "internalType": "uint256"
@@ -626,11 +640,6 @@
         "internalType": "bytes"
       },
       {
-        "name": "siblingNodes",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
         "name": "nonce",
         "type": "uint256",
         "internalType": "uint256"
@@ -677,11 +686,6 @@
         "name": "signature",
         "type": "bytes",
         "internalType": "bytes"
-      },
-      {
-        "name": "siblingNodes",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
       },
       {
         "name": "nonce",
@@ -820,11 +824,6 @@
         "name": "signature",
         "type": "bytes",
         "internalType": "bytes"
-      },
-      {
-        "name": "siblingNodes",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
       },
       {
         "name": "nonce",
@@ -1323,6 +1322,11 @@
   },
   {
     "type": "error",
+    "name": "AlreadyInitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "AuthenticatorAddressAlreadyInUse",
     "inputs": [
       {
@@ -1373,6 +1377,11 @@
   {
     "type": "error",
     "name": "BitmapOverflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DepthNotSupported",
     "inputs": []
   },
   {
@@ -1446,6 +1455,16 @@
   {
     "type": "error",
     "name": "InvalidSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LeafDoesNotExist",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LeafIndexOutOfRange",
     "inputs": []
   },
   {
@@ -1545,6 +1564,11 @@
   },
   {
     "type": "error",
+    "name": "NewLeafCannotEqualOldLeaf",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotInitializing",
     "inputs": []
   },
@@ -1640,6 +1664,11 @@
   },
   {
     "type": "error",
+    "name": "TreeIsFull",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -1653,6 +1682,16 @@
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ValueGreaterThanSnarkScalarField",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongDefaultZeroIndex",
+    "inputs": []
   },
   {
     "type": "error",

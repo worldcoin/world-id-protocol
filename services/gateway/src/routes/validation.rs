@@ -266,7 +266,6 @@ impl RequestValidation for InsertAuthenticatorRequest {
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
                 Bytes::from(self.signature.clone()),
-                self.sibling_nodes.clone(),
                 self.nonce,
             )
             .calldata()
@@ -283,7 +282,6 @@ impl RequestValidation for InsertAuthenticatorRequest {
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
                 Bytes::from(self.signature.clone()),
-                self.sibling_nodes.clone(),
                 self.nonce,
             )
             .call()
@@ -357,7 +355,6 @@ impl RequestValidation for UpdateAuthenticatorRequest {
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
                 Bytes::from(self.signature.clone()),
-                self.sibling_nodes.clone(),
                 self.nonce,
             )
             .calldata()
@@ -375,7 +372,6 @@ impl RequestValidation for UpdateAuthenticatorRequest {
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
                 Bytes::from(self.signature.clone()),
-                self.sibling_nodes.clone(),
                 self.nonce,
             )
             .call()
@@ -451,7 +447,6 @@ impl RequestValidation for RemoveAuthenticatorRequest {
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
                 Bytes::from(self.signature.clone()),
-                self.sibling_nodes.clone(),
                 self.nonce,
             )
             .calldata()
@@ -471,7 +466,6 @@ impl RequestValidation for RemoveAuthenticatorRequest {
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
                 Bytes::from(self.signature.clone()),
-                self.sibling_nodes.clone(),
                 self.nonce,
             )
             .call()
@@ -535,7 +529,6 @@ impl RequestValidation for RecoverAccountRequest {
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
                 Bytes::from(self.signature.clone()),
-                self.sibling_nodes.clone(),
                 self.nonce,
             )
             .calldata()
@@ -553,7 +546,6 @@ impl RequestValidation for RecoverAccountRequest {
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
                 Bytes::from(self.signature.clone()),
-                self.sibling_nodes.clone(),
                 self.nonce,
             )
             .call()

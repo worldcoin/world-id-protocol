@@ -284,7 +284,7 @@ impl MerkleWatcher {
         Ok((merkle_watcher, subscribe_task))
     }
 
-    #[instrument(level = "debug", skip(self))]
+    #[instrument(level = "debug", skip_all, fields(root=%root))]
     pub(crate) async fn is_root_valid(
         &self,
         root: FieldElement,

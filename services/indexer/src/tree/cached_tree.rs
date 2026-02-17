@@ -7,7 +7,7 @@ use tracing::{info, instrument};
 
 use super::{TreeError, TreeResult, TreeState};
 use crate::{
-    db::{DB, WorldTreeEventId, stream_leaves},
+    db::{DB, WorldTreeEventId},
     tree::MerkleTree,
 };
 
@@ -38,8 +38,11 @@ pub async unsafe fn init_tree(
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
             Err(e) => {
-                tracing::warn!(?e, "restore failed, falling back to full rebuild");
-                build_from_db_with_cache(db, cache_path, tree_depth).await?
+                tracing::error!(?e, "restore failed, deleting cache file");
+                if let Err(remove_err) = std::fs::remove_file(cache_path) {
+                    tracing::error!(?remove_err, "failed to delete cache file");
+                }
+                return Err(e);
             }
         }
     } else {
@@ -177,7 +180,7 @@ async fn try_restore(
 /// Restore tree from mmap file (no validation).
 fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<MerkleTree> {
     let storage = unsafe { MmapVec::<U256>::restore_from_path(cache_path)? };
-    let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
+    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO)?;
     info!(
         cache_file = %cache_path.display(),
         root = %format!("0x{:x}", tree.root()),
@@ -199,7 +202,9 @@ async fn build_from_db_with_cache(
     let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
 
     info!("Downloading leaves from database");
-    let leaves = stream_leaves(db.pool())
+    let leaves = db
+        .accounts()
+        .stream_leaf_index_and_offchain_signer_commitment()
         .try_fold(Vec::new(), |mut acc, (index, value)| async move {
             if index == acc.len() as u64 {
                 acc.push(value);
@@ -328,5 +333,34 @@ pub(crate) fn set_arbitrary_leaf(tree: &mut MerkleTree, leaf_index: usize, value
         tree.extend_from_slice(&new);
     } else {
         tree.set_leaf(leaf_index, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test 15: Cache file with no read permissions fails with CacheRestore.
+    #[test]
+    fn test_restore_unreadable_cache_file() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let cache_path =
+                std::env::temp_dir().join(format!("test_perms_{}.mmap", uuid::Uuid::new_v4()));
+            std::fs::write(&cache_path, b"some data").unwrap();
+            std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+            let result = restore_from_cache(&cache_path, 6);
+            assert!(
+                result.is_err(),
+                "restore should fail on unreadable cache file"
+            );
+
+            // Restore permissions for cleanup
+            std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            std::fs::remove_file(&cache_path).unwrap();
+        }
     }
 }

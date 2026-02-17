@@ -60,7 +60,6 @@ where
     E: sqlx::Executor<'a, Database = Postgres>,
 {
     executor: E,
-    table_name: String,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -71,7 +70,6 @@ where
     pub fn with_executor(executor: E) -> Self {
         Self {
             executor,
-            table_name: "world_tree_roots".to_string(),
             _marker: std::marker::PhantomData,
         }
     }
@@ -81,22 +79,20 @@ where
         root_id: T,
     ) -> DBResult<Option<WorldTreeRoot>> {
         let root_id = root_id.into();
-        let table_name = self.table_name;
-        let result = sqlx::query(&format!(
+        let result = sqlx::query(
             r#"
-                    SELECT
-                        block_number,
-                        log_index,
-                        event_type,
-                        tx_hash,
-                        root,
-                        root_timestamp
-                    FROM {}
-                    WHERE
-                        block_number = $1 AND log_index = $2
-                "#,
-            table_name
-        ))
+                SELECT
+                    block_number,
+                    log_index,
+                    event_type,
+                    tx_hash,
+                    root,
+                    root_timestamp
+                FROM world_tree_roots
+                WHERE
+                    block_number = $1 AND log_index = $2
+            "#,
+        )
         .bind(root_id.block_number as i64)
         .bind(root_id.log_index as i64)
         .fetch_optional(self.executor)
@@ -106,20 +102,18 @@ where
     }
 
     pub async fn get_latest_id(self) -> DBResult<Option<WorldTreeRootId>> {
-        let table_name = self.table_name;
-        let result = sqlx::query(&format!(
+        let result = sqlx::query(
             r#"
                 SELECT
                     block_number,
                     log_index
-                FROM {}
+                FROM world_tree_roots
                 ORDER BY
                     block_number DESC,
                     log_index DESC
                 LIMIT 1
             "#,
-            table_name
-        ))
+        )
         .fetch_optional(self.executor)
         .await?;
 
@@ -127,19 +121,16 @@ where
     }
 
     pub async fn get_latest_block(self) -> DBResult<Option<u64>> {
-        let rec: Option<(Option<i64>,)> = sqlx::query_as(&format!(
-            "SELECT MAX(block_number) FROM {}",
-            self.table_name
-        ))
-        .fetch_optional(self.executor)
-        .await?;
+        let rec: Option<(Option<i64>,)> =
+            sqlx::query_as("SELECT MAX(block_number) FROM world_tree_roots")
+                .fetch_optional(self.executor)
+                .await?;
         Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
     }
 
     /// Look up a root by its value (for restore validation).
     pub async fn get_root_by_value(self, root: &U256) -> DBResult<Option<WorldTreeRoot>> {
-        let table_name = self.table_name;
-        let result = sqlx::query(&format!(
+        let result = sqlx::query(
             r#"
                 SELECT
                     block_number,
@@ -148,11 +139,10 @@ where
                     tx_hash,
                     root,
                     root_timestamp
-                FROM {}
+                FROM world_tree_roots
                 WHERE root = $1
             "#,
-            table_name
-        ))
+        )
         .bind(root)
         .fetch_optional(self.executor)
         .await?;
@@ -170,9 +160,9 @@ where
         root: &U256,
         timestamp: &U256,
     ) -> DBResult<()> {
-        sqlx::query(&format!(
+        sqlx::query(
             r#"
-                INSERT INTO {} (
+                INSERT INTO world_tree_roots (
                     block_number,
                     log_index,
                     event_type,
@@ -181,8 +171,7 @@ where
                     root_timestamp
                 ) VALUES ($1, $2, $3, $4, $5, $6)
             "#,
-            self.table_name
-        ))
+        )
         .bind(block_number as i64)
         .bind(log_index as i64)
         .bind(event_type.to_string())

@@ -20,7 +20,7 @@ rand_chacha = { workspace = true }
 rustls = { workspace = true }
 secrecy = { workspace = true }
 taceo-nodes-observability = { workspace = true }
-taceo-oprf = { workspace = true, features = ["dev-client"] }
+taceo-oprf = { workspace = true, features = ["dev-client", "core"] }
 taceo-oprf-test-utils = { workspace = true }
 world-id-test-utils = { workspace = true }
 tokio = { workspace = true, features = [
@@ -35,4 +35,4 @@ tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 webpki-roots = { workspace = true }
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
-world-id-primitives = { workspace = true, features = ["circuits"] }
+world-id-primitives = { workspace = true }

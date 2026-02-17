@@ -1,10 +1,7 @@
-use crate::{
-    auth::{
-        merkle_watcher::MerkleWatcher,
-        rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
-        signature_history::{DuplicateSignatureError, SignatureHistory},
-    },
-    metrics::{METRICS_ID_NODE_REQUEST_AUTH_START, METRICS_ID_NODE_REQUEST_AUTH_VERIFIED},
+use crate::auth::{
+    merkle_watcher::MerkleWatcher,
+    rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+    signature_history::{DuplicateSignatureError, SignatureHistory},
 };
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
@@ -13,6 +10,7 @@ use taceo_oprf::types::{
     OprfKeyId,
     api::{OprfRequest, OprfRequestAuthenticator},
 };
+use tracing::instrument;
 use uuid::Uuid;
 use world_id_primitives::oprf::NullifierOprfRequestAuthV1;
 
@@ -105,12 +103,12 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
     type RequestAuth = NullifierOprfRequestAuthV1;
     type RequestAuthError = NullifierOprfRequestAuthError;
 
+    #[instrument(level = "debug", skip_all)]
     async fn authenticate(
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, Self::RequestAuthError> {
-        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_START).increment(1);
-
+        tracing::trace!("checking timestamp...");
         // check the time stamp against system time +/- difference
         let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
         let current_time = SystemTime::now()
@@ -120,9 +118,11 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             return Err(NullifierOprfRequestAuthError::TimeStampDifference);
         }
 
+        tracing::trace!("fetching RP info...");
         // fetch the RP info
         let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
 
+        tracing::trace!("check RP signature...");
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
@@ -135,6 +135,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             return Err(NullifierOprfRequestAuthError::InvalidSigner);
         }
 
+        tracing::trace!("add signature to store...");
         // add signature to history to check if the nonces where only used once
         self.signature_history
             .add_signature(request.auth.signature.as_bytes().to_vec())
@@ -152,8 +153,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             )
             .await?;
 
-        ::metrics::counter!(METRICS_ID_NODE_REQUEST_AUTH_VERIFIED).increment(1);
-
+        tracing::trace!("authentication successful!");
         Ok(rp.oprf_key_id)
     }
 }
@@ -431,7 +431,6 @@ mod tests {
                 deployer,
                 rp_signer.clone(),
                 rp_fixture.world_rp_id,
-                rp_fixture.oprf_key_id,
                 true,
                 rp_signer.address(),
                 rp_signer.address(),

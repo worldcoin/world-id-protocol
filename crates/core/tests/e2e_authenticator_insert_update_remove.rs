@@ -119,6 +119,8 @@ async fn e2e_authenticator_insert_update_remove() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: None,
+        rate_limit_max_requests: None,
+        rate_limit_window_secs: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
