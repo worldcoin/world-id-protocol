@@ -40,7 +40,7 @@ zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
 rand = { workspace = true }
 groth16-material = { workspace = true }
-taceo-oprf = { workspace = true, features = ["client"] }
+taceo-oprf = { workspace = true, features = ["client", "core"] }
 eyre = { workspace = true }
 zeroize = { workspace = true }
 

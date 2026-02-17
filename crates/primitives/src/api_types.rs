@@ -397,6 +397,8 @@ pub enum GatewayErrorCode {
     ConfirmationError,
     /// A request with the same authenticator address is already being processed.
     DuplicateRequestInFlight,
+    /// Rate limit exceeded for this leaf_index.
+    RateLimitExceeded,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).

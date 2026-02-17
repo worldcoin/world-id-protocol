@@ -26,9 +26,9 @@ axum = { workspace = true, features = ["macros", "json"] }
 clap = { workspace = true, features = ["derive", "env"] }
 world-id-core = { workspace = true, features = [
   "authenticator",
-  "openapi",
   "embed-zkeys",
 ] }
+world-id-primitives = { workspace = true, features = ["openapi"] }
 dotenvy = { workspace = true }
 hex = { workspace = true }
 moka = { workspace = true }

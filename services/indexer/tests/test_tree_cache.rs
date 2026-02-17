@@ -1,6 +1,9 @@
 #![cfg(feature = "integration-tests")]
 mod helpers;
-use helpers::common::{TestSetup, query_count};
+use helpers::{
+    common::{TestSetup, query_count},
+    db_helpers::insert_test_account,
+};
 use serial_test::serial;
 
 use std::{fs, path::PathBuf, time::Duration};
@@ -103,7 +106,8 @@ async fn test_cache_creation_and_restoration() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_incremental_replay() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create initial accounts and build cache
@@ -301,7 +305,8 @@ async fn test_missing_cache_creates_new() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_http_only_cache_refresh() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create initial account and build cache with Both mode
@@ -422,7 +427,8 @@ async fn test_http_only_cache_refresh() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_authenticator_removed_replay() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
     let (tree_cache_config_fresh, cache_path_fresh) = create_temp_cache_config();
 
@@ -489,7 +495,7 @@ async fn test_authenticator_removed_replay() {
         VALUES ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind(1i64)
-    .bind("removed")
+    .bind("authentication_removed")
     .bind(new_commitment_after_removal)
     .bind((last_block + 1) as i64)
     .bind(U256::from(1234))
@@ -810,7 +816,7 @@ async fn test_replay_root_matches_contract() {
 /// Test that corrupted cache triggers full rebuild instead of failing
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn test_corrupted_cache_triggers_rebuild() {
+async fn test_corrupted_cache_returns_error() {
     // Use tree_depth=6 to match create_temp_cache_config()
     let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -881,7 +887,7 @@ async fn test_corrupted_cache_triggers_rebuild() {
     // CORRUPT THE CACHE - truncate the mmap file to simulate corruption
     fs::write(&cache_path, b"corrupted data").expect("Should write corrupted cache");
 
-    // Start indexer in HttpOnly mode - should detect corruption and rebuild from DB
+    // Start indexer in HttpOnly mode - should fail due to corrupted cache
     let cfg2 = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {
@@ -898,19 +904,76 @@ async fn test_corrupted_cache_triggers_rebuild() {
         registry_address: setup.registry_address,
     };
 
-    let indexer_task2 = tokio::spawn(async move {
-        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
-    });
+    let result = unsafe { world_id_indexer::run_indexer(cfg2).await };
+    assert!(
+        result.is_err(),
+        "Corrupted cache should cause run_indexer to fail"
+    );
 
-    // Wait for HttpOnly to start (proves rebuild succeeded)
-    TestSetup::wait_for_health("http://127.0.0.1:8104").await;
+    // Cache file should have been deleted so next restart can do a clean rebuild
+    assert!(
+        !cache_path.exists(),
+        "Cache file should be deleted on corruption"
+    );
 
-    // Stop indexer
-    indexer_task2.abort();
+    cleanup_cache_files(&cache_path);
+}
 
-    // Verify accounts in the database are still intact
-    let final_count = query_count(&setup.pool).await;
-    assert_eq!(final_count, 2, "Should have 2 accounts indexed");
+/// Test that the sanity check detects a root mismatch and causes run_indexer
+/// to exit with an error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_sanity_check_exits_on_root_mismatch() {
+    let setup = TestSetup::new_with_tree_depth(6).await;
+    let (tree_cache_config, cache_path) = create_temp_cache_config();
+    cleanup_cache_files(&cache_path);
+
+    // Insert a fake account into the DB so the tree builds with a root
+    // that was never recorded on-chain. The on-chain contract has no accounts,
+    // so isValidRoot will return false for this fabricated root.
+    let db = world_id_indexer::db::DB::new(&setup.db_url, Some(1))
+        .await
+        .unwrap();
+    insert_test_account(
+        &db,
+        1,
+        address!("0x0000000000000000000000000000000000000001"),
+        U256::from(999),
+    )
+    .await
+    .unwrap();
+
+    // Start HttpOnly with sanity check enabled — tree will have a root
+    // that doesn't exist on-chain
+    let config = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::HttpOnly {
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8099".parse().unwrap(),
+                db_poll_interval_secs: 60,
+                sanity_check_interval_secs: Some(1),
+                tree_cache: tree_cache_config.clone(),
+            },
+        },
+        db_url: setup.db_url.clone(),
+        http_rpc_url: setup.rpc_url(),
+        ws_rpc_url: setup.ws_url(),
+        registry_address: setup.registry_address,
+    };
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::spawn(async move { unsafe { world_id_indexer::run_indexer(config).await } }),
+    )
+    .await;
+
+    // Should complete (not timeout) with an error (not Ok, not panic)
+    let join_result = result.expect("should not timeout — sanity check should catch mismatch");
+    let indexer_result = join_result.expect("task should not panic");
+    assert!(
+        indexer_result.is_err(),
+        "run_indexer should return error on root mismatch"
+    );
 
     cleanup_cache_files(&cache_path);
 }

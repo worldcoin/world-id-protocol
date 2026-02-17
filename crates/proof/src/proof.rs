@@ -94,10 +94,8 @@ pub enum ProofError {
 /// # Errors
 /// Will return an error if the zkey file cannot be loaded.
 #[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_nullifier_material(
-    cache_dir: Option<impl AsRef<Path>>,
-) -> eyre::Result<CircomGroth16Material> {
-    let files = get_circuit_files(cache_dir.as_ref().map(|p| p.as_ref()));
+pub fn load_embedded_nullifier_material() -> eyre::Result<CircomGroth16Material> {
+    let files = get_circuit_files();
     Ok(
         build_nullifier_builder()
             .build_from_bytes(&files.nullifier_zkey, &files.nullifier_graph)?,
@@ -113,10 +111,8 @@ pub fn load_embedded_nullifier_material(
 /// # Errors
 /// Will return an error if the zkey file cannot be loaded.
 #[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_query_material(
-    cache_dir: Option<impl AsRef<Path>>,
-) -> eyre::Result<CircomGroth16Material> {
-    let files = get_circuit_files(cache_dir.as_ref().map(|p| p.as_ref()));
+pub fn load_embedded_query_material() -> eyre::Result<CircomGroth16Material> {
+    let files = get_circuit_files();
     Ok(build_query_builder().build_from_bytes(&files.query_zkey, &files.query_graph)?)
 }
 
@@ -167,14 +163,13 @@ pub fn load_query_material_from_paths(
 }
 
 #[cfg(feature = "embed-zkeys")]
-fn get_circuit_files(cache_dir: Option<&Path>) -> &'static CircuitFiles {
-    CIRCUIT_FILES.get_or_init(|| {
-        init_circuit_files(cache_dir).expect("failed to initialize embedded circuit files")
-    })
+fn get_circuit_files() -> &'static CircuitFiles {
+    CIRCUIT_FILES
+        .get_or_init(|| init_circuit_files().expect("failed to initialize embedded circuit files"))
 }
 
 #[cfg(feature = "embed-zkeys")]
-fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
+fn init_circuit_files() -> eyre::Result<CircuitFiles> {
     use std::io::Read as _;
 
     use eyre::ContextCompat;
@@ -225,16 +220,12 @@ fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
     #[allow(unused_mut)]
     let mut nullifier_zkey = nullifier_zkey.context("OPRFNullifier zkey not found in archive")?;
 
-    // Step 3: ARK decompress zkeys if compress-zkeys is active (with disk caching)
+    // Step 3: ARK decompress zkeys if compress-zkeys is active
     #[cfg(feature = "compress-zkeys")]
     {
-        query_zkey = ark_decompress_zkey(cache_dir, "OPRFQuery.arks.zkey", &query_zkey)?;
-        nullifier_zkey =
-            ark_decompress_zkey(cache_dir, "OPRFNullifier.arks.zkey", &nullifier_zkey)?;
+        query_zkey = ark_decompress_zkey(&query_zkey)?;
+        nullifier_zkey = ark_decompress_zkey(&nullifier_zkey)?;
     }
-
-    #[cfg(not(feature = "compress-zkeys"))]
-    let _ = cache_dir;
 
     Ok(CircuitFiles {
         query_graph,
@@ -244,32 +235,9 @@ fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
     })
 }
 
-/// ARK-decompresses a zkey, with disk caching.
+/// ARK-decompresses a zkey.
 #[cfg(feature = "compress-zkeys")]
-fn ark_decompress_zkey(
-    cache_dir: Option<&Path>,
-    file_name: &str,
-    compressed: &[u8],
-) -> eyre::Result<Vec<u8>> {
-    let cache_dir = match cache_dir {
-        Some(dir) => dir.to_path_buf(),
-        None => {
-            tracing::warn!(
-                "No cache directory provided for uncompressed zkey, using system temp directory"
-            );
-            let mut dir = std::env::temp_dir();
-            dir.push("world-id-zkey-cache");
-            dir
-        }
-    };
-    let path = cache_dir.join(file_name);
-
-    // Check disk cache first
-    if let Ok(bytes) = std::fs::read(&path) {
-        return Ok(bytes);
-    }
-
-    // Decompress and cache
+fn ark_decompress_zkey(compressed: &[u8]) -> eyre::Result<Vec<u8>> {
     let zkey =
         <circom_types::groth16::ArkZkey<Bn254> as ark_serialize::CanonicalDeserialize>::deserialize_with_mode(
             compressed,
@@ -283,8 +251,6 @@ fn ark_decompress_zkey(
         &mut uncompressed,
         ark_serialize::Compress::No,
     )?;
-    std::fs::create_dir_all(&cache_dir)?;
-    std::fs::write(&path, &uncompressed)?;
     Ok(uncompressed)
 }
 
