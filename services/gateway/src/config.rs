@@ -5,14 +5,9 @@ use clap::Parser;
 use world_id_services_common::ProviderArgs;
 
 /// Rate limiting configuration for leaf_index-based requests.
-#[derive(Clone, Debug, Parser)]
+#[derive(Clone, Debug)]
 pub struct RateLimitConfig {
-    /// Rate limit window in seconds for leaf_index-based requests (sliding window)
-    #[arg(long, env = "RATE_LIMIT_WINDOW_SECS")]
     pub window_secs: u64,
-
-    /// Maximum number of requests per leaf_index within the rate limit window
-    #[arg(long, env = "RATE_LIMIT_MAX_REQUESTS")]
     pub max_requests: u64,
 }
 
@@ -48,9 +43,36 @@ pub struct GatewayConfig {
     #[arg(long, env = "REDIS_URL")]
     pub redis_url: Option<String>,
 
-    /// Rate limiting configuration (optional - enabled only when Redis is configured)
-    #[command(flatten)]
-    pub rate_limit: Option<RateLimitConfig>,
+    /// Rate limit window in seconds for leaf_index-based requests (sliding window).
+    /// Both this and --rate-limit-max-requests must be provided to enable rate limiting.
+    #[arg(
+        long,
+        env = "RATE_LIMIT_WINDOW_SECS",
+        requires = "rate_limit_max_requests"
+    )]
+    pub rate_limit_window_secs: Option<u64>,
+
+    /// Maximum number of requests per leaf_index within the rate limit window.
+    /// Both this and --rate-limit-window-secs must be provided to enable rate limiting.
+    #[arg(
+        long,
+        env = "RATE_LIMIT_MAX_REQUESTS",
+        requires = "rate_limit_window_secs"
+    )]
+    pub rate_limit_max_requests: Option<u64>,
+}
+
+impl GatewayConfig {
+    /// Returns the rate limit configuration if both parameters are provided.
+    pub fn rate_limit(&self) -> Option<RateLimitConfig> {
+        match (self.rate_limit_window_secs, self.rate_limit_max_requests) {
+            (Some(window_secs), Some(max_requests)) => Some(RateLimitConfig {
+                window_secs,
+                max_requests,
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl GatewayConfig {

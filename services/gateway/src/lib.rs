@@ -40,19 +40,19 @@ impl GatewayHandle {
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
+    let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
     let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
     ));
-
     let app = build_app(
         registry,
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
         cfg.redis_url,
-        cfg.rate_limit.map(|c| (c.window_secs, c.max_requests)),
+        rate_limit_config,
     )
     .await?;
 
@@ -89,18 +89,18 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env();
+    let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
     let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!("Config is ready. Building app...");
-
     let app = build_app(
         registry,
         cfg.batch_ms,
         cfg.max_create_batch_size,
         cfg.max_ops_batch_size,
         cfg.redis_url,
-        cfg.rate_limit.map(|c| (c.window_secs, c.max_requests)),
+        rate_limit_config,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

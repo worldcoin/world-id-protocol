@@ -11,7 +11,7 @@ use world_id_core::{
     api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest},
     world_id_registry::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData},
 };
-use world_id_gateway::{GatewayConfig, RateLimitConfig, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, spawn_gateway_for_tests};
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -92,10 +92,8 @@ async fn test_rate_limit_basic() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: Some(redis_url.clone()),
-        rate_limit: Some(RateLimitConfig {
-            window_secs: 10, // 10 second window for testing
-            max_requests: 3, // Only 3 requests allowed
-        }),
+        rate_limit_window_secs: Some(10), // 10 second window for testing
+        rate_limit_max_requests: Some(3), // Only 3 requests allowed
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -299,10 +297,8 @@ async fn test_rate_limit_different_leaf_indexes() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: Some(redis_url.clone()),
-        rate_limit: Some(RateLimitConfig {
-            window_secs: 10,
-            max_requests: 2, // Only 2 requests per leaf_index
-        }),
+        rate_limit_window_secs: Some(10),
+        rate_limit_max_requests: Some(2), // Only 2 requests per leaf_index
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -455,10 +451,8 @@ async fn test_rate_limit_sliding_window() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: Some(redis_url.clone()),
-        rate_limit: Some(RateLimitConfig {
-            window_secs: 3, // 3 second window for faster testing
-            max_requests: 2,
-        }),
+        rate_limit_window_secs: Some(3), // 3 second window for faster testing
+        rate_limit_max_requests: Some(2),
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -608,10 +602,8 @@ async fn test_rate_limit_multiple_endpoints() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: Some(redis_url.clone()),
-        rate_limit: Some(RateLimitConfig {
-            window_secs: 10,
-            max_requests: 3,
-        }),
+        rate_limit_window_secs: Some(10),
+        rate_limit_max_requests: Some(3),
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
