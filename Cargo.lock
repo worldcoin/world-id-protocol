@@ -8658,6 +8658,7 @@ dependencies = [
  "utoipa",
  "uuid",
  "world-id-core",
+ "world-id-primitives",
  "world-id-services-common",
  "world-id-test-utils",
 ]

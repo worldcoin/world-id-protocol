@@ -42,9 +42,6 @@ issuer = [
 
 rp = []
 
-# OpenAPI/Swagger docs
-openapi = ["world-id-primitives/openapi"]
-
 [dependencies]
 eddsa-babyjubjub = { workspace = true }
 
