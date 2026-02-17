@@ -119,7 +119,7 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, time::Duration};
+    use std::time::Duration;
 
     use secrecy::ExposeSecret as _;
     use taceo_oprf::{
@@ -188,9 +188,7 @@ mod tests {
                 schema_issuer_registry_watcher,
             );
 
-            let query_material =
-                world_id_core::proof::load_embedded_query_material(Option::<PathBuf>::None)
-                    .unwrap();
+            let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);
             let action = FieldElement::ZERO;

@@ -120,17 +120,14 @@ impl Authenticator {
             .with_no_client_auth();
         let ws_connector = Connector::Rustls(Arc::new(rustls_config));
 
-        let cache_dir = config.zkey_cache_dir();
         let query_material = Arc::new(
-            world_id_proof::proof::load_embedded_query_material(cache_dir).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load cached query material: {e}"))
+            world_id_proof::proof::load_embedded_query_material().map_err(|e| {
+                AuthenticatorError::Generic(format!("Failed to load query material: {e}"))
             })?,
         );
         let nullifier_material = Arc::new(
-            world_id_proof::proof::load_embedded_nullifier_material(cache_dir).map_err(|e| {
-                AuthenticatorError::Generic(format!(
-                    "Failed to load cached nullifier material: {e}"
-                ))
+            world_id_proof::proof::load_embedded_nullifier_material().map_err(|e| {
+                AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
             })?,
         );
 
@@ -1120,23 +1117,17 @@ enum PollResult {
 mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
-    use std::{path::PathBuf, sync::OnceLock};
+    use std::sync::OnceLock;
 
     fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
         static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
         static NULLIFIER: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
 
         let query = QUERY.get_or_init(|| {
-            Arc::new(
-                world_id_proof::proof::load_embedded_query_material(Option::<PathBuf>::None)
-                    .unwrap(),
-            )
+            Arc::new(world_id_proof::proof::load_embedded_query_material().unwrap())
         });
         let nullifier = NULLIFIER.get_or_init(|| {
-            Arc::new(
-                world_id_proof::proof::load_embedded_nullifier_material(Option::<PathBuf>::None)
-                    .unwrap(),
-            )
+            Arc::new(world_id_proof::proof::load_embedded_nullifier_material().unwrap())
         });
 
         (Arc::clone(query), Arc::clone(nullifier))

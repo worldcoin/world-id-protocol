@@ -160,7 +160,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, time::Duration};
+    use std::time::Duration;
 
     use alloy::signers::local::LocalSigner;
     use secrecy::ExposeSecret as _;
@@ -237,9 +237,7 @@ mod tests {
                 current_time_stamp_max_difference,
             );
 
-            let query_material =
-                world_id_core::proof::load_embedded_query_material(Option::<PathBuf>::None)
-                    .unwrap();
+            let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);
 
