@@ -50,8 +50,8 @@ The bridge propagates three types of state, each identified by a commitment sele
 ```
 bridge/contracts/
 ├── src/
-│   ├── Source.sol                         # WorldIDSource (World Chain)
-│   ├── Satellite.sol                      # WorldIDSatellite (destination)
+│   ├── WorldIDSource.sol                         # WorldIDSource (World Chain)
+│   ├── WorldIDSatellite.sol                      # WorldIDSatellite (destination)
 │   ├── Error.sol                          # Custom errors
 │   ├── types/
 │   │   ├── Common.sol                     # Shared types & imports

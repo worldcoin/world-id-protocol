@@ -9,7 +9,7 @@ import {Verifier} from "../../src/core/Verifier.sol";
 import {ICredentialSchemaIssuerRegistry} from "../../src/core/interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 
-import {WorldIDSatellite} from "../../src/crosschain/Satellite.sol";
+import {WorldIDSatellite} from "../../src/crosschain/WorldIDSatellite.sol";
 import {Lib} from "../../src/crosschain/lib/Lib.sol";
 
 contract WorldIDRegistryMock {

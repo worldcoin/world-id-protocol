@@ -81,3 +81,9 @@ error InvalidChainHead();
 error InvalidContractName();
 
 error InvalidContractVersion();
+
+error InvalidRootValidityWindow();
+
+error InvalidTreeDepth();
+
+error InvalidMinExpirationThreshold();

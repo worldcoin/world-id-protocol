@@ -5,8 +5,8 @@ import {Script, console2} from "forge-std/Script.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {WorldIDSource} from "../../src/crosschain/Source.sol";
-import {WorldIDSatellite} from "../../src/crosschain/Satellite.sol";
+import {WorldIDSource} from "../../src/crosschain/WorldIDSource.sol";
+import {WorldIDSatellite} from "../../src/crosschain/WorldIDSatellite.sol";
 import {IStateBridge} from "../../src/crosschain/interfaces/IStateBridge.sol";
 import {PermissionedGatewayAdapter} from "../../src/crosschain/adapters/PermissionedGatewayAdapter.sol";
 import {EthereumMPTGatewayAdapter} from "../../src/crosschain/adapters/EthereumMPTGatewayAdapter.sol";

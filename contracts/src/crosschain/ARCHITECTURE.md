@@ -82,7 +82,7 @@ graph TB
 ### Core Contracts
 
 #### WorldIDSource (World Chain)
-- **Location**: `Source.sol`
+- **Location**: `WorldIDSource.sol`
 - **Purpose**: Source of truth on World Chain that reads from registries and creates state commitments
 - **Key Functions**:
   - `propagateState()` - Reads registries, diffs state, creates commitments
@@ -93,7 +93,7 @@ graph TB
   - `OprfKeyRegistry` - OPRF public keys
 
 #### WorldIDSatellite (Destination Chains)
-- **Location**: `Satellite.sol`
+- **Location**: `WorldIDSatellite.sol`
 - **Purpose**: Receives bridged state and verifies World ID proofs
 - **Key Functions**:
   - `verify()` - Verifies Groth16 proofs against bridged Merkle root

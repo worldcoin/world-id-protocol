@@ -33,10 +33,10 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
     uint64 public immutable MIN_EXPIRATION_THRESHOLD;
 
     constructor(address verifier_, uint256 rootValidityWindow_, uint256 treeDepth_, uint64 minExpirationThreshold_) {
-        require(verifier_ != address(0), "Verifier address cannot be zero");
-        require(rootValidityWindow_ > 0, "Root validity window must be greater than zero");
-        require(treeDepth_ > 0, "Tree depth must be greater than zero");
-        require(minExpirationThreshold_ > 0, "Minimum expiration threshold must be greater than zero");
+        require(verifier_ != address(0), ZeroAddress());
+        require(rootValidityWindow_ > 0, InvalidRootValidityWindow());
+        require(treeDepth_ > 0, InvalidTreeDepth());
+        require(minExpirationThreshold_ > 0, InvalidMinExpirationThreshold());
 
         VERIFIER = Verifier(verifier_);
         ROOT_VALIDITY_WINDOW = rootValidityWindow_;
