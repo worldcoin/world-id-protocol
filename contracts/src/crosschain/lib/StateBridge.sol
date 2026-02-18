@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import "../Error.sol";
+import "@world-id-bridge/Error.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BabyJubJub} from "../types/Common.sol";
-import {Lib} from "./Lib.sol";
-import {IStateBridge} from "../types/IStateBridge.sol";
+import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
+import {Lib} from "@world-id-bridge/lib/Lib.sol";
+import {IStateBridge} from "@world-id-bridge/interfaces/IStateBridge.sol";
 
 /// @dev The ERC-7201 storage slot for StateBridge state.
 /// @custom:storage-location erc7201:worldid.storage.WorldIDStateBridge

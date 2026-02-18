@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Verifier} from "../../core/Verifier.sol";
+import {Verifier} from "@world-id-core/Verifier.sol";
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
 
 /**

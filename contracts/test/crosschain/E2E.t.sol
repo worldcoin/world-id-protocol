@@ -8,7 +8,7 @@ import {InteroperableAddress} from "openzeppelin-contracts/contracts/utils/draft
 import {PermissionedGatewayAdapter} from "../../src/crosschain/adapters/PermissionedGatewayAdapter.sol";
 import {WorldIDSource} from "../../src/crosschain/Source.sol";
 import {WorldIDSatellite} from "../../src/crosschain/Satellite.sol";
-import {IStateBridge} from "../../src/crosschain/types/IStateBridge.sol";
+import {IStateBridge} from "../../src/crosschain/interfaces/IStateBridge.sol";
 import {Lib} from "../../src/crosschain/lib/Lib.sol";
 import {Verifier} from "../../src/core/Verifier.sol";
 

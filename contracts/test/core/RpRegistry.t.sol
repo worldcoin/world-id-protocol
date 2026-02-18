@@ -324,7 +324,7 @@ contract RpRegistryTest is Test {
         uint256 nonce
     ) internal view returns (bytes memory) {
         // NOTE: The contract encodes the string directly, not its hash
-        // This is technically not compliant with EIP-712 spec for dynamic types
+        // This is technically not compliant with EIP-712 spec for dynamic interfaces
         bytes32 structHash = keccak256(
             abi.encode(
                 registry.UPDATE_RP_TYPEHASH(),

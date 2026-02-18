@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ISP1Verifier} from "@optimism-bedrock/src/dispute/zk/ISP1Verifier.sol";
-import {Lib} from "../lib/Lib.sol";
-import {WorldIDGateway} from "../lib/Gateway.sol";
-import {STATE_BRIDGE_STORAGE_SLOT} from "../lib/StateBridge.sol";
-import "../Error.sol";
+import {Lib} from "@world-id-bridge/lib/Lib.sol";
+import {WorldIDGateway} from "@world-id-bridge/lib/Gateway.sol";
+import {STATE_BRIDGE_STORAGE_SLOT} from "@world-id-bridge/lib/StateBridge.sol";
+import "@world-id-bridge/Error.sol";
 
 /// @notice Emitted when the light client state is advanced via a verified ZK proof.
 event LightClientUpdated(uint256 indexed slot, bytes32 executionStateRoot);

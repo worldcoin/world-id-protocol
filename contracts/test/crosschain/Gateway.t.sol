@@ -10,7 +10,7 @@ import {WorldIDGateway} from "../../src/crosschain/lib/Gateway.sol";
 import {WorldIDSource} from "../../src/crosschain/Source.sol";
 import {WorldIDSatellite} from "../../src/crosschain/Satellite.sol";
 import {StateBridge} from "../../src/crosschain/lib/StateBridge.sol";
-import {IStateBridge} from "../../src/crosschain/types/IStateBridge.sol";
+import {IStateBridge} from "../../src/crosschain/interfaces/IStateBridge.sol";
 import {Lib} from "../../src/crosschain/lib/Lib.sol";
 import {Verifier} from "../../src/core/Verifier.sol";
 

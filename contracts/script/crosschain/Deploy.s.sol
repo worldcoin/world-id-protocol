@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {WorldIDSource} from "../../src/crosschain/Source.sol";
 import {WorldIDSatellite} from "../../src/crosschain/Satellite.sol";
-import {IStateBridge} from "../../src/crosschain/types/IStateBridge.sol";
+import {IStateBridge} from "../../src/crosschain/interfaces/IStateBridge.sol";
 import {PermissionedGatewayAdapter} from "../../src/crosschain/adapters/PermissionedGatewayAdapter.sol";
 import {EthereumMPTGatewayAdapter} from "../../src/crosschain/adapters/EthereumMPTGatewayAdapter.sol";
 import {LightClientGatewayAdapter} from "../../src/crosschain/adapters/LightClientGatewayAdapter.sol";

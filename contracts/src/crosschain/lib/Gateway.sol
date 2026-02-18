@@ -2,11 +2,11 @@
 pragma solidity ^0.8.28;
 
 import {IERC7786GatewaySource, IERC7786Recipient} from "@openzeppelin/contracts/interfaces/draft-IERC7786.sol";
-import {InteroperableAddress} from "openzeppelin-contracts/contracts/utils/draft-InteroperableAddress.sol";
-import {IGateway} from "../types/IGateway.sol";
-import {Lib} from "./Lib.sol";
+import {InteroperableAddress} from "@openzeppelin/contracts/utils/draft-InteroperableAddress.sol";
+import {IGateway} from "@world-id-bridge/interfaces/IGateway.sol";
+import {Lib} from "@world-id-bridge/lib/Lib.sol";
 
-import "../Error.sol";
+import "@world-id-bridge/Error.sol";
 
 /// @title Gateway
 /// @author World Contributors

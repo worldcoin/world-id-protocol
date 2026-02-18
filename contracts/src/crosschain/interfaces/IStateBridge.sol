@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
-import {Lib} from "../lib/Lib.sol";
+import {Lib} from "@world-id-bridge/lib/Lib.sol";
 
 /// @title IStateBridge
 /// @author World Contributors

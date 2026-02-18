@@ -7,7 +7,7 @@ import {InteroperableAddress} from "openzeppelin-contracts/contracts/utils/draft
 
 import {WorldIDSource} from "../../src/crosschain/Source.sol";
 import {WorldIDSatellite} from "../../src/crosschain/Satellite.sol";
-import {IStateBridge} from "../../src/crosschain/types/IStateBridge.sol";
+import {IStateBridge} from "../../src/crosschain/interfaces/IStateBridge.sol";
 import {EthereumMPTGatewayAdapter} from "../../src/crosschain/adapters/EthereumMPTGatewayAdapter.sol";
 import {Lib} from "../../src/crosschain/lib/Lib.sol";
 import {WorldIDGateway} from "../../src/crosschain/lib/Gateway.sol";

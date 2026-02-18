@@ -5,10 +5,10 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
 import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
 import {GameStatus, Claim, GameType} from "@optimism-bedrock/src/dispute/lib/Types.sol";
-import {Lib} from "../lib/Lib.sol";
-import "../lib/StateBridge.sol";
-import {WorldIDGateway} from "../lib/Gateway.sol";
-import "../Error.sol";
+import {Lib} from "@world-id-bridge/lib/Lib.sol";
+import "@world-id-bridge/lib/StateBridge.sol";
+import {WorldIDGateway} from "@world-id-bridge/lib/Gateway.sol";
+import "@world-id-bridge/Error.sol";
 
 /// @title EthereumMPTGatewayAdapter
 /// @author World Contributors

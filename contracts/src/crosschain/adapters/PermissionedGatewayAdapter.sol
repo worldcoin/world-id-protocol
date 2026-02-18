@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {Lib} from "../lib/Lib.sol";
-import {WorldIDGateway} from "../lib/Gateway.sol";
-import "../Error.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Lib} from "@world-id-bridge/lib/Lib.sol";
+import {WorldIDGateway} from "@world-id-bridge/lib/Gateway.sol";
+import "@world-id-bridge/Error.sol";
 
 /// @title PermissionedGatewayAdapter
 /// @author World Contributors

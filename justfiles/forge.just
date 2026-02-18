@@ -37,6 +37,10 @@ fmt:
 clean:
     cd {{ CONTRACTS_DIR }} && forge clean
 
+[group('test')]
+build:
+    cd {{ CONTRACTS_DIR }} && forge build
+
 # Run a broadcast forge script against bridge contracts
 [private]
 _bridge-script script rpc *args='':

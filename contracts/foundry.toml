@@ -16,9 +16,14 @@ ffi = true
 ignored_warnings_from = ["lib/"]
 
 remappings = [
+    # World ID Protocol
+    "@world-id-core/=src/core/",
+    "@world-id-bridge/=src/crosschain/",
+
     # OpenZeppelin
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+
     # Optimism contracts-bedrock
     "@optimism-bedrock/=lib/optimism/packages/contracts-bedrock/",
     # Optimism interfaces (used by bridge adapters)

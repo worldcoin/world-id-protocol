@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IWorldID} from "./types/IWorldID.sol";
-import {Lib} from "./lib/Lib.sol";
-import {StateBridge} from "./lib/StateBridge.sol";
-import {Verifier} from "./types/Common.sol";
+import {IWorldID} from "@world-id-bridge/interfaces/IWorldID.sol";
+import {Lib} from "@world-id-bridge/lib/Lib.sol";
+import {StateBridge} from "@world-id-bridge/lib/StateBridge.sol";
+import {Verifier} from "@world-id-core/Verifier.sol";
 import {ERC7786Recipient} from "@openzeppelin/contracts/crosschain/ERC7786Recipient.sol";
 
-import "./Error.sol";
+import "@world-id-bridge/Error.sol";
 
 /// @title Satellite
 /// @author World Contributors

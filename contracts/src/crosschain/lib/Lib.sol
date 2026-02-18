@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {RLPReader} from "@optimism-bedrock/src/libraries/rlp/RLPReader.sol";
 import {SecureMerkleTrie} from "@optimism-bedrock/src/libraries/trie/SecureMerkleTrie.sol";
-import "../Error.sol";
+import "@world-id-bridge/Error.sol";
 
 /// @title Lib
 /// @author World Contributors

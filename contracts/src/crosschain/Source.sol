@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ICredentialSchemaIssuerRegistry, IWorldIDRegistry, OprfKeyRegistry, OprfKeyGen} from "./types/Common.sol";
+import {IWorldIDRegistry} from "@world-id-core/interfaces/IWorldIDRegistry.sol";
+import {ICredentialSchemaIssuerRegistry} from "@world-id-core/interfaces/ICredentialSchemaIssuerRegistry.sol";
+import {OprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
+import {OprfKeyGen} from "lib/oprf-key-registry/src/OprfKeyGen.sol";
 import {IERC7786GatewaySource} from "@openzeppelin/contracts/interfaces/draft-IERC7786.sol";
-import {IStateBridge} from "./types/IStateBridge.sol";
-import {Lib} from "./lib/Lib.sol";
-import {StateBridge} from "./lib/StateBridge.sol";
-import {ZeroAddress, NothingChanged} from "./Error.sol";
+import {IStateBridge} from "@world-id-bridge/interfaces/IStateBridge.sol";
+import {Lib} from "@world-id-bridge/lib/Lib.sol";
+import {StateBridge} from "@world-id-bridge/lib/StateBridge.sol";
+import {ZeroAddress, NothingChanged} from "@world-id-bridge/Error.sol";
 
 /// @title WorldIDSource
 /// @author World Contributors
