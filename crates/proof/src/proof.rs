@@ -235,7 +235,7 @@ fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
     #[allow(unused_mut)]
     let mut nullifier_zkey = nullifier_zkey.context("OPRFNullifier zkey not found in archive")?;
 
-    // Step 3: ARK decompress zkeys if compress-zkeys is active.
+    // Step 3: ARK decompress zkeys if compress-zkeys is active
     #[cfg(feature = "compress-zkeys")]
     {
         query_zkey = ark_decompress_zkey(&query_zkey)?;
