@@ -1,5 +1,7 @@
 #![cfg(feature = "authenticator")]
 
+use std::sync::Arc;
+
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
@@ -10,8 +12,8 @@ use world_id_test_utils::anvil::TestAnvil;
 const GW_PORT: u16 = 4102;
 
 fn load_embedded_materials() -> (
-    world_id_core::proof::CircomGroth16Material,
-    world_id_core::proof::CircomGroth16Material,
+    Arc<world_id_core::proof::CircomGroth16Material>,
+    Arc<world_id_core::proof::CircomGroth16Material>,
 ) {
     let files = world_id_core::proof::load_embedded_circuit_files().unwrap();
     let query_material =
@@ -22,7 +24,7 @@ fn load_embedded_materials() -> (
         &files.nullifier_graph,
     )
     .unwrap();
-    (query_material, nullifier_material)
+    (Arc::new(query_material), Arc::new(nullifier_material))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

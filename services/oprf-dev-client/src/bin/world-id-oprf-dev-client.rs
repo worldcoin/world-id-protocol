@@ -676,8 +676,8 @@ async fn main() -> eyre::Result<()> {
     let authenticator = Authenticator::init_or_register(
         &seed,
         world_config.clone(),
-        query_material,
-        nullifier_material,
+        Arc::new(query_material),
+        Arc::new(nullifier_material),
         None,
     )
     .await?;

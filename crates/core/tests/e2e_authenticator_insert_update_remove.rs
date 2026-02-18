@@ -1,5 +1,6 @@
 #![cfg(feature = "authenticator")]
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use alloy::{
@@ -24,8 +25,8 @@ use world_id_test_utils::{
 const GW_PORT: u16 = 4105;
 
 fn load_embedded_materials() -> (
-    world_id_core::proof::CircomGroth16Material,
-    world_id_core::proof::CircomGroth16Material,
+    Arc<world_id_core::proof::CircomGroth16Material>,
+    Arc<world_id_core::proof::CircomGroth16Material>,
 ) {
     let files = world_id_core::proof::load_embedded_circuit_files().unwrap();
     let query_material =
@@ -36,7 +37,7 @@ fn load_embedded_materials() -> (
         &files.nullifier_graph,
     )
     .unwrap();
-    (query_material, nullifier_material)
+    (Arc::new(query_material), Arc::new(nullifier_material))
 }
 
 async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {

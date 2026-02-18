@@ -2,6 +2,7 @@
 
 use std::{
     path::PathBuf,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -30,8 +31,8 @@ use world_id_test_utils::{
 const GW_PORT: u16 = 4104;
 
 fn load_embedded_materials() -> (
-    world_id_core::proof::CircomGroth16Material,
-    world_id_core::proof::CircomGroth16Material,
+    Arc<world_id_core::proof::CircomGroth16Material>,
+    Arc<world_id_core::proof::CircomGroth16Material>,
 ) {
     let files = world_id_core::proof::load_embedded_circuit_files().unwrap();
     let query_material =
@@ -42,7 +43,7 @@ fn load_embedded_materials() -> (
         &files.nullifier_graph,
     )
     .unwrap();
-    (query_material, nullifier_material)
+    (Arc::new(query_material), Arc::new(nullifier_material))
 }
 
 /// Generates an entire end-to-end Uniqueness Proof Generator

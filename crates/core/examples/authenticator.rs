@@ -1,4 +1,4 @@
-use std::{fs::File, str::FromStr};
+use std::{fs::File, str::FromStr, sync::Arc};
 
 use eyre::Result;
 use world_id_core::{
@@ -46,8 +46,8 @@ async fn main() -> Result<()> {
     let authenticator = Authenticator::init_or_register(
         seed,
         config.clone(),
-        query_material,
-        nullifier_material,
+        Arc::new(query_material),
+        Arc::new(nullifier_material),
         None,
     )
     .await?;
