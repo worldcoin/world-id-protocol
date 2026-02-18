@@ -370,10 +370,11 @@ contract WorldIDRegistryTest is Test {
         uint256 nonce = 0;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 
+        // Sign with AUTH2_PRIVATE_KEY since we're removing authenticatorAddress2
         bytes memory signature = eip712Sign(
             worldIDRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(leafIndex, authenticatorAddress2, uint256(1), OFFCHAIN_SIGNER_COMMITMENT, newCommitment, nonce),
-            AUTH1_PRIVATE_KEY
+            AUTH2_PRIVATE_KEY
         );
 
         worldIDRegistry.removeAuthenticator(
@@ -390,6 +391,46 @@ contract WorldIDRegistryTest is Test {
         // authenticatorAddress2 should be removed; authenticatorAddress1 remains
         assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress2), 0);
         assertEq(uint192(worldIDRegistry.getPackedAccountData(authenticatorAddress1)), leafIndex);
+    }
+
+    function test_RemoveAuthenticator_RevertWhenSignerMismatchesAuthenticatorAddress() public {
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress2;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        // Sign with AUTH1_PRIVATE_KEY (authenticatorAddress1) but pass authenticatorAddress2 as the parameter
+        // This should revert because the signer (authenticatorAddress1) doesn't match authenticatorAddress2
+        bytes memory signature = eip712Sign(
+            worldIDRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
+            abi.encode(leafIndex, authenticatorAddress2, uint256(1), OFFCHAIN_SIGNER_COMMITMENT, newCommitment, nonce),
+            AUTH1_PRIVATE_KEY
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IWorldIDRegistry.MismatchedAuthenticatorSigner.selector, authenticatorAddress2, authenticatorAddress1
+            )
+        );
+        worldIDRegistry.removeAuthenticator(
+            leafIndex,
+            authenticatorAddress2,
+            1,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            signature,
+            nonce
+        );
     }
 
     function test_RemoveAuthenticator_RevertWhenRemovingStaleAuthenticatorAfterRecovery() public {
@@ -428,10 +469,12 @@ contract WorldIDRegistryTest is Test {
 
         uint256 removeNonce = 1;
         uint256 removeCommitment = recoveredCommitment + 1;
+        // Sign with AUTH1_PRIVATE_KEY (authenticatorAddress1) since we're trying to remove authenticatorAddress1
+        // After recovery, authenticatorAddress1 is stale (recovery counter 0 vs current 1)
         bytes memory removeSignature = eip712Sign(
             worldIDRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(leafIndex, authenticatorAddress1, uint256(0), uint256(0), removeCommitment, removeNonce),
-            AUTH3_PRIVATE_KEY
+            AUTH1_PRIVATE_KEY
         );
 
         assertEq(worldIDRegistry.getRecoveryCounter(leafIndex), 1);
@@ -765,10 +808,11 @@ contract WorldIDRegistryTest is Test {
 
         assertEq(uint64(worldIDRegistry.getPackedAccountData(authenticatorAddress2)), leafIndex);
 
+        // Sign with AUTH2_PRIVATE_KEY since we're removing authenticatorAddress2
         bytes memory signature = eip712Sign(
             worldIDRegistry.REMOVE_AUTHENTICATOR_TYPEHASH(),
             abi.encode(leafIndex, authenticatorAddress2, uint256(1), OFFCHAIN_SIGNER_COMMITMENT, newCommitment, nonce),
-            AUTH1_PRIVATE_KEY
+            AUTH2_PRIVATE_KEY
         );
 
         worldIDRegistry.removeAuthenticator(
