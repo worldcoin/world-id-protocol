@@ -824,6 +824,10 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     function executeRecoveryAgentUpdate(uint64 leafIndex) external virtual onlyProxy onlyInitialized {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
+            revert AccountDoesNotExist(leafIndex);
+        }
+
         PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
         _executeRecoveryAgentUpdate(leafIndex, pending);
     }
