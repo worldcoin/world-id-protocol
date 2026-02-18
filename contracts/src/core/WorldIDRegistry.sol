@@ -674,7 +674,10 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             )
         );
 
-        (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
+        (address signer, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
+        if (signer != authenticatorAddress) {
+            revert MismatchedAuthenticatorSigner(authenticatorAddress, signer);
+        }
         uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
         if (leafIndex != recoveredLeafIndex) {
             revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
