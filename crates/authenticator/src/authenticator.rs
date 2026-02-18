@@ -86,8 +86,12 @@ impl Authenticator {
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
-    #[cfg(feature = "embed-zkeys")]
-    pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
+    pub async fn init(
+        seed: &[u8],
+        config: Config,
+        query_material: Arc<CircomGroth16Material>,
+        nullifier_material: Arc<CircomGroth16Material>,
+    ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry = config.rpc_url().map_or_else(
@@ -119,17 +123,6 @@ impl Authenticator {
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let ws_connector = Connector::Rustls(Arc::new(rustls_config));
-
-        let query_material = Arc::new(
-            world_id_proof::proof::load_embedded_query_material().map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load query material: {e}"))
-            })?,
-        );
-        let nullifier_material = Arc::new(
-            world_id_proof::proof::load_embedded_nullifier_material().map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load nullifier material: {e}"))
-            })?,
-        );
 
         Ok(Self {
             packed_account_data,
@@ -171,13 +164,21 @@ impl Authenticator {
     ///
     /// # Errors
     /// - See `init` for additional error details.
-    #[cfg(feature = "embed-zkeys")]
     pub async fn init_or_register(
         seed: &[u8],
         config: Config,
+        query_material: Arc<CircomGroth16Material>,
+        nullifier_material: Arc<CircomGroth16Material>,
         recovery_address: Option<Address>,
     ) -> Result<Self, AuthenticatorError> {
-        match Self::init(seed, config.clone()).await {
+        match Self::init(
+            seed,
+            config.clone(),
+            query_material.clone(),
+            nullifier_material.clone(),
+        )
+        .await
+        {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 // Authenticator is not registered, create it.
@@ -219,7 +220,14 @@ impl Authenticator {
                     };
 
                     match result {
-                        Ok(()) => match Self::init(seed, config.clone()).await {
+                        Ok(()) => match Self::init(
+                            seed,
+                            config.clone(),
+                            query_material.clone(),
+                            nullifier_material.clone(),
+                        )
+                        .await
+                        {
                             Ok(auth) => Ok(auth),
                             Err(AuthenticatorError::AccountDoesNotExist) => {
                                 Err(PollResult::Retryable)
@@ -1106,7 +1114,6 @@ pub enum AuthenticatorError {
     Generic(String),
 }
 
-#[cfg(feature = "embed-zkeys")]
 #[derive(Debug)]
 enum PollResult {
     Retryable,
