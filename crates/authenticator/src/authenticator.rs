@@ -301,10 +301,7 @@ impl Authenticator {
                         }),
                     };
                 }
-                return Err(AuthenticatorError::IndexerError {
-                    status,
-                    body,
-                });
+                return Err(AuthenticatorError::IndexerError { status, body });
             }
 
             let response: IndexerPackedAccountResponse = resp.json().await?;
