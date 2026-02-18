@@ -1,7 +1,6 @@
 #![cfg(feature = "authenticator")]
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     primitives::{Address, U256},
