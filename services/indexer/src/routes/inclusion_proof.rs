@@ -67,12 +67,17 @@ pub(crate) async fn handler(
 
     let pubkeys: Vec<EdDSAPublicKey> = pubkeys
         .iter()
-        .filter_map(|pubkey| {
+        .map(|pubkey| {
             // Encoding matches insertion in core::authenticator::Authenticator operations
-            EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|_| {
-                tracing::error!(leaf_index = %leaf_index, "Invalid public key stored for account (not affine compressed): {}", pubkey);
-            }).ok()
-        }).collect();
+            EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|err| {
+                tracing::error!(
+                    leaf_index = %leaf_index,
+                    "Invalid public key stored for account (not affine compressed): {pubkey} ({err})"
+                );
+                IndexerErrorResponse::internal_server_error()
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let authenticator_pubkeys = AuthenticatorPublicKeySet::new(Some(pubkeys)).map_err(|e| {
         tracing::error!(leaf_index = %leaf_index, "Invalid public key set stored for account: {e}");
