@@ -80,7 +80,8 @@ contract WorldIDSatelliteHarness is WorldIDSatellite {
 
 contract SatelliteVerifierParityTest is Test {
     bytes4 internal constant UPDATE_ROOT_SELECTOR = bytes4(keccak256("updateRoot(uint256,uint256,bytes32)"));
-    bytes4 internal constant SET_ISSUER_PUBKEY_SELECTOR = bytes4(keccak256("setIssuerPubkey(uint64,uint256,uint256,bytes32)"));
+    bytes4 internal constant SET_ISSUER_PUBKEY_SELECTOR =
+        bytes4(keccak256("setIssuerPubkey(uint64,uint256,uint256,bytes32)"));
     bytes4 internal constant SET_OPRF_KEY_SELECTOR = bytes4(keccak256("setOprfKey(uint160,uint256,uint256,bytes32)"));
 
     uint64 internal constant ISSUER_SCHEMA_ID = 1;
@@ -133,7 +134,8 @@ contract SatelliteVerifierParityTest is Test {
         );
         coreVerifier = WorldIDVerifier(address(new ERC1967Proxy(address(implementation), initData)));
 
-        satellite = new WorldIDSatelliteHarness(address(verifier), ROOT_VALIDITY_WINDOW, TREE_DEPTH, MIN_EXPIRATION_THRESHOLD);
+        satellite =
+            new WorldIDSatelliteHarness(address(verifier), ROOT_VALIDITY_WINDOW, TREE_DEPTH, MIN_EXPIRATION_THRESHOLD);
 
         // Bridge equivalent root + issuer key + OPRF key state into the satellite.
         // Important: we set OPRF at key == issuerSchemaId to mirror satellite's current lookup path.
@@ -142,8 +144,7 @@ contract SatelliteVerifierParityTest is Test {
         bytes32 blockHash = bytes32(uint256(0x1234));
 
         commits[0] = Lib.Commitment({
-            blockHash: blockHash,
-            data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, ROOT, block.timestamp, proofId)
+            blockHash: blockHash, data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, ROOT, block.timestamp, proofId)
         });
         commits[1] = Lib.Commitment({
             blockHash: blockHash,
@@ -166,7 +167,7 @@ contract SatelliteVerifierParityTest is Test {
 
         // Sanity: this proof is valid for the canonical verifier contract.
         coreVerifier.verify(NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof);
-        
+
         // should pass
         satellite.verify(NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof);
     }
