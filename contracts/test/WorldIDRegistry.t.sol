@@ -1744,7 +1744,7 @@ contract WorldIDRegistryTest is Test {
         worldIDRegistry.cancelRecoveryAgentUpdate(leafIndex, invalidCancelSignature, 1);
     }
 
-    function test_RecoverAccount_AppliesPendingUpdate() public {
+    function test_RecoverAccount_DoesNotApplyPendingUpdate() public {
         uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
         address recoverySigner = vm.addr(recoveryPrivateKey);
 
@@ -1763,62 +1763,7 @@ contract WorldIDRegistryTest is Test {
         bytes memory initiateSignature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, initiateSignature, 0);
 
-        // Fast forward past cooldown
-        uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
-        vm.warp(block.timestamp + cooldown);
-
-        // Perform recovery - should auto-apply pending update first, so sign with NEW recovery agent
-        address newAuthenticatorAddress = address(0xBEEF);
-        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
-
-        bytes memory recoverSignature = eip712Sign(
-            worldIDRegistry.RECOVER_ACCOUNT_TYPEHASH(),
-            abi.encode(leafIndex, newAuthenticatorAddress, newCommitment, newCommitment, 1),
-            RECOVERY_PRIVATE_KEY_ALT // Use alternate key since recovery agent will be updated
-        );
-
-        worldIDRegistry.recoverAccount(
-            leafIndex,
-            newAuthenticatorAddress,
-            newCommitment,
-            OFFCHAIN_SIGNER_COMMITMENT,
-            newCommitment,
-            recoverSignature,
-            1
-        );
-
-        // Check that recovery agent was updated
-        assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), alternateRecoveryAddress);
-
-        // Check that pending update was cleared
-        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
-        assertEq(pendingAgent, address(0));
-        assertEq(executeAfter, 0);
-
-        // Check recovery worked
-        assertEq(uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), uint192(leafIndex));
-    }
-
-    function test_RecoverAccount_DoesNotApplyPendingUpdateIfStillInCooldown() public {
-        uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
-        address recoverySigner = vm.addr(recoveryPrivateKey);
-
-        // Create account
-        address[] memory authenticatorAddresses = new address[](1);
-        authenticatorAddresses[0] = authenticatorAddress1;
-        uint256[] memory authenticatorPubkeys = new uint256[](1);
-        authenticatorPubkeys[0] = 0;
-        worldIDRegistry.createAccount(
-            recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
-        );
-
-        uint64 leafIndex = 1;
-
-        // Initiate recovery agent update
-        bytes memory initiateSignature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
-        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, initiateSignature, 0);
-
-        // Perform recovery - should NOT apply pending update (still in cooldown)
+        // Perform recovery - should NOT apply pending update
         address newAuthenticatorAddress = address(0xBEEF);
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
 

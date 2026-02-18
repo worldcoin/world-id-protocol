@@ -734,12 +734,6 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert AccountDoesNotExist(leafIndex);
         }
 
-        // Apply any pending recovery agent update first
-        PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
-        if (pending.executeAfter != 0 && block.timestamp >= pending.executeAfter) {
-            _executeRecoveryAgentUpdate(leafIndex, pending);
-        }
-
         uint256 expectedNonce = _leafIndexToSignatureNonce[leafIndex];
         if (nonce != expectedNonce) {
             revert MismatchedSignatureNonce(leafIndex, expectedNonce, nonce);
