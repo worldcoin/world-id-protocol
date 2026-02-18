@@ -874,7 +874,7 @@ contract WorldIDRegistryTest is Test {
         assertEq(newIndex, initialIndex + 1, "Next leaf index should increment after account creation");
     }
 
-    function test_GetTreeDepth() public {
+    function test_GetTreeDepth() public view {
         uint256 depth = worldIDRegistry.getTreeDepth();
         assertEq(depth, 30, "Tree depth should match initialization value");
     }
@@ -921,7 +921,7 @@ contract WorldIDRegistryTest is Test {
         assertEq(maxAuth, 10, "Max authenticators should update after setter is called");
     }
 
-    function test_GetRootTimestamp() public {
+    function test_GetRootTimestamp() public view {
         uint256 currentRoot = worldIDRegistry.currentRoot();
         uint256 timestamp = worldIDRegistry.getRootTimestamp(currentRoot);
         assertEq(timestamp, block.timestamp, "Current root timestamp should match block timestamp");
@@ -1035,7 +1035,7 @@ contract WorldIDRegistryTest is Test {
         assertTrue(worldIDRegistry.isValidRoot(newRoot), "Latest root should always be valid");
     }
 
-    function test_isValidRoot_unknownRootReturnsFalse() public {
+    function test_isValidRoot_unknownRootReturnsFalse() public view {
         // A root that was never recorded should return false
         uint256 unknownRoot = 0x1234567890abcdef;
         assertFalse(worldIDRegistry.isValidRoot(unknownRoot));
@@ -1569,6 +1569,9 @@ contract WorldIDRegistryTest is Test {
         // Initiate another update to overwrite
         address thirdRecoveryAgent = address(0xC11CE);
         bytes memory signature2 = initiateRecoveryAgentUpdateSignature(leafIndex, thirdRecoveryAgent, 1);
+
+        vm.expectEmit(true, true, true, true); // Assert the correct event is emitted for cancellation of the first update
+        emit IWorldIDRegistry.RecoveryAgentUpdateCancelled(leafIndex, alternateRecoveryAddress);
         worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, thirdRecoveryAgent, signature2, 1);
 
         // Check that the pending update was overwritten
@@ -1832,7 +1835,7 @@ contract WorldIDRegistryTest is Test {
         assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), alternateRecoveryAddress);
     }
 
-    function test_GetRecoveryAgentUpdateCooldown_DefaultValue() public {
+    function test_GetRecoveryAgentUpdateCooldown_DefaultValue() public view {
         uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
         assertEq(cooldown, 14 days, "Default cooldown should be 14 days");
     }

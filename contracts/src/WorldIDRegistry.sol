@@ -815,6 +815,12 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         address oldRecoveryAgent = _getRecoveryAgent(leafIndex);
         uint256 executeAfter = block.timestamp + _recoveryAgentUpdateCooldown;
 
+        // If overwritting an existing pending update, emit cancellation event for the old pending update
+        PendingRecoveryAgentUpdate memory existingPendingUpdate = _pendingRecoveryAgentUpdates[leafIndex];
+        if (existingPendingUpdate.executeAfter != 0) {
+            emit RecoveryAgentUpdateCancelled(leafIndex, existingPendingUpdate.newRecoveryAgent);
+        }
+
         // Store the update request as pending
         _pendingRecoveryAgentUpdates[leafIndex] =
             PendingRecoveryAgentUpdate({newRecoveryAgent: newRecoveryAgent, executeAfter: executeAfter});
