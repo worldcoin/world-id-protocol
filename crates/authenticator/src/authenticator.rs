@@ -174,8 +174,8 @@ impl Authenticator {
         match Self::init(
             seed,
             config.clone(),
-            Arc::clone(&query_material),
-            Arc::clone(&nullifier_material),
+            query_material.clone(),
+            nullifier_material.clone(),
         )
         .await
         {
@@ -223,8 +223,8 @@ impl Authenticator {
                         Ok(()) => match Self::init(
                             seed,
                             config.clone(),
-                            Arc::clone(&query_material),
-                            Arc::clone(&nullifier_material),
+                            query_material.clone(),
+                            nullifier_material.clone(),
                         )
                         .await
                         {
