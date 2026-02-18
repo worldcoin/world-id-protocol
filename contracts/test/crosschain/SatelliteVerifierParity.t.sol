@@ -157,17 +157,17 @@ contract SatelliteVerifierParityTest is Test {
                 SET_OPRF_KEY_SELECTOR, uint160(ISSUER_SCHEMA_ID), OPRF_PUBKEY_X, OPRF_PUBKEY_Y, proofId
             )
         });
+
         satellite.applyCommitments(commits);
     }
 
-    function test_validCoreProof_revertsOnSatellite() public {
+    function test_registryVerifierBridgeVerifierParity() public {
         vm.warp(EXPIRES_AT_MIN + 1 hours);
 
         // Sanity: this proof is valid for the canonical verifier contract.
         coreVerifier.verify(NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof);
-
-        // The satellite rejects the same proof even with equivalent bridged state.
-        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
+        
+        // should pass
         satellite.verify(NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof);
     }
 }
