@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     let json_config = std::fs::read_to_string("config.json").unwrap();
     let config = Config::from_json(&json_config).unwrap();
 
-    let files = world_id_core::proof::load_embedded_circuit_files(Option::<&str>::None)?;
+    let files = world_id_core::proof::load_embedded_circuit_files()?;
     let query_material = world_id_core::proof::load_query_material_from_bytes(
         &files.query_zkey,
         &files.query_graph,

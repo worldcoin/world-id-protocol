@@ -661,7 +661,7 @@ async fn main() -> eyre::Result<()> {
     )
     .unwrap();
 
-    let files = world_id_core::proof::load_embedded_circuit_files(Option::<PathBuf>::None)?;
+    let files = world_id_core::proof::load_embedded_circuit_files()?;
     let query_material = world_id_core::proof::load_query_material_from_bytes(
         &files.query_zkey,
         &files.query_graph,

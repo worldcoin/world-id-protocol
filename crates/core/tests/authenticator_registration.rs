@@ -13,7 +13,7 @@ fn load_embedded_materials() -> (
     world_id_core::proof::CircomGroth16Material,
     world_id_core::proof::CircomGroth16Material,
 ) {
-    let files = world_id_core::proof::load_embedded_circuit_files(Option::<&str>::None).unwrap();
+    let files = world_id_core::proof::load_embedded_circuit_files().unwrap();
     let query_material =
         world_id_core::proof::load_query_material_from_bytes(&files.query_zkey, &files.query_graph)
             .unwrap();
