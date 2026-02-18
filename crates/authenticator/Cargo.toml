@@ -48,6 +48,7 @@ rand = { workspace = true }
 backon = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 rustls = { workspace = true }
 webpki-roots = { workspace = true }
@@ -59,5 +60,4 @@ world-id-proof = { workspace = true }
 backon = { workspace = true }
 ruint = { workspace = true }
 rand = { workspace = true }
-serde_json = { workspace = true }
 mockito = { workspace = true }

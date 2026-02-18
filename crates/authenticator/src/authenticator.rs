@@ -77,6 +77,13 @@ impl std::fmt::Debug for Authenticator {
 }
 
 impl Authenticator {
+    async fn response_body_or_fallback(response: reqwest::Response) -> String {
+        response
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("Unable to read response body: {e}"))
+    }
+
     /// Initialize an Authenticator from a seed and config.
     ///
     /// This method will error if the World ID account does not exist on the registry.
@@ -278,11 +285,12 @@ impl Authenticator {
                 authenticator_address: onchain_signer_address,
             };
             let resp = http_client.post(&url).json(&req).send().await?;
-
             let status = resp.status();
             if !status.is_success() {
-                // Try to parse the error response
-                if let Ok(error_resp) = resp.json::<ServiceApiError<IndexerErrorCode>>().await {
+                let body = Self::response_body_or_fallback(resp).await;
+                if let Ok(error_resp) =
+                    serde_json::from_str::<ServiceApiError<IndexerErrorCode>>(&body)
+                {
                     return match error_resp.code {
                         IndexerErrorCode::AccountDoesNotExist => {
                             Err(AuthenticatorError::AccountDoesNotExist)
@@ -293,10 +301,7 @@ impl Authenticator {
                         }),
                     };
                 }
-                return Err(AuthenticatorError::IndexerError {
-                    status,
-                    body: "Failed to parse indexer error response".to_string(),
-                });
+                return Err(AuthenticatorError::IndexerError { status, body });
             }
 
             let response: IndexerPackedAccountResponse = resp.json().await?;
@@ -398,10 +403,7 @@ impl Authenticator {
         if !status.is_success() {
             return Err(AuthenticatorError::IndexerError {
                 status,
-                body: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+                body: Self::response_body_or_fallback(response).await,
             });
         }
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
@@ -429,10 +431,7 @@ impl Authenticator {
         if !status.is_success() {
             return Err(AuthenticatorError::IndexerError {
                 status,
-                body: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+                body: Self::response_body_or_fallback(response).await,
             });
         }
         let response = response
@@ -474,10 +473,7 @@ impl Authenticator {
             if !status.is_success() {
                 return Err(AuthenticatorError::IndexerError {
                     status,
-                    body: resp
-                        .json()
-                        .await
-                        .unwrap_or_else(|_| "Unable to parse response".to_string()),
+                    body: Self::response_body_or_fallback(resp).await,
                 });
             }
 
@@ -741,7 +737,7 @@ impl Authenticator {
             let body: GatewayStatusResponse = resp.json().await?;
             Ok(body.request_id)
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Self::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -817,7 +813,7 @@ impl Authenticator {
             let gateway_resp: GatewayStatusResponse = resp.json().await?;
             Ok(gateway_resp.request_id)
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Self::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -896,7 +892,7 @@ impl Authenticator {
             let gateway_resp: GatewayStatusResponse = resp.json().await?;
             Ok(gateway_resp.request_id)
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Self::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -961,7 +957,7 @@ impl InitializingAuthenticator {
                 config,
             })
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Authenticator::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -991,7 +987,7 @@ impl InitializingAuthenticator {
             let body: GatewayStatusResponse = resp.json().await?;
             Ok(body.status)
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Authenticator::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
