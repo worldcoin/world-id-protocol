@@ -130,20 +130,20 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
         uint256[4] memory proof = [proofExt[0], proofExt[1], proofExt[2], proofExt[3]];
         uint256[15] memory input = [
             nullifier,
-            action,
-            rpId,
-            nonce,
-            signalHash,
-            expiresAtMin,
             issuerSchemaId,
-            credentialGenesisIssuedAtMin,
-            sessionId,
             issuerPubKeyInfo.pubKey.x,
             issuerPubKeyInfo.pubKey.y,
+            uint256(expiresAtMin),
+            credentialGenesisIssuedAtMin,
+            LATEST_ROOT(),
+            TREE_DEPTH,
+            uint256(rpId),
+            action,
             oprfPubKeyInfo.pubKey.x,
             oprfPubKeyInfo.pubKey.y,
-            root,
-            TREE_DEPTH
+            signalHash,
+            nonce,
+            sessionId
         ];
 
         VERIFIER.verifyCompressedProof(proof, input);

@@ -28,6 +28,7 @@ import 'contracts/Justfile'
 
 import 'justfiles/deploy.just'
 import 'justfiles/forge.just'
+import 'justfiles/ops.just'
 
 alias t := test
 
