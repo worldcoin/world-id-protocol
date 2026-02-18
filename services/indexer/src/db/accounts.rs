@@ -297,7 +297,7 @@ where
         .fetch_all(self.executor)
         .await?;
 
-        Ok(rows.iter().flat_map(Self::map_leaf_index).collect())
+        rows.iter().map(Self::map_leaf_index).collect()
     }
 
     /// Delete accounts where latest event is after the given event_id

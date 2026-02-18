@@ -87,46 +87,8 @@ impl<'a> RollbackExecutor<'a> {
 
         // Apply each event in order
         for event in events {
-            self.apply_event(tx, &event).await?;
+            EventsProcessor::process_event(&mut tx, event).await?;
         }
-
-        Ok(())
-    }
-
-    /// Apply a single WorldTreeEvent to rebuild account state
-    async fn apply_event(
-        &self,
-        _tx: &mut PostgresDBTransaction<'_>,
-        event: &WorldTreeEvent,
-    ) -> DBResult<()> {
-        // TODO: Implement event application logic
-        // Problem: WorldTreeEvent doesn't contain enough data to reconstruct
-        // the full RegistryEvent needed for replay. We only store:
-        // - leaf_index, event_type, offchain_signer_commitment
-        // But we need full data like recovery_address, authenticator_addresses, etc.
-        //
-        // Possible solutions:
-        // 1. Store full event data in world_tree_events table (adds storage cost)
-        // 2. Re-fetch events from blockchain during rollback (requires RPC access)
-        // 3. Store additional columns for each event type's specific data
-        //
-        // For now, this is a placeholder that would need the full RegistryEvent
-        // to properly call the same methods as EventsCommitter::commit_events()
-
-        tracing::warn!(
-            "apply_event not yet implemented for event {:?} at leaf_index {}",
-            event.event_type,
-            event.leaf_index
-        );
-
-        // When implemented, this should match the logic in EventsCommitter:
-        // match event_type {
-        //     WorldTreeEventType::AccountCreated => tx.accounts().await?.insert(...),
-        //     WorldTreeEventType::AccountUpdated => tx.accounts().await?.update_authenticator_at_index(...),
-        //     WorldTreeEventType::AccountRecovered => tx.accounts().await?.reset_authenticator(...),
-        //     WorldTreeEventType::AuthenticationInserted => tx.accounts().await?.insert_authenticator_at_index(...),
-        //     WorldTreeEventType::AuthenticationRemoved => tx.accounts().await?.remove_authenticator_at_index(...),
-        // }
 
         Ok(())
     }
