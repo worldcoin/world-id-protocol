@@ -124,7 +124,7 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
         ProvenPubKeyInfo memory issuerPubKeyInfo = issuerSchemaIdToPubkeyAndProofId(issuerSchemaId);
         if (issuerPubKeyInfo.pubKey.x == 0 && issuerPubKeyInfo.pubKey.y == 0) revert UnregisteredIssuerSchemaId();
 
-        ProvenPubKeyInfo memory oprfPubKeyInfo = oprfKeyIdToPubkeyAndProofId(uint160(issuerSchemaId));
+        ProvenPubKeyInfo memory oprfPubKeyInfo = oprfKeyIdToPubkeyAndProofId(uint160(rpId));
         if (oprfPubKeyInfo.pubKey.x == 0 && oprfPubKeyInfo.pubKey.y == 0) revert UnregisteredOprfKeyId();
 
         uint256[4] memory proof = [proofExt[0], proofExt[1], proofExt[2], proofExt[3]];

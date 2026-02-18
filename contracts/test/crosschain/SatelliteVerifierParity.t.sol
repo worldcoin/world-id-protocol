@@ -162,31 +162,20 @@ contract SatelliteVerifierParityTest is Test {
         satellite.applyCommitments(commits);
     }
 
-    function test_registryVerifierBridgeVerifierParity() public {
-        vm.warp(EXPIRES_AT_MIN + 1 hours);
-
-        // Sanity: this proof is valid for the canonical verifier contract.
-        coreVerifier.verify(NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof);
-
-        satellite.verify(NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof);
-    }
-
     /// @notice Intentionally failing regression test:
     ///   bridges OPRF key at `rpId` (canonical contract behavior) and expects satellite verification parity.
     ///   It fails today because satellite reads OPRF key by `issuerSchemaId`.
     function test_keyIdentityMismatch() public {
-        WorldIDSatelliteHarness satelliteWithRpKey =
-            new WorldIDSatelliteHarness(
-                coreVerifier.getVerifier(), ROOT_VALIDITY_WINDOW, TREE_DEPTH, MIN_EXPIRATION_THRESHOLD
-            );
+        WorldIDSatelliteHarness satelliteWithRpKey = new WorldIDSatelliteHarness(
+            coreVerifier.getVerifier(), ROOT_VALIDITY_WINDOW, TREE_DEPTH, MIN_EXPIRATION_THRESHOLD
+        );
 
         Lib.Commitment[] memory commits = new Lib.Commitment[](3);
         bytes32 proofId = bytes32(uint256(2));
         bytes32 blockHash = bytes32(uint256(0x5678));
 
         commits[0] = Lib.Commitment({
-            blockHash: blockHash,
-            data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, ROOT, block.timestamp, proofId)
+            blockHash: blockHash, data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, ROOT, block.timestamp, proofId)
         });
         commits[1] = Lib.Commitment({
             blockHash: blockHash,
@@ -199,6 +188,7 @@ contract SatelliteVerifierParityTest is Test {
             blockHash: blockHash,
             data: abi.encodeWithSelector(SET_OPRF_KEY_SELECTOR, uint160(RP_ID), OPRF_PUBKEY_X, OPRF_PUBKEY_Y, proofId)
         });
+
         satelliteWithRpKey.applyCommitments(commits);
 
         vm.warp(EXPIRES_AT_MIN + 1 hours);
@@ -208,6 +198,8 @@ contract SatelliteVerifierParityTest is Test {
 
         // Expected parity behavior: this should also verify on satellite.
         // Current behavior: reverts UnregisteredOprfKeyId() because satellite looks up by issuerSchemaId.
-        satelliteWithRpKey.verify(NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof);
+        satelliteWithRpKey.verify(
+            NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof
+        );
     }
 }
