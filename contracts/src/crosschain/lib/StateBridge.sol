@@ -4,7 +4,8 @@ pragma solidity ^0.8.28;
 import "@world-id-bridge/Error.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 import {Lib} from "@world-id-bridge/lib/Lib.sol";
 import {IStateBridge} from "@world-id-bridge/interfaces/IStateBridge.sol";
 
@@ -17,7 +18,7 @@ bytes32 constant STATE_BRIDGE_STORAGE_SLOT = 0x8ea751544b8bbcbc8929c26e76fb7b6c3
 /// @notice Abstract upgradeable base for all World ID bridge contracts. Manages a keccak hash chain
 ///   accumulator, proven root/pubkey state, and gateway authorization. Concrete subclasses
 ///   (`WorldIDSource`, `Satellite`) extend this with their own state ingestion logic.
-abstract contract StateBridge is IStateBridge, UUPSUpgradeable, OwnableUpgradeable {
+abstract contract StateBridge is IStateBridge, UUPSUpgradeable, OwnableUpgradeable, EIP712Upgradeable {
     using Lib for *;
 
     /// @dev Selector for `updateRoot(uint256,uint256,bytes32)`.
@@ -39,6 +40,7 @@ abstract contract StateBridge is IStateBridge, UUPSUpgradeable, OwnableUpgradeab
         StateBridgeStorage storage $ = __storage();
 
         __Ownable_init(cfg.owner);
+        __EIP712_init(cfg.name, cfg.version);
 
         for (uint256 i; i < cfg.authorizedGateways.length; ++i) {
             $.authorizedGateways[cfg.authorizedGateways[i]] = true;

@@ -3,8 +3,8 @@ pragma solidity ^0.8.28;
 
 import {IWorldIDRegistry} from "@world-id-core/interfaces/IWorldIDRegistry.sol";
 import {ICredentialSchemaIssuerRegistry} from "@world-id-core/interfaces/ICredentialSchemaIssuerRegistry.sol";
-import {OprfKeyRegistry} from "lib/oprf-key-registry/src/OprfKeyRegistry.sol";
-import {OprfKeyGen} from "lib/oprf-key-registry/src/OprfKeyGen.sol";
+import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
+import {OprfKeyGen} from "oprf-key-registry/src/OprfKeyGen.sol";
 import {IERC7786GatewaySource} from "@openzeppelin/contracts/interfaces/draft-IERC7786.sol";
 import {IStateBridge} from "@world-id-bridge/interfaces/IStateBridge.sol";
 import {Lib} from "@world-id-bridge/lib/Lib.sol";
