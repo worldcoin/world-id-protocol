@@ -92,21 +92,8 @@ impl Authenticator {
         query_material: CircomGroth16Material,
         nullifier_material: CircomGroth16Material,
     ) -> Result<Self, AuthenticatorError> {
-        Self::init_with_material_arcs(
-            seed,
-            config,
-            Arc::new(query_material),
-            Arc::new(nullifier_material),
-        )
-        .await
-    }
-
-    async fn init_with_material_arcs(
-        seed: &[u8],
-        config: Config,
-        query_material: Arc<CircomGroth16Material>,
-        nullifier_material: Arc<CircomGroth16Material>,
-    ) -> Result<Self, AuthenticatorError> {
+        let query_material = Arc::new(query_material);
+        let nullifier_material = Arc::new(nullifier_material);
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry = config.rpc_url().map_or_else(
@@ -188,15 +175,52 @@ impl Authenticator {
     ) -> Result<Self, AuthenticatorError> {
         let query_material = Arc::new(query_material);
         let nullifier_material = Arc::new(nullifier_material);
+        let init = |config: Config| async {
+            let signer = Signer::from_seed_bytes(seed)?;
 
-        match Self::init_with_material_arcs(
-            seed,
-            config.clone(),
-            Arc::clone(&query_material),
-            Arc::clone(&nullifier_material),
-        )
-        .await
-        {
+            let registry = config.rpc_url().map_or_else(
+                || None,
+                |rpc_url| {
+                    let provider = alloy::providers::ProviderBuilder::new()
+                        .with_chain_id(config.chain_id())
+                        .connect_http(rpc_url.clone());
+                    Some(crate::registry::WorldIdRegistry::new(
+                        *config.registry_address(),
+                        alloy::providers::Provider::erased(provider),
+                    ))
+                },
+            );
+
+            let http_client = reqwest::Client::new();
+
+            let packed_account_data = Self::get_packed_account_data(
+                signer.onchain_signer_address(),
+                registry.as_ref(),
+                &config,
+                &http_client,
+            )
+            .await?;
+
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let rustls_config = rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+            let ws_connector = Connector::Rustls(Arc::new(rustls_config));
+
+            Ok::<Self, AuthenticatorError>(Self {
+                packed_account_data,
+                signer,
+                config,
+                registry: registry.map(Arc::new),
+                http_client,
+                ws_connector,
+                query_material: Arc::clone(&query_material),
+                nullifier_material: Arc::clone(&nullifier_material),
+            })
+        };
+
+        match init(config.clone()).await {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 // Authenticator is not registered, create it.
@@ -238,14 +262,7 @@ impl Authenticator {
                     };
 
                     match result {
-                        Ok(()) => match Self::init_with_material_arcs(
-                            seed,
-                            config.clone(),
-                            Arc::clone(&query_material),
-                            Arc::clone(&nullifier_material),
-                        )
-                        .await
-                        {
+                        Ok(()) => match init(config.clone()).await {
                             Ok(auth) => Ok(auth),
                             Err(AuthenticatorError::AccountDoesNotExist) => {
                                 Err(PollResult::Retryable)
