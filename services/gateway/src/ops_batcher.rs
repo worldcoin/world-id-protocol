@@ -6,6 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     RequestTracker,
+    error::parse_contract_error,
     metrics::{
         METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
         METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
@@ -17,7 +18,7 @@ use alloy::{
 };
 use tokio::sync::mpsc;
 use world_id_core::{
-    types::{GatewayErrorCode, GatewayRequestState, parse_contract_error},
+    api_types::{GatewayErrorCode, GatewayRequestState},
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
@@ -71,7 +72,7 @@ impl OpsBatcherRunner {
     }
 
     pub async fn run(mut self) {
-        let provider = self.registry.provider().clone();
+        let provider = self.registry.provider();
         let mc = Multicall3::new(MULTICALL3_ADDR, provider);
 
         loop {
@@ -108,11 +109,11 @@ impl OpsBatcherRunner {
                 .await;
 
             let calls: Vec<Multicall3::Call3> = batch
-                .iter()
+                .into_iter()
                 .map(|env| Multicall3::Call3 {
                     target: *self.registry.address(),
                     allowFailure: false,
-                    callData: env.calldata.clone(),
+                    callData: env.calldata,
                 })
                 .collect();
 
@@ -136,7 +137,7 @@ impl OpsBatcherRunner {
                         .await;
 
                     let tracker = self.tracker.clone();
-                    let ids_for_receipt = ids.clone();
+                    let ids_for_receipt = ids;
                     tokio::spawn(async move {
                         match builder.get_receipt().await {
                             Ok(receipt) => {

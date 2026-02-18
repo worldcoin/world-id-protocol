@@ -1,9 +1,12 @@
 //! Recover account handler.
 
-use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use crate::{
+    error::GatewayErrorResponse, request::IntoRequestWithRateLimit, routes::middleware::RequestId,
+    types::AppState,
+};
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::types::{GatewayErrorResponse, GatewayStatusResponse, RecoverAccountRequest};
+use world_id_core::api_types::{GatewayStatusResponse, RecoverAccountRequest};
 
 /// POST /v1/accounts/recover
 ///
@@ -15,7 +18,7 @@ pub(crate) async fn recover_account(
     Json(payload): Json<RecoverAccountRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     payload
-        .into_request(id, &state.ctx)
+        .into_request_with_rate_limit(id, &state.ctx)
         .await?
         .submit(&state.ctx)
         .await

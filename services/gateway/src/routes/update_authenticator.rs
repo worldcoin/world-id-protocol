@@ -1,11 +1,12 @@
 //! Update authenticator handler.
 
-use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use crate::{
+    error::GatewayErrorResponse, request::IntoRequestWithRateLimit, routes::middleware::RequestId,
+    types::AppState,
+};
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::types::{
-    GatewayErrorResponse, GatewayStatusResponse, UpdateAuthenticatorRequest,
-};
+use world_id_core::api_types::{GatewayStatusResponse, UpdateAuthenticatorRequest};
 
 /// POST /v1/authenticators/update
 ///
@@ -17,7 +18,7 @@ pub(crate) async fn update_authenticator(
     Json(payload): Json<UpdateAuthenticatorRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     payload
-        .into_request(id, &state.ctx)
+        .into_request_with_rate_limit(id, &state.ctx)
         .await?
         .submit(&state.ctx)
         .await

@@ -4,6 +4,7 @@ use crate::{
     AppState,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
+    error::{GatewayErrorBody, GatewayResult},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -27,15 +28,15 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use http::StatusCode;
 use moka::future::Cache;
 use tokio::sync::mpsc;
-use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use world_id_core::{
-    types::{
-        CreateAccountRequest, GatewayErrorBody, GatewayErrorCode, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest,
-        IsValidRootQuery, IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
+    api_types::{
+        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
+        GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
+        IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
         UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
@@ -60,8 +61,9 @@ pub(crate) async fn build_app(
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: Option<String>,
-) -> anyhow::Result<Router> {
-    let tracker = RequestTracker::new(redis_url).await;
+    rate_limit_config: Option<(u64, u64)>,
+) -> GatewayResult<Router> {
+    let tracker = RequestTracker::new(redis_url, rate_limit_config).await;
 
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -120,10 +122,11 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
-        .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
-            30,
-        )))
-        .layer(TraceLayer::new_for_http()))
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(30),
+        ))
+        .layer(world_id_services_common::trace_layer()))
 }
 
 #[utoipa::path(

@@ -46,7 +46,7 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     string public constant EIP712_VERSION = "1.0";
 
     bytes32 public constant UPDATE_RP_TYPEHASH = keccak256(
-        "UpdateRp(uint64 rpId,uint160 oprfKeyId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
+        "UpdateRp(uint64 rpId,address manager,address signer,bool toggleActive,string unverifiedWellKnownDomain,uint256 nonce)"
     );
 
     ////////////////////////////////////////////////////////////
@@ -112,7 +112,6 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     /// @inheritdoc IRpRegistry
     function updateRp(
         uint64 rpId,
-        uint160 oprfKeyId,
         address manager,
         address signer,
         bool toggleActive,
@@ -129,7 +128,6 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
                 abi.encode(
                     UPDATE_RP_TYPEHASH,
                     rpId,
-                    oprfKeyId,
                     manager,
                     signer,
                     toggleActive,
@@ -141,10 +139,6 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
 
         if (!SignatureChecker.isValidSignatureNow(_relyingParties[rpId].manager, messageHash, signature)) {
             revert InvalidSignature();
-        }
-
-        if (oprfKeyId != 0) {
-            _relyingParties[rpId].oprfKeyId = oprfKeyId;
         }
 
         if (manager != address(0)) {
@@ -223,6 +217,18 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     /// @inheritdoc IRpRegistry
     function getOprfKeyRegistry() public view virtual onlyProxy onlyInitialized returns (address) {
         return address(_oprfKeyRegistry);
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    OWNER FUNCTIONS                     //
+    ////////////////////////////////////////////////////////////
+
+    /// @inheritdoc IRpRegistry
+    function updateOprfKeyRegistry(address newOprfKeyRegistry) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (newOprfKeyRegistry == address(0)) revert ZeroAddress();
+        address oldOprfKeyRegistry = address(_oprfKeyRegistry);
+        _oprfKeyRegistry = IOprfKeyRegistry(newOprfKeyRegistry);
+        emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, newOprfKeyRegistry);
     }
 
     ////////////////////////////////////////////////////////////

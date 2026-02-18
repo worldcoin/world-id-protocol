@@ -3,9 +3,9 @@ use alloy::{
     primitives::{Address, Bytes, TxKind, U256, address},
     providers::{DynProvider, Provider, ProviderBuilder},
     rpc::types::TransactionRequest,
-    signers::local::PrivateKeySigner,
+    signers::{SignerSync as _, local::PrivateKeySigner},
     sol,
-    sol_types::{SolCall, SolEvent as _},
+    sol_types::{Eip712Domain, SolCall, SolEvent as _, SolStruct as _, eip712_domain},
     uint,
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
@@ -27,6 +27,15 @@ sol!(
     concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistry.json"
+    )
+);
+
+sol!(
+    #[sol(rpc)]
+    MockOprfKeyRegistry,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/CredentialSchemaIssuerRegistry.t.sol/MockOprfKeyRegistry.json"
     )
 );
 
@@ -68,16 +77,6 @@ sol!(
 );
 
 sol!(
-    #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
-    VerifierKeyGen13,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/VerifierKeyGen13.sol/Verifier.json"
-    )
-);
-
-sol!(
     #[sol(rpc)]
     ERC1967Proxy,
     concat!(
@@ -95,6 +94,22 @@ sol!(
         "/../../contracts/out/RpRegistry.sol/RpRegistry.json"
     )
 );
+
+sol! {
+    struct UpdateRp {
+        uint64 rpId;
+        address manager;
+        address signer;
+        bool toggleActive;
+        string unverifiedWellKnownDomain;
+        uint256 nonce;
+    }
+
+    struct RemoveIssuerSchema {
+        uint64 issuerSchemaId;
+        uint256 nonce;
+    }
+}
 
 sol!(
     #[allow(clippy::too_many_arguments)]
@@ -130,6 +145,27 @@ pub struct TestAnvil {
     pub instance: AnvilInstance,
     pub rpc_url: String,
     pub ws_url: String,
+}
+
+fn rp_registry_domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
+    eip712_domain!(
+        name: "RpRegistry",
+        version: "1.0",
+        chain_id: chain_id,
+        verifying_contract: verifying_contract,
+    )
+}
+
+fn credential_schema_issuer_registry_domain(
+    chain_id: u64,
+    verifying_contract: Address,
+) -> Eip712Domain {
+    eip712_domain!(
+        name: "CredentialSchemaIssuerRegistry",
+        version: "1.0",
+        chain_id: chain_id,
+        verifying_contract: verifying_contract,
+    )
 }
 
 impl TestAnvil {
@@ -270,33 +306,19 @@ impl TestAnvil {
             .await
             .context("failed to deploy Poseidon2T2 library")?;
 
-        // Step 2: Link Poseidon2T2 and deploy BinaryIMT library
-        let binary_imt_bytecode = Self::link_library(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../contracts/out/BinaryIMT.sol/BinaryIMT.json"
-            )),
-            "src/hash/Poseidon2.sol:Poseidon2T2",
-            *poseidon.address(),
-        )?;
-
-        let binary_imt_address =
-            Self::deploy_contract(provider.clone(), binary_imt_bytecode, Bytes::new())
-                .await
-                .context("failed to deploy BinaryIMT library")?;
-
-        // Step 3: Deploy PackedAccountData library (no dependencies)
+        // Step 2: Deploy PackedAccountData library (no dependencies)
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
 
-        // Step 4: Link both BinaryIMT and PackedAccountData to WorldIDRegistry
+        // Step 3: Link Poseidon2T2 and PackedAccountData to WorldIDRegistry
+        // (FullStorageBinaryIMT is an internal library inlined into WorldIDRegistry,
+        // but it uses Poseidon2T2 which is a public library requiring linking.)
         let world_id_registry_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
         ));
 
-        // Link both libraries to WorldIDRegistry (keep as hex string until both are linked)
         let json_value: serde_json::Value = serde_json::from_str(world_id_registry_json)?;
         let mut bytecode_str = json_value["bytecode"]["object"]
             .as_str()
@@ -312,8 +334,8 @@ impl TestAnvil {
         bytecode_str = Self::link_bytecode_hex(
             world_id_registry_json,
             &bytecode_str,
-            "src/libraries/BinaryIMT.sol:BinaryIMT",
-            binary_imt_address,
+            "src/hash/Poseidon2.sol:Poseidon2T2",
+            *poseidon.address(),
         )?;
 
         bytecode_str = Self::link_bytecode_hex(
@@ -404,6 +426,20 @@ impl TestAnvil {
         )
         .await
         .context("failed to deploy OprfKeyRegistry contract")
+    }
+
+    /// Deploys a lightweight mock `OprfKeyRegistry` used by auth tests.
+    #[allow(dead_code)]
+    pub async fn deploy_mock_oprf_key_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+
+        let mock = MockOprfKeyRegistry::deploy(provider)
+            .await
+            .context("failed to deploy MockOprfKeyRegistry contract")?;
+
+        Ok(*mock.address())
     }
 
     pub async fn deploy_world_id_verifier(
@@ -518,6 +554,71 @@ impl TestAnvil {
         Ok(())
     }
 
+    /// Update an existing `RP` at the `RpRegistry` contract using the supplied signer.
+    #[expect(clippy::too_many_arguments)]
+    pub async fn update_rp(
+        &self,
+        rp_registry_contract: Address,
+        signer: PrivateKeySigner,
+        manager_signer: PrivateKeySigner,
+        rp_id: RpId,
+        toggle_active: bool,
+        rp_manager: Address,
+        rp_signer: Address,
+        rp_domain: String,
+    ) -> Result<()> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let rp_registry = RpRegistry::new(rp_registry_contract, provider.clone());
+
+        let nonce = rp_registry
+            .nonceOf(rp_id.into_inner())
+            .call()
+            .await
+            .wrap_err("failed to fetch RP nonce")?;
+
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .wrap_err("failed to fetch chain id for RP update signature")?;
+
+        let payload = UpdateRp {
+            rpId: rp_id.into_inner(),
+            manager: rp_manager,
+            signer: rp_signer,
+            toggleActive: toggle_active,
+            unverifiedWellKnownDomain: rp_domain.clone(),
+            nonce,
+        };
+
+        let digest =
+            payload.eip712_signing_hash(&rp_registry_domain(chain_id, rp_registry_contract));
+        let signature = manager_signer
+            .sign_hash_sync(&digest)
+            .wrap_err("failed to sign RP update payload")?;
+
+        let receipt = rp_registry
+            .updateRp(
+                rp_id.into_inner(),
+                rp_manager,
+                rp_signer,
+                toggle_active,
+                rp_domain,
+                nonce,
+                signature.as_bytes().to_vec().into(),
+            )
+            .gas(10000000) // FIXME
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+        if !receipt.status() {
+            eyre::bail!("failed to update RP");
+        }
+        Ok(())
+    }
+
     /// Register a new issuer at the `CredentialSchemaIssuerRegistry` contract using the supplied signer.
     pub async fn register_issuer(
         &self,
@@ -565,13 +666,65 @@ impl TestAnvil {
         Ok(())
     }
 
+    /// Removes an issuer at the `CredentialSchemaIssuerRegistry` contract using the supplied signer.
+    pub async fn remove_issuer(
+        &self,
+        schema_issuer_registry_contract: Address,
+        signer: PrivateKeySigner,
+        issuer_signer: PrivateKeySigner,
+        issuer_schema_id: u64,
+    ) -> Result<()> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let issuer_registry =
+            CredentialSchemaIssuerRegistry::new(schema_issuer_registry_contract, provider.clone());
+
+        let nonce = issuer_registry
+            .nonceOf(issuer_schema_id)
+            .call()
+            .await
+            .wrap_err("failed to fetch issuer nonce")?;
+
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .wrap_err("failed to fetch chain id for issuer remove signature")?;
+
+        let payload = RemoveIssuerSchema {
+            issuerSchemaId: issuer_schema_id,
+            nonce,
+        };
+
+        let digest = payload.eip712_signing_hash(&credential_schema_issuer_registry_domain(
+            chain_id,
+            schema_issuer_registry_contract,
+        ));
+        let signature = issuer_signer
+            .sign_hash_sync(&digest)
+            .wrap_err("failed to sign issuer removal payload")?;
+
+        let receipt = issuer_registry
+            .remove(issuer_schema_id, signature.as_bytes().to_vec().into())
+            .send()
+            .await
+            .wrap_err("failed to submit issuer remove")?
+            .get_receipt()
+            .await
+            .wrap_err("failed to fetch issuer remove receipt")?;
+        if !receipt.status() {
+            eyre::bail!("failed to remove issuer");
+        }
+        Ok(())
+    }
+
     pub async fn create_account(
         &self,
         world_id_registry: Address,
         signer: PrivateKeySigner,
         auth_addr: Address,
         pubkey: U256,
-        commitment: u64,
+        commitment: U256,
     ) -> FieldElement {
         let registry = WorldIDRegistry::new(
             world_id_registry,
@@ -582,12 +735,7 @@ impl TestAnvil {
                 .unwrap(),
         );
         registry
-            .createAccount(
-                Address::ZERO,
-                vec![auth_addr],
-                vec![pubkey],
-                U256::from(commitment),
-            )
+            .createAccount(Address::ZERO, vec![auth_addr], vec![pubkey], commitment)
             .send()
             .await
             .expect("failed to submit createAccount transaction")
@@ -626,24 +774,6 @@ impl TestAnvil {
             .get_receipt()
             .await
             .expect("setRootValidityWindow transaction failed");
-    }
-
-    /// Links a library address into contract bytecode by replacing all placeholder references.
-    ///
-    /// Alloy only supports the linking of libraries that are already deployed, or linking at compile time, hence this manual handling.
-    fn link_library(json: &str, library_path: &str, library_address: Address) -> Result<Bytes> {
-        let json_value: serde_json::Value = serde_json::from_str(json)?;
-        let bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            });
-
-        Self::link_bytecode_str(json, bytecode_str, library_path, library_address)
     }
 
     /// Links a library to bytecode hex string and returns the hex string (no decoding).
@@ -689,20 +819,6 @@ impl TestAnvil {
         }
 
         Ok(linked_bytecode)
-    }
-
-    /// Core linking logic: links a library address into a bytecode hex string and decodes it.
-    ///
-    /// This handles the actual replacement of library placeholders with addresses.
-    fn link_bytecode_str(
-        json: &str,
-        bytecode_str: &str,
-        library_path: &str,
-        library_address: Address,
-    ) -> Result<Bytes> {
-        let linked_hex =
-            Self::link_bytecode_hex(json, bytecode_str, library_path, library_address)?;
-        Ok(Bytes::from(hex::decode(linked_hex)?))
     }
 
     /// Deploys a contract with the given bytecode and constructor arguments

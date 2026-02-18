@@ -2,6 +2,7 @@
 
 use std::{
     path::PathBuf,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -12,7 +13,13 @@ use alloy::{
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::health_checks;
-use test_utils::{
+use world_id_core::{
+    Authenticator, AuthenticatorError, EdDSAPrivateKey,
+    requests::{ProofRequest, RequestItem, RequestVersion},
+};
+use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
@@ -20,14 +27,17 @@ use test_utils::{
     },
     stubs::spawn_indexer_stub,
 };
-use world_id_core::{
-    Authenticator, AuthenticatorError, EdDSAPrivateKey,
-    requests::{ProofRequest, RequestItem, RequestVersion},
-};
-use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
-use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
 
 const GW_PORT: u16 = 4104;
+
+fn load_embedded_materials() -> (
+    Arc<world_id_core::proof::CircomGroth16Material>,
+    Arc<world_id_core::proof::CircomGroth16Material>,
+) {
+    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
+    (Arc::new(query_material), Arc::new(nullifier_material))
+}
 
 /// Generates an entire end-to-end Uniqueness Proof Generator
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -36,28 +46,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
-
-    let containers = tokio::join!(
-        taceo_oprf_test_utils::localstack_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-    );
-    let (_localstack_container, localstack_url) = containers.0?;
-    let (_postgres_container_0, postgres_url_0) = containers.1?;
-    let (_postgres_container_1, postgres_url_1) = containers.2?;
-    let (_postgres_container_2, postgres_url_2) = containers.3?;
-    let (_postgres_container_3, postgres_url_3) = containers.4?;
-    let (_postgres_container_4, postgres_url_4) = containers.5?;
-    let postgres_urls = [
-        postgres_url_0,
-        postgres_url_1,
-        postgres_url_2,
-        postgres_url_3,
-        postgres_url_4,
-    ];
 
     let RegistryTestContext {
         anvil,
@@ -86,6 +74,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: None,
+        rate_limit_max_requests: None,
+        rate_limit_window_secs: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -108,9 +98,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         3,
     )
     .unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
 
     // World ID should not yet exist.
-    let init_result = Authenticator::init(&seed, creation_config.clone()).await;
+    let init_result = Authenticator::init(
+        &seed,
+        creation_config.clone(),
+        query_material,
+        nullifier_material,
+    )
+    .await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -118,60 +115,67 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone(),
+        query_material,
+        nullifier_material,
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
     println!(
         "Authentication creation took: {}ms",
         SystemTime::now().duration_since(start).unwrap().as_millis(),
     );
 
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let authenticator = Authenticator::init(&seed, creation_config)
-        .await
-        .wrap_err("expected authenticator to initialize after account creation")?;
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
+            .await
+            .wrap_err("expected authenticator to initialize after account creation")?;
+    assert_eq!(authenticator.leaf_index(), 1);
 
     // Local indexer stub serving inclusion proof.
-    let leaf_index_u64: u64 = authenticator
-        .leaf_index()
-        .try_into()
-        .expect("account id fits in u64");
+    let leaf_index = authenticator.leaf_index();
     let MerkleFixture {
         key_set,
         inclusion_proof: merkle_inclusion_proof,
         root: _,
         ..
-    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index_u64)
+    } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index)
         .wrap_err("failed to construct merkle fixture")?;
 
     let inclusion_proof =
         AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
             .wrap_err("failed to build inclusion proof")?;
 
-    let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index_u64, inclusion_proof.clone())
+    let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index, inclusion_proof.clone())
         .await
         .wrap_err("failed to start indexer stub")?;
 
     let rp_fixture = generate_rp_fixture();
 
+    let (key_gen_secret_managers, node_secret_managers) =
+        world_id_test_utils::stubs::init_test_secret_managers();
+
     // OPRF key-gen instances
-    let oprf_key_gens = test_utils::stubs::spawn_key_gens(
+    let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
         anvil.ws_endpoint(),
-        &localstack_url,
-        &postgres_urls,
+        key_gen_secret_managers,
         oprf_key_registry,
     )
     .await;
 
     // OPRF nodes
-    let nodes = test_utils::stubs::spawn_oprf_nodes(
+    let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         anvil.ws_endpoint(),
-        &postgres_urls,
+        node_secret_managers,
         oprf_key_registry,
         world_id_registry,
         rp_registry,
@@ -242,16 +246,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
 
-    let authenticator = Authenticator::init(&seed, proof_config)
-        .await
-        .wrap_err("failed to reinitialize authenticator with proof config")?;
-    assert_eq!(authenticator.leaf_index(), U256::from(1u64));
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
+            .await
+            .wrap_err("failed to reinitialize authenticator with proof config")?;
+    assert_eq!(authenticator.leaf_index(), 1);
 
+    let leaf_index = authenticator.leaf_index();
     let credential_sub_blinding_factor = authenticator
-        .generate_credential_blinding_factor(
-            issuer_schema_id,
-            OprfKeyId::new(U160::from(issuer_schema_id)),
-        )
+        .generate_credential_blinding_factor(issuer_schema_id)
         .await?;
 
     // Create and sign credential.
@@ -261,7 +265,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .as_secs();
     let mut credential = build_base_credential(
         issuer_schema_id,
-        leaf_index_u64,
+        leaf_index,
         now,
         now + 60,
         credential_sub_blinding_factor,
@@ -297,7 +301,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
-    let nullifier = authenticator.generate_nullifier(&proof_request).await?;
+    let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
+    let nullifier = authenticator
+        .generate_nullifier(&proof_request, inclusion_proof, key_set)
+        .await?;
     let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
     assert_ne!(raw_nullifier, FieldElement::ZERO);
 
@@ -316,14 +323,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         proof_request.created_at,
     )?;
 
-    assert_eq!(response_item.nullifier.unwrap(), raw_nullifier);
+    assert_eq!(response_item.nullifier, Some(raw_nullifier));
 
     // verify proof with verifier contract
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
         WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
-            response_item.nullifier.unwrap().into(),
+            response_item
+                .nullifier
+                .expect("uniqueness proof should have nullifier")
+                .into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
             rp_fixture.nonce.into(),
@@ -335,7 +345,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            response_item.proof.unwrap().as_ethereum_representation(),
+            response_item.proof.as_ethereum_representation(),
         )
         .call()
         .await?;

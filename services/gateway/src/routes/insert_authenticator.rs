@@ -1,11 +1,12 @@
 //! Insert authenticator handler.
 
-use crate::{request::IntoRequest, routes::middleware::RequestId, types::AppState};
+use crate::{
+    error::GatewayErrorResponse, request::IntoRequestWithRateLimit, routes::middleware::RequestId,
+    types::AppState,
+};
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::types::{
-    GatewayErrorResponse, GatewayStatusResponse, InsertAuthenticatorRequest,
-};
+use world_id_core::api_types::{GatewayStatusResponse, InsertAuthenticatorRequest};
 
 /// POST /v1/authenticators/insert
 ///
@@ -17,7 +18,7 @@ pub(crate) async fn insert_authenticator(
     Json(payload): Json<InsertAuthenticatorRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     payload
-        .into_request(id, &state.ctx)
+        .into_request_with_rate_limit(id, &state.ctx)
         .await?
         .submit(&state.ctx)
         .await

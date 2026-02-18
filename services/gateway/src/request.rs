@@ -9,6 +9,7 @@ use crate::{
             DEFAULT_UPDATE_AUTHENTICATOR_GAS,
         },
     },
+    error::GatewayErrorResponse,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
 };
@@ -19,10 +20,10 @@ use alloy::{
 use moka::future::Cache;
 use uuid::Uuid;
 use world_id_core::{
-    types::{
-        CreateAccountRequest, GatewayErrorCode, GatewayErrorResponse, GatewayRequestKind,
-        GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    api_types::{
+        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
+        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -56,7 +57,7 @@ impl<T> Request<T> {
 
     /// Get the request kind.
     pub fn kind(&self) -> GatewayRequestKind {
-        self.kind.clone()
+        self.kind
     }
 
     /// Calldata for the contract call.
@@ -80,6 +81,12 @@ impl SubmittedRequest {
             status: GatewayRequestState::Queued,
         }
     }
+}
+
+/// Trait for requests that have a leaf_index field (for rate limiting).
+pub trait HasLeafIndex {
+    /// Get the leaf_index for this request.
+    fn leaf_index(&self) -> u64;
 }
 
 /// Trait for converting API payloads into tracked Requests.
@@ -110,6 +117,25 @@ pub trait IntoRequest: RequestValidation + Sized {
     }
 }
 
+/// Extended trait for requests with leaf_index that need rate limiting.
+#[allow(async_fn_in_trait)]
+pub trait IntoRequestWithRateLimit: IntoRequest + HasLeafIndex {
+    /// Validate, rate-limit, and convert into a Request.
+    async fn into_request_with_rate_limit(
+        self,
+        id: Uuid,
+        ctx: &GatewayContext,
+    ) -> Result<Request<Self>, GatewayErrorResponse> {
+        // Check rate limit first (before validation to save resources)
+        // We do also count rate limitted requests.
+        ctx.tracker
+            .check_rate_limit(self.leaf_index(), &id.to_string())
+            .await?;
+
+        self.into_request(id, ctx).await
+    }
+}
+
 // =============================================================================
 // CreateAccountRequest
 // =============================================================================
@@ -132,7 +158,7 @@ impl Request<CreateAccountRequest> {
         // Register in tracker
         if let Err(err) = ctx
             .tracker
-            .new_request_with_id(self.id().to_string(), self.kind().clone())
+            .new_request_with_id(self.id().to_string(), self.kind())
             .await
         {
             // Remove from inflight tracker if an error appears
@@ -166,9 +192,17 @@ impl Request<CreateAccountRequest> {
 // InsertAuthenticatorRequest
 // =============================================================================
 
+impl HasLeafIndex for InsertAuthenticatorRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
 impl IntoRequest for InsertAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::InsertAuthenticator;
 }
+
+impl IntoRequestWithRateLimit for InsertAuthenticatorRequest {}
 
 impl Request<InsertAuthenticatorRequest> {
     /// Submit the request for processing.
@@ -178,7 +212,7 @@ impl Request<InsertAuthenticatorRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         // Register in tracker
         ctx.tracker
-            .new_request_with_id(self.id.to_string(), self.kind.clone())
+            .new_request_with_id(self.id.to_string(), self.kind)
             .await?;
 
         // Build command with pre-computed calldata
@@ -205,9 +239,17 @@ impl Request<InsertAuthenticatorRequest> {
 // UpdateAuthenticatorRequest
 // =============================================================================
 
+impl HasLeafIndex for UpdateAuthenticatorRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
 impl IntoRequest for UpdateAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::UpdateAuthenticator;
 }
+
+impl IntoRequestWithRateLimit for UpdateAuthenticatorRequest {}
 
 impl Request<UpdateAuthenticatorRequest> {
     /// Submit the request for processing.
@@ -244,9 +286,17 @@ impl Request<UpdateAuthenticatorRequest> {
 // RemoveAuthenticatorRequest
 // =============================================================================
 
+impl HasLeafIndex for RemoveAuthenticatorRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
 impl IntoRequest for RemoveAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::RemoveAuthenticator;
 }
+
+impl IntoRequestWithRateLimit for RemoveAuthenticatorRequest {}
 
 impl Request<RemoveAuthenticatorRequest> {
     /// Submit the request for processing.
@@ -282,9 +332,17 @@ impl Request<RemoveAuthenticatorRequest> {
 // RecoverAccountRequest
 // =============================================================================
 
+impl HasLeafIndex for RecoverAccountRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
 impl IntoRequest for RecoverAccountRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::RecoverAccount;
 }
+
+impl IntoRequestWithRateLimit for RecoverAccountRequest {}
 
 impl Request<RecoverAccountRequest> {
     /// Submit the request for processing.
@@ -294,7 +352,7 @@ impl Request<RecoverAccountRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         // Register in tracker
         ctx.tracker
-            .new_request_with_id(self.id().to_string(), self.kind().clone())
+            .new_request_with_id(self.id().to_string(), self.kind())
             .await?;
 
         // Build command with pre-computed calldata

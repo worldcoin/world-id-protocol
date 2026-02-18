@@ -9,19 +9,29 @@ authors.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-include = ["src/**/*", "tests/**/*", "Cargo.toml", "README.md"]
+include = [
+    "src/**/*",
+    "tests/**/*",
+    "abi/*",
+    "Cargo.toml",
+    "README.md",
+]
 
 [features]
 default = ["embed-zkeys"]
-embed-zkeys = [
-  "world-id-proof/embed-zkeys",
-  "dep:rustls",
-  "dep:webpki-roots",
-  "dep:backon",
-]
+embed-zkeys = ["world-id-proof/embed-zkeys"]
 
 [dependencies]
-alloy = { workspace = true }
+alloy = { workspace = true, features = [
+  "sol-types",
+  "reqwest",
+  "reqwest-rustls-tls",
+  "json",
+  "network",
+  "providers",
+  "contract",
+] }
+anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
 groth16-material = { workspace = true }
@@ -31,21 +41,18 @@ eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 world-id-primitives = { workspace = true }
 secrecy = { workspace = true }
-taceo-oprf = { workspace = true }
+taceo-oprf = { workspace = true, features = ["client"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 rand = { workspace = true }
-backon = { workspace = true, optional = true }
+backon = { workspace = true }
+ruint = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
-# Optional
-rustls = { workspace = true, optional = true }
-webpki-roots = { workspace = true, optional = true }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
 
 # Internal
-world-id-registry = { workspace = true }
-world-id-signer = { workspace = true }
-world-id-types = { workspace = true }
-world-id-request = { workspace = true }
 world-id-proof = { workspace = true }
 
 [dev-dependencies]

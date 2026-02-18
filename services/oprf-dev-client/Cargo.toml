@@ -10,19 +10,19 @@ license.workspace = true
 [dependencies]
 alloy = { workspace = true, features = ["full", "rpc", "rpc-client-ws"] }
 ark-babyjubjub = { workspace = true }
-ark-ff.workspace = true
-backon.workspace = true
-clap = { version = "4", features = ["derive", "env"] }
-eyre.workspace = true
-humantime = "2"
-rand.workspace = true
-rand_chacha.workspace = true
-rustls.workspace = true
-secrecy = "0.10"
-taceo-nodes-observability = "0.1"
-taceo-oprf = { workspace = true, features = ["dev-client"] }
+ark-ff = { workspace = true }
+backon = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+eyre = { workspace = true }
+humantime = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+rustls = { workspace = true }
+secrecy = { workspace = true }
+taceo-nodes-observability = { workspace = true }
+taceo-oprf = { workspace = true, features = ["dev-client", "core"] }
 taceo-oprf-test-utils = { workspace = true }
-test-utils = { path = "../../crates/test-utils" }
+world-id-test-utils = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
   "rt-multi-thread",
@@ -31,9 +31,8 @@ tokio = { workspace = true, features = [
   "time",
   "tokio-macros",
 ] }
-tracing.workspace = true
+tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
-webpki-roots.workspace = true
+webpki-roots = { workspace = true }
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
-world-id-gateway = { path = "../gateway" }
 world-id-primitives = { workspace = true }

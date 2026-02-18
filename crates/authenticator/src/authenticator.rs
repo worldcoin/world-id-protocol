@@ -4,23 +4,21 @@
 
 use std::sync::Arc;
 
-use world_id_primitives::{Credential, FieldElement};
-use world_id_signer::Signer;
-use world_id_types::{
+use crate::api_types::{
     AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-    IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-    IndexerQueryRequest, IndexerSignatureNonceResponse, InsertAuthenticatorRequest,
-    RemoveAuthenticatorRequest, ServiceApiError, UpdateAuthenticatorRequest,
+    IndexerAuthenticatorPubkeysResponse, IndexerErrorCode, IndexerPackedAccountRequest,
+    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+    InsertAuthenticatorRequest, RemoveAuthenticatorRequest, ServiceApiError,
+    UpdateAuthenticatorRequest,
+};
+use world_id_primitives::{
+    Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
 };
 
-use world_id_proof::{
-    AuthenticatorProofInput,
-    credential_blinding_factor::OprfCredentialBlindingFactor,
-    nullifier::OprfNullifier,
-    proof::{ProofError, generate_nullifier_proof},
+use crate::registry::{
+    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
+    sign_remove_authenticator, sign_update_authenticator,
 };
-use world_id_request::{ProofRequest, RequestItem, ResponseItem};
-
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
@@ -32,15 +30,17 @@ use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
-use taceo_oprf::{client::Connector, types::OprfKeyId};
+use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
     merkle::MerkleInclusionProof,
 };
-use world_id_registry::{
-    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
-    sign_remove_authenticator, sign_update_authenticator,
+use world_id_proof::{
+    AuthenticatorProofInput,
+    credential_blinding_factor::OprfCredentialBlindingFactor,
+    nullifier::OprfNullifier,
+    proof::{ProofError, generate_nullifier_proof},
 };
 
 static MASK_RECOVERY_COUNTER: U256 =
@@ -48,7 +48,7 @@ static MASK_RECOVERY_COUNTER: U256 =
 static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
-    uint!(0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
+    uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
 /// An Authenticator is the base layer with which a user interacts with the Protocol.
 pub struct Authenticator {
@@ -86,8 +86,12 @@ impl Authenticator {
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
-    #[cfg(feature = "embed-zkeys")]
-    pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
+    pub async fn init(
+        seed: &[u8],
+        config: Config,
+        query_material: Arc<CircomGroth16Material>,
+        nullifier_material: Arc<CircomGroth16Material>,
+    ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry = config.rpc_url().map_or_else(
@@ -96,7 +100,7 @@ impl Authenticator {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(world_id_registry::WorldIdRegistry::new(
+                Some(crate::registry::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
@@ -119,20 +123,6 @@ impl Authenticator {
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let ws_connector = Connector::Rustls(Arc::new(rustls_config));
-
-        let cache_dir = config.zkey_cache_dir();
-        let query_material = Arc::new(
-            world_id_proof::proof::load_embedded_query_material(cache_dir).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load cached query material: {e}"))
-            })?,
-        );
-        let nullifier_material = Arc::new(
-            world_id_proof::proof::load_embedded_nullifier_material(cache_dir).map_err(|e| {
-                AuthenticatorError::Generic(format!(
-                    "Failed to load cached nullifier material: {e}"
-                ))
-            })?,
-        );
 
         Ok(Self {
             packed_account_data,
@@ -174,13 +164,21 @@ impl Authenticator {
     ///
     /// # Errors
     /// - See `init` for additional error details.
-    #[cfg(feature = "embed-zkeys")]
     pub async fn init_or_register(
         seed: &[u8],
         config: Config,
+        query_material: Arc<CircomGroth16Material>,
+        nullifier_material: Arc<CircomGroth16Material>,
         recovery_address: Option<Address>,
     ) -> Result<Self, AuthenticatorError> {
-        match Self::init(seed, config.clone()).await {
+        match Self::init(
+            seed,
+            config.clone(),
+            query_material.clone(),
+            nullifier_material.clone(),
+        )
+        .await
+        {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 // Authenticator is not registered, create it.
@@ -222,7 +220,14 @@ impl Authenticator {
                     };
 
                     match result {
-                        Ok(()) => match Self::init(seed, config.clone()).await {
+                        Ok(()) => match Self::init(
+                            seed,
+                            config.clone(),
+                            query_material.clone(),
+                            nullifier_material.clone(),
+                        )
+                        .await
+                        {
                             Ok(auth) => Ok(auth),
                             Err(AuthenticatorError::AccountDoesNotExist) => {
                                 Err(PollResult::Retryable)
@@ -337,12 +342,24 @@ impl Authenticator {
         self.registry.clone()
     }
 
-    /// Returns the account index for the holder's World ID.
+    /// Returns the index for the holder's World ID.
     ///
-    /// This is the index at the Merkle tree where the holder's World ID account is registered.
+    /// # Definition
+    ///
+    /// The `leaf_index` is the main (internal) identifier of a World ID. It is registered in
+    /// the `WorldIDRegistry` and represents the index at the Merkle tree where the World ID
+    /// resides.
+    ///
+    /// # Notes
+    /// - The `leaf_index` is used as input in the nullifier generation, ensuring a nullifier
+    ///   will always be the same for the same RP context and the same World ID (allowing for uniqueness).
+    /// - The `leaf_index` is generally not exposed outside Authenticators. It is not a secret because
+    ///   it's not exposed to RPs outside ZK-circuits, but the only acceptable exposure outside an Authenticator
+    ///   is to fetch Merkle inclusion proofs from an indexer or it may create a pseudonymous identifier.
+    /// - The `leaf_index` is stored as a `uint64` inside packed account data.
     #[must_use]
-    pub fn leaf_index(&self) -> U256 {
-        self.packed_account_data & MASK_LEAF_INDEX
+    pub fn leaf_index(&self) -> u64 {
+        (self.packed_account_data & MASK_LEAF_INDEX).to::<u64>()
     }
 
     /// Returns the recovery counter for the holder's World ID.
@@ -377,9 +394,64 @@ impl Authenticator {
             leaf_index: self.leaf_index(),
         };
         let response = self.http_client.post(&url).json(&req).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(AuthenticatorError::IndexerError {
+                status,
+                body: response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+            });
+        }
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
         Ok((response.inclusion_proof, response.authenticator_pubkeys))
+    }
+
+    /// Fetches the current authenticator public key set for the account.
+    ///
+    /// This is used by mutation operations to compute old/new offchain signer commitments
+    /// without requiring Merkle proof generation.
+    ///
+    /// # Errors
+    /// - Will error if the provided indexer URL is not valid or if there are HTTP call failures.
+    /// - Will error if the user is not registered on the `WorldIDRegistry`.
+    pub async fn fetch_authenticator_pubkeys(
+        &self,
+    ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
+        let url = format!("{}/authenticator-pubkeys", self.config.indexer_url());
+        let req = IndexerQueryRequest {
+            leaf_index: self.leaf_index(),
+        };
+        let response = self.http_client.post(&url).json(&req).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(AuthenticatorError::IndexerError {
+                status,
+                body: response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+            });
+        }
+        let response = response
+            .json::<IndexerAuthenticatorPubkeysResponse>()
+            .await?;
+
+        let decoded_pubkeys = response
+            .authenticator_pubkeys
+            .into_iter()
+            .map(|pubkey| {
+                EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|e| {
+                    PrimitiveError::Deserialization(format!(
+                        "invalid authenticator public key returned by indexer: {e}"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(AuthenticatorPublicKeySet::new(Some(decoded_pubkeys))?)
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -450,10 +522,10 @@ impl Authenticator {
     pub async fn generate_nullifier(
         &self,
         proof_request: &ProofRequest,
+        inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+        key_set: AuthenticatorPublicKeySet,
     ) -> Result<OprfNullifier, AuthenticatorError> {
         let (services, threshold) = self.check_oprf_config()?;
-
-        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
             .iter()
             .position(|pk| pk.pk == self.offchain_pubkey().pk)
@@ -491,7 +563,6 @@ impl Authenticator {
     pub async fn generate_credential_blinding_factor(
         &self,
         issuer_schema_id: u64,
-        oprf_key_id: OprfKeyId,
     ) -> Result<FieldElement, AuthenticatorError> {
         let (services, threshold) = self.check_oprf_config()?;
 
@@ -518,7 +589,6 @@ impl Authenticator {
             authenticator_input,
             issuer_schema_id,
             FieldElement::ZERO, // for now action is always zero, might change in future
-            oprf_key_id,
             self.ws_connector.clone(),
         )
         .await?;
@@ -560,6 +630,7 @@ impl Authenticator {
         let mut rng = rand::rngs::OsRng;
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+        let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
 
         let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
@@ -577,13 +648,26 @@ impl Authenticator {
 
         let proof = ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root);
 
-        let response_item = ResponseItem::from_success(
-            request_item.identifier.clone(),
-            request_item.issuer_schema_id,
-            proof,
-            nullifier.into(),
-            expires_at_min,
-        );
+        // Construct the appropriate response item based on proof type
+        let nullifier_fe: FieldElement = nullifier.into();
+        let response_item = if session_id.is_some() {
+            let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query);
+            ResponseItem::new_session(
+                request_item.identifier.clone(),
+                request_item.issuer_schema_id,
+                proof,
+                session_nullifier,
+                expires_at_min,
+            )
+        } else {
+            ResponseItem::new_uniqueness(
+                request_item.identifier.clone(),
+                request_item.issuer_schema_id,
+                proof,
+                nullifier_fe,
+                expires_at_min,
+            )
+        };
 
         Ok(response_item)
     }
@@ -603,13 +687,12 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_offchain_signer_commitment = key_set.leaf_hash();
-        key_set.try_push(new_authenticator_pubkey.clone())?;
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
+        key_set.try_push(new_authenticator_pubkey)?;
         let index = key_set.len() - 1;
         let new_offchain_signer_commitment = key_set.leaf_hash();
-
-        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
@@ -639,11 +722,6 @@ impl Authenticator {
             new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            sibling_nodes: inclusion_proof
-                .siblings
-                .iter()
-                .map(|s| (*s).into())
-                .collect(),
             signature: signature.as_bytes().to_vec(),
             nonce,
         };
@@ -688,12 +766,11 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
-        key_set.try_set_at_index(index as usize, new_authenticator_pubkey.clone())?;
-        let new_commitment: U256 = key_set.leaf_hash().into();
-
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
+        key_set.try_set_at_index(index as usize, new_authenticator_pubkey)?;
+        let new_commitment: U256 = key_set.leaf_hash().into();
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
@@ -713,19 +790,12 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign update authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = inclusion_proof
-            .siblings
-            .iter()
-            .map(|s| (*s).into())
-            .collect();
-
         let req = UpdateAuthenticatorRequest {
             leaf_index,
             old_authenticator_address,
             new_authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: index,
@@ -770,7 +840,7 @@ impl Authenticator {
     ) -> Result<String, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
-        let (inclusion_proof, mut key_set) = self.fetch_inclusion_proof().await?;
+        let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
         let existing_pubkey = key_set
             .get(index as usize)
@@ -800,18 +870,11 @@ impl Authenticator {
             AuthenticatorError::Generic(format!("Failed to sign remove authenticator: {e}"))
         })?;
 
-        let sibling_nodes: Vec<U256> = inclusion_proof
-            .siblings
-            .iter()
-            .map(|s| (*s).into())
-            .collect();
-
         let req = RemoveAuthenticatorRequest {
             leaf_index,
             authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            sibling_nodes,
             signature: signature.as_bytes().to_vec(),
             nonce,
             pubkey_id: Some(index),
@@ -1051,7 +1114,6 @@ pub enum AuthenticatorError {
     Generic(String),
 }
 
-#[cfg(feature = "embed-zkeys")]
 #[derive(Debug)]
 enum PollResult {
     Retryable,
@@ -1062,23 +1124,17 @@ enum PollResult {
 mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
-    use std::{path::PathBuf, sync::OnceLock};
+    use std::sync::OnceLock;
 
     fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
         static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
         static NULLIFIER: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
 
         let query = QUERY.get_or_init(|| {
-            Arc::new(
-                world_id_proof::proof::load_embedded_query_material(Option::<PathBuf>::None)
-                    .unwrap(),
-            )
+            Arc::new(world_id_proof::proof::load_embedded_query_material().unwrap())
         });
         let nullifier = NULLIFIER.get_or_init(|| {
-            Arc::new(
-                world_id_proof::proof::load_embedded_nullifier_material(Option::<PathBuf>::None)
-                    .unwrap(),
-            )
+            Arc::new(world_id_proof::proof::load_embedded_nullifier_material().unwrap())
         });
 
         (Arc::clone(query), Arc::clone(nullifier))

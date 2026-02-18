@@ -9,11 +9,10 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, TREE_DEPTH,
+    FieldElement, ProofRequest, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
 };
-use world_id_request::ProofRequest;
 
 use crate::{
     AuthenticatorProofInput,
@@ -21,6 +20,7 @@ use crate::{
 };
 
 /// Nullifier computed using OPRF Nodes.
+#[derive(Debug, Clone)]
 pub struct OprfNullifier {
     /// The raw inputs to the Query Proof circuit
     pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
@@ -64,7 +64,7 @@ impl OprfNullifier {
         let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
             authenticator_input.inclusion_proof.siblings.map(|s| *s);
 
-        let action = *proof_request.computed_action();
+        let action = *proof_request.computed_action(&mut rng);
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             authenticator_input.inclusion_proof.leaf_index,
             action.into(),
@@ -109,7 +109,6 @@ impl OprfNullifier {
             services,
             OprfModule::Nullifier.to_string().as_str(),
             threshold,
-            proof_request.oprf_key_id,
             *query_hash,
             query_blinding_factor,
             ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),

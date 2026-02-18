@@ -32,8 +32,6 @@ pub use config::Config;
 /// Contains the raw circuit input types for the World ID Protocol.
 ///
 /// These types are used to prepare the inputs for the Groth16 circuits.
-/// Requires the `circuits` feature (not available in WASM builds).
-#[cfg(feature = "circuits")]
 pub mod circuit_inputs;
 
 /// SAFE-style sponge utilities and helpers.
@@ -46,10 +44,15 @@ pub use credential::{Credential, CredentialVersion};
 /// Contains base types for operations with Merkle trees.
 pub mod merkle;
 
+/// Contains API request/response types and shared API enums.
+pub mod api_types;
+
 /// Contains types specifically related to the OPRF services.
-/// Requires the `circuits` feature (not available in WASM builds).
-#[cfg(feature = "circuits")]
 pub mod oprf;
+
+/// Contains the session nullifier type for session proof responses.
+pub mod nullifier;
+pub use nullifier::SessionNullifier;
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
@@ -57,6 +60,17 @@ pub use proof::ZeroKnowledgeProof;
 
 /// Contains types specifically related to relying parties.
 pub mod rp;
+
+/// Contains signer primitives for on-chain and off-chain signatures.
+mod signer;
+pub use signer::Signer;
+
+/// Contains request/response types and validation helpers for RP proof requests.
+pub mod request;
+pub use request::{
+    ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
+    ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
+};
 
 /// The scalar field used in the World ID Protocol.
 ///

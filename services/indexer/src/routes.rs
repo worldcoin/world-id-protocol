@@ -1,12 +1,13 @@
+use crate::error::IndexerErrorBody;
 use axum::{Json, Router, response::IntoResponse};
-use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
-use world_id_core::types::{
-    AccountInclusionProofSchema, IndexerErrorBody, IndexerPackedAccountRequest,
+use world_id_core::api_types::{
+    AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse, IndexerPackedAccountRequest,
     IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
 
 use crate::config::AppState;
+mod get_authenticator_pubkeys;
 mod get_packed_account;
 mod get_signature_nonce;
 mod health;
@@ -15,11 +16,13 @@ mod inclusion_proof;
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        get_authenticator_pubkeys::handler,
         get_packed_account::handler,
         get_signature_nonce::handler,
         inclusion_proof::handler,
     ),
     components(schemas(
+        IndexerAuthenticatorPubkeysResponse,
         IndexerPackedAccountRequest,
         IndexerPackedAccountResponse,
         IndexerQueryRequest,
@@ -44,6 +47,10 @@ pub(crate) fn handler(state: AppState) -> Router {
             axum::routing::post(inclusion_proof::handler),
         )
         .route(
+            "/authenticator-pubkeys",
+            axum::routing::post(get_authenticator_pubkeys::handler),
+        )
+        .route(
             "/packed-account",
             axum::routing::post(get_packed_account::handler),
         )
@@ -54,5 +61,5 @@ pub(crate) fn handler(state: AppState) -> Router {
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
         .with_state(state)
-        .layer(TraceLayer::new_for_http())
+        .layer(world_id_services_common::trace_layer())
 }

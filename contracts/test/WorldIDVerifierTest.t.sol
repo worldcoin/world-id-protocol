@@ -308,4 +308,36 @@ contract ProofVerifier is Test {
             sessionProof
         );
     }
+
+    // UpdateOprfKeyRegistry Tests
+
+    function test_UpdateOprfKeyRegistry() public {
+        OprfKeyRegistryMock newOprfKeyRegistry = new OprfKeyRegistryMock();
+        address oldOprfKeyRegistry = worldIDVerifier.getOprfKeyRegistry();
+
+        vm.expectEmit(true, true, false, true);
+        emit IWorldIDVerifier.OprfKeyRegistryUpdated(oldOprfKeyRegistry, address(newOprfKeyRegistry));
+
+        worldIDVerifier.updateOprfKeyRegistry(address(newOprfKeyRegistry));
+
+        assertEq(worldIDVerifier.getOprfKeyRegistry(), address(newOprfKeyRegistry));
+    }
+
+    function test_CannotUpdateOprfKeyRegistryToZeroAddress() public {
+        vm.expectRevert();
+        worldIDVerifier.updateOprfKeyRegistry(address(0));
+    }
+
+    function test_OnlyOwnerCanUpdateOprfKeyRegistry() public {
+        OprfKeyRegistryMock newOprfKeyRegistry = new OprfKeyRegistryMock();
+        address nonOwner = vm.addr(0xFFFF);
+        address oldOprfKeyRegistry = worldIDVerifier.getOprfKeyRegistry();
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        worldIDVerifier.updateOprfKeyRegistry(address(newOprfKeyRegistry));
+
+        // Verify it wasn't updated
+        assertEq(worldIDVerifier.getOprfKeyRegistry(), oldOprfKeyRegistry);
+    }
 }
