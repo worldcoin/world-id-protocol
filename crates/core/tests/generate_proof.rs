@@ -34,15 +34,8 @@ fn load_embedded_materials() -> (
     Arc<world_id_core::proof::CircomGroth16Material>,
     Arc<world_id_core::proof::CircomGroth16Material>,
 ) {
-    let files = world_id_core::proof::load_embedded_circuit_files().unwrap();
-    let query_material =
-        world_id_core::proof::load_query_material_from_bytes(&files.query_zkey, &files.query_graph)
-            .unwrap();
-    let nullifier_material = world_id_core::proof::load_nullifier_material_from_bytes(
-        &files.nullifier_zkey,
-        &files.nullifier_graph,
-    )
-    .unwrap();
+    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
     (Arc::new(query_material), Arc::new(nullifier_material))
 }
 
