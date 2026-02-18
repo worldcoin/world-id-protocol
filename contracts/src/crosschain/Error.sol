@@ -4,12 +4,6 @@ pragma solidity ^0.8.28;
 /// @notice Thrown when no chained commits are provided.
 error EmptyChainedCommits();
 
-/// @notice Thrown when a chained commit has an unknown action type.
-error UnknownAction(uint8 action);
-
-/// @notice Thrown when the keccakChain slot check fails during construction.
-error InvalidChainSlot();
-
 /// @notice Thrown when propagateState is called but no state has changed.
 error NothingChanged();
 
@@ -43,20 +37,11 @@ error InvalidRecipient();
 /// @dev Thrown when no commitments are provided in the payload.
 error EmptyPayload();
 
-/// @dev Thrown when ETH is sent to a function that does not accept it.
-error UnexpectedETH();
-
 /// @dev Thrown when a required attribute is missing.
 error InvalidAttribute();
 
 /// @dev Thrown when an attribute with an unrecognized selector is provided.
 error UnsupportedAttribute(bytes4 selector);
-
-/// @dev Thrown when an attribute with an unrecognized selector is provided.
-error InvalidAttributes();
-
-/// @dev Thrown when the proof's sync committee root doesn't match the stored root for that period.
-error InvalidSyncCommitteeRoot();
 
 /// @dev Thrown when the output root preimage does not match the dispute game's root claim.
 error InvalidOutputRoot();

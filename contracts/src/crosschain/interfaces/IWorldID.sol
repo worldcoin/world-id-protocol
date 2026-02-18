@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Verifier} from "@world-id-core/Verifier.sol";
-import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
+import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 
 /**
  * @title IWorldID
@@ -12,51 +12,6 @@ import {BabyJubJub} from "lib/oprf-key-registry/src/BabyJubJub.sol";
  *  circuits through checks with the WorldIDRegistry, CredentialSchemaIssuerRegistry, and OprfKeyRegistry.
  */
 interface IWorldID {
-    ////////////////////////////////////////////////////////////
-    //                        EVENTS                          //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @notice Emitted when the credential schema issuer registry is updated.
-     * @param oldCredentialSchemaIssuerRegistry The previous registry address.
-     * @param newCredentialSchemaIssuerRegistry The new registry address.
-     */
-    event CredentialSchemaIssuerRegistryUpdated(
-        address oldCredentialSchemaIssuerRegistry, address newCredentialSchemaIssuerRegistry
-    );
-
-    /**
-     * @notice Emitted when the World ID Registry is updated.
-     * @param oldWorldIDRegistry The previous registry address.
-     * @param newWorldIDRegistry The new registry address.
-     */
-    event WorldIDRegistryUpdated(address oldWorldIDRegistry, address newWorldIDRegistry);
-
-    /**
-     * @notice Emitted when the OPRF key registry is updated.
-     * @param oldOprfKeyRegistry The previous registry address.
-     * @param newOprfKeyRegistry The new registry address.
-     */
-    event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
-
-    /**
-     * @notice Emitted when the verifier is updated.
-     * @param oldVerifier The previous verifier address.
-     * @param newVerifier The new verifier address.
-     */
-    event VerifierUpdated(address oldVerifier, address newVerifier);
-
-    /**
-     * @notice Emitted when the minimum expiration threshold is updated.
-     * @param oldMinExpirationThreshold The previous minimum expiration threshold value.
-     * @param newMinExpirationThreshold The new minimum expiration threshold value.
-     */
-    event MinExpirationThresholdUpdated(uint64 oldMinExpirationThreshold, uint64 newMinExpirationThreshold);
-
-    ////////////////////////////////////////////////////////////
-    //                    VIEW FUNCTIONS                      //
-    ////////////////////////////////////////////////////////////
-
     /**
      * @notice Verifies a Uniqueness Proof.
      * @dev Validates the World ID registration and inclusion, credential issuer registration,

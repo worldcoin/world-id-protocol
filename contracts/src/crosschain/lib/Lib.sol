@@ -7,18 +7,18 @@ import "@world-id-bridge/Error.sol";
 
 /// @title Lib
 /// @author World Contributors
-/// @notice Library of utility functions for the World ID Bridge, including MPT proof verification and attribute decoding.
+/// @notice Various utilities for cross-chain messaging.
 library Lib {
     using RLPReader for bytes;
     using RLPReader for RLPReader.RLPItem;
 
-    /// @dev Represents a hash chain with a head and length.
+    /// @dev A rolling Keccak hash chain encoding it's length.
     struct Chain {
         bytes32 head;
         uint64 length;
     }
 
-    /// @dev Represents a single state commitment in the keccak chain.
+    /// @dev A single encoded transition of bridged state.
     struct Commitment {
         bytes32 blockHash;
         bytes data;
@@ -33,8 +33,7 @@ library Lib {
     /// @dev Number of fields in an RLP-encoded account (nonce, balance, storageRoot, codeHash).
     uint256 internal constant ACCOUNT_RLP_FIELD_COUNT = 4;
 
-    /// @dev Appends multiple commitments to the storage chain. Reads storage once at the start
-    ///   and writes the final head + length once at the end (2 SSTOREs total, regardless of N).
+    /// @dev Commits a sequence of `Commitment`s to a `Chain`.
     function commitChained(Chain storage chain, Commitment[] memory commitments) internal {
         bytes32 head = chain.head;
         uint64 length = chain.length;
@@ -48,7 +47,7 @@ library Lib {
         chain.length = length;
     }
 
-    /// @dev Computes the chained hash of multiple commitments in memory (pure, no storage writes).
+    /// @dev Compute the new chain head without mutating state.
     function hashChained(Chain memory chain, Commitment[] memory commitments) internal pure returns (bytes32) {
         bytes32 head = chain.head;
 
@@ -111,7 +110,7 @@ library Lib {
         value = bytes32(storageFromProof(storageProof_, storageRoot, slot_));
     }
 
-    /// @dev Extracts the 4-byte selector and data from a bytes-encoded attribute.
+    /// @dev Extracts the 4-byte selector and data from packed byte array.
     function splitSelectorAndData(bytes memory attr) internal pure returns (bytes4 selector, bytes memory data) {
         require(attr.length >= 0x04, "Attribute too short");
 

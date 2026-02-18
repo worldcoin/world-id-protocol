@@ -9,11 +9,6 @@ import {IERC7786GatewaySource} from "@openzeppelin/contracts/interfaces/draft-IE
 ///   World Chain state and delivers proven commitments to the local `StateBridge`. Concrete
 ///   implementations define the verification logic (owner attestation, dispute game, ZK proof).
 interface IGateway is IERC7786GatewaySource {
-    /// @notice Emitted when state is successfully delivered to the destination bridge.
-    /// @param receiveId The unique ERC-7786 receive ID assigned to this delivery.
-    /// @param chainHead The proven keccak chain head that was delivered.
-    event StateDelivered(bytes32 indexed receiveId, bytes32 indexed chainHead);
-
     /// @notice The local `StateBridge` contract that receives proven state.
     // solhint-disable-next-line func-name-mixedcase
     function STATE_BRIDGE() external view returns (address);
@@ -28,5 +23,6 @@ interface IGateway is IERC7786GatewaySource {
     function ANCHOR_CHAIN_ID() external view returns (uint256);
 
     /// @notice Returns this gateway's supported authentication strategy.
+    // solhint-disable-next-line func-name-mixedcase
     function ATTRIBUTE() external returns (bytes4);
 }
