@@ -48,7 +48,7 @@ utoipa = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["js"] }
 k256 = { workspace = true, features = ["ecdsa", "serde"] }
 
-# WASM support: getrandom needs 'js' feature to work in browsers
+# WASM support: getrandom needs 'js' feature in browsers
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
 

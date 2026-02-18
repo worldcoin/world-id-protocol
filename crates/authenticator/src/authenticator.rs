@@ -77,6 +77,13 @@ impl std::fmt::Debug for Authenticator {
 }
 
 impl Authenticator {
+    async fn response_body_or_fallback(response: reqwest::Response) -> String {
+        response
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("Unable to read response body: {e}"))
+    }
+
     /// Initialize an Authenticator from a seed and config.
     ///
     /// This method will error if the World ID account does not exist on the registry.
@@ -86,8 +93,12 @@ impl Authenticator {
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
-    #[cfg(feature = "embed-zkeys")]
-    pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
+    pub async fn init(
+        seed: &[u8],
+        config: Config,
+        query_material: Arc<CircomGroth16Material>,
+        nullifier_material: Arc<CircomGroth16Material>,
+    ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry = config.rpc_url().map_or_else(
@@ -119,20 +130,6 @@ impl Authenticator {
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let ws_connector = Connector::Rustls(Arc::new(rustls_config));
-
-        let cache_dir = config.zkey_cache_dir();
-        let query_material = Arc::new(
-            world_id_proof::proof::load_embedded_query_material(cache_dir).map_err(|e| {
-                AuthenticatorError::Generic(format!("Failed to load cached query material: {e}"))
-            })?,
-        );
-        let nullifier_material = Arc::new(
-            world_id_proof::proof::load_embedded_nullifier_material(cache_dir).map_err(|e| {
-                AuthenticatorError::Generic(format!(
-                    "Failed to load cached nullifier material: {e}"
-                ))
-            })?,
-        );
 
         Ok(Self {
             packed_account_data,
@@ -174,13 +171,21 @@ impl Authenticator {
     ///
     /// # Errors
     /// - See `init` for additional error details.
-    #[cfg(feature = "embed-zkeys")]
     pub async fn init_or_register(
         seed: &[u8],
         config: Config,
+        query_material: Arc<CircomGroth16Material>,
+        nullifier_material: Arc<CircomGroth16Material>,
         recovery_address: Option<Address>,
     ) -> Result<Self, AuthenticatorError> {
-        match Self::init(seed, config.clone()).await {
+        match Self::init(
+            seed,
+            config.clone(),
+            query_material.clone(),
+            nullifier_material.clone(),
+        )
+        .await
+        {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 // Authenticator is not registered, create it.
@@ -222,7 +227,14 @@ impl Authenticator {
                     };
 
                     match result {
-                        Ok(()) => match Self::init(seed, config.clone()).await {
+                        Ok(()) => match Self::init(
+                            seed,
+                            config.clone(),
+                            query_material.clone(),
+                            nullifier_material.clone(),
+                        )
+                        .await
+                        {
                             Ok(auth) => Ok(auth),
                             Err(AuthenticatorError::AccountDoesNotExist) => {
                                 Err(PollResult::Retryable)
@@ -273,11 +285,12 @@ impl Authenticator {
                 authenticator_address: onchain_signer_address,
             };
             let resp = http_client.post(&url).json(&req).send().await?;
-
             let status = resp.status();
             if !status.is_success() {
-                // Try to parse the error response
-                if let Ok(error_resp) = resp.json::<ServiceApiError<IndexerErrorCode>>().await {
+                let body = Self::response_body_or_fallback(resp).await;
+                if let Ok(error_resp) =
+                    serde_json::from_str::<ServiceApiError<IndexerErrorCode>>(&body)
+                {
                     return match error_resp.code {
                         IndexerErrorCode::AccountDoesNotExist => {
                             Err(AuthenticatorError::AccountDoesNotExist)
@@ -288,10 +301,7 @@ impl Authenticator {
                         }),
                     };
                 }
-                return Err(AuthenticatorError::IndexerError {
-                    status,
-                    body: "Failed to parse indexer error response".to_string(),
-                });
+                return Err(AuthenticatorError::IndexerError { status, body });
             }
 
             let response: IndexerPackedAccountResponse = resp.json().await?;
@@ -393,10 +403,7 @@ impl Authenticator {
         if !status.is_success() {
             return Err(AuthenticatorError::IndexerError {
                 status,
-                body: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+                body: Self::response_body_or_fallback(response).await,
             });
         }
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
@@ -424,10 +431,7 @@ impl Authenticator {
         if !status.is_success() {
             return Err(AuthenticatorError::IndexerError {
                 status,
-                body: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unable to parse response".to_string()),
+                body: Self::response_body_or_fallback(response).await,
             });
         }
         let response = response
@@ -469,10 +473,7 @@ impl Authenticator {
             if !status.is_success() {
                 return Err(AuthenticatorError::IndexerError {
                     status,
-                    body: resp
-                        .json()
-                        .await
-                        .unwrap_or_else(|_| "Unable to parse response".to_string()),
+                    body: Self::response_body_or_fallback(resp).await,
                 });
             }
 
@@ -736,7 +737,7 @@ impl Authenticator {
             let body: GatewayStatusResponse = resp.json().await?;
             Ok(body.request_id)
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Self::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -812,7 +813,7 @@ impl Authenticator {
             let gateway_resp: GatewayStatusResponse = resp.json().await?;
             Ok(gateway_resp.request_id)
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Self::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -891,7 +892,7 @@ impl Authenticator {
             let gateway_resp: GatewayStatusResponse = resp.json().await?;
             Ok(gateway_resp.request_id)
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Self::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -956,7 +957,7 @@ impl InitializingAuthenticator {
                 config,
             })
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Authenticator::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -986,7 +987,7 @@ impl InitializingAuthenticator {
             let body: GatewayStatusResponse = resp.json().await?;
             Ok(body.status)
         } else {
-            let body_text = resp.text().await.unwrap_or_else(|_| String::new());
+            let body_text = Authenticator::response_body_or_fallback(resp).await;
             Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
@@ -1109,7 +1110,6 @@ pub enum AuthenticatorError {
     Generic(String),
 }
 
-#[cfg(feature = "embed-zkeys")]
 #[derive(Debug)]
 enum PollResult {
     Retryable,
@@ -1120,23 +1120,17 @@ enum PollResult {
 mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
-    use std::{path::PathBuf, sync::OnceLock};
+    use std::sync::OnceLock;
 
     fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
         static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
         static NULLIFIER: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
 
         let query = QUERY.get_or_init(|| {
-            Arc::new(
-                world_id_proof::proof::load_embedded_query_material(Option::<PathBuf>::None)
-                    .unwrap(),
-            )
+            Arc::new(world_id_proof::proof::load_embedded_query_material().unwrap())
         });
         let nullifier = NULLIFIER.get_or_init(|| {
-            Arc::new(
-                world_id_proof::proof::load_embedded_nullifier_material(Option::<PathBuf>::None)
-                    .unwrap(),
-            )
+            Arc::new(world_id_proof::proof::load_embedded_nullifier_material().unwrap())
         });
 
         (Arc::clone(query), Arc::clone(nullifier))

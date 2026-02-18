@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    path::PathBuf,
     str::FromStr,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -429,10 +428,8 @@ async fn stress_test(
         .position(|pk| pk.pk == authenticator.offchain_pubkey().pk)
         .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
-    let query_material =
-        world_id_core::proof::load_embedded_query_material(Option::<PathBuf>::None)?;
-    let nullifier_material =
-        world_id_core::proof::load_embedded_nullifier_material(Option::<PathBuf>::None)?;
+    let query_material = world_id_core::proof::load_embedded_query_material()?;
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material()?;
 
     let mut requests = HashMap::with_capacity(cmd.runs);
     let mut init_requests = HashMap::with_capacity(cmd.runs);
@@ -664,9 +661,19 @@ async fn main() -> eyre::Result<()> {
     )
     .unwrap();
 
+    let query_material = world_id_core::proof::load_embedded_query_material()?;
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material()?;
+
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None).await?;
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        world_config.clone(),
+        Arc::new(query_material),
+        Arc::new(nullifier_material),
+        None,
+    )
+    .await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
 
     // setup TLS config - even if we are http

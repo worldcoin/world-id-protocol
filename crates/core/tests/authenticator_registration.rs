@@ -1,5 +1,7 @@
 #![cfg(feature = "authenticator")]
 
+use std::sync::Arc;
+
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
@@ -8,6 +10,15 @@ use world_id_primitives::Config;
 use world_id_test_utils::anvil::TestAnvil;
 
 const GW_PORT: u16 = 4102;
+
+fn load_embedded_materials() -> (
+    Arc<world_id_core::proof::CircomGroth16Material>,
+    Arc<world_id_core::proof::CircomGroth16Material>,
+) {
+    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
+    (Arc::new(query_material), Arc::new(nullifier_material))
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_authenticator_registration() {
@@ -57,9 +68,11 @@ async fn test_authenticator_registration() {
 
     let seed = [1u8; 32];
     let recovery_address = anvil.signer(1).unwrap().address();
+    let (query_material, nullifier_material) = load_embedded_materials();
 
     // Account doesn't exist, so init will error
-    let result = Authenticator::init(&seed, config.clone()).await;
+    let result =
+        Authenticator::init(&seed, config.clone(), query_material, nullifier_material).await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
@@ -85,13 +98,20 @@ async fn test_authenticator_registration() {
         .await
         .unwrap();
 
-    let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, config.clone(), query_material, nullifier_material)
+            .await
+            .unwrap();
     let elapsed = start.elapsed();
     println!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 
     // If we initialize again, it will work
-    let authenticator = Authenticator::init(&seed, config).await.unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator = Authenticator::init(&seed, config, query_material, nullifier_material)
+        .await
+        .unwrap();
     assert_eq!(authenticator.leaf_index(), 1);
 }

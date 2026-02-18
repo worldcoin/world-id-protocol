@@ -1,4 +1,4 @@
-use std::{fs::File, str::FromStr};
+use std::{fs::File, str::FromStr, sync::Arc};
 
 use eyre::Result;
 use world_id_core::{
@@ -32,8 +32,18 @@ async fn main() -> Result<()> {
     let json_config = std::fs::read_to_string("config.json").unwrap();
     let config = Config::from_json(&json_config).unwrap();
 
+    let query_material = world_id_core::proof::load_embedded_query_material()?;
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material()?;
+
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
-    let authenticator = Authenticator::init_or_register(seed, config.clone(), None).await?;
+    let authenticator = Authenticator::init_or_register(
+        seed,
+        config.clone(),
+        Arc::new(query_material),
+        Arc::new(nullifier_material),
+        None,
+    )
+    .await?;
 
     let credential_path = std::env::args()
         .nth(1)

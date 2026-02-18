@@ -19,12 +19,7 @@ include = [
 
 [features]
 default = ["embed-zkeys"]
-embed-zkeys = [
-  "world-id-proof/embed-zkeys",
-  "dep:rustls",
-  "dep:webpki-roots",
-  "dep:backon",
-]
+embed-zkeys = ["world-id-proof/embed-zkeys"]
 
 [dependencies]
 alloy = { workspace = true, features = [
@@ -50,13 +45,13 @@ taceo-oprf = { workspace = true, features = ["client"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 rand = { workspace = true }
-backon = { workspace = true, optional = true }
+backon = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
-# Optional
-rustls = { workspace = true, optional = true }
-webpki-roots = { workspace = true, optional = true }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
 
 # Internal
 world-id-proof = { workspace = true }
@@ -65,5 +60,4 @@ world-id-proof = { workspace = true }
 backon = { workspace = true }
 ruint = { workspace = true }
 rand = { workspace = true }
-serde_json = { workspace = true }
 mockito = { workspace = true }
