@@ -62,7 +62,8 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: None, // Use in-memory storage for tests
+        redis_url: std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
     };
     let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
