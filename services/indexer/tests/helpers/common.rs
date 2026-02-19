@@ -122,3 +122,12 @@ pub async fn query_count(pool: &PgPool) -> i64 {
         .unwrap();
     rec.0
 }
+
+/// Initialize tracing for tests that don't use TestSetup
+/// This allows RUST_LOG to work in tests
+pub fn init_test_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+}

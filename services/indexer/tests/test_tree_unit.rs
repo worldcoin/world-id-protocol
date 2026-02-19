@@ -10,8 +10,9 @@ use helpers::db_helpers::{
     insert_test_world_tree_root,
 };
 use world_id_indexer::{
-    blockchain::{AccountCreatedEvent, BlockchainEvent, RegistryEvent, RootRecordedEvent},
-    db::WorldTreeEventType,
+    blockchain::{
+        AccountCreatedEvent, AccountUpdatedEvent, BlockchainEvent, RegistryEvent, RootRecordedEvent,
+    },
     events_committer::EventsCommitter,
     handle_registry_event,
     tree::{
@@ -95,12 +96,19 @@ async fn test_replay_with_no_new_events() {
         .unwrap();
     insert_test_world_tree_event(
         db,
-        10,
-        0,
-        1,
-        WorldTreeEventType::AccountCreated,
-        U256::from(1),
-        U256::from(100),
+        &BlockchainEvent {
+            block_number: 10,
+            block_hash: U256::from(11),
+            tx_hash: U256::from(1),
+            log_index: 0,
+            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
+                leaf_index: 1,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: U256::from(100),
+            }),
+        },
     )
     .await
     .unwrap();
@@ -111,9 +119,9 @@ async fn test_replay_with_no_new_events() {
     drop(tree_state);
 
     // Record the cache root so try_restore can validate it.
-    // Place the root AT the same position as the latest event so
+    // Place the root AFTER the latest event (at log_index 1) so
     // replay_events finds nothing after it.
-    insert_test_world_tree_root(db, 10, 0, root, U256::ZERO)
+    insert_test_world_tree_root(db, 10, 1, root, U256::ZERO)
         .await
         .unwrap();
 
@@ -138,12 +146,19 @@ async fn test_replay_deduplication() {
         .unwrap();
     insert_test_world_tree_event(
         db,
-        10,
-        0,
-        1,
-        WorldTreeEventType::AccountCreated,
-        U256::from(1),
-        U256::from(100),
+        &BlockchainEvent {
+            block_number: 10,
+            block_hash: U256::from(11),
+            tx_hash: U256::from(1),
+            log_index: 0,
+            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
+                leaf_index: 1,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: U256::from(100),
+            }),
+        },
     )
     .await
     .unwrap();
@@ -162,12 +177,21 @@ async fn test_replay_deduplication() {
     for (block, commitment) in [(11, 200u64), (12, 300), (13, 400)] {
         insert_test_world_tree_event(
             db,
-            block,
-            0,
-            1,
-            WorldTreeEventType::AccountUpdated,
-            U256::from(block),
-            U256::from(commitment),
+            &BlockchainEvent {
+                block_number: block,
+                block_hash: U256::from(1000 + block),
+                tx_hash: U256::from(block),
+                log_index: 0,
+                details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
+                    leaf_index: 1,
+                    pubkey_id: 0,
+                    new_authenticator_pubkey: U256::from(commitment),
+                    old_authenticator_address: Address::ZERO,
+                    new_authenticator_address: Address::ZERO,
+                    old_offchain_signer_commitment: U256::ZERO,
+                    new_offchain_signer_commitment: U256::from(commitment),
+                }),
+            },
         )
         .await
         .unwrap();
@@ -212,23 +236,37 @@ async fn test_replay_matches_fresh_build() {
 
     insert_test_world_tree_event(
         db,
-        10,
-        0,
-        1,
-        WorldTreeEventType::AccountCreated,
-        U256::from(1),
-        U256::from(100),
+        &BlockchainEvent {
+            block_number: 10,
+            block_hash: U256::from(11),
+            tx_hash: U256::from(1),
+            log_index: 0,
+            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
+                leaf_index: 1,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: U256::from(100),
+            }),
+        },
     )
     .await
     .unwrap();
     insert_test_world_tree_event(
         db,
-        10,
-        1,
-        2,
-        WorldTreeEventType::AccountCreated,
-        U256::from(2),
-        U256::from(200),
+        &BlockchainEvent {
+            block_number: 10,
+            block_hash: U256::from(12),
+            tx_hash: U256::from(2),
+            log_index: 1,
+            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
+                leaf_index: 2,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: U256::from(200),
+            }),
+        },
     )
     .await
     .unwrap();
@@ -246,34 +284,59 @@ async fn test_replay_matches_fresh_build() {
     // Events after root: update leaf 1, update leaf 2, insert leaf 3
     insert_test_world_tree_event(
         db,
-        11,
-        0,
-        1,
-        WorldTreeEventType::AccountUpdated,
-        U256::from(11),
-        U256::from(300),
+        &BlockchainEvent {
+            block_number: 11,
+            block_hash: U256::from(111),
+            tx_hash: U256::from(11),
+            log_index: 0,
+            details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
+                leaf_index: 1,
+                pubkey_id: 0,
+                new_authenticator_pubkey: U256::from(300),
+                old_authenticator_address: Address::ZERO,
+                new_authenticator_address: Address::ZERO,
+                old_offchain_signer_commitment: U256::ZERO,
+                new_offchain_signer_commitment: U256::from(300),
+            }),
+        },
     )
     .await
     .unwrap();
     insert_test_world_tree_event(
         db,
-        11,
-        1,
-        2,
-        WorldTreeEventType::AccountUpdated,
-        U256::from(12),
-        U256::from(400),
+        &BlockchainEvent {
+            block_number: 11,
+            block_hash: U256::from(112),
+            tx_hash: U256::from(12),
+            log_index: 1,
+            details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
+                leaf_index: 2,
+                pubkey_id: 0,
+                new_authenticator_pubkey: U256::from(400),
+                old_authenticator_address: Address::ZERO,
+                new_authenticator_address: Address::ZERO,
+                old_offchain_signer_commitment: U256::ZERO,
+                new_offchain_signer_commitment: U256::from(400),
+            }),
+        },
     )
     .await
     .unwrap();
     insert_test_world_tree_event(
         db,
-        12,
-        0,
-        3,
-        WorldTreeEventType::AccountCreated,
-        U256::from(13),
-        U256::from(500),
+        &BlockchainEvent {
+            block_number: 12,
+            block_hash: U256::from(113),
+            tx_hash: U256::from(13),
+            log_index: 0,
+            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
+                leaf_index: 3,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: U256::from(500),
+            }),
+        },
     )
     .await
     .unwrap();
@@ -350,12 +413,21 @@ async fn test_sync_from_db_deduplication() {
     for (block, commitment) in [(100, 200u64), (101, 300), (102, 400)] {
         insert_test_world_tree_event(
             db,
-            block,
-            0,
-            1,
-            WorldTreeEventType::AccountUpdated,
-            U256::from(block),
-            U256::from(commitment),
+            &BlockchainEvent {
+                block_number: block,
+                block_hash: U256::from(1000 + block),
+                tx_hash: U256::from(block),
+                log_index: 0,
+                details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
+                    leaf_index: 1,
+                    pubkey_id: 0,
+                    new_authenticator_pubkey: U256::from(commitment),
+                    old_authenticator_address: Address::ZERO,
+                    new_authenticator_address: Address::ZERO,
+                    old_offchain_signer_commitment: U256::ZERO,
+                    new_offchain_signer_commitment: U256::from(commitment),
+                }),
+            },
         )
         .await
         .unwrap();
@@ -399,6 +471,7 @@ async fn test_handle_registry_event_root_mismatch() {
 
     let create_event = BlockchainEvent {
         block_number: 50,
+        block_hash: U256::from(150),
         tx_hash: U256::from(50),
         log_index: 0,
         details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -412,6 +485,7 @@ async fn test_handle_registry_event_root_mismatch() {
 
     let root_event = BlockchainEvent {
         block_number: 50,
+        block_hash: U256::from(150),
         tx_hash: U256::from(50),
         log_index: 1,
         details: RegistryEvent::RootRecorded(RootRecordedEvent {
@@ -457,6 +531,7 @@ async fn test_handle_registry_event_root_match() {
 
     let create_event = BlockchainEvent {
         block_number: 50,
+        block_hash: U256::from(150),
         tx_hash: U256::from(50),
         log_index: 0,
         details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -470,6 +545,7 @@ async fn test_handle_registry_event_root_match() {
 
     let root_event = BlockchainEvent {
         block_number: 50,
+        block_hash: U256::from(150),
         tx_hash: U256::from(50),
         log_index: 1,
         details: RegistryEvent::RootRecorded(RootRecordedEvent {
