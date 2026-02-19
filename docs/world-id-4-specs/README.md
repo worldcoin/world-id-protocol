@@ -211,10 +211,6 @@ Both the Relying Party Registry and the Credential Schema Issuer Registry charge
 
 **How it works.**
 - The fee is paid in a configurable ERC-20 token via `safeTransferFrom` at the time of registration, before OPRF key generation begins.
-- The fee amount, token, and recipient address are all configurable by the contract owner and can be set to zero to disable fees entirely.
-- Both registries inherit the same fee infrastructure from `WorldIDBase`.
-
-**Dev Portal integration.** In practice, most RPs are expected to register through the World ID Developer Portal rather than directly on-chain. When registering through the Dev Portal, the Dev Portal pays the registration fee on behalf of the RP and applies its own rate-limiting business rules. The Dev Portal address is expected to have an allowance on the fee recipient address to simplify operational overhead.
 
 **Future: per-request fees.** The registration fee described here covers only the one-time cost of onboarding. A separate per-request fee — enforced by OPRF Nodes as a proof-of-payment requirement during nullifier generation — may be introduced in a future Protocol release (4.1 or 4.2). See *Future Proofing Notes* for details.
 
