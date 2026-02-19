@@ -76,15 +76,21 @@ contract WorldIDRegistryTest is Test {
         );
     }
 
-    function updateRecoveryAddressSignature(uint64 leafIndex, address newRecoveryAddress, uint256 nonce)
+    function initiateRecoveryAgentUpdateSignature(uint64 leafIndex, address newRecoveryAgent, uint256 nonce)
         private
         view
         returns (bytes memory)
     {
         return eip712Sign(
-            worldIDRegistry.UPDATE_RECOVERY_ADDRESS_TYPEHASH(),
-            abi.encode(leafIndex, newRecoveryAddress, nonce),
+            worldIDRegistry.INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH(),
+            abi.encode(leafIndex, newRecoveryAgent, nonce),
             AUTH1_PRIVATE_KEY
+        );
+    }
+
+    function cancelRecoveryAgentUpdateSignature(uint64 leafIndex, uint256 nonce) private view returns (bytes memory) {
+        return eip712Sign(
+            worldIDRegistry.CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH(), abi.encode(leafIndex, nonce), AUTH1_PRIVATE_KEY
         );
     }
 
@@ -437,48 +443,6 @@ contract WorldIDRegistryTest is Test {
         );
     }
 
-    function test_UpdateRecoveryAddress_SetNewAddress() public {
-        address[] memory authenticatorAddresses = new address[](1);
-        authenticatorAddresses[0] = authenticatorAddress1;
-        uint256[] memory authenticatorPubkeys = new uint256[](1);
-        authenticatorPubkeys[0] = 0;
-        worldIDRegistry.createAccount(
-            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
-        );
-
-        uint64 leafIndex = 1;
-        uint256 nonce = 0;
-        address newRecovery = recoveryAddress;
-
-        bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
-
-        vm.prank(authenticatorAddress1);
-        worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
-
-        assertEq(worldIDRegistry.getRecoveryAddress(leafIndex), newRecovery);
-        assertEq(worldIDRegistry.getSignatureNonce(leafIndex), 1);
-    }
-
-    function test_UpdateRecoveryAddress_RevertInvalidNonce() public {
-        address[] memory authenticatorAddresses = new address[](1);
-        authenticatorAddresses[0] = authenticatorAddress1;
-        uint256[] memory authenticatorPubkeys = new uint256[](1);
-        authenticatorPubkeys[0] = 0;
-        worldIDRegistry.createAccount(
-            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
-        );
-
-        uint64 leafIndex = 1;
-        uint256 nonce = 1;
-        address newRecovery = recoveryAddress;
-
-        bytes memory signature = updateRecoveryAddressSignature(leafIndex, newRecovery, nonce);
-
-        vm.prank(authenticatorAddress1);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
-        worldIDRegistry.updateRecoveryAddress(leafIndex, newRecovery, signature, nonce);
-    }
-
     function test_RecoverAccountSuccess() public {
         // Use a recovery address we control via a known private key
         uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
@@ -627,7 +591,7 @@ contract WorldIDRegistryTest is Test {
         assertEq(result, bytes4(0xffffffff));
     }
 
-    function test_GetRecoveryAddress() public {
+    function test_GetRecoveryAgent() public {
         address[] memory authenticatorAddresses = new address[](1);
         authenticatorAddresses[0] = authenticatorAddress1;
         uint256[] memory authenticatorPubkeys = new uint256[](1);
@@ -636,8 +600,8 @@ contract WorldIDRegistryTest is Test {
         worldIDRegistry.createAccount(
             recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
-        address retrievedRecoveryAddress = worldIDRegistry.getRecoveryAddress(1);
-        assertEq(retrievedRecoveryAddress, recoveryAddress);
+        address retrievedRecoveryAgent = worldIDRegistry.getRecoveryAgent(1);
+        assertEq(retrievedRecoveryAgent, recoveryAddress);
     }
 
     function test_CreateAccountWithNoRecoveryAgent() public {
@@ -649,29 +613,19 @@ contract WorldIDRegistryTest is Test {
             address(0), authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
         );
         assertEq(worldIDRegistry.getPackedAccountData(authenticatorAddress1), 1);
-        assertEq(worldIDRegistry.getRecoveryAddress(1), address(0));
+        assertEq(worldIDRegistry.getRecoveryAgent(1), address(0));
 
-        // Now test that we can update the recovery address to a non-zero address
+        // Now test that we can update the recovery agent to a non-zero address
         uint256 nonce = 0;
-        bytes memory signature = updateRecoveryAddressSignature(1, alternateRecoveryAddress, nonce);
-        worldIDRegistry.updateRecoveryAddress(1, alternateRecoveryAddress, signature, nonce);
-        assertEq(worldIDRegistry.getRecoveryAddress(1), alternateRecoveryAddress);
-    }
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(1, alternateRecoveryAddress, nonce);
+        worldIDRegistry.initiateRecoveryAgentUpdate(1, alternateRecoveryAddress, signature, nonce);
 
-    /**
-     * @dev Tests that we can update the recovery address to the zero address, i.e. unsetting/disabling the Recovery Agent.
-     */
-    function test_UpdateRecoveryAddressToZeroAddress() public {
-        address[] memory authenticatorAddresses = new address[](1);
-        authenticatorAddresses[0] = authenticatorAddress1;
-        uint256[] memory authenticatorPubkeys = new uint256[](1);
-        authenticatorPubkeys[0] = 0;
-        worldIDRegistry.createAccount(
-            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
-        );
-        uint256 nonce = 0;
-        bytes memory signature = updateRecoveryAddressSignature(1, address(0), nonce);
-        worldIDRegistry.updateRecoveryAddress(1, address(0), signature, nonce);
+        // Fast forward and execute
+        uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
+        vm.warp(block.timestamp + cooldown);
+        worldIDRegistry.executeRecoveryAgentUpdate(1);
+
+        assertEq(worldIDRegistry.getRecoveryAgent(1), alternateRecoveryAddress);
     }
 
     function test_CannotRecoverAccountWhichHasNoRecoveryAgent() public {
@@ -920,7 +874,7 @@ contract WorldIDRegistryTest is Test {
         assertEq(newIndex, initialIndex + 1, "Next leaf index should increment after account creation");
     }
 
-    function test_GetTreeDepth() public {
+    function test_GetTreeDepth() public view {
         uint256 depth = worldIDRegistry.getTreeDepth();
         assertEq(depth, 30, "Tree depth should match initialization value");
     }
@@ -967,7 +921,7 @@ contract WorldIDRegistryTest is Test {
         assertEq(maxAuth, 10, "Max authenticators should update after setter is called");
     }
 
-    function test_GetRootTimestamp() public {
+    function test_GetRootTimestamp() public view {
         uint256 currentRoot = worldIDRegistry.currentRoot();
         uint256 timestamp = worldIDRegistry.getRootTimestamp(currentRoot);
         assertEq(timestamp, block.timestamp, "Current root timestamp should match block timestamp");
@@ -1081,7 +1035,7 @@ contract WorldIDRegistryTest is Test {
         assertTrue(worldIDRegistry.isValidRoot(newRoot), "Latest root should always be valid");
     }
 
-    function test_isValidRoot_unknownRootReturnsFalse() public {
+    function test_isValidRoot_unknownRootReturnsFalse() public view {
         // A root that was never recorded should return false
         uint256 unknownRoot = 0x1234567890abcdef;
         assertFalse(worldIDRegistry.isValidRoot(unknownRoot));
@@ -1439,5 +1393,539 @@ contract WorldIDRegistryTest is Test {
         registry.createManyAccounts(
             recoveryAddresses, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitments
         );
+    }
+
+    ////////////////////////////////////////////////////////////
+    //       Tests for Recovery Agent Update with Cooldown   //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Tests the entire flow of initiating recovery, cooldown period, and executing the recovery
+     */
+    function test_UpdateRecoveryAgentFullFlow() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        address newRecovery = alternateRecoveryAddress;
+
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, newRecovery, nonce);
+
+        uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
+        uint256 expectedExecuteAfter = block.timestamp + cooldown;
+
+        vm.expectEmit(true, true, true, true);
+        emit IWorldIDRegistry.RecoveryAgentUpdateInitiated(
+            leafIndex, recoveryAddress, newRecovery, expectedExecuteAfter
+        );
+
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, newRecovery, signature, nonce);
+
+        // Check that pending update was created
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, newRecovery);
+        assertEq(executeAfter, expectedExecuteAfter);
+
+        // Original recovery agent should still be set
+        assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), recoveryAddress);
+
+        // Nonce should be incremented
+        assertEq(worldIDRegistry.getSignatureNonce(leafIndex), 1);
+
+        // Fast forward past cooldown
+        vm.warp(block.timestamp + cooldown);
+
+        vm.expectEmit(true, true, true, true);
+        emit IWorldIDRegistry.RecoveryAgentUpdateExecuted(leafIndex, recoveryAddress, newRecovery);
+
+        vm.prank(address(0xDDD)); // to ensure anyone can call it
+        worldIDRegistry.executeRecoveryAgentUpdate(leafIndex);
+
+        // Check that recovery agent was updated
+        assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), newRecovery);
+
+        // Check that pending update was cleared
+        (address pendingAgentAfter, uint256 executeAfterCleared) =
+            worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgentAfter, address(0));
+        assertEq(executeAfterCleared, 0);
+    }
+
+    function test_InitiateRecoveryAgentUpdate_RevertInvalidNonce() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 1;
+        address newRecovery = alternateRecoveryAddress;
+
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, newRecovery, nonce);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 0, 1));
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, newRecovery, signature, nonce);
+    }
+
+    function test_InitiateRecoveryAgentUpdate_Success() public {
+        // Create account
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        address newRecoveryAgent = alternateRecoveryAddress;
+
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, newRecoveryAgent, nonce);
+
+        uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
+        uint256 expectedExecuteAfter = block.timestamp + cooldown;
+
+        vm.expectEmit(true, true, true, true);
+        emit IWorldIDRegistry.RecoveryAgentUpdateInitiated(
+            leafIndex, recoveryAddress, newRecoveryAgent, expectedExecuteAfter
+        );
+
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, newRecoveryAgent, signature, nonce);
+
+        // Check pending update
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, newRecoveryAgent);
+        assertEq(executeAfter, expectedExecuteAfter);
+
+        // Original recovery agent should still be set
+        assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), recoveryAddress);
+
+        // Nonce should be incremented
+        assertEq(worldIDRegistry.getSignatureNonce(leafIndex), 1);
+    }
+
+    function test_InitiateRecoveryAgentUpdate_InvalidLeafIndex() public {
+        uint64 leafIndex = 999;
+        uint256 nonce = 0;
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, nonce);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.AccountDoesNotExist.selector, leafIndex));
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, nonce);
+    }
+
+    function test_InitiateRecoveryAgentUpdate_InvalidSignature() public {
+        // Create account with authenticator1
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+
+        // Sign with authenticator3 which is NOT part of this account
+        bytes memory invalidSignature = eip712Sign(
+            worldIDRegistry.INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH(),
+            abi.encode(leafIndex, alternateRecoveryAddress, nonce),
+            AUTH3_PRIVATE_KEY // Invalid authenticator
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IWorldIDRegistry.AuthenticatorDoesNotExist.selector, authenticatorAddress3)
+        );
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, invalidSignature, nonce);
+    }
+
+    function test_InitiateRecoveryAgentUpdate_CanOverwritePending() public {
+        // Create account and initiate first update
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        bytes memory signature1 = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature1, 0);
+
+        uint256 newTime = block.timestamp + 400;
+        vm.warp(newTime);
+
+        // Initiate another update to overwrite
+        address thirdRecoveryAgent = address(0xC11CE);
+        bytes memory signature2 = initiateRecoveryAgentUpdateSignature(leafIndex, thirdRecoveryAgent, 1);
+
+        vm.expectEmit(true, true, true, true); // Assert the correct event is emitted for cancellation of the first update
+        emit IWorldIDRegistry.RecoveryAgentUpdateCancelled(leafIndex, alternateRecoveryAddress);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, thirdRecoveryAgent, signature2, 1);
+
+        // Check that the pending update was overwritten
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, thirdRecoveryAgent);
+
+        // Assert the cooldown period is restarted
+        uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
+        assertEq(executeAfter, newTime + cooldown);
+    }
+
+    /**
+     * @dev Tests that we can update the recovery agent to the zero address, i.e. unsetting/disabling the Recovery Agent.
+     */
+    function test_UpdateRecoveryAddressToZeroAddress() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+        uint256 nonce = 0;
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(1, address(0), nonce);
+        worldIDRegistry.initiateRecoveryAgentUpdate(1, address(0), signature, nonce);
+
+        // Fast forward and execute
+        uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
+        vm.warp(block.timestamp + cooldown);
+        worldIDRegistry.executeRecoveryAgentUpdate(1);
+
+        assertEq(worldIDRegistry.getRecoveryAgent(1), address(0));
+    }
+
+    function test_ExecuteRecoveryAgentUpdate_StillInCooldown() public {
+        // Create account and initiate update
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
+
+        // Try to execute before cooldown expires
+        (, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IWorldIDRegistry.RecoveryAgentUpdateStillInCooldown.selector, leafIndex, executeAfter
+            )
+        );
+        worldIDRegistry.executeRecoveryAgentUpdate(leafIndex);
+    }
+
+    function test_ExecuteRecoveryAgentUpdate_NoPendingUpdate() public {
+        // Create account without initiating update
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.NoPendingRecoveryAgentUpdate.selector, leafIndex));
+        worldIDRegistry.executeRecoveryAgentUpdate(leafIndex);
+    }
+
+    function test_CancelRecoveryAgentUpdate_Success() public {
+        // Create account with 2 authenticators
+        address[] memory authenticatorAddresses = new address[](2);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        authenticatorAddresses[1] = authenticatorAddress2;
+        uint256[] memory authenticatorPubkeys = new uint256[](2);
+        authenticatorPubkeys[0] = 0;
+        authenticatorPubkeys[1] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
+
+        // Cancel with a different authenticator (AUTH2)
+        bytes memory cancelSignature = eip712Sign(
+            worldIDRegistry.CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH(),
+            abi.encode(leafIndex, uint256(1)),
+            AUTH2_PRIVATE_KEY
+        );
+
+        vm.expectEmit(true, true, false, true);
+        emit IWorldIDRegistry.RecoveryAgentUpdateCancelled(leafIndex, alternateRecoveryAddress);
+
+        worldIDRegistry.cancelRecoveryAgentUpdate(leafIndex, cancelSignature, 1);
+
+        // Check that pending update was cleared
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, address(0));
+        assertEq(executeAfter, 0);
+
+        // Original recovery agent should still be set
+        assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), recoveryAddress);
+    }
+
+    function test_CancelRecoveryAgentUpdate_NoPendingUpdate() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        bytes memory signature = cancelRecoveryAgentUpdateSignature(leafIndex, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.NoPendingRecoveryAgentUpdate.selector, leafIndex));
+        worldIDRegistry.cancelRecoveryAgentUpdate(leafIndex, signature, 0);
+    }
+
+    function test_CancelRecoveryAgentUpdate_InvalidNonce() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
+
+        // Try to cancel with wrong nonce
+        bytes memory cancelSignature = cancelRecoveryAgentUpdateSignature(leafIndex, 5);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistry.MismatchedSignatureNonce.selector, leafIndex, 1, 5));
+        worldIDRegistry.cancelRecoveryAgentUpdate(leafIndex, cancelSignature, 5);
+    }
+
+    function test_CancelRecoveryAgentUpdate_InvalidSignature() public {
+        // Create account with authenticator1
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
+
+        // Try to cancel with authenticator3 which is NOT part of this account
+        bytes memory invalidCancelSignature = eip712Sign(
+            worldIDRegistry.CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH(),
+            abi.encode(leafIndex, uint256(1)),
+            AUTH3_PRIVATE_KEY // Invalid authenticator
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IWorldIDRegistry.AuthenticatorDoesNotExist.selector, authenticatorAddress3)
+        );
+        worldIDRegistry.cancelRecoveryAgentUpdate(leafIndex, invalidCancelSignature, 1);
+    }
+
+    function test_RecoverAccount_DoesNotApplyPendingUpdate() public {
+        uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
+        address recoverySigner = vm.addr(recoveryPrivateKey);
+
+        // Create account
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+
+        // Initiate recovery agent update
+        bytes memory initiateSignature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, initiateSignature, 0);
+
+        // Perform recovery - should NOT apply pending update
+        address newAuthenticatorAddress = address(0xBEEF);
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        bytes memory recoverSignature = eip712Sign(
+            worldIDRegistry.RECOVER_ACCOUNT_TYPEHASH(),
+            abi.encode(leafIndex, newAuthenticatorAddress, newCommitment, newCommitment, 1),
+            recoveryPrivateKey
+        );
+
+        worldIDRegistry.recoverAccount(
+            leafIndex,
+            newAuthenticatorAddress,
+            newCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            recoverSignature,
+            1
+        );
+
+        // Check that recovery agent was NOT updated (still original)
+        assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), recoverySigner);
+
+        // Pending update should be cleared after recovery
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, address(0));
+        assertEq(executeAfter, 0);
+    }
+
+    function test_SetRecoveryAgentUpdateCooldown_Success() public {
+        uint256 oldCooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
+        uint256 newCooldown = 14 days;
+
+        vm.expectEmit(true, true, true, true);
+        emit IWorldIDRegistry.RecoveryAgentUpdateCooldownUpdated(oldCooldown, newCooldown);
+
+        worldIDRegistry.setRecoveryAgentUpdateCooldown(newCooldown);
+
+        assertEq(worldIDRegistry.getRecoveryAgentUpdateCooldown(), newCooldown);
+    }
+
+    function test_SetRecoveryAgentUpdateCooldown_OnlyOwner() public {
+        vm.prank(address(0xdead));
+        vm.expectRevert();
+        worldIDRegistry.setRecoveryAgentUpdateCooldown(1 days);
+    }
+
+    function test_SetRecoveryAgentUpdateCooldown_CanSetToZero() public {
+        worldIDRegistry.setRecoveryAgentUpdateCooldown(0);
+        assertEq(worldIDRegistry.getRecoveryAgentUpdateCooldown(), 0);
+
+        // With zero cooldown, update should be executable immediately
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
+
+        // Should be executable immediately
+        worldIDRegistry.executeRecoveryAgentUpdate(leafIndex);
+        assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), alternateRecoveryAddress);
+    }
+
+    function test_GetRecoveryAgentUpdateCooldown_DefaultValue() public view {
+        uint256 cooldown = worldIDRegistry.getRecoveryAgentUpdateCooldown();
+        assertEq(cooldown, 14 days, "Default cooldown should be 14 days");
+    }
+
+    function test_GetPendingRecoveryAgentUpdate_NoPending() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, address(0));
+        assertEq(executeAfter, 0);
+    }
+
+    function test_GetPendingRecoveryAgentUpdate_WithPending() public {
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoveryAddress, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        bytes memory signature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, signature, 0);
+
+        (address pendingAgent, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, alternateRecoveryAddress);
+        assertEq(executeAfter, block.timestamp + 14 days);
+    }
+
+    function test_CannotRecoverWithPendingRecoveryAgent() public {
+        uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
+        address recoverySigner = vm.addr(recoveryPrivateKey);
+
+        // Create account with current recovery agent
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+
+        // Initiate recovery agent update to alternateRecoveryAddress
+        bytes memory initiateSignature = initiateRecoveryAgentUpdateSignature(leafIndex, alternateRecoveryAddress, 0);
+        worldIDRegistry.initiateRecoveryAgentUpdate(leafIndex, alternateRecoveryAddress, initiateSignature, 0);
+
+        // Verify that pending recovery agent is set
+        (address pendingAgent,) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, alternateRecoveryAddress);
+
+        // Verify that CURRENT recovery agent is still the original
+        assertEq(worldIDRegistry.getRecoveryAgent(leafIndex), recoverySigner);
+
+        // Now verify that only the CURRENT recovery agent can perform recovery, not the pending one
+        address newAuthenticatorAddress = address(0xBEEF);
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+
+        // This should succeed - using CURRENT recovery agent
+        bytes memory validRecoverSignature = eip712Sign(
+            worldIDRegistry.RECOVER_ACCOUNT_TYPEHASH(),
+            abi.encode(leafIndex, newAuthenticatorAddress, newCommitment, newCommitment, 1),
+            recoveryPrivateKey // Current recovery agent
+        );
+
+        worldIDRegistry.recoverAccount(
+            leafIndex,
+            newAuthenticatorAddress,
+            newCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            newCommitment,
+            validRecoverSignature,
+            1
+        );
+
+        // Recovery should have succeeded using current recovery agent
+        assertEq(uint192(worldIDRegistry.getPackedAccountData(newAuthenticatorAddress)), uint192(leafIndex));
+
+        // Pending update should be cleared after recovery (even though it wasn't past cooldown)
+        (address stillPending, uint256 executeAfter) = worldIDRegistry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(stillPending, address(0));
+        assertEq(executeAfter, 0);
     }
 }

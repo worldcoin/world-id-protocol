@@ -9,6 +9,18 @@ pragma solidity ^0.8.13;
  */
 interface IWorldIDRegistry {
     ////////////////////////////////////////////////////////////
+    //                        STRUCTS                         //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Pending recovery agent update for each leaf index
+     */
+    struct PendingRecoveryAgentUpdate {
+        address newRecoveryAgent;
+        uint256 executeAfter;
+    }
+
+    ////////////////////////////////////////////////////////////
     //                        ERRORS                          //
     ////////////////////////////////////////////////////////////
 
@@ -137,6 +149,16 @@ interface IWorldIDRegistry {
      */
     error InsufficientFunds();
 
+    /**
+     * @dev Thrown when there is no pending recovery agent update for the specified account.
+     */
+    error NoPendingRecoveryAgentUpdate(uint64 leafIndex);
+
+    /**
+     * @dev Thrown when trying to execute a recovery agent update before the cooldown period has elapsed.
+     */
+    error RecoveryAgentUpdateStillInCooldown(uint64 leafIndex, uint256 executeAfter);
+
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
@@ -194,16 +216,6 @@ interface IWorldIDRegistry {
     );
 
     /**
-     * @dev Emitted when the recovery address for a World ID account is updated.
-     * @param leafIndex The leaf index of the account in the Merkle tree.
-     * @param oldRecoveryAddress The previous recovery address.
-     * @param newRecoveryAddress The new recovery address.
-     */
-    event RecoveryAddressUpdated(
-        uint64 indexed leafIndex, address indexed oldRecoveryAddress, address indexed newRecoveryAddress
-    );
-
-    /**
      * @dev Emitted when a new authenticator is inserted (added) to a World ID account.
      * @param leafIndex The leaf index of the account in the Merkle tree.
      * @param pubkeyId The pubkey ID assigned to the new authenticator.
@@ -258,7 +270,45 @@ interface IWorldIDRegistry {
      * @param oldMax The previous maximum number of authenticators.
      * @param newMax The new maximum number of authenticators.
      */
-    event MaxAuthenticatorsUpdated(uint256 oldMax, uint256 newMax);
+    event MaxAuthenticatorsUpdated(uint256 indexed oldMax, uint256 indexed newMax);
+
+    /**
+     * @dev Emitted when a recovery agent update is initiated.
+     * @param leafIndex The leaf index of the account.
+     * @param oldRecoveryAgent The current recovery agent.
+     * @param newRecoveryAgent The new recovery agent to be set after cooldown.
+     * @param executeAfter The timestamp after which the update can be executed.
+     */
+    event RecoveryAgentUpdateInitiated(
+        uint64 indexed leafIndex,
+        address indexed oldRecoveryAgent,
+        address indexed newRecoveryAgent,
+        uint256 executeAfter
+    );
+
+    /**
+     * @dev Emitted when a recovery agent update is executed after cooldown.
+     * @param leafIndex The leaf index of the account.
+     * @param oldRecoveryAgent The previous recovery agent.
+     * @param newRecoveryAgent The new recovery agent that was set.
+     */
+    event RecoveryAgentUpdateExecuted(
+        uint64 indexed leafIndex, address indexed oldRecoveryAgent, address indexed newRecoveryAgent
+    );
+
+    /**
+     * @dev Emitted when a pending recovery agent update is cancelled.
+     * @param leafIndex The leaf index of the account.
+     * @param cancelledRecoveryAgent The recovery agent update that was cancelled.
+     */
+    event RecoveryAgentUpdateCancelled(uint64 indexed leafIndex, address indexed cancelledRecoveryAgent);
+
+    /**
+     * @dev Emitted when the recovery agent update cooldown period is updated.
+     * @param oldCooldown The previous cooldown period in seconds.
+     * @param newCooldown The new cooldown period in seconds.
+     */
+    event RecoveryAgentUpdateCooldownUpdated(uint256 indexed oldCooldown, uint256 indexed newCooldown);
 
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
@@ -379,14 +429,33 @@ interface IWorldIDRegistry {
     ) external;
 
     /**
-     * @dev Updates the recovery address for a World ID account.
+     * @dev Initiates a recovery agent update for a World ID account. The update will be pending for the cooldown period.
      * @param leafIndex The leaf index of the World ID account.
-     * @param newRecoveryAddress The new recovery address to set.
+     * @param newRecoveryAgent The new recovery agent to set after cooldown.
      * @param signature The signature from an existing authenticator authorizing the update.
      * @param nonce The signature nonce for replay protection.
      */
-    function updateRecoveryAddress(uint64 leafIndex, address newRecoveryAddress, bytes memory signature, uint256 nonce)
-        external;
+    function initiateRecoveryAgentUpdate(
+        uint64 leafIndex,
+        address newRecoveryAgent,
+        bytes memory signature,
+        uint256 nonce
+    ) external;
+
+    /**
+     * @dev Executes a pending recovery agent update after the cooldown period has elapsed. This
+     *   function does not require a signature.
+     * @param leafIndex The leaf index of the World ID account.
+     */
+    function executeRecoveryAgentUpdate(uint64 leafIndex) external;
+
+    /**
+     * @dev Cancels a pending recovery agent update. Can be called by any valid authenticator.
+     * @param leafIndex The leaf index of the World ID account.
+     * @param signature The signature from an existing authenticator authorizing the cancellation.
+     * @param nonce The signature nonce for replay protection.
+     */
+    function cancelRecoveryAgentUpdate(uint64 leafIndex, bytes memory signature, uint256 nonce) external;
 
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
@@ -409,10 +478,10 @@ interface IWorldIDRegistry {
     function getProof(uint64 leafIndex) external view returns (uint256[] memory);
 
     /**
-     * @dev Returns the recovery address for the given World ID (based on its leaf index).
+     * @dev Returns the recovery agent for the given World ID (based on its leaf index).
      * @param leafIndex The index of the leaf.
      */
-    function getRecoveryAddress(uint64 leafIndex) external view returns (address);
+    function getRecoveryAgent(uint64 leafIndex) external view returns (address);
 
     /**
      * @dev Checks whether `root` is known and not expired according to `rootValidityWindow`.
@@ -468,6 +537,22 @@ interface IWorldIDRegistry {
      */
     function getRootValidityWindow() external view returns (uint256);
 
+    /**
+     * @dev Returns the pending recovery agent update for a leaf index, if any.
+     * @param leafIndex The leaf index to query.
+     * @return newRecoveryAgent The new recovery agent address.
+     * @return executeAfter The timestamp after which the update can be executed.
+     */
+    function getPendingRecoveryAgentUpdate(uint64 leafIndex)
+        external
+        view
+        returns (address newRecoveryAgent, uint256 executeAfter);
+
+    /**
+     * @dev Returns the recovery agent update cooldown period in seconds.
+     */
+    function getRecoveryAgentUpdateCooldown() external view returns (uint256);
+
     ////////////////////////////////////////////////////////////
     //                    OWNER FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
@@ -481,4 +566,9 @@ interface IWorldIDRegistry {
      * @dev Set an updated maximum number of authenticators allowed.
      */
     function setMaxAuthenticators(uint256 newMaxAuthenticators) external;
+
+    /**
+     * @dev Sets the cooldown period for recovery agent updates.
+     */
+    function setRecoveryAgentUpdateCooldown(uint256 newCooldown) external;
 }
