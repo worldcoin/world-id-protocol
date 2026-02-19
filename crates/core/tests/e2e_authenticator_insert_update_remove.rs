@@ -245,8 +245,9 @@ async fn e2e_authenticator_insert_update_remove() {
         .await
         .unwrap();
 
-    let updated_pubkey = EdDSAPrivateKey::random(&mut rand::thread_rng()).public();
-    let updated_address = anvil.signer(3).unwrap().address();
+    // Use a known seed for the updated authenticator so we can sign with it later
+    let updated_seed = [44u8; 32];
+    let (updated_pubkey, updated_address) = derive_keys_from_seed(updated_seed);
     let primary_address = auth.onchain_address();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(1));
@@ -283,7 +284,7 @@ async fn e2e_authenticator_insert_update_remove() {
         "old primary authenticator should be cleared after update"
     );
 
-    // REMOVE: remove updated authenticator (index 0), signed by secondary
+    // REMOVE: remove updated authenticator (index 0), signed by updated authenticator itself
     // Key set before: [updated, secondary]. Key set after: [_, secondary]
     indexer.set_proof(make_inclusion_proof(
         vec![updated_pubkey.clone(), secondary_pubkey.clone()],
@@ -297,7 +298,9 @@ async fn e2e_authenticator_insert_update_remove() {
         &gateway_url,
     );
     let (query_material, nullifier_material) = load_embedded_materials();
-    let mut auth = Authenticator::init(&secondary_seed, config, query_material, nullifier_material)
+    // Initialize with updated_seed since we're removing the updated authenticator
+    // The signer must match the authenticator being removed
+    let mut auth = Authenticator::init(&updated_seed, config, query_material, nullifier_material)
         .await
         .unwrap();
 
@@ -319,7 +322,7 @@ async fn e2e_authenticator_insert_update_remove() {
         "updated authenticator should be cleared after remove"
     );
 
-    // Verify secondary authenticator is still registered (it was the signer for removal)
+    // Verify secondary authenticator is still registered (updated was removed, secondary remains)
     let packed = contract
         .getPackedAccountData(secondary_address)
         .call()
