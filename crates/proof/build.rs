@@ -192,18 +192,20 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     // Watch the directory itself for new/removed files
     println!("cargo:rerun-if-changed={}", circom_dir.display());
 
-    // Collect all zkey files first
+    // Process directory entries in parallel while propagating any IO errors.
     fs::read_dir(out_dir)?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| is_arks_zkey(path))
         .par_bridge()
-        .try_for_each(|path| {
+        .try_for_each(|entry| -> eyre::Result<()> {
+            let path = entry?.path();
+            if !is_arks_zkey(&path) {
+                return Ok(());
+            }
+
             let file_name = path
                 .file_name()
                 .ok_or_eyre("missing filename")?
                 .to_str()
-                .unwrap();
+                .ok_or_eyre("non-utf8 filename")?;
             let output_path = out_dir.join(format!("{file_name}.compressed"));
 
             // Skip if output exists and is newer than input
