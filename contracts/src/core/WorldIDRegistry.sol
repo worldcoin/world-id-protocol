@@ -60,6 +60,12 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     /// @dev Duration (seconds) for which historical roots remain valid
     uint256 internal _rootValidityWindow;
 
+    /// @dev leafIndex -> pending recovery agent update
+    mapping(uint256 => PendingRecoveryAgentUpdate) internal _pendingRecoveryAgentUpdates;
+
+    /// @dev Cooldown period (seconds) that must be met before a recovery agent can be updated
+    uint256 internal _recoveryAgentUpdateCooldown;
+
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
@@ -76,8 +82,10 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     bytes32 public constant RECOVER_ACCOUNT_TYPEHASH = keccak256(
         "RecoverAccount(uint64 leafIndex,address newAuthenticatorAddress,uint256 newAuthenticatorPubkey,uint256 newOffchainSignerCommitment,uint256 nonce)"
     );
-    bytes32 public constant UPDATE_RECOVERY_ADDRESS_TYPEHASH =
-        keccak256("UpdateRecoveryAddress(uint64 leafIndex,address newRecoveryAddress,uint256 nonce)");
+    bytes32 public constant INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH =
+        keccak256("InitiateRecoveryAgentUpdate(uint64 leafIndex,address newRecoveryAgent,uint256 nonce)");
+    bytes32 public constant CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH =
+        keccak256("CancelRecoveryAgentUpdate(uint64 leafIndex,uint256 nonce)");
 
     string public constant EIP712_NAME = "WorldIDRegistry";
     string public constant EIP712_VERSION = "1.0";
@@ -119,6 +127,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
         _maxAuthenticators = 7;
         _rootValidityWindow = 3600;
+        _recoveryAgentUpdateCooldown = 14 days;
     }
 
     ////////////////////////////////////////////////////////////
@@ -136,16 +145,16 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
+    function getRecoveryAgent(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
+        return _getRecoveryAgent(leafIndex);
+    }
+
+    /// @inheritdoc IWorldIDRegistry
     function getProof(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (uint256[] memory) {
         if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
             revert AccountDoesNotExist(leafIndex);
         }
         return _tree.getProof(uint256(leafIndex));
-    }
-
-    /// @inheritdoc IWorldIDRegistry
-    function getRecoveryAddress(uint64 leafIndex) external view virtual onlyProxy onlyInitialized returns (address) {
-        return _getRecoveryAddress(leafIndex);
     }
 
     /// @inheritdoc IWorldIDRegistry
@@ -210,16 +219,34 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         return _rootValidityWindow;
     }
 
+    /// @inheritdoc IWorldIDRegistry
+    function getPendingRecoveryAgentUpdate(uint64 leafIndex)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (address newRecoveryAgent, uint256 executeAfter)
+    {
+        PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
+        return (pending.newRecoveryAgent, pending.executeAfter);
+    }
+
+    /// @inheritdoc IWorldIDRegistry
+    function getRecoveryAgentUpdateCooldown() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _recoveryAgentUpdateCooldown;
+    }
+
     ////////////////////////////////////////////////////////////
     //              Internal View Helper Functions            //
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Helper function to get recovery address from the packed storage.
+     * @dev Helper function to get recovery agent from the packed storage.
      * @param leafIndex The leaf index of the account.
-     * @return The recovery address for the account.
+     * @return The recovery agent for the account.
      */
-    function _getRecoveryAddress(uint64 leafIndex) internal view returns (address) {
+    function _getRecoveryAgent(uint64 leafIndex) internal view returns (address) {
         return address(uint160(_leafIndexToRecoveryAddressPacked[leafIndex]));
     }
 
@@ -387,6 +414,32 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         );
 
         _nextLeafIndex = leafIndex + 1;
+    }
+
+    /**
+     * @dev Updates the state to execute a pending recovery agent change.
+     */
+    function _executeRecoveryAgentUpdate(uint64 leafIndex, PendingRecoveryAgentUpdate memory pendingUpdate)
+        internal
+        virtual
+    {
+        if (pendingUpdate.executeAfter == 0) {
+            revert NoPendingRecoveryAgentUpdate(leafIndex);
+        }
+
+        if (block.timestamp < pendingUpdate.executeAfter) {
+            revert RecoveryAgentUpdateStillInCooldown(leafIndex, pendingUpdate.executeAfter);
+        }
+
+        address oldRecoveryAgent = _getRecoveryAgent(leafIndex);
+
+        uint256 bitmap = _getPubkeyBitmap(leafIndex); // Preserve the bitmap when updating the recovery agent
+        _setRecoveryAddressAndBitmap(leafIndex, pendingUpdate.newRecoveryAgent, bitmap);
+
+        // Clear the pending update
+        delete _pendingRecoveryAgentUpdates[leafIndex];
+
+        emit RecoveryAgentUpdateExecuted(leafIndex, oldRecoveryAgent, pendingUpdate.newRecoveryAgent);
     }
 
     ////////////////////////////////////////////////////////////
@@ -700,7 +753,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             )
         );
 
-        address recoverySigner = _getRecoveryAddress(leafIndex);
+        address recoverySigner = _getRecoveryAgent(leafIndex);
         if (recoverySigner == address(0)) {
             revert RecoveryNotEnabled();
         }
@@ -719,6 +772,9 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
 
+        // Clear any pending recovery agent update
+        delete _pendingRecoveryAgentUpdates[leafIndex];
+
         emit AccountRecovered(
             leafIndex,
             newAuthenticatorAddress,
@@ -730,18 +786,18 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function updateRecoveryAddress(uint64 leafIndex, address newRecoveryAddress, bytes memory signature, uint256 nonce)
-        external
-        virtual
-        onlyProxy
-        onlyInitialized
-    {
+    function initiateRecoveryAgentUpdate(
+        uint64 leafIndex,
+        address newRecoveryAgent,
+        bytes memory signature,
+        uint256 nonce
+    ) external virtual onlyProxy onlyInitialized {
         if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
             revert AccountDoesNotExist(leafIndex);
         }
 
         bytes32 messageHash = _hashTypedDataV4(
-            keccak256(abi.encode(UPDATE_RECOVERY_ADDRESS_TYPEHASH, leafIndex, newRecoveryAddress, nonce))
+            keccak256(abi.encode(INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, newRecoveryAgent, nonce))
         );
 
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
@@ -756,13 +812,69 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         }
         _leafIndexToSignatureNonce[leafIndex]++;
 
-        address oldRecoveryAddress = _getRecoveryAddress(leafIndex);
+        address oldRecoveryAgent = _getRecoveryAgent(leafIndex);
+        uint256 executeAfter = block.timestamp + _recoveryAgentUpdateCooldown;
 
-        // Preserve the bitmap when updating the recovery address
-        uint256 bitmap = _getPubkeyBitmap(leafIndex);
-        _setRecoveryAddressAndBitmap(leafIndex, newRecoveryAddress, bitmap);
+        // If overwritting an existing pending update, emit cancellation event for the old pending update
+        PendingRecoveryAgentUpdate memory existingPendingUpdate = _pendingRecoveryAgentUpdates[leafIndex];
+        if (existingPendingUpdate.executeAfter != 0) {
+            emit RecoveryAgentUpdateCancelled(leafIndex, existingPendingUpdate.newRecoveryAgent);
+        }
 
-        emit RecoveryAddressUpdated(leafIndex, oldRecoveryAddress, newRecoveryAddress);
+        // Store the update request as pending
+        _pendingRecoveryAgentUpdates[leafIndex] =
+            PendingRecoveryAgentUpdate({newRecoveryAgent: newRecoveryAgent, executeAfter: executeAfter});
+
+        emit RecoveryAgentUpdateInitiated(leafIndex, oldRecoveryAgent, newRecoveryAgent, executeAfter);
+    }
+
+    /// @inheritdoc IWorldIDRegistry
+    function executeRecoveryAgentUpdate(uint64 leafIndex) external virtual onlyProxy onlyInitialized {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
+            revert AccountDoesNotExist(leafIndex);
+        }
+
+        PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
+        _executeRecoveryAgentUpdate(leafIndex, pending);
+    }
+
+    /// @inheritdoc IWorldIDRegistry
+    function cancelRecoveryAgentUpdate(uint64 leafIndex, bytes memory signature, uint256 nonce)
+        external
+        virtual
+        onlyProxy
+        onlyInitialized
+    {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
+            revert AccountDoesNotExist(leafIndex);
+        }
+
+        PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
+        if (pending.executeAfter == 0) {
+            revert NoPendingRecoveryAgentUpdate(leafIndex);
+        }
+
+        bytes32 messageHash =
+            _hashTypedDataV4(keccak256(abi.encode(CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, nonce)));
+
+        (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
+        uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
+        if (leafIndex != recoveredLeafIndex) {
+            revert MismatchedLeafIndex(leafIndex, recoveredLeafIndex);
+        }
+
+        uint256 expectedNonce = _leafIndexToSignatureNonce[leafIndex];
+        if (nonce != expectedNonce) {
+            revert MismatchedSignatureNonce(leafIndex, expectedNonce, nonce);
+        }
+        _leafIndexToSignatureNonce[leafIndex]++;
+
+        address cancelledRecoveryAgent = pending.newRecoveryAgent;
+
+        // Clear the pending update
+        delete _pendingRecoveryAgentUpdates[leafIndex];
+
+        emit RecoveryAgentUpdateCancelled(leafIndex, cancelledRecoveryAgent);
     }
 
     ////////////////////////////////////////////////////////////
@@ -784,5 +896,12 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256 old = _maxAuthenticators;
         _maxAuthenticators = newMaxAuthenticators;
         emit MaxAuthenticatorsUpdated(old, _maxAuthenticators);
+    }
+
+    /// @inheritdoc IWorldIDRegistry
+    function setRecoveryAgentUpdateCooldown(uint256 newCooldown) external onlyOwner onlyProxy onlyInitialized {
+        uint256 old = _recoveryAgentUpdateCooldown;
+        _recoveryAgentUpdateCooldown = newCooldown;
+        emit RecoveryAgentUpdateCooldownUpdated(old, newCooldown);
     }
 }
