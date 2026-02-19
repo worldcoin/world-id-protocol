@@ -100,7 +100,7 @@ impl RegistryEvent {
         let event_sig = lg.topics()[0];
 
         let block_number = lg.block_number.ok_or(BlockchainError::MissingBlockNumber)?;
-        let block_hash = lg.block_hash.ok_or(BlockchainError::MissingBlockNumber)?;
+        let block_hash = lg.block_hash.ok_or(BlockchainError::MissingBlockHash)?;
         let tx_hash = lg.transaction_hash.ok_or(BlockchainError::MissingTxHash)?;
         let log_index = lg.log_index.ok_or(BlockchainError::MissingLogIndex)?;
 
