@@ -126,6 +126,7 @@ where
         result.map(|row| Self::map_account(&row)).transpose()
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[instrument(level = "info", skip(self))]
     pub async fn insert(
         self,
@@ -172,6 +173,7 @@ where
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[instrument(level = "info", skip(self))]
     pub async fn update_authenticator_at_index(
         self,
@@ -208,6 +210,7 @@ where
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[instrument(level = "info", skip(self))]
     pub async fn reset_authenticator(
         self,
@@ -252,6 +255,7 @@ where
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[instrument(level = "info", skip(self))]
     pub async fn insert_authenticator_at_index(
         self,
@@ -288,6 +292,7 @@ where
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[instrument(level = "info", skip(self))]
     pub async fn remove_authenticator_at_index(
         self,

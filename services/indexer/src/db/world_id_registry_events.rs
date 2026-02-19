@@ -577,7 +577,7 @@ where
         )
         .bind(event.block_number as i64)
         .bind(event.log_index as i64)
-        .bind(&event.tx_hash)
+        .bind(event.tx_hash)
         .bind(event_type.to_string())
         .bind(leaf_index)
         .bind(event_data)
