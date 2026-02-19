@@ -9,9 +9,9 @@ use serial_test::serial;
 use std::{fs, path::PathBuf, time::Duration};
 
 use alloy::primitives::{Address, U256, address};
-use world_id_indexer::blockchain::{AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent};
-use world_id_indexer::config::{
-    Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
+use world_id_indexer::{
+    blockchain::{AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent},
+    config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig},
 };
 
 /// Helper to create tree cache config with a unique temporary path

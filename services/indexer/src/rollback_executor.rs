@@ -1,4 +1,7 @@
-use crate::{db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId}, events_processor::EventsProcessor};
+use crate::{
+    db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
+    events_processor::EventsProcessor,
+};
 
 pub struct RollbackExecutor<'a> {
     db: &'a DB,

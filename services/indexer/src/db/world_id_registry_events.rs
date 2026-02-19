@@ -10,7 +10,7 @@ use crate::{
         RootRecordedEvent,
     },
     db::{DBError, DBResult},
-    {invalid_field, missing_field},
+    invalid_field, missing_field,
 };
 
 /// Event identifier for World ID Registry events
