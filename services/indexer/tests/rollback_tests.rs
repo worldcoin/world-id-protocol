@@ -231,7 +231,10 @@ async fn test_rollback_with_account_updates() {
         .unwrap()
         .expect("Account 1 should exist");
     assert_eq!(account.authenticator_addresses.len(), 1);
-    assert_eq!(account.authenticator_addresses[0], Address::from([2u8; 20]));
+    assert_eq!(
+        account.authenticator_addresses[0],
+        Some(Address::from([2u8; 20]))
+    );
 }
 
 /// Test rollback doesn't affect accounts modified before the rollback point
@@ -383,8 +386,14 @@ async fn test_rollback_with_mixed_event_types() {
         2,
         "Expected 2 authenticators"
     );
-    assert_eq!(account.authenticator_addresses[0], Address::from([1u8; 20]));
-    assert_eq!(account.authenticator_addresses[1], Address::from([2u8; 20]));
+    assert_eq!(
+        account.authenticator_addresses[0],
+        Some(Address::from([1u8; 20]))
+    );
+    assert_eq!(
+        account.authenticator_addresses[1],
+        Some(Address::from([2u8; 20]))
+    );
 }
 
 /// Test that rollback to current state has no effect

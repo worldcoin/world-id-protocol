@@ -273,13 +273,15 @@ async fn test_remove_first_authenticator_preserves_slot_positions() {
             &[Address::from([1u8; 20]), Address::from([2u8; 20])],
             &[U256::from(123), U256::from(456)],
             &initial_commitment,
+            100,
+            0,
         )
         .await
         .unwrap();
 
     let new_commitment = U256::from(999);
     db.accounts()
-        .remove_authenticator_at_index(leaf_index, 0, &new_commitment)
+        .remove_authenticator_at_index(leaf_index, 0, &new_commitment, 100, 1)
         .await
         .unwrap();
 
