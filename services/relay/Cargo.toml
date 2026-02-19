@@ -1,0 +1,35 @@
+[package]
+name = "world-id-relay"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alloy = { workspace = true, features = [
+    "full",
+    "node-bindings",
+    "rlp",
+    "sol-types",
+    "signer-local",
+    "provider-http",
+] }
+alloy-primitives = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+dotenvy = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+humantime = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+telemetry-batteries = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+world-id-services-common = { workspace = true }

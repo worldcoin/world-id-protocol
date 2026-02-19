@@ -9166,6 +9166,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-relay"
+version = "0.4.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "clap",
+ "dotenvy",
+ "eyre",
+ "futures",
+ "humantime",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "telemetry-batteries 0.2.1",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+ "url",
+ "world-id-services-common",
+]
+
+[[package]]
 name = "world-id-services-common"
 version = "0.1.0"
 dependencies = [
