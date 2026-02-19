@@ -18,7 +18,7 @@ Deployments are tracked in [`contracts/deployments/`](contracts/deployments/)
 
 | Environment | Chain              | Config                                                          |
 | ----------- | ------------------ | --------------------------------------------------------------- |
-| Staging     | World Chain (`480`) | [`contracts/deployments/staging.json`](contracts/deployments/core/staging.json) |
+| Staging     | World Chain (`480`) | [`contracts/deployments/core/staging.json`](contracts/deployments/core/staging.json) |
 
 ### Services
 
