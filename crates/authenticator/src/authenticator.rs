@@ -34,7 +34,10 @@ use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     PrimitiveError, ZeroKnowledgeProof,
-    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
+    authenticator::{
+        AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
+        decode_sparse_authenticator_pubkeys,
+    },
     merkle::MerkleInclusionProof,
 };
 use world_id_proof::{
@@ -495,34 +498,21 @@ impl Authenticator {
     fn decode_indexer_pubkeys(
         pubkeys: Vec<Option<U256>>,
     ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
-        let last_present_idx = pubkeys.iter().rposition(Option::is_some);
-        if let Some(idx) = last_present_idx
-            && idx >= MAX_AUTHENTICATOR_KEYS
-        {
-            return Err(AuthenticatorError::InvalidIndexerPubkeySlot {
-                slot_index: idx,
-                max_supported_slot: MAX_AUTHENTICATOR_KEYS - 1,
-            });
-        }
-
-        let normalized_len = last_present_idx.map_or(0, |idx| idx + 1);
-        let decoded_pubkeys = pubkeys
-            .into_iter()
-            .take(normalized_len)
-            .map(|pubkey| match pubkey {
-                Some(pubkey) => EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes())
-                    .map_err(|e| {
-                        PrimitiveError::Deserialization(format!(
-                            "invalid authenticator public key returned by indexer: {e}"
-                        ))
-                    }),
-                None => Ok(EdDSAPublicKey {
-                    pk: EdwardsAffine::default(),
-                }),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(AuthenticatorPublicKeySet::new(Some(decoded_pubkeys))?)
+        decode_sparse_authenticator_pubkeys(pubkeys).map_err(|e| match e {
+            SparseAuthenticatorPubkeysError::SlotOutOfBounds {
+                slot_index,
+                max_supported_slot,
+            } => AuthenticatorError::InvalidIndexerPubkeySlot {
+                slot_index,
+                max_supported_slot,
+            },
+            SparseAuthenticatorPubkeysError::InvalidCompressedPubkey { slot_index, reason } => {
+                PrimitiveError::Deserialization(format!(
+                    "invalid authenticator public key returned by indexer at slot {slot_index}: {reason}"
+                ))
+                .into()
+            }
+        })
     }
 
     fn insert_or_reuse_authenticator_key(
@@ -1169,6 +1159,7 @@ mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
     use std::sync::OnceLock;
+    use world_id_primitives::authenticator::MAX_AUTHENTICATOR_KEYS;
 
     fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
         static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();

@@ -7,6 +7,7 @@ use ark_babyjubjub::{EdwardsAffine, Fq};
 use ark_ff::{AdditiveGroup, PrimeField as _};
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 
 use crate::{FieldElement, PrimitiveError};
@@ -17,6 +18,29 @@ use crate::{FieldElement, PrimitiveError};
 /// This constrained is introduced to maintain proof performance reasonable even
 /// in devices with limited resources.
 pub const MAX_AUTHENTICATOR_KEYS: usize = 7;
+
+/// Errors for decoding sparse authenticator pubkey slots.
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+pub enum SparseAuthenticatorPubkeysError {
+    /// The input contains a non-empty slot index outside supported bounds.
+    #[error(
+        "invalid authenticator pubkey slot {slot_index}; max supported slot is {max_supported_slot}"
+    )]
+    SlotOutOfBounds {
+        /// Slot index returned by the source.
+        slot_index: usize,
+        /// Highest supported slot index.
+        max_supported_slot: usize,
+    },
+    /// A slot contained bytes that are not a valid compressed public key.
+    #[error("invalid authenticator public key at slot {slot_index}: {reason}")]
+    InvalidCompressedPubkey {
+        /// Slot index of the invalid entry.
+        slot_index: usize,
+        /// Parse error details.
+        reason: String,
+    },
+}
 
 /// Domain separator for the authenticator OPRF query digest.
 const OPRF_QUERY_DS: &[u8] = b"World ID Query";
@@ -40,6 +64,57 @@ pub fn oprf_query_digest(
         *action,
     ];
     poseidon2::bn254::t4::permutation(&input)[1].into()
+}
+
+/// Decodes sparse authenticator pubkey slots while preserving slot positions.
+///
+/// Input may contain `None` entries for removed authenticators. Trailing empty slots are trimmed,
+/// interior holes are preserved as default affine points, and used slots beyond
+/// [`MAX_AUTHENTICATOR_KEYS`] are rejected.
+///
+/// # Errors
+/// Returns [`SparseAuthenticatorPubkeysError`] if a used slot is out of bounds or any compressed
+/// key bytes are invalid.
+pub fn decode_sparse_authenticator_pubkeys(
+    pubkeys: Vec<Option<U256>>,
+) -> Result<AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError> {
+    let last_present_idx = pubkeys.iter().rposition(Option::is_some);
+    if let Some(idx) = last_present_idx
+        && idx >= MAX_AUTHENTICATOR_KEYS
+    {
+        return Err(SparseAuthenticatorPubkeysError::SlotOutOfBounds {
+            slot_index: idx,
+            max_supported_slot: MAX_AUTHENTICATOR_KEYS - 1,
+        });
+    }
+
+    let normalized_len = last_present_idx.map_or(0, |idx| idx + 1);
+    let decoded_pubkeys = pubkeys
+        .into_iter()
+        .take(normalized_len)
+        .enumerate()
+        .map(|(idx, pubkey)| match pubkey {
+            Some(pubkey) => {
+                EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|e| {
+                    SparseAuthenticatorPubkeysError::InvalidCompressedPubkey {
+                        slot_index: idx,
+                        reason: e.to_string(),
+                    }
+                })
+            }
+            None => Ok(EdDSAPublicKey {
+                pk: EdwardsAffine::default(),
+            }),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Defensive conversion: this should be unreachable due to the explicit slot check above.
+    AuthenticatorPublicKeySet::new(Some(decoded_pubkeys)).map_err(|_| {
+        SparseAuthenticatorPubkeysError::SlotOutOfBounds {
+            slot_index: normalized_len,
+            max_supported_slot: MAX_AUTHENTICATOR_KEYS - 1,
+        }
+    })
 }
 
 /// A set of **off-chain** authenticator public keys for a World ID Account.
@@ -176,11 +251,28 @@ pub trait ProtocolSigner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Signer;
+    use ark_serialize::CanonicalSerialize as _;
 
     fn create_test_pubkey() -> EdDSAPublicKey {
         EdDSAPublicKey {
             pk: EdwardsAffine::default(),
         }
+    }
+
+    fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
+        Signer::from_seed_bytes(&[seed_byte; 32])
+            .unwrap()
+            .offchain_signer_pubkey()
+    }
+
+    fn encoded_test_pubkey(seed_byte: u8) -> U256 {
+        let mut compressed = Vec::new();
+        test_pubkey(seed_byte)
+            .pk
+            .serialize_compressed(&mut compressed)
+            .unwrap();
+        U256::from_le_slice(&compressed)
     }
 
     #[test]
@@ -288,5 +380,47 @@ mod tests {
         for item in array.iter().take(MAX_AUTHENTICATOR_KEYS).skip(3) {
             assert_eq!(item, &EdwardsAffine::default());
         }
+    }
+
+    #[test]
+    fn test_decode_sparse_pubkeys_trims_trailing_empty_slots() {
+        let mut encoded_pubkeys = vec![Some(encoded_test_pubkey(1)), Some(encoded_test_pubkey(2))];
+        encoded_pubkeys.extend(vec![None; MAX_AUTHENTICATOR_KEYS + 5]);
+
+        let key_set = decode_sparse_authenticator_pubkeys(encoded_pubkeys).unwrap();
+
+        assert_eq!(key_set.len(), 2);
+        assert_eq!(key_set[0].pk, test_pubkey(1).pk);
+        assert_eq!(key_set[1].pk, test_pubkey(2).pk);
+    }
+
+    #[test]
+    fn test_decode_sparse_pubkeys_preserves_interior_holes() {
+        let key_set = decode_sparse_authenticator_pubkeys(vec![
+            Some(encoded_test_pubkey(1)),
+            None,
+            Some(encoded_test_pubkey(2)),
+        ])
+        .unwrap();
+
+        assert_eq!(key_set.len(), 3);
+        assert_eq!(key_set[0].pk, test_pubkey(1).pk);
+        assert_eq!(key_set[1].pk, EdwardsAffine::default());
+        assert_eq!(key_set[2].pk, test_pubkey(2).pk);
+    }
+
+    #[test]
+    fn test_decode_sparse_pubkeys_rejects_used_slot_beyond_max() {
+        let mut encoded_pubkeys = vec![None; MAX_AUTHENTICATOR_KEYS + 1];
+        encoded_pubkeys[MAX_AUTHENTICATOR_KEYS] = Some(encoded_test_pubkey(1));
+
+        let error = decode_sparse_authenticator_pubkeys(encoded_pubkeys).unwrap_err();
+        assert!(matches!(
+            error,
+            SparseAuthenticatorPubkeysError::SlotOutOfBounds {
+                slot_index,
+                max_supported_slot
+            } if slot_index == MAX_AUTHENTICATOR_KEYS && max_supported_slot == MAX_AUTHENTICATOR_KEYS - 1
+        ));
     }
 }
