@@ -56,9 +56,9 @@ impl std::fmt::Display for WorldIdRegistryEventType {
             WorldIdRegistryEventType::AccountCreated => write!(f, "account_created"),
             WorldIdRegistryEventType::AccountUpdated => write!(f, "account_updated"),
             WorldIdRegistryEventType::AuthenticatorInserted => {
-                write!(f, "authentication_inserted")
+                write!(f, "authenticator_inserted")
             }
-            WorldIdRegistryEventType::AuthenticatorRemoved => write!(f, "authentication_removed"),
+            WorldIdRegistryEventType::AuthenticatorRemoved => write!(f, "authenticator_removed"),
             WorldIdRegistryEventType::AccountRecovered => write!(f, "account_recovered"),
             WorldIdRegistryEventType::RootRecorded => write!(f, "root_recorded"),
         }
