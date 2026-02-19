@@ -1,11 +1,13 @@
+mod bindings;
 pub mod config;
 pub mod contracts;
 pub mod error;
 pub mod proof;
 pub mod relay;
 pub mod source;
+// TODO: WIP CLI module — re-enable when chain.rs is complete.
+mod cli;
 
-use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use config::Config;
 use relay::{DestinationContext, GatewayContext, RelayContext};
 use tracing::{error, info};
@@ -14,14 +16,15 @@ use tracing::{error, info};
 pub async fn run(config: Config) -> eyre::Result<()> {
     info!("starting world-id-relay");
 
-    // Build World Chain provider (with signer for propagateState)
-    let wc_provider = build_provider_with_signer(&config).await?;
+    // Build World Chain provider (with signer, throttle, fallback from ProviderArgs)
+    let wc_provider = config.provider.clone().http().await?;
 
-    // Build L1 provider (with signer for gateway.sendMessage)
+    // Build L1 provider (same signer/throttle, different RPC URL)
     let l1_provider = match &config.l1_rpc_url {
         Some(url) => {
-            let provider = build_provider_with_signer_for_url(url, &config).await?;
-            Some(provider)
+            let mut args = config.provider.clone();
+            args.http = Some(vec![url.clone()]);
+            Some(args.http().await?)
         }
         None => None,
     };
@@ -30,7 +33,9 @@ pub async fn run(config: Config) -> eyre::Result<()> {
     let destinations_config = config.load_destinations()?;
     let mut destinations = Vec::new();
     for dest_config in &destinations_config {
-        let provider = build_provider_with_signer_for_url(&dest_config.rpc_url, &config).await?;
+        let mut args = config.provider.clone();
+        args.http = Some(vec![dest_config.rpc_url.clone()]);
+        let provider = args.http().await?;
         destinations.push(DestinationContext {
             chain_id: dest_config.chain_id,
             provider,
@@ -48,9 +53,10 @@ pub async fn run(config: Config) -> eyre::Result<()> {
     // Channel for source → relay communication
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
-    // Build relay context
+    // Build relay context (WC provider for read-only MPT proofs)
+    let relay_wc_provider = config.provider.clone().http().await?;
     let relay_ctx = RelayContext {
-        wc_provider: build_readonly_provider(&config.wc_rpc_url)?,
+        wc_provider: relay_wc_provider,
         wc_source_address: config.wc_source_address,
         l1_provider,
         l1_gateway_address: config.l1_gateway_address,
@@ -92,31 +98,4 @@ pub async fn run(config: Config) -> eyre::Result<()> {
 
     info!("world-id-relay shutting down");
     Ok(())
-}
-
-/// Builds a DynProvider with signer for the World Chain RPC.
-async fn build_provider_with_signer(config: &Config) -> eyre::Result<DynProvider> {
-    let signer = config.signer.signer(&config.wc_rpc_url).await?;
-    let provider = ProviderBuilder::new()
-        .wallet(signer)
-        .connect_http(config.wc_rpc_url.clone());
-    Ok(provider.erased())
-}
-
-/// Builds a DynProvider with signer for a given RPC URL.
-async fn build_provider_with_signer_for_url(
-    url: &url::Url,
-    config: &Config,
-) -> eyre::Result<DynProvider> {
-    let signer = config.signer.signer(url).await?;
-    let provider = ProviderBuilder::new()
-        .wallet(signer)
-        .connect_http(url.clone());
-    Ok(provider.erased())
-}
-
-/// Builds a read-only DynProvider (no signer).
-fn build_readonly_provider(url: &url::Url) -> eyre::Result<DynProvider> {
-    let provider = ProviderBuilder::new().connect_http(url.clone());
-    Ok(provider.erased())
 }

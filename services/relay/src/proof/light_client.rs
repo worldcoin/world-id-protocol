@@ -107,6 +107,8 @@ pub async fn build_light_client_proof_attributes(
     .await?;
 
     // Step 4: ABI-encode the attribute
+    // Use abi_encode_params() (not abi_encode()) so the tuple components are encoded
+    // as separate ABI parameters — matching Solidity's abi.decode(proof, (...)).
     let attribute_data = (
         prover_result.proof.clone(),
         U256::from(prover_result.new_head),
@@ -118,7 +120,7 @@ pub async fn build_light_client_proof_attributes(
         l1_mpt_proof.account_proof.clone(),
         l1_mpt_proof.storage_proof.clone(),
     )
-        .abi_encode();
+        .abi_encode_params();
 
     // Prepend selector
     let selector = alloy_primitives::keccak256(

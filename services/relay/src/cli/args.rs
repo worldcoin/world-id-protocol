@@ -1,3 +1,6 @@
+use clap::Parser;
+use serde::Deserialize;
+
 use std::path::PathBuf;
 
 use alloy_primitives::Address;
@@ -7,10 +10,7 @@ use url::Url;
 use world_id_services_common::ProviderArgs;
 
 /// World ID Bridge Relay Service.
-///
-/// Propagates World Chain state to satellite contracts on destination chains
-/// via EthereumMPT, LightClient (Helios), and Permissioned gateway adapters.
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 #[command(name = "world-id-relay", version, about)]
 pub struct Config {
     // ── Source chain (World Chain) ──────────────────────────────────────
@@ -97,33 +97,4 @@ pub struct GatewayConfig {
     #[serde(rename = "type")]
     pub gateway_type: GatewayType,
     pub address: Address,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GatewayType {
-    LightClient,
-    Permissioned,
-}
-
-impl Config {
-    /// Load destination chain configs from JSON file, if configured.
-    pub fn load_destinations(&self) -> eyre::Result<Vec<DestinationChain>> {
-        match &self.destinations_config {
-            Some(path) => {
-                let contents = std::fs::read_to_string(path)?;
-                let destinations: Vec<DestinationChain> = serde_json::from_str(&contents)?;
-                Ok(destinations)
-            }
-            None => Ok(vec![]),
-        }
-    }
-
-    /// Returns true if L1 EthereumMPT relay is fully configured.
-    pub fn has_l1_relay(&self) -> bool {
-        self.l1_rpc_url.is_some()
-            && self.l1_gateway_address.is_some()
-            && self.l1_satellite_address.is_some()
-            && self.dispute_game_factory.is_some()
-    }
 }

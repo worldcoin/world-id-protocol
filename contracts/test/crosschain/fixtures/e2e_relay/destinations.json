@@ -1,0 +1,9 @@
+[
+  {
+    "chain_id": 8453,
+    "rpc_url": "http://localhost:18547",
+    "gateways": [
+      { "type": "permissioned", "address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9" }
+    ]
+  }
+]

@@ -49,7 +49,8 @@ pub async fn run_source(
                 match propagate_state(&source, &issuer_ids, &oprf_ids).await {
                     Ok(()) => info!("propagateState() succeeded"),
                     Err(e) => {
-                        if e.to_string().contains("NothingChanged") {
+                        let err_str = e.to_string();
+                        if err_str.contains("NothingChanged") || err_str.contains("0x06923abf") {
                             debug!("propagateState(): nothing changed");
                         } else {
                             error!(error = %e, "propagateState() failed");
@@ -84,6 +85,11 @@ pub async fn run_source(
 }
 
 /// Calls `WorldIDSource.propagateState()`.
+///
+/// Simulates via `eth_call` first to avoid poisoning the nonce cache on reverts
+/// (e.g. `NothingChanged`). Without this, `CachedNonceManager` increments the
+/// nonce on every `send()` attempt, even when gas estimation reverts, causing
+/// subsequent transactions to hang with a too-high nonce.
 async fn propagate_state(
     source: &IWorldIDSource::IWorldIDSourceInstance<&DynProvider>,
     issuer_ids: &[u64],
@@ -91,9 +97,15 @@ async fn propagate_state(
 ) -> Result<(), RelayError> {
     info!("calling propagateState()");
 
-    let tx = source.propagateState(issuer_ids.to_vec(), oprf_ids.to_vec());
+    let call = source.propagateState(issuer_ids.to_vec(), oprf_ids.to_vec());
 
-    let pending = tx
+    // Dry-run first — reverts here don't consume a nonce.
+    call.call()
+        .await
+        .map_err(|e| RelayError::ContractRevert(format!("{e}")))?;
+
+    // Simulation succeeded — safe to broadcast.
+    let pending = call
         .send()
         .await
         .map_err(|e| RelayError::ContractRevert(format!("{e}")))?;

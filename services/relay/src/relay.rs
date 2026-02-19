@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy::{
-    primitives::{Address, Bytes, U256},
+    primitives::{Address, Bytes},
     providers::{DynProvider, Provider},
 };
 use tracing::{error, info, warn};
@@ -89,9 +89,6 @@ pub async fn run_relay(
                 Ok(()) => info!("L1 EthereumMPT relay succeeded"),
                 Err(e) => {
                     error!(error = %e, "L1 EthereumMPT relay failed");
-                    if !e.is_recoverable() {
-                        continue;
-                    }
                 }
             }
         }
@@ -279,7 +276,9 @@ async fn send_gateway_message(
         "sending gateway message"
     );
 
-    let tx = gateway.sendMessage(recipient, payload, attributes);
+    let tx = gateway
+        .sendMessage(recipient, payload, attributes)
+        .gas(5_000_000);
 
     let pending = tx
         .send()
@@ -291,6 +290,13 @@ async fn send_gateway_message(
         .await
         .map_err(|e| RelayError::ContractRevert(format!("{e}")))?;
 
+    if !receipt.status() {
+        return Err(RelayError::ContractRevert(format!(
+            "tx {} reverted (gas_used: {})",
+            receipt.transaction_hash, receipt.gas_used
+        )));
+    }
+
     info!(
         tx_hash = %receipt.transaction_hash,
         gas_used = receipt.gas_used,
@@ -300,11 +306,22 @@ async fn send_gateway_message(
     Ok(())
 }
 
-/// Formats an address as an ERC-7786 interoperable address.
-/// On-chain: `abi.encodePacked(uint256(chainId), address)`
+/// Formats an address as an ERC-7930 interoperable address (v1, EVM/EIP-155).
+///
+/// On-chain equivalent: `InteroperableAddress.formatEvmV1(chainId, addr)`
+/// Layout: `version(2) | chainType(2) | chainRefLen(1) | chainRef(var) | addrLen(1) | addr(20)`
 fn format_evm_v1_address(chain_id: u64, address: Address) -> Bytes {
-    let mut data = Vec::with_capacity(52);
-    data.extend_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
+    // Minimal big-endian encoding of the chain ID (strip leading zeros).
+    let chain_id_be = chain_id.to_be_bytes();
+    let first_nonzero = chain_id_be.iter().position(|&b| b != 0).unwrap_or(7);
+    let chain_ref = &chain_id_be[first_nonzero..];
+
+    let mut data = Vec::with_capacity(6 + chain_ref.len() + 20);
+    data.extend_from_slice(&[0x00, 0x01]); // version 1
+    data.extend_from_slice(&[0x00, 0x00]); // chainType: eip-155
+    data.push(chain_ref.len() as u8);
+    data.extend_from_slice(chain_ref);
+    data.push(20); // address length
     data.extend_from_slice(address.as_slice());
     Bytes::from(data)
 }

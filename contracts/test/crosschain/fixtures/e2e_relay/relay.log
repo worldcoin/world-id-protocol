@@ -1,0 +1,98 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running `/Users/leyton.taylor/work/world-id-protocol/target/debug/world-id-relay --rpc-url 'http://localhost:18545' --wc-source-address 0xa513E6E4b8f2a923D98304ec87F64353C4D5C853 --wallet-private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --issuer-schema-ids 1 --oprf-key-ids 1 --propagation-interval 5s --event-poll-interval 2s --l1-rpc-url 'http://localhost:18546' --l1-gateway-address 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707 --l1-satellite-address 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 --dispute-game-factory 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9 --game-type 0 --dispute-game-poll-interval 3s --dispute-game-timeout 60s --destinations-config /Users/leyton.taylor/work/world-id-protocol/services/relay/../../contracts/test/crosschain/fixtures/e2e_relay/destinations.json`
+  [2m2026-02-19T09:09:14.444280Z[0m [32m INFO[0m  [32mworld-id-relay starting[0m
+    [2;3mat[0m services/relay/src/main.rs:12
+
+  [2m2026-02-19T09:09:14.444466Z[0m [32m INFO[0m  [32mstarting world-id-relay[0m
+    [2;3mat[0m services/relay/src/lib.rs:14
+
+  [2m2026-02-19T09:09:14.453759Z[0m [32m INFO[0m  [32mrelay loop started, waiting for commitments[0m
+    [2;3mat[0m services/relay/src/relay.rs:59
+
+  [2m2026-02-19T09:09:14.459211Z[0m [32m INFO[0m  [32msource loop started, [1;32msource[0m[32m: 0xa513E6E4b8f2a923D98304ec87F64353C4D5C853, [1;32missuer_ids[0m[32m: [1], [1;32moprf_ids[0m[32m: [1], [1;32minterval[0m[32m: 5s, [1;32mstart_block[0m[32m: 8[0m
+    [2;3mat[0m services/relay/src/source.rs:37
+
+  [2m2026-02-19T09:09:14.459812Z[0m [32m INFO[0m  [32mcalling propagateState()[0m
+    [2;3mat[0m services/relay/src/source.rs:98
+
+  [2m2026-02-19T09:09:14.465987Z[0m [32m INFO[0m  [32mpropagateState() confirmed, [1;32mtx_hash[0m[32m: 0xacdaea3e0b2ad5172f1893902db6fdd9c795f57543c3c33668c1ad7f3feed1af, [1;32mblock[0m[32m: 9, [1;32mgas_used[0m[32m: 314701[0m
+    [2;3mat[0m services/relay/src/source.rs:118
+
+  [2m2026-02-19T09:09:14.466006Z[0m [32m INFO[0m  [32mpropagateState() succeeded[0m
+    [2;3mat[0m services/relay/src/source.rs:50
+
+  [2m2026-02-19T09:09:16.459097Z[0m [32m INFO[0m  [32mreceived ChainCommitted event, [1;32mchain_head[0m[32m: 0xbce5ca7116eaad88fdfde3b31ea87a83da064ec965412ca70b0538736364f9a2, [1;32mblock[0m[32m: 9[0m
+    [2;3mat[0m services/relay/src/source.rs:153
+
+  [2m2026-02-19T09:09:16.459219Z[0m [32m INFO[0m  [32mprocessing commitment, [1;32mchain_head[0m[32m: 0xbce5ca7116eaad88fdfde3b31ea87a83da064ec965412ca70b0538736364f9a2, [1;32mblock[0m[32m: 9[0m
+    [2;3mat[0m services/relay/src/relay.rs:62
+
+  [2m2026-02-19T09:09:19.456133Z[0m [32m INFO[0m  [32mcalling propagateState()[0m
+    [2;3mat[0m services/relay/src/source.rs:98
+
+  [2m2026-02-19T09:09:19.468083Z[0m [32m INFO[0m  [32mfound suitable dispute game, [1;32ml2_block[0m[32m: 10, [1;32mgame_proxy[0m[32m: 0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9[0m
+    [2;3mat[0m services/relay/src/proof/ethereum_mpt.rs:60
+
+  [2m2026-02-19T09:09:19.472441Z[0m [32m INFO[0m  [32msending gateway message, [1;32mgateway[0m[32m: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707, [1;32msatellite[0m[32m: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0[0m
+    [2;3mat[0m services/relay/src/relay.rs:273
+
+  [2m2026-02-19T09:09:19.480719Z[0m [32m INFO[0m  [32mgateway message sent, [1;32mtx_hash[0m[32m: 0xb444a9c9104b8289e60ce1ef7a6c300576466f36cc8a9e88f00e7d2df11fa120, [1;32mgas_used[0m[32m: 616670[0m
+    [2;3mat[0m services/relay/src/relay.rs:298
+
+  [2m2026-02-19T09:09:19.480764Z[0m [32m INFO[0m  [32mL1 EthereumMPT relay succeeded[0m
+    [2;3mat[0m services/relay/src/relay.rs:89
+
+  [2m2026-02-19T09:09:19.483250Z[0m [32m INFO[0m  [32msending gateway message, [1;32mgateway[0m[32m: 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9, [1;32msatellite[0m[32m: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0[0m
+    [2;3mat[0m services/relay/src/relay.rs:273
+
+  [2m2026-02-19T09:09:19.489130Z[0m [32m INFO[0m  [32mgateway message sent, [1;32mtx_hash[0m[32m: 0x828c72fa2121b70c20e5feac1c68ae83a3f5cf5f93a22f8146e5a15586ac0227, [1;32mgas_used[0m[32m: 370676[0m
+    [2;3mat[0m services/relay/src/relay.rs:298
+
+  [2m2026-02-19T09:09:19.489166Z[0m [32m INFO[0m  [32mPermissioned relay succeeded, [1;32mchain_id[0m[32m: 8453, [1;32mgateway[0m[32m: 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9[0m
+    [2;3mat[0m services/relay/src/relay.rs:142
+
+  [2m2026-02-19T09:09:19.489188Z[0m [32m INFO[0m  [32mcommitment relay cycle complete, [1;32mchain_head[0m[32m: 0xbce5ca7116eaad88fdfde3b31ea87a83da064ec965412ca70b0538736364f9a2[0m
+    [2;3mat[0m services/relay/src/relay.rs:157
+
+  [2m2026-02-19T09:09:24.455738Z[0m [32m INFO[0m  [32mcalling propagateState()[0m
+    [2;3mat[0m services/relay/src/source.rs:98
+
+  [2m2026-02-19T09:09:24.469280Z[0m [32m INFO[0m  [32mpropagateState() confirmed, [1;32mtx_hash[0m[32m: 0x075575377cd5c7ee0530e5c97691f8b85b3e22b5f40e69bb216f1df2060e3bf3, [1;32mblock[0m[32m: 15, [1;32mgas_used[0m[32m: 147112[0m
+    [2;3mat[0m services/relay/src/source.rs:118
+
+  [2m2026-02-19T09:09:24.469324Z[0m [32m INFO[0m  [32mpropagateState() succeeded[0m
+    [2;3mat[0m services/relay/src/source.rs:50
+
+  [2m2026-02-19T09:09:24.471141Z[0m [32m INFO[0m  [32mreceived ChainCommitted event, [1;32mchain_head[0m[32m: 0x1cd9dc49dba885157fcd415f1d9ee956f3d9141612e7769f0eafc68ba372a4a9, [1;32mblock[0m[32m: 15[0m
+    [2;3mat[0m services/relay/src/source.rs:153
+
+  [2m2026-02-19T09:09:24.471245Z[0m [32m INFO[0m  [32mprocessing commitment, [1;32mchain_head[0m[32m: 0x1cd9dc49dba885157fcd415f1d9ee956f3d9141612e7769f0eafc68ba372a4a9, [1;32mblock[0m[32m: 15[0m
+    [2;3mat[0m services/relay/src/relay.rs:62
+
+  [2m2026-02-19T09:09:27.478503Z[0m [32m INFO[0m  [32mfound suitable dispute game, [1;32ml2_block[0m[32m: 16, [1;32mgame_proxy[0m[32m: 0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9[0m
+    [2;3mat[0m services/relay/src/proof/ethereum_mpt.rs:60
+
+  [2m2026-02-19T09:09:27.479799Z[0m [32m INFO[0m  [32msending gateway message, [1;32mgateway[0m[32m: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707, [1;32msatellite[0m[32m: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0[0m
+    [2;3mat[0m services/relay/src/relay.rs:273
+
+  [2m2026-02-19T09:09:27.482849Z[0m [32m INFO[0m  [32mgateway message sent, [1;32mtx_hash[0m[32m: 0x6fa8b3dbcb479678a508c17c3391fb4b142967368af42f83fc5483bf4595dfe2, [1;32mgas_used[0m[32m: 405115[0m
+    [2;3mat[0m services/relay/src/relay.rs:298
+
+  [2m2026-02-19T09:09:27.482860Z[0m [32m INFO[0m  [32mL1 EthereumMPT relay succeeded[0m
+    [2;3mat[0m services/relay/src/relay.rs:89
+
+  [2m2026-02-19T09:09:27.483328Z[0m [32m INFO[0m  [32msending gateway message, [1;32mgateway[0m[32m: 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9, [1;32msatellite[0m[32m: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0[0m
+    [2;3mat[0m services/relay/src/relay.rs:273
+
+  [2m2026-02-19T09:09:27.485479Z[0m [32m INFO[0m  [32mgateway message sent, [1;32mtx_hash[0m[32m: 0x132fb87ca87615548f29c25ba8d7955c4191934fbe36e49f10f485651d51a184, [1;32mgas_used[0m[32m: 157585[0m
+    [2;3mat[0m services/relay/src/relay.rs:298
+
+  [2m2026-02-19T09:09:27.485490Z[0m [32m INFO[0m  [32mPermissioned relay succeeded, [1;32mchain_id[0m[32m: 8453, [1;32mgateway[0m[32m: 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9[0m
+    [2;3mat[0m services/relay/src/relay.rs:142
+
+  [2m2026-02-19T09:09:27.485501Z[0m [32m INFO[0m  [32mcommitment relay cycle complete, [1;32mchain_head[0m[32m: 0x1cd9dc49dba885157fcd415f1d9ee956f3d9141612e7769f0eafc68ba372a4a9[0m
+    [2;3mat[0m services/relay/src/relay.rs:157
+
+  [2m2026-02-19T09:09:29.455697Z[0m [32m INFO[0m  [32mcalling propagateState()[0m
+    [2;3mat[0m services/relay/src/source.rs:98
+

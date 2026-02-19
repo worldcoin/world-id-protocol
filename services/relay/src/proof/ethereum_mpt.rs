@@ -120,6 +120,8 @@ pub async fn build_l1_proof_attributes(
     .await?;
 
     // Step 6: ABI-encode the attribute
+    // Use abi_encode_params() (not abi_encode()) so the tuple components are encoded
+    // as separate ABI parameters — matching Solidity's abi.decode(proof, (uint32, bytes, ...)).
     let attribute_data = (
         game_type,
         game.extra_data.clone(),
@@ -127,7 +129,7 @@ pub async fn build_l1_proof_attributes(
         mpt_proof.account_proof.clone(),
         mpt_proof.storage_proof.clone(),
     )
-        .abi_encode();
+        .abi_encode_params();
 
     // Prepend the attribute selector
     let selector =

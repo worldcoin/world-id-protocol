@@ -33,3 +33,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 world-id-services-common = { workspace = true }
+
+[dev-dependencies]
+testcontainers = "0.27"
