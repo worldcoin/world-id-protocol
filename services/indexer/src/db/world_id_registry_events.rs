@@ -72,8 +72,8 @@ impl<'a> TryFrom<&'a str> for WorldIdRegistryEventType {
         match value {
             "account_created" => Ok(WorldIdRegistryEventType::AccountCreated),
             "account_updated" => Ok(WorldIdRegistryEventType::AccountUpdated),
-            "authentication_inserted" => Ok(WorldIdRegistryEventType::AuthenticatorInserted),
-            "authentication_removed" => Ok(WorldIdRegistryEventType::AuthenticatorRemoved),
+            "authenticator_inserted" => Ok(WorldIdRegistryEventType::AuthenticatorInserted),
+            "authenticator_removed" => Ok(WorldIdRegistryEventType::AuthenticatorRemoved),
             "account_recovered" => Ok(WorldIdRegistryEventType::AccountRecovered),
             "root_recorded" => Ok(WorldIdRegistryEventType::RootRecorded),
             _ => Err(crate::db::DBError::InvalidEventType(value.to_string())),
