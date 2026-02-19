@@ -8,9 +8,10 @@ use serial_test::serial;
 
 use std::{fs, path::PathBuf, time::Duration};
 
-use alloy::primitives::{U256, address};
-use world_id_indexer::config::{
-    Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
+use alloy::primitives::{Address, U256, address};
+use world_id_indexer::{
+    blockchain::{AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent},
+    config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig},
 };
 
 /// Helper to create tree cache config with a unique temporary path
@@ -477,9 +478,9 @@ async fn test_authenticator_removed_replay() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     indexer_task.abort();
 
-    // Get the last block from world_tree_roots
+    // Get the last block from world_id_registry_events
     let last_block: (i64,) =
-        sqlx::query_as("SELECT COALESCE(MAX(block_number), 0) FROM world_tree_roots")
+        sqlx::query_as("SELECT COALESCE(MAX(block_number), 0) FROM world_id_registry_events")
             .fetch_one(&setup.pool)
             .await
             .expect("Failed to query last block");
@@ -489,20 +490,29 @@ async fn test_authenticator_removed_replay() {
     // This simulates what happens when an authenticator is removed but account has other authenticators
     let new_commitment_after_removal = U256::from(999);
 
-    sqlx::query(
-        r#"INSERT INTO world_tree_events
-        (leaf_index, event_type, offchain_signer_commitment, block_number, tx_hash, log_index)
-        VALUES ($1, $2, $3, $4, $5, $6)"#,
-    )
-    .bind(1i64)
-    .bind("authentication_removed")
-    .bind(new_commitment_after_removal)
-    .bind((last_block + 1) as i64)
-    .bind(U256::from(1234))
-    .bind(0i64)
-    .execute(&setup.pool)
-    .await
-    .expect("Failed to insert removed event");
+    // Use the proper API instead of raw SQL
+    let removed_event = BlockchainEvent {
+        block_number: last_block + 1,
+        block_hash: U256::from(11234),
+        tx_hash: U256::from(1234),
+        log_index: 0,
+        details: RegistryEvent::AuthenticatorRemoved(AuthenticatorRemovedEvent {
+            leaf_index: 1,
+            pubkey_id: 0,
+            authenticator_address: Address::ZERO,
+            authenticator_pubkey: U256::ZERO,
+            old_offchain_signer_commitment: U256::ZERO,
+            new_offchain_signer_commitment: new_commitment_after_removal,
+        }),
+    };
+
+    world_id_indexer::db::PostgresDB::new(&setup.db_url, None)
+        .await
+        .unwrap()
+        .world_id_registry_events()
+        .insert_event(&removed_event)
+        .await
+        .expect("Failed to insert removed event");
 
     // Update the account table to reflect the removal
     sqlx::query(
@@ -660,8 +670,13 @@ async fn test_init_root_matches_contract() {
     indexer_task.abort();
 
     // Verify the on-chain root was recorded in the DB
+    // Extract root from JSONB and convert hex string to bytea
     let db_root: (alloy::primitives::U256,) = sqlx::query_as(
-        "SELECT root FROM world_tree_roots ORDER BY block_number DESC, log_index DESC LIMIT 1",
+        r#"SELECT decode(substring(event_data->>'root' from 3), 'hex') AS root
+           FROM world_id_registry_events
+           WHERE event_type = 'root_recorded'
+           ORDER BY block_number DESC, log_index DESC
+           LIMIT 1"#,
     )
     .fetch_one(&setup.pool)
     .await
@@ -798,8 +813,13 @@ async fn test_replay_root_matches_contract() {
     indexer_task2.abort();
 
     // Verify the latest on-chain root was recorded in the DB
+    // Extract root from JSONB and convert hex string to bytea
     let db_root: (alloy::primitives::U256,) = sqlx::query_as(
-        "SELECT root FROM world_tree_roots ORDER BY block_number DESC, log_index DESC LIMIT 1",
+        r#"SELECT decode(substring(event_data->>'root' from 3), 'hex') AS root
+           FROM world_id_registry_events
+           WHERE event_type = 'root_recorded'
+           ORDER BY block_number DESC, log_index DESC
+           LIMIT 1"#,
     )
     .fetch_one(&setup.pool)
     .await
