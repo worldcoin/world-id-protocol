@@ -273,7 +273,7 @@ async unsafe fn run_both(
     let batch_size = indexer_cfg.batch_size;
 
     // --- Phase 1: Backfill historical events into DB (no tree) ---
-    let from = match db.world_tree_roots().get_latest_block().await? {
+    let from = match db.world_id_registry_events().get_latest_block().await? {
         Some(block) => block,
         None => indexer_cfg.start_block,
     };
@@ -382,18 +382,15 @@ pub async fn handle_registry_event<'a>(
 
         // Validate that the tree root matches a known root in the DB
         let root = tree_state.root().await;
-        if db
-            .world_tree_roots()
-            .get_root_by_value(&root)
-            .await?
-            .is_none()
-        {
+        if !db.world_id_registry_events().root_exists(&root).await? {
             return Err(tree::TreeError::RootMismatch {
                 actual: format!("0x{:x}", root),
-                expected: "any known root in world_tree_roots".to_string(),
+                expected: "any known root in world_id_registry_events".to_string(),
             }
             .into());
         }
+
+        tracing::info!(root = %format!("0x{:x}", root), "tree synced and root validated");
     }
 
     Ok(())
@@ -445,7 +442,7 @@ pub async fn process_registry_events(
             }
         };
 
-        let from = match db.world_tree_roots().get_latest_block().await? {
+        let from = match db.world_id_registry_events().get_latest_block().await? {
             Some(block) => block + 1,
             None => indexer_cfg.start_block,
         };

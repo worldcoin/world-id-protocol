@@ -17,14 +17,16 @@
 mod helpers;
 
 use alloy::primitives::{Address, U256};
-use helpers::{db_helpers::*, mock_blockchain::*};
+use helpers::{common::init_test_tracing, db_helpers::*, mock_blockchain::*};
 use world_id_indexer::{
-    db::WorldTreeEventId, events_committer::EventsCommitter, rollback_executor::RollbackExecutor,
+    db::WorldIdRegistryEventId, events_committer::EventsCommitter,
+    rollback_executor::RollbackExecutor,
 };
 
 /// Test basic rollback: delete events after a specific point
 #[tokio::test]
 async fn test_basic_rollback_deletes_events_after_point() {
+    init_test_tracing();
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
@@ -54,7 +56,7 @@ async fn test_basic_rollback_deletes_events_after_point() {
     assert_root_count(db.pool(), 3).await;
 
     // Rollback to block 101, log_index 1 (should keep first two blocks, remove third)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 101,
         log_index: 1,
     };
@@ -98,7 +100,7 @@ async fn test_rollback_within_same_block() {
     assert_event_count(db.pool(), 3).await;
 
     // Rollback to log_index 1 within block 100 (keep events 0 and 1, remove 2)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 100,
         log_index: 1,
     };
@@ -138,7 +140,7 @@ async fn test_rollback_to_genesis() {
     assert_root_count(db.pool(), 1).await;
 
     // Rollback to before all events (block 99)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 99,
         log_index: 0,
     };
@@ -205,7 +207,7 @@ async fn test_rollback_with_account_updates() {
     // This should remove:
     // - Account 1 (because its latest_event is at block 101)
     // - Account 2 (because it was created at block 102)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 101,
         log_index: 1,
     };
@@ -214,13 +216,23 @@ async fn test_rollback_with_account_updates() {
     executor.rollback_to_event(rollback_point).await.unwrap();
 
     // After rollback:
-    // - Account 1 should be removed (last modified at 101, which is after the cutoff)
-    // - Account 2 should be removed (created at 102)
+    // - Account 1 should EXIST with updated state (events at 100,0 and 101,0 are both kept)
+    // - Account 2 should be removed (created at 102, which is after 101,1)
     // - Events at block 102 should be removed
     // - Root at block 102 should be removed
-    assert_account_count(db.pool(), 0).await;
+    assert_account_count(db.pool(), 1).await;
     assert_event_count(db.pool(), 2).await;
     assert_root_count(db.pool(), 2).await;
+
+    // Verify Account 1 exists with the updated authenticator
+    let account = db
+        .accounts()
+        .get_account(1)
+        .await
+        .unwrap()
+        .expect("Account 1 should exist");
+    assert_eq!(account.authenticator_addresses.len(), 1);
+    assert_eq!(account.authenticator_addresses[0], Address::from([2u8; 20]));
 }
 
 /// Test rollback doesn't affect accounts modified before the rollback point
@@ -255,7 +267,7 @@ async fn test_rollback_preserves_old_accounts() {
     assert_account_count(db.pool(), 3).await;
 
     // Rollback to block 101, log_index 1 (keep blocks 100 and 101)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 101,
         log_index: 1,
     };
@@ -273,6 +285,7 @@ async fn test_rollback_preserves_old_accounts() {
 /// Test rollback with multiple account types (created, updated, recovered)
 #[tokio::test]
 async fn test_rollback_with_mixed_event_types() {
+    init_test_tracing();
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
@@ -328,8 +341,13 @@ async fn test_rollback_with_mixed_event_types() {
     assert_event_count(db.pool(), 3).await;
     assert_root_count(db.pool(), 3).await;
 
+    eprintln!("Before rollback:");
+    eprintln!("  Accounts: 1");
+    eprintln!("  Events: 3");
+    eprintln!("  Roots: 3");
+
     // Rollback to block 101, log_index 1 (before recovery)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 101,
         log_index: 1,
     };
@@ -337,11 +355,37 @@ async fn test_rollback_with_mixed_event_types() {
     let mut executor = RollbackExecutor::new(db);
     executor.rollback_to_event(rollback_point).await.unwrap();
 
-    // Account should be removed (latest event was recovery at block 102)
+    // Account should EXIST with state after authenticator insertion (at block 101)
+    // Recovery event at block 102 should be removed
     // Events and roots after block 101, log_index 1 should be removed
-    assert_account_count(db.pool(), 0).await;
+    assert_account_count(db.pool(), 1).await;
     assert_event_count(db.pool(), 2).await;
     assert_root_count(db.pool(), 2).await;
+
+    // Verify Account 1 exists with 2 authenticators (original + inserted)
+    let account = db
+        .accounts()
+        .get_account(1)
+        .await
+        .unwrap()
+        .expect("Account 1 should exist");
+
+    eprintln!(
+        "Account authenticator_addresses: {:?}",
+        account.authenticator_addresses
+    );
+    eprintln!(
+        "Account authenticator_pubkeys: {:?}",
+        account.authenticator_pubkeys
+    );
+
+    assert_eq!(
+        account.authenticator_addresses.len(),
+        2,
+        "Expected 2 authenticators"
+    );
+    assert_eq!(account.authenticator_addresses[0], Address::from([1u8; 20]));
+    assert_eq!(account.authenticator_addresses[1], Address::from([2u8; 20]));
 }
 
 /// Test that rollback to current state has no effect
@@ -365,7 +409,7 @@ async fn test_rollback_to_current_state_no_op() {
     assert_root_count(db.pool(), 1).await;
 
     // Rollback to the latest event (should be no-op)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 100,
         log_index: 1,
     };
@@ -391,7 +435,7 @@ async fn test_rollback_empty_database() {
     assert_root_count(db.pool(), 0).await;
 
     // Try to rollback (should succeed with no effect)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 100,
         log_index: 0,
     };
@@ -446,7 +490,7 @@ async fn test_rollback_identifies_affected_leaves() {
     assert_account_count(db.pool(), 5).await;
 
     // Rollback to block 102, log_index 1 (keep first 3 accounts)
-    let rollback_point = WorldTreeEventId {
+    let rollback_point = WorldIdRegistryEventId {
         block_number: 102,
         log_index: 1,
     };

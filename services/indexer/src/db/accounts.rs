@@ -1,3 +1,5 @@
+use core::fmt;
+
 use alloy::primitives::{Address, U160, U256};
 use futures_util::{Stream, StreamExt as _};
 use sqlx::{Postgres, Row, postgres::PgRow, types::Json};
@@ -9,6 +11,15 @@ use crate::db::DBResult;
 pub struct AccountLatestEventId {
     pub latest_block_number: u64,
     pub latest_log_index: u64,
+}
+
+impl From<(u64, u64)> for AccountLatestEventId {
+    fn from(value: (u64, u64)) -> Self {
+        AccountLatestEventId {
+            latest_block_number: value.0,
+            latest_log_index: value.1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,7 +111,9 @@ where
                     recovery_address,
                     authenticator_addresses,
                     authenticator_pubkeys,
-                    offchain_signer_commitment
+                    offchain_signer_commitment,
+                    latest_block_number,
+                    latest_log_index
                 FROM accounts
                 WHERE
                     leaf_index = $1
@@ -121,6 +134,8 @@ where
         authenticator_addresses: &[Address],
         authenticator_pubkeys: &[U256],
         offchain_signer_commitment: &U256,
+        latest_block_number: u64,
+        latest_log_index: u64,
     ) -> DBResult<()> {
         sqlx::query(
             r#"
@@ -129,8 +144,10 @@ where
                     recovery_address,
                     authenticator_addresses,
                     authenticator_pubkeys,
-                    offchain_signer_commitment
-                ) VALUES ($1, $2, $3, $4, $5)
+                    offchain_signer_commitment,
+                    latest_block_number,
+                    latest_log_index
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(leaf_index as i64)
@@ -148,6 +165,8 @@ where
                 .collect::<Vec<_>>(),
         ))
         .bind(offchain_signer_commitment)
+        .bind(latest_block_number as i64)
+        .bind(latest_log_index as i64)
         .execute(self.executor)
         .await?;
         Ok(())
@@ -161,6 +180,8 @@ where
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
+        latest_block_number: u64,
+        latest_log_index: u64,
     ) -> DBResult<()> {
         // Update authenticator at specific index (pubkey_id)
         sqlx::query(
@@ -168,7 +189,9 @@ where
                 UPDATE accounts SET
                     authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], to_jsonb($3::text), false),
                     authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], to_jsonb($4::text), false),
-                    offchain_signer_commitment = $5
+                    offchain_signer_commitment = $5,
+                    latest_block_number = $6,
+                    latest_log_index = $7
                 WHERE
                     leaf_index = $1
             "#,
@@ -178,6 +201,8 @@ where
             .bind(new_address.to_string())
             .bind(new_pubkey.to_string())
             .bind(new_commitment)
+            .bind(latest_block_number as i64)
+            .bind(latest_log_index as i64)
             .execute(self.executor)
             .await?;
         Ok(())
@@ -190,6 +215,8 @@ where
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
+        latest_block_number: u64,
+        latest_log_index: u64,
     ) -> DBResult<()> {
         // Reset all authenticators to single one
         sqlx::query(
@@ -197,7 +224,9 @@ where
                 UPDATE accounts SET
                     authenticator_addresses = $2,
                     authenticator_pubkeys = $3,
-                    offchain_signer_commitment = $4
+                    offchain_signer_commitment = $4,
+                    latest_block_number = $5,
+                    latest_log_index = $6
                 WHERE
                     leaf_index = $1
             "#,
@@ -216,6 +245,8 @@ where
                 .collect::<Vec<_>>(),
         ))
         .bind(new_commitment)
+        .bind(latest_block_number as i64)
+        .bind(latest_log_index as i64)
         .execute(self.executor)
         .await?;
         Ok(())
@@ -229,6 +260,8 @@ where
         new_address: &Address,
         new_pubkey: &U256,
         new_commitment: &U256,
+        latest_block_number: u64,
+        latest_log_index: u64,
     ) -> DBResult<()> {
         // Ensure arrays are large enough and insert at specific index
         sqlx::query(
@@ -236,7 +269,9 @@ where
                 UPDATE accounts SET
                     authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], to_jsonb($3::text), true),
                     authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], to_jsonb($4::text), true),
-                    offchain_signer_commitment = $5
+                    offchain_signer_commitment = $5,
+                    latest_block_number = $6,
+                    latest_log_index = $7
                 WHERE
                     leaf_index = $1
             "#,
@@ -246,6 +281,8 @@ where
             .bind(new_address.to_string())
             .bind(new_pubkey.to_string())
             .bind(new_commitment)
+            .bind(latest_block_number as i64)
+            .bind(latest_log_index as i64)
             .execute(self.executor)
             .await?;
         Ok(())
@@ -257,6 +294,8 @@ where
         leaf_index: u64,
         pubkey_id: u32,
         new_commitment: &U256,
+        latest_block_number: u64,
+        latest_log_index: u64,
     ) -> DBResult<()> {
         // Remove authenticator at specific index by setting to null
         sqlx::query(
@@ -264,7 +303,9 @@ where
                 UPDATE accounts SET
                     authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], 'null'::jsonb, false),
                     authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], 'null'::jsonb, false),
-                    offchain_signer_commitment = $3
+                    offchain_signer_commitment = $3,
+                    latest_block_number = $4,
+                    latest_log_index = $5
                 WHERE
                     leaf_index = $1
             "#,
@@ -272,6 +313,8 @@ where
         .bind(leaf_index as i64)
         .bind(format!("{{{pubkey_id}}}"))
         .bind(new_commitment)
+        .bind(latest_block_number as i64)
+        .bind(latest_log_index as i64)
         .execute(self.executor)
         .await?;
         Ok(())
@@ -279,10 +322,11 @@ where
 
     /// Get leaf indices from accounts where latest event is after the given event_id
     #[instrument(level = "info", skip(self))]
-    pub async fn get_affected_leaf_indices(
+    pub async fn get_after_event<T: Into<AccountLatestEventId> + fmt::Debug>(
         self,
-        event_id: &crate::db::WorldTreeEventId,
+        event_id: T,
     ) -> DBResult<Vec<u64>> {
+        let event_id = event_id.into();
         let rows = sqlx::query(
             r#"
                 SELECT leaf_index
@@ -292,8 +336,8 @@ where
                 ORDER BY leaf_index
             "#,
         )
-        .bind(event_id.block_number as i64)
-        .bind(event_id.log_index as i64)
+        .bind(event_id.latest_block_number as i64)
+        .bind(event_id.latest_log_index as i64)
         .fetch_all(self.executor)
         .await?;
 
@@ -302,7 +346,11 @@ where
 
     /// Delete accounts where latest event is after the given event_id
     #[instrument(level = "info", skip(self))]
-    pub async fn delete_after_event(self, event_id: &crate::db::WorldTreeEventId) -> DBResult<u64> {
+    pub async fn delete_after_event<T: Into<AccountLatestEventId> + fmt::Debug>(
+        self,
+        event_id: T,
+    ) -> DBResult<u64> {
+        let event_id = event_id.into();
         let result = sqlx::query(
             r#"
                 DELETE FROM accounts
@@ -310,8 +358,8 @@ where
                    OR (latest_block_number = $1 AND latest_log_index > $2)
             "#,
         )
-        .bind(event_id.block_number as i64)
-        .bind(event_id.log_index as i64)
+        .bind(event_id.latest_block_number as i64)
+        .bind(event_id.latest_log_index as i64)
         .execute(self.executor)
         .await?;
 

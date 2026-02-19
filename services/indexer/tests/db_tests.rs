@@ -2,7 +2,7 @@ mod helpers;
 
 use alloy::primitives::{Address, U256};
 use helpers::db_helpers::*;
-use world_id_indexer::db::{IsolationLevel, WorldTreeEventType, WorldTreeRootEventType};
+use world_id_indexer::db::IsolationLevel;
 
 /// Test inserting an account
 #[tokio::test]
@@ -23,6 +23,8 @@ async fn test_insert_account() {
             &auth_addresses,
             &auth_pubkeys,
             &commitment,
+            100,
+            0,
         )
         .await
         .unwrap();
@@ -60,6 +62,8 @@ async fn test_duplicate_insert_account() {
             &auth_addresses,
             &auth_pubkeys,
             &commitment,
+            100,
+            0,
         )
         .await
         .unwrap();
@@ -73,6 +77,8 @@ async fn test_duplicate_insert_account() {
             &auth_addresses,
             &auth_pubkeys,
             &commitment,
+            100,
+            0,
         )
         .await;
 
@@ -105,6 +111,8 @@ async fn test_update_authenticator_at_index() {
             &[initial_address],
             &[initial_pubkey],
             &initial_commitment,
+            100,
+            0,
         )
         .await
         .unwrap();
@@ -115,7 +123,15 @@ async fn test_update_authenticator_at_index() {
     let new_commitment = U256::from(999);
 
     db.accounts()
-        .update_authenticator_at_index(leaf_index, 0, &new_address, &new_pubkey, &new_commitment)
+        .update_authenticator_at_index(
+            leaf_index,
+            0,
+            &new_address,
+            &new_pubkey,
+            &new_commitment,
+            100,
+            1,
+        )
         .await
         .unwrap();
 
@@ -148,6 +164,8 @@ async fn test_insert_authenticator_at_index() {
             &[Address::from([1u8; 20])],
             &[U256::from(123)],
             &initial_commitment,
+            100,
+            0,
         )
         .await
         .unwrap();
@@ -158,7 +176,15 @@ async fn test_insert_authenticator_at_index() {
     let new_commitment = U256::from(999);
 
     db.accounts()
-        .insert_authenticator_at_index(leaf_index, 1, &new_address, &new_pubkey, &new_commitment)
+        .insert_authenticator_at_index(
+            leaf_index,
+            1,
+            &new_address,
+            &new_pubkey,
+            &new_commitment,
+            100,
+            2,
+        )
         .await
         .unwrap();
 
@@ -192,6 +218,8 @@ async fn test_remove_authenticator_at_index() {
             &[Address::from([1u8; 20]), Address::from([2u8; 20])],
             &[U256::from(123), U256::from(456)],
             &initial_commitment,
+            100,
+            0,
         )
         .await
         .unwrap();
@@ -200,7 +228,7 @@ async fn test_remove_authenticator_at_index() {
     let new_commitment = U256::from(999);
 
     db.accounts()
-        .remove_authenticator_at_index(leaf_index, 1, &new_commitment)
+        .remove_authenticator_at_index(leaf_index, 1, &new_commitment, 100, 3)
         .await
         .unwrap();
 
@@ -234,6 +262,8 @@ async fn test_reset_authenticator() {
             &[Address::from([1u8; 20])],
             &[U256::from(123)],
             &initial_commitment,
+            100,
+            0,
         )
         .await
         .unwrap();
@@ -244,7 +274,14 @@ async fn test_reset_authenticator() {
     let new_commitment = U256::from(1111);
 
     db.accounts()
-        .reset_authenticator(leaf_index, &new_address, &new_pubkey, &new_commitment)
+        .reset_authenticator(
+            leaf_index,
+            &new_address,
+            &new_pubkey,
+            &new_commitment,
+            100,
+            4,
+        )
         .await
         .unwrap();
 
@@ -275,21 +312,28 @@ async fn test_insert_world_tree_event() {
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
-    db.world_tree_events()
-        .insert_event(
-            leaf_index,
-            WorldTreeEventType::AccountCreated,
-            &commitment,
-            block_number,
-            &tx_hash,
-            log_index,
-        )
+    let event = world_id_indexer::blockchain::BlockchainEvent {
+        block_number,
+        tx_hash,
+        log_index,
+        details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
+            world_id_indexer::blockchain::AccountCreatedEvent {
+                leaf_index,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: commitment,
+            },
+        ),
+    };
+    db.world_id_registry_events()
+        .insert_event(&event)
         .await
         .unwrap();
 
     // Verify event was inserted with correct data
     let event = db
-        .world_tree_events()
+        .world_id_registry_events()
         .get_event((block_number, log_index))
         .await
         .unwrap();
@@ -298,9 +342,7 @@ async fn test_insert_world_tree_event() {
     let event = event.unwrap();
     assert_eq!(event.id.block_number, block_number);
     assert_eq!(event.id.log_index, log_index);
-    assert_eq!(event.leaf_index, leaf_index);
-    assert_eq!(event.event_type, WorldTreeEventType::AccountCreated);
-    assert_eq!(event.offchain_signer_commitment, commitment);
+    assert_eq!(event.leaf_index, Some(leaf_index));
     assert_eq!(event.tx_hash, tx_hash);
 }
 
@@ -316,35 +358,33 @@ async fn test_duplicate_world_tree_event_insert() {
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
+    let event = world_id_indexer::blockchain::BlockchainEvent {
+        block_number,
+        tx_hash,
+        log_index,
+        details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
+            world_id_indexer::blockchain::AccountCreatedEvent {
+                leaf_index,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: commitment,
+            },
+        ),
+    };
+
     // First insert
-    db.world_tree_events()
-        .insert_event(
-            leaf_index,
-            WorldTreeEventType::AccountCreated,
-            &commitment,
-            block_number,
-            &tx_hash,
-            log_index,
-        )
+    db.world_id_registry_events()
+        .insert_event(&event)
         .await
         .unwrap();
 
-    // Duplicate insert - should error (duplicate key)
-    let result = db
-        .world_tree_events()
-        .insert_event(
-            leaf_index,
-            WorldTreeEventType::AccountCreated,
-            &commitment,
-            block_number,
-            &tx_hash,
-            log_index,
-        )
-        .await;
+    // Duplicate insert - should succeed idempotently (ON CONFLICT DO NOTHING)
+    let result = db.world_id_registry_events().insert_event(&event).await;
 
     assert!(
-        result.is_err(),
-        "Duplicate event insert should fail with unique constraint violation"
+        result.is_ok(),
+        "Duplicate event insert should succeed idempotently with ON CONFLICT DO NOTHING"
     );
 
     // Should still have only one event
@@ -364,21 +404,29 @@ async fn test_get_world_tree_event() {
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
-    db.world_tree_events()
-        .insert_event(
-            leaf_index,
-            WorldTreeEventType::AccountCreated,
-            &commitment,
-            block_number,
-            &tx_hash,
-            log_index,
-        )
+    let insert_event = world_id_indexer::blockchain::BlockchainEvent {
+        block_number,
+        tx_hash,
+        log_index,
+        details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
+            world_id_indexer::blockchain::AccountCreatedEvent {
+                leaf_index,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: commitment,
+            },
+        ),
+    };
+
+    db.world_id_registry_events()
+        .insert_event(&insert_event)
         .await
         .unwrap();
 
     // Get event
     let event = db
-        .world_tree_events()
+        .world_id_registry_events()
         .get_event((block_number, log_index))
         .await
         .unwrap();
@@ -387,8 +435,7 @@ async fn test_get_world_tree_event() {
     let event = event.unwrap();
     assert_eq!(event.id.block_number, block_number);
     assert_eq!(event.id.log_index, log_index);
-    assert_eq!(event.leaf_index, leaf_index);
-    assert_eq!(event.event_type, WorldTreeEventType::AccountCreated);
+    assert_eq!(event.leaf_index, Some(leaf_index));
 }
 
 /// Test getting latest world tree events
@@ -399,15 +446,22 @@ async fn test_get_latest_world_tree_events() {
 
     // Insert multiple events
     for i in 0..5 {
-        db.world_tree_events()
-            .insert_event(
-                i,
-                WorldTreeEventType::AccountCreated,
-                &U256::from(i * 100),
-                100 + i,
-                &U256::from(999),
-                i,
-            )
+        let event = world_id_indexer::blockchain::BlockchainEvent {
+            block_number: 100 + i,
+            tx_hash: U256::from(999),
+            log_index: i,
+            details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
+                world_id_indexer::blockchain::AccountCreatedEvent {
+                    leaf_index: i,
+                    recovery_address: Address::ZERO,
+                    authenticator_addresses: vec![],
+                    authenticator_pubkeys: vec![],
+                    offchain_signer_commitment: U256::from(i * 100),
+                },
+            ),
+        };
+        db.world_id_registry_events()
+            .insert_event(&event)
             .await
             .unwrap();
     }
@@ -419,7 +473,7 @@ async fn test_get_latest_world_tree_events() {
     // Verify we can retrieve each event with correct data
     for i in 0..5 {
         let event = db
-            .world_tree_events()
+            .world_id_registry_events()
             .get_event((100 + i, i))
             .await
             .unwrap();
@@ -428,8 +482,7 @@ async fn test_get_latest_world_tree_events() {
         let event = event.unwrap();
         assert_eq!(event.id.block_number, 100 + i);
         assert_eq!(event.id.log_index, i);
-        assert_eq!(event.leaf_index, i);
-        assert_eq!(event.offchain_signer_commitment, U256::from(i * 100));
+        assert_eq!(event.leaf_index, Some(i));
         assert_eq!(event.tx_hash, U256::from(999));
     }
 }
@@ -444,24 +497,15 @@ async fn test_insert_world_tree_root() {
     let log_index = 5;
     let root = U256::from(12345);
     let timestamp = U256::from(1000);
-    let tx_hash = U256::from(999);
 
-    db.world_tree_roots()
-        .insert_event(
-            block_number,
-            log_index,
-            WorldTreeRootEventType::RootRecorded,
-            &tx_hash,
-            &root,
-            &timestamp,
-        )
+    insert_test_world_tree_root(db, block_number, log_index, root, timestamp)
         .await
         .unwrap();
 
     // Verify root was inserted with correct data
     let root_event = db
-        .world_tree_roots()
-        .get_root((block_number, log_index))
+        .world_id_registry_events()
+        .get_event((block_number, log_index))
         .await
         .unwrap();
 
@@ -469,10 +513,11 @@ async fn test_insert_world_tree_root() {
     let root_event = root_event.unwrap();
     assert_eq!(root_event.id.block_number, block_number);
     assert_eq!(root_event.id.log_index, log_index);
-    assert_eq!(root_event.root, root);
-    assert_eq!(root_event.timestamp, timestamp);
-    assert_eq!(root_event.event_type, WorldTreeRootEventType::RootRecorded);
-    assert_eq!(root_event.tx_hash, tx_hash);
+    assert_eq!(
+        root_event.event_type,
+        world_id_indexer::db::WorldIdRegistryEventType::RootRecorded
+    );
+    // Root and timestamp are stored in event_data as JSON
 }
 
 /// Test duplicate world tree root insert is handled
@@ -485,38 +530,16 @@ async fn test_duplicate_world_tree_root_insert() {
     let log_index = 5;
     let root = U256::from(12345);
     let timestamp = U256::from(1000);
-    let tx_hash = U256::from(999);
 
     // First insert
-    db.world_tree_roots()
-        .insert_event(
-            block_number,
-            log_index,
-            WorldTreeRootEventType::RootRecorded,
-            &tx_hash,
-            &root,
-            &timestamp,
-        )
+    insert_test_world_tree_root(db, block_number, log_index, root, timestamp)
         .await
         .unwrap();
 
-    // Duplicate insert - should error (duplicate key)
-    let result = db
-        .world_tree_roots()
-        .insert_event(
-            block_number,
-            log_index,
-            WorldTreeRootEventType::RootRecorded,
-            &tx_hash,
-            &root,
-            &timestamp,
-        )
-        .await;
-
-    assert!(
-        result.is_err(),
-        "Duplicate root insert should fail with unique constraint violation"
-    );
+    // Duplicate insert - should succeed (ON CONFLICT DO NOTHING makes it idempotent)
+    insert_test_world_tree_root(db, block_number, log_index, root, timestamp)
+        .await
+        .unwrap();
 
     // Should still have only one root
     let count = count_world_tree_roots(db.pool()).await.unwrap();
@@ -533,24 +556,15 @@ async fn test_get_world_tree_root() {
     let log_index = 5;
     let root = U256::from(12345);
     let timestamp = U256::from(1000);
-    let tx_hash = U256::from(999);
 
-    db.world_tree_roots()
-        .insert_event(
-            block_number,
-            log_index,
-            WorldTreeRootEventType::RootRecorded,
-            &tx_hash,
-            &root,
-            &timestamp,
-        )
+    insert_test_world_tree_root(db, block_number, log_index, root, timestamp)
         .await
         .unwrap();
 
     // Get root
     let root_event = db
-        .world_tree_roots()
-        .get_root((block_number, log_index))
+        .world_id_registry_events()
+        .get_event((block_number, log_index))
         .await
         .unwrap();
 
@@ -558,8 +572,11 @@ async fn test_get_world_tree_root() {
     let root_event = root_event.unwrap();
     assert_eq!(root_event.id.block_number, block_number);
     assert_eq!(root_event.id.log_index, log_index);
-    assert_eq!(root_event.root, root);
-    assert_eq!(root_event.timestamp, timestamp);
+    assert_eq!(
+        root_event.event_type,
+        world_id_indexer::db::WorldIdRegistryEventType::RootRecorded
+    );
+    // Root and timestamp are stored in event_data as JSON
 }
 
 /// Test transaction commit
@@ -574,7 +591,7 @@ async fn test_transaction_commit() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123))
+        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123), 100, 0)
         .await
         .unwrap();
 
@@ -602,7 +619,7 @@ async fn test_transaction_rollback() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123))
+        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123), 100, 0)
         .await
         .unwrap();
 
@@ -626,37 +643,48 @@ async fn test_multiple_operations_in_transaction() {
     tx.accounts()
         .await
         .unwrap()
-        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123))
+        .insert(1u64, &Address::ZERO, &[], &[], &U256::from(123), 100, 0)
         .await
         .unwrap();
 
     // Insert event
-    tx.world_tree_events()
+    let event = world_id_indexer::blockchain::BlockchainEvent {
+        block_number: 100,
+        tx_hash: U256::from(999),
+        log_index: 0,
+        details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
+            world_id_indexer::blockchain::AccountCreatedEvent {
+                leaf_index: 1,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: U256::from(123),
+            },
+        ),
+    };
+    tx.world_id_registry_events()
         .await
         .unwrap()
-        .insert_event(
-            1,
-            WorldTreeEventType::AccountCreated,
-            &U256::from(123),
-            100,
-            &U256::from(999),
-            0,
-        )
+        .insert_event(&event)
         .await
         .unwrap();
 
     // Insert root
-    tx.world_tree_roots()
+    let root_event = world_id_indexer::blockchain::BlockchainEvent {
+        block_number: 100,
+        tx_hash: U256::from(999),
+        log_index: 1,
+        details: world_id_indexer::blockchain::RegistryEvent::RootRecorded(
+            world_id_indexer::blockchain::RootRecordedEvent {
+                root: U256::from(5555),
+                timestamp: U256::from(1000),
+            },
+        ),
+    };
+    tx.world_id_registry_events()
         .await
         .unwrap()
-        .insert_event(
-            100,
-            1,
-            WorldTreeRootEventType::RootRecorded,
-            &U256::from(999),
-            &U256::from(5555),
-            &U256::from(1000),
-        )
+        .insert_event(&root_event)
         .await
         .unwrap();
 

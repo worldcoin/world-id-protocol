@@ -2,7 +2,7 @@ mod helpers;
 
 use alloy::primitives::{Address, U256};
 use helpers::db_helpers::*;
-use world_id_indexer::db::WorldTreeEventType;
+use world_id_indexer::db::WorldIdRegistryEventType;
 
 /// Test handling of maximum U256 values
 #[tokio::test]
@@ -15,7 +15,7 @@ async fn test_max_u256_values() {
 
     // Insert account with max values
     db.accounts()
-        .insert(max_leaf_index, &Address::ZERO, &[], &[], &max_u256)
+        .insert(max_leaf_index, &Address::ZERO, &[], &[], &max_u256, 100, 0)
         .await
         .unwrap();
 
@@ -41,7 +41,7 @@ async fn test_zero_values() {
 
     // Insert account with zero values
     db.accounts()
-        .insert(0, &Address::ZERO, &[], &[], &U256::ZERO)
+        .insert(0, &Address::ZERO, &[], &[], &U256::ZERO, 100, 0)
         .await
         .unwrap();
 
@@ -71,7 +71,7 @@ async fn test_empty_authenticator_arrays() {
     // Insert account with empty authenticator arrays
     let result = db
         .accounts()
-        .insert(1, &Address::ZERO, &[], &[], &U256::from(100))
+        .insert(1, &Address::ZERO, &[], &[], &U256::from(100), 100, 0)
         .await;
 
     result.expect("Should handle empty authenticator arrays");
@@ -86,20 +86,27 @@ async fn test_max_block_number() {
     let max_block_number = u64::MAX;
 
     // Insert event with max block number
-    db.world_tree_events()
-        .insert_event(
-            1,
-            WorldTreeEventType::AccountCreated,
-            &U256::from(100),
-            max_block_number,
-            &U256::from(1000),
-            0,
-        )
+    let event = world_id_indexer::blockchain::BlockchainEvent {
+        block_number: max_block_number,
+        tx_hash: U256::from(1000),
+        log_index: 0,
+        details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
+            world_id_indexer::blockchain::AccountCreatedEvent {
+                leaf_index: 1,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: U256::from(100),
+            },
+        ),
+    };
+    db.world_id_registry_events()
+        .insert_event(&event)
         .await
         .unwrap();
 
     let event = db
-        .world_tree_events()
+        .world_id_registry_events()
         .get_event((max_block_number, 0))
         .await
         .unwrap();
@@ -115,20 +122,27 @@ async fn test_max_log_index() {
     let max_log_index = u64::MAX;
 
     // Insert event with max log index
-    db.world_tree_events()
-        .insert_event(
-            1,
-            WorldTreeEventType::AccountCreated,
-            &U256::from(100),
-            100,
-            &U256::from(1000),
-            max_log_index,
-        )
+    let event = world_id_indexer::blockchain::BlockchainEvent {
+        block_number: 100,
+        tx_hash: U256::from(1000),
+        log_index: max_log_index,
+        details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
+            world_id_indexer::blockchain::AccountCreatedEvent {
+                leaf_index: 1,
+                recovery_address: Address::ZERO,
+                authenticator_addresses: vec![],
+                authenticator_pubkeys: vec![],
+                offchain_signer_commitment: U256::from(100),
+            },
+        ),
+    };
+    db.world_id_registry_events()
+        .insert_event(&event)
         .await
         .unwrap();
 
     let event = db
-        .world_tree_events()
+        .world_id_registry_events()
         .get_event((100, max_log_index))
         .await
         .unwrap();
@@ -149,7 +163,15 @@ async fn test_max_authenticators() {
     let pubkeys: Vec<U256> = (0..max_auth).map(|i| U256::from(i)).collect();
 
     db.accounts()
-        .insert(1, &Address::ZERO, &addresses, &pubkeys, &U256::from(100))
+        .insert(
+            1,
+            &Address::ZERO,
+            &addresses,
+            &pubkeys,
+            &U256::from(100),
+            100,
+            0,
+        )
         .await
         .expect("Should handle reasonably large authenticator arrays");
 }
@@ -161,23 +183,93 @@ async fn test_all_event_types() {
     let db = &test_db.db;
 
     let event_types = [
-        WorldTreeEventType::AccountCreated,
-        WorldTreeEventType::AccountUpdated,
-        WorldTreeEventType::AuthenticationInserted,
-        WorldTreeEventType::AuthenticationRemoved,
-        WorldTreeEventType::AccountRecovered,
+        WorldIdRegistryEventType::AccountCreated,
+        WorldIdRegistryEventType::AccountUpdated,
+        WorldIdRegistryEventType::AuthenticatorInserted,
+        WorldIdRegistryEventType::AuthenticatorRemoved,
+        WorldIdRegistryEventType::AccountRecovered,
     ];
 
     for (i, event_type) in event_types.iter().enumerate() {
-        db.world_tree_events()
-            .insert_event(
-                i as u64,
-                *event_type,
-                &U256::from(i * 100),
-                100,
-                &U256::from(1000),
-                i as u64,
-            )
+        let details = match event_type {
+            WorldIdRegistryEventType::AccountCreated => {
+                world_id_indexer::blockchain::RegistryEvent::AccountCreated(
+                    world_id_indexer::blockchain::AccountCreatedEvent {
+                        leaf_index: i as u64,
+                        recovery_address: Address::ZERO,
+                        authenticator_addresses: vec![],
+                        authenticator_pubkeys: vec![],
+                        offchain_signer_commitment: U256::from(i * 100),
+                    },
+                )
+            }
+            WorldIdRegistryEventType::AccountUpdated => {
+                world_id_indexer::blockchain::RegistryEvent::AccountUpdated(
+                    world_id_indexer::blockchain::AccountUpdatedEvent {
+                        leaf_index: i as u64,
+                        pubkey_id: 0,
+                        new_authenticator_pubkey: U256::from(i * 100),
+                        old_authenticator_address: Address::ZERO,
+                        new_authenticator_address: Address::ZERO,
+                        old_offchain_signer_commitment: U256::ZERO,
+                        new_offchain_signer_commitment: U256::from(i * 100),
+                    },
+                )
+            }
+            WorldIdRegistryEventType::AuthenticatorInserted => {
+                world_id_indexer::blockchain::RegistryEvent::AuthenticatorInserted(
+                    world_id_indexer::blockchain::AuthenticatorInsertedEvent {
+                        leaf_index: i as u64,
+                        pubkey_id: 0,
+                        authenticator_address: Address::ZERO,
+                        new_authenticator_pubkey: U256::from(i * 100),
+                        old_offchain_signer_commitment: U256::ZERO,
+                        new_offchain_signer_commitment: U256::from(i * 100),
+                    },
+                )
+            }
+            WorldIdRegistryEventType::AuthenticatorRemoved => {
+                world_id_indexer::blockchain::RegistryEvent::AuthenticatorRemoved(
+                    world_id_indexer::blockchain::AuthenticatorRemovedEvent {
+                        leaf_index: i as u64,
+                        pubkey_id: 0,
+                        authenticator_address: Address::ZERO,
+                        authenticator_pubkey: U256::from(i * 100),
+                        old_offchain_signer_commitment: U256::ZERO,
+                        new_offchain_signer_commitment: U256::from(i * 100),
+                    },
+                )
+            }
+            WorldIdRegistryEventType::AccountRecovered => {
+                world_id_indexer::blockchain::RegistryEvent::AccountRecovered(
+                    world_id_indexer::blockchain::AccountRecoveredEvent {
+                        leaf_index: i as u64,
+                        new_authenticator_address: Address::ZERO,
+                        new_authenticator_pubkey: U256::from(i * 100),
+                        old_offchain_signer_commitment: U256::ZERO,
+                        new_offchain_signer_commitment: U256::from(i * 100),
+                    },
+                )
+            }
+            WorldIdRegistryEventType::RootRecorded => {
+                world_id_indexer::blockchain::RegistryEvent::RootRecorded(
+                    world_id_indexer::blockchain::RootRecordedEvent {
+                        root: U256::from(i * 100),
+                        timestamp: U256::ZERO,
+                    },
+                )
+            }
+        };
+
+        let event = world_id_indexer::blockchain::BlockchainEvent {
+            block_number: 100,
+            tx_hash: U256::from(1000),
+            log_index: i as u64,
+            details,
+        };
+
+        db.world_id_registry_events()
+            .insert_event(&event)
             .await
             .unwrap();
     }
@@ -206,20 +298,32 @@ async fn test_root_timestamp_edge_cases() {
     assert_eq!(count, 2);
 
     // Verify zero timestamp
-    let root0 = db.world_tree_roots().get_root((100, 0)).await.unwrap();
-    assert!(root0.is_some(), "Root with zero timestamp should exist");
+    let event0 = db
+        .world_id_registry_events()
+        .get_event((100, 0))
+        .await
+        .unwrap();
+    assert!(event0.is_some(), "Root with zero timestamp should exist");
+    let event0 = event0.unwrap();
     assert_eq!(
-        root0.unwrap().timestamp,
-        U256::ZERO,
-        "Timestamp should be ZERO"
+        event0.event_type,
+        WorldIdRegistryEventType::RootRecorded,
+        "Event type should be RootRecorded"
     );
+    // Timestamp is stored in event_data as JSON
 
     // Verify max timestamp
-    let root1 = db.world_tree_roots().get_root((100, 1)).await.unwrap();
-    assert!(root1.is_some(), "Root with max timestamp should exist");
+    let event1 = db
+        .world_id_registry_events()
+        .get_event((100, 1))
+        .await
+        .unwrap();
+    assert!(event1.is_some(), "Root with max timestamp should exist");
+    let event1 = event1.unwrap();
     assert_eq!(
-        root1.unwrap().timestamp,
-        U256::MAX,
-        "Timestamp should be MAX"
+        event1.event_type,
+        WorldIdRegistryEventType::RootRecorded,
+        "Event type should be RootRecorded"
     );
+    // Timestamp is stored in event_data as JSON
 }

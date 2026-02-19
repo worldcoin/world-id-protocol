@@ -42,6 +42,41 @@ impl<'a> EventsCommitter<'a> {
         let mut transaction = self.db.transaction(IsolationLevel::Serializable).await?;
 
         for event in self.buffered_events.iter() {
+            // First, store the full event in world_id_registry_events with idempotency check
+            let exists = transaction
+                .world_id_registry_events()
+                .await?
+                .check_event_exists(event.block_number, event.log_index, &event.tx_hash)
+                .await?;
+
+            match exists {
+                Some(true) => {
+                    // Event already processed with matching tx_hash - skip it (idempotent)
+                    tracing::info!(
+                        block_number = event.block_number,
+                        log_index = event.log_index,
+                        "Event already processed, skipping"
+                    );
+                    continue;
+                }
+                Some(false) => {
+                    // Event exists but tx_hash differs - this is a reorg!
+                    return Err(crate::db::DBError::InvalidEventType(format!(
+                        "Event at block {} log_index {} exists with different tx_hash - possible reorg detected",
+                        event.block_number, event.log_index
+                    )));
+                }
+                None => {
+                    // Event doesn't exist - insert it
+                    transaction
+                        .world_id_registry_events()
+                        .await?
+                        .insert_event(event)
+                        .await?;
+                }
+            }
+
+            // Apply the event to update account state
             EventsProcessor::process_event(&mut transaction, event).await?;
         }
 

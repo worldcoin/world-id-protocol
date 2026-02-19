@@ -2,15 +2,11 @@ use sqlx::{Acquire, PgConnection, PgPool, Postgres, Transaction, postgres::PgPoo
 use thiserror::Error;
 
 mod accounts;
-mod world_tree_events;
-mod world_tree_roots;
+mod world_id_registry_events;
 
 pub use accounts::Accounts;
-pub use world_tree_events::{
-    WorldTreeEvent, WorldTreeEventId, WorldTreeEventType, WorldTreeEvents,
-};
-pub use world_tree_roots::{
-    WorldTreeRoot, WorldTreeRootEventType, WorldTreeRootId, WorldTreeRoots,
+pub use world_id_registry_events::{
+    WorldIdRegistryEvent, WorldIdRegistryEventId, WorldIdRegistryEventType, WorldIdRegistryEvents,
 };
 
 pub type DBResult<T> = Result<T, DBError>;
@@ -64,16 +60,12 @@ impl PostgresDB {
         PostgresDBTransaction::new(&self.pool, isolation_level).await
     }
 
-    pub fn world_tree_events(&self) -> WorldTreeEvents<'_, &PgPool> {
-        WorldTreeEvents::with_executor(&self.pool)
-    }
-
-    pub fn world_tree_roots(&self) -> WorldTreeRoots<'_, &PgPool> {
-        WorldTreeRoots::with_executor(&self.pool)
-    }
-
     pub fn accounts(&self) -> Accounts<'_, &PgPool> {
         Accounts::with_executor(&self.pool)
+    }
+
+    pub fn world_id_registry_events(&self) -> WorldIdRegistryEvents<'_, &PgPool> {
+        WorldIdRegistryEvents::with_executor(&self.pool)
     }
 
     pub async fn ping(&self) -> DBResult<()> {
@@ -129,23 +121,18 @@ impl<'a> PostgresDBTransaction<'a> {
         Ok(Self { tx })
     }
 
-    /// Get a world_tree_events table accessor for executing a single query.
-    /// Multiple calls to this or other table methods are allowed within the same transaction.
-    pub async fn world_tree_events(&mut self) -> DBResult<WorldTreeEvents<'_, &mut PgConnection>> {
-        let conn = self.tx.acquire().await?;
-        Ok(WorldTreeEvents::with_executor(conn))
-    }
-
-    /// Get a world_tree_roots table accessor for executing a single query.
-    pub async fn world_tree_roots(&mut self) -> DBResult<WorldTreeRoots<'_, &mut PgConnection>> {
-        let conn = self.tx.acquire().await?;
-        Ok(WorldTreeRoots::with_executor(conn))
-    }
-
     /// Get an accounts table accessor for executing a single query.
     pub async fn accounts(&mut self) -> DBResult<Accounts<'_, &mut PgConnection>> {
         let conn = self.tx.acquire().await?;
         Ok(Accounts::with_executor(conn))
+    }
+
+    /// Get a world_id_registry_events table accessor for executing a single query.
+    pub async fn world_id_registry_events(
+        &mut self,
+    ) -> DBResult<WorldIdRegistryEvents<'_, &mut PgConnection>> {
+        let conn = self.tx.acquire().await?;
+        Ok(WorldIdRegistryEvents::with_executor(conn))
     }
 
     pub async fn commit(self) -> DBResult<()> {

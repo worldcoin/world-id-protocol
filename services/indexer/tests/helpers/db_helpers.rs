@@ -3,7 +3,10 @@
 use alloy::primitives::{Address, U256};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
-use world_id_indexer::db::{DB, DBResult, WorldTreeEventType, WorldTreeRootEventType};
+use world_id_indexer::{
+    blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
+    db::{DB, DBResult},
+};
 
 /// RAII guard that ensures test database cleanup on drop
 pub struct TestDatabase {
@@ -133,30 +136,16 @@ pub async fn insert_test_account(
     commitment: U256,
 ) -> DBResult<()> {
     db.accounts()
-        .insert(leaf_index, &recovery_address, &[], &[], &commitment)
+        .insert(leaf_index, &recovery_address, &[], &[], &commitment, 100, 0)
         .await
 }
 
 /// Insert a test world tree event directly into the database
 pub async fn insert_test_world_tree_event(
     db: &DB,
-    block_number: u64,
-    log_index: u64,
-    leaf_index: u64,
-    event_type: WorldTreeEventType,
-    tx_hash: U256,
-    commitment: U256,
+    event: &BlockchainEvent<RegistryEvent>,
 ) -> DBResult<()> {
-    db.world_tree_events()
-        .insert_event(
-            leaf_index,
-            event_type,
-            &commitment,
-            block_number,
-            &tx_hash,
-            log_index,
-        )
-        .await
+    db.world_id_registry_events().insert_event(event).await
 }
 
 /// Insert a test world tree root event directly into the database
@@ -167,16 +156,13 @@ pub async fn insert_test_world_tree_root(
     root: U256,
     timestamp: U256,
 ) -> DBResult<()> {
-    db.world_tree_roots()
-        .insert_event(
-            block_number,
-            log_index,
-            WorldTreeRootEventType::RootRecorded,
-            &U256::ZERO,
-            &root,
-            &timestamp,
-        )
-        .await
+    let event = BlockchainEvent {
+        block_number,
+        tx_hash: U256::ZERO,
+        log_index,
+        details: RegistryEvent::RootRecorded(RootRecordedEvent { root, timestamp }),
+    };
+    db.world_id_registry_events().insert_event(&event).await
 }
 
 /// Count accounts in the database
@@ -190,19 +176,21 @@ pub async fn count_accounts(pool: &PgPool) -> DBResult<i64> {
 
 /// Count world tree events in the database
 pub async fn count_world_tree_events(pool: &PgPool) -> DBResult<i64> {
-    let (count,): (i64,) =
-        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM world_tree_events")
-            .fetch_one(pool)
-            .await?;
+    let (count,): (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
+        "SELECT COUNT(*) FROM world_id_registry_events WHERE event_type != 'root_recorded'",
+    )
+    .fetch_one(pool)
+    .await?;
     Ok(count)
 }
 
 /// Count world tree roots in the database
 pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
-    let (count,): (i64,) =
-        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM world_tree_roots")
-            .fetch_one(pool)
-            .await?;
+    let (count,): (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
+        "SELECT COUNT(*) FROM world_id_registry_events WHERE event_type = 'root_recorded'",
+    )
+    .fetch_one(pool)
+    .await?;
     Ok(count)
 }
 

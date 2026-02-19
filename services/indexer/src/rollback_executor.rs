@@ -1,6 +1,4 @@
-use crate::db::{
-    DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldTreeEvent, WorldTreeEventId,
-};
+use crate::db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId};
 
 pub struct RollbackExecutor<'a> {
     db: &'a DB,
@@ -11,7 +9,7 @@ impl<'a> RollbackExecutor<'a> {
         Self { db }
     }
 
-    pub async fn rollback_to_event(&mut self, event_id: WorldTreeEventId) -> DBResult<()> {
+    pub async fn rollback_to_event(&mut self, event_id: WorldIdRegistryEventId) -> DBResult<()> {
         tracing::info!("rolling back up to event = {:?}", event_id);
 
         let mut transaction = self.db.transaction(IsolationLevel::Serializable).await?;
@@ -20,7 +18,7 @@ impl<'a> RollbackExecutor<'a> {
         let affected_leaf_indices = transaction
             .accounts()
             .await?
-            .get_affected_leaf_indices(&event_id)
+            .get_after_event((event_id.block_number, event_id.log_index))
             .await?;
 
         tracing::info!("Found {} accounts to rollback", affected_leaf_indices.len());
@@ -29,30 +27,21 @@ impl<'a> RollbackExecutor<'a> {
         let removed_accounts = transaction
             .accounts()
             .await?
-            .delete_after_event(&event_id)
+            .delete_after_event((event_id.block_number, event_id.log_index))
             .await?;
 
         tracing::info!("Removed {} accounts", removed_accounts);
 
-        // Step 3: Remove world_tree_events greater than event_id
-        let removed_events = transaction
-            .world_tree_events()
+        // Step 3: Remove world_id_registry_events greater than event_id
+        let removed_registry_events = transaction
+            .world_id_registry_events()
             .await?
             .delete_after_event(&event_id)
             .await?;
 
-        tracing::info!("Removed {} events", removed_events);
+        tracing::info!("Removed {} registry events", removed_registry_events);
 
-        // Step 4: Remove world_tree_roots greater than event_id
-        let removed_roots = transaction
-            .world_tree_roots()
-            .await?
-            .delete_after_event(&event_id)
-            .await?;
-
-        tracing::info!("Removed {} roots", removed_roots);
-
-        // Step 5: Replay events for each affected leaf index
+        // Step 4: Replay events for each affected leaf index
         for leaf_index in affected_leaf_indices {
             self.replay_events_for_leaf(&mut transaction, leaf_index, &event_id)
                 .await?;
@@ -70,24 +59,34 @@ impl<'a> RollbackExecutor<'a> {
         &self,
         tx: &mut PostgresDBTransaction<'_>,
         leaf_index: u64,
-        event_id: &WorldTreeEventId,
+        event_id: &WorldIdRegistryEventId,
     ) -> DBResult<()> {
-        // Get all events for this leaf up to the rollback point
+        // Get all events for this leaf up to the rollback point from the full events table
         let events = tx
-            .world_tree_events()
+            .world_id_registry_events()
             .await?
             .get_events_for_leaf(leaf_index, event_id)
             .await?;
 
-        tracing::debug!(
+        tracing::info!(
             "Replaying {} events for leaf_index {}",
             events.len(),
             leaf_index
         );
 
+        for (i, event) in events.iter().enumerate() {
+            tracing::info!(
+                "  Event {}: block={}, log={}, type={:?}",
+                i,
+                event.block_number,
+                event.log_index,
+                event.details
+            );
+        }
+
         // Apply each event in order
         for event in events {
-            EventsProcessor::process_event(&mut tx, event).await?;
+            crate::events_processor::EventsProcessor::process_event(tx, &event).await?;
         }
 
         Ok(())
