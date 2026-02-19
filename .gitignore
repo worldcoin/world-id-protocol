@@ -5,7 +5,6 @@ target/
 **/contracts/deployments/core/local.json
 **/contracts/deployments/crosschain/local.json
 
-**/contracts/lib/*
 **/contracts/out/*
 **/contracts/cache/
 **/contracts/broadcast/
