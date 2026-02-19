@@ -51,15 +51,15 @@ impl<'a> EventsCommitter<'a> {
 
             if let Some(db_event) = db_event {
                 if db_event.block_hash != event.block_hash {
-                    return Err(crate::db::DBError::InvalidEventType(format!(
-                        "Event at block {} log_index {} exists with different block_hash (db: {}, event: {}) - possible reorg detected",
+                    return Err(crate::db::DBError::ReorgDetected(format!(
+                        "Event at block {} log_index {} exists with different block_hash (db: {}, event: {})",
                         event.block_number, event.log_index, db_event.block_hash, event.block_hash,
                     )));
                 }
 
                 if db_event.tx_hash != event.tx_hash {
-                    return Err(crate::db::DBError::InvalidEventType(format!(
-                        "Event at block {} log_index {} exists with different tx_hash (db: {}, event: {}) - possible reorg detected",
+                    return Err(crate::db::DBError::ReorgDetected(format!(
+                        "Event at block {} log_index {} exists with different tx_hash (db: {}, event: {})",
                         event.block_number, event.log_index, db_event.tx_hash, event.tx_hash,
                     )));
                 }

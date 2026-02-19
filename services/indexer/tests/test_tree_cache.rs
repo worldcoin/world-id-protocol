@@ -9,6 +9,7 @@ use serial_test::serial;
 use std::{fs, path::PathBuf, time::Duration};
 
 use alloy::primitives::{Address, U256, address};
+use world_id_indexer::blockchain::{AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent};
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
@@ -490,7 +491,6 @@ async fn test_authenticator_removed_replay() {
     let new_commitment_after_removal = U256::from(999);
 
     // Use the proper API instead of raw SQL
-    use world_id_indexer::blockchain::{AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent};
     let removed_event = BlockchainEvent {
         block_number: last_block + 1,
         block_hash: U256::from(11234),

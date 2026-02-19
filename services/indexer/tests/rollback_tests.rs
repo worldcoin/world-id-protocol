@@ -205,7 +205,6 @@ async fn test_rollback_with_account_updates() {
 
     // Rollback to block 101, log_index 1
     // This should remove:
-    // - Account 1 (because its latest_event is at block 101)
     // - Account 2 (because it was created at block 102)
     let rollback_point = WorldIdRegistryEventId {
         block_number: 101,

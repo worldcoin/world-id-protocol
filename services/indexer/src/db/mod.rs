@@ -17,8 +17,34 @@ pub enum DBError {
     Sqlx(#[from] sqlx::Error),
     #[error("migration error: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
-    #[error("invalid event type: {0}")]
-    InvalidEventType(String),
+    #[error("unknown event type: {0}")]
+    UnknownEventType(String),
+    #[error("missing required field '{field}' in event data")]
+    MissingEventField { field: String },
+    #[error("invalid value for field '{field}' in event data: {reason}")]
+    InvalidEventField { field: String, reason: String },
+    #[error("blockchain reorg detected: {0}")]
+    ReorgDetected(String),
+}
+
+// Helper macros for cleaner error construction
+#[macro_export]
+macro_rules! missing_field {
+    ($field:expr) => {
+        $crate::db::DBError::MissingEventField {
+            field: $field.to_string(),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! invalid_field {
+    ($field:expr, $reason:expr) => {
+        $crate::db::DBError::InvalidEventField {
+            field: $field.to_string(),
+            reason: $reason.to_string(),
+        }
+    };
 }
 
 // Type alias for convenience (for potential future generics)
