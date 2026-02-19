@@ -1,4 +1,4 @@
-use crate::db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId};
+use crate::{db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId}, events_processor::EventsProcessor};
 
 pub struct RollbackExecutor<'a> {
     db: &'a DB,
@@ -86,7 +86,7 @@ impl<'a> RollbackExecutor<'a> {
 
         // Apply each event in order
         for event in events {
-            crate::events_processor::EventsProcessor::process_event(tx, &event).await?;
+            EventsProcessor::process_event(tx, &event).await?;
         }
 
         Ok(())

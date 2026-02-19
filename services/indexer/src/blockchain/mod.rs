@@ -55,7 +55,7 @@ pub enum BlockchainError {
     #[error("missing block number in log topics")]
     MissingBlockNumber,
     #[error("missing block hash in log topics")]
-    MissingHash,
+    MissingBlockHash,
     #[error("missing transaction hash in log topics")]
     MissingTxHash,
     #[error("missing log index in log topics")]
