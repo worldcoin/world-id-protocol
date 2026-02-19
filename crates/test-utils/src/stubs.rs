@@ -36,7 +36,7 @@ fn proof_pubkeys_response(
                 .pk
                 .serialize_compressed(&mut compressed)
                 .expect("failed to serialize compressed authenticator pubkey");
-            U256::from_le_slice(&compressed)
+            Some(U256::from_le_slice(&compressed))
         })
         .collect();
 

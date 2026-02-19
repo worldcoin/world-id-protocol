@@ -47,6 +47,7 @@ world-id-core = { workspace = true, features = [
   "embed-zkeys",
 ] }
 world-id-primitives = { workspace = true, features = ["openapi"] }
+ark-babyjubjub = { workspace = true }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }

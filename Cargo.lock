@@ -9048,6 +9048,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sqlx",
+ "taceo-ark-babyjubjub",
  "taceo-poseidon2",
  "take_mut",
  "telemetry-batteries 0.2.1",

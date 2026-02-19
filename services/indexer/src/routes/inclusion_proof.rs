@@ -1,5 +1,6 @@
 use crate::{config::AppState, error::IndexerErrorResponse};
 use alloy::primitives::U256;
+use ark_babyjubjub::EdwardsAffine;
 use axum::{Json, extract::State};
 use http::StatusCode;
 use semaphore_rs_trees::{Branch, proof::InclusionProof};
@@ -8,7 +9,8 @@ use world_id_core::{
     api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest},
 };
 use world_id_primitives::{
-    FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
+    FieldElement, TREE_DEPTH,
+    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
     merkle::MerkleInclusionProof,
 };
 
@@ -65,17 +67,36 @@ pub(crate) async fn handler(
         .map_err(|_err| IndexerErrorResponse::internal_server_error())?
         .ok_or(IndexerErrorResponse::not_found())?;
 
+    let last_present_idx = pubkeys.iter().rposition(Option::is_some);
+    if let Some(idx) = last_present_idx
+        && idx >= MAX_AUTHENTICATOR_KEYS
+    {
+        tracing::error!(
+            leaf_index = %leaf_index,
+            "Invalid authenticator slot index returned from DB: {idx}"
+        );
+        return Err(IndexerErrorResponse::internal_server_error());
+    }
+
+    let normalized_len = last_present_idx.map_or(0, |idx| idx + 1);
     let pubkeys: Vec<EdDSAPublicKey> = pubkeys
-        .iter()
-        .map(|pubkey| {
-            // Encoding matches insertion in core::authenticator::Authenticator operations
-            EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|err| {
-                tracing::error!(
-                    leaf_index = %leaf_index,
-                    "Invalid public key stored for account (not affine compressed): {pubkey} ({err})"
-                );
-                IndexerErrorResponse::internal_server_error()
-            })
+        .into_iter()
+        .take(normalized_len)
+        .map(|pubkey| match pubkey {
+            Some(pubkey) => {
+                // Encoding matches insertion in core::authenticator::Authenticator operations
+                EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|err| {
+                    tracing::error!(
+                        leaf_index = %leaf_index,
+                        "Invalid public key stored for account (not affine compressed): {pubkey} ({err})"
+                    );
+                    IndexerErrorResponse::internal_server_error()
+                })
+            }
+            // Null slots represent removed authenticators and must keep their position.
+            None => Ok(EdDSAPublicKey {
+                pk: EdwardsAffine::default(),
+            }),
         })
         .collect::<Result<Vec<_>, _>>()?;
 

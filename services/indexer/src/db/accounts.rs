@@ -1,11 +1,9 @@
-use core::fmt;
-
+use crate::db::DBResult;
 use alloy::primitives::{Address, U160, U256};
+use core::fmt;
 use futures_util::{Stream, StreamExt as _};
 use sqlx::{Postgres, Row, postgres::PgRow, types::Json};
 use tracing::instrument;
-
-use crate::db::DBResult;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AccountLatestEventId {
@@ -26,8 +24,8 @@ impl From<(u64, u64)> for AccountLatestEventId {
 pub struct Account {
     pub leaf_index: u64,
     pub recovery_address: Address,
-    pub authenticator_addresses: Vec<Address>,
-    pub authenticator_pubkeys: Vec<U256>,
+    pub authenticator_addresses: Vec<Option<Address>>,
+    pub authenticator_pubkeys: Vec<Option<U256>>,
     pub offchain_signer_commitment: U256,
     pub latest_event_id: AccountLatestEventId,
 }
@@ -78,7 +76,7 @@ where
     pub async fn get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
         self,
         leaf_index: u64,
-    ) -> DBResult<Option<(U256, Vec<U256>)>> {
+    ) -> DBResult<Option<(U256, Vec<Option<U256>>)>> {
         let result = sqlx::query(
             r#"
                 SELECT
@@ -394,21 +392,27 @@ where
         Ok(row.get::<U256, _>("offchain_signer_commitment"))
     }
 
-    fn map_authenticator_addresses(row: &PgRow) -> DBResult<Vec<Address>> {
+    /// Maps authenticator addresses from DB JSON into the full slot list stored for the account.
+    ///
+    /// Removed authenticators are preserved as `None` entries so caller logic keeps slot positions.
+    fn map_authenticator_addresses(row: &PgRow) -> DBResult<Vec<Option<Address>>> {
         Ok(row
             .get::<Json<Vec<Option<String>>>, _>("authenticator_addresses")
             .0
             .iter()
-            .filter_map(|opt| opt.as_ref()?.parse::<Address>().ok())
+            .map(|opt| opt.as_ref().and_then(|value| value.parse::<Address>().ok()))
             .collect())
     }
 
-    fn map_authenticator_pub_keys(row: &PgRow) -> DBResult<Vec<U256>> {
+    /// Maps authenticator public keys from DB JSON into the full slot list stored for the account.
+    ///
+    /// Removed authenticators are preserved as `None` entries so caller logic keeps slot positions.
+    fn map_authenticator_pub_keys(row: &PgRow) -> DBResult<Vec<Option<U256>>> {
         Ok(row
             .get::<Json<Vec<Option<String>>>, _>("authenticator_pubkeys")
             .0
             .iter()
-            .filter_map(|opt| opt.as_ref()?.parse::<U256>().ok())
+            .map(|opt| opt.as_ref().and_then(|value| value.parse::<U256>().ok()))
             .collect())
     }
 

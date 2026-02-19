@@ -36,8 +36,14 @@ async fn test_insert_account() {
     let account = account.unwrap();
     assert_eq!(account.leaf_index, leaf_index);
     assert_eq!(account.recovery_address, recovery_address);
-    assert_eq!(account.authenticator_addresses, auth_addresses);
-    assert_eq!(account.authenticator_pubkeys, auth_pubkeys);
+    assert_eq!(
+        account.authenticator_addresses,
+        auth_addresses.into_iter().map(Some).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        account.authenticator_pubkeys,
+        auth_pubkeys.into_iter().map(Some).collect::<Vec<_>>()
+    );
     assert_eq!(account.offchain_signer_commitment, commitment);
     // Cleanup happens automatically when test_db is dropped
 }
@@ -142,8 +148,8 @@ async fn test_update_authenticator_at_index() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(account.authenticator_addresses[0], new_address);
-    assert_eq!(account.authenticator_pubkeys[0], new_pubkey);
+    assert_eq!(account.authenticator_addresses[0], Some(new_address));
+    assert_eq!(account.authenticator_pubkeys[0], Some(new_pubkey));
     assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
@@ -196,8 +202,8 @@ async fn test_insert_authenticator_at_index() {
         .unwrap()
         .unwrap();
     assert_eq!(account.authenticator_addresses.len(), 2);
-    assert_eq!(account.authenticator_addresses[1], new_address);
-    assert_eq!(account.authenticator_pubkeys[1], new_pubkey);
+    assert_eq!(account.authenticator_addresses[1], Some(new_address));
+    assert_eq!(account.authenticator_pubkeys[1], Some(new_pubkey));
     assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
@@ -239,9 +245,59 @@ async fn test_remove_authenticator_at_index() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(account.authenticator_addresses.len(), 1);
-    assert_eq!(account.authenticator_addresses[0], Address::from([1u8; 20]));
-    assert_eq!(account.authenticator_pubkeys[0], U256::from(123));
+    assert_eq!(account.authenticator_addresses.len(), 2);
+    assert_eq!(
+        account.authenticator_addresses[0],
+        Some(Address::from([1u8; 20]))
+    );
+    assert_eq!(account.authenticator_addresses[1], None);
+    assert_eq!(account.authenticator_pubkeys.len(), 2);
+    assert_eq!(account.authenticator_pubkeys[0], Some(U256::from(123)));
+    assert_eq!(account.authenticator_pubkeys[1], None);
+    assert_eq!(account.offchain_signer_commitment, new_commitment);
+}
+
+/// Test removing the first authenticator preserves slot positions.
+#[tokio::test]
+async fn test_remove_first_authenticator_preserves_slot_positions() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    let leaf_index = 1u64;
+    let initial_commitment = U256::from(456);
+
+    db.accounts()
+        .insert(
+            leaf_index,
+            &Address::ZERO,
+            &[Address::from([1u8; 20]), Address::from([2u8; 20])],
+            &[U256::from(123), U256::from(456)],
+            &initial_commitment,
+        )
+        .await
+        .unwrap();
+
+    let new_commitment = U256::from(999);
+    db.accounts()
+        .remove_authenticator_at_index(leaf_index, 0, &new_commitment)
+        .await
+        .unwrap();
+
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_addresses.len(), 2);
+    assert_eq!(account.authenticator_addresses[0], None);
+    assert_eq!(
+        account.authenticator_addresses[1],
+        Some(Address::from([2u8; 20]))
+    );
+    assert_eq!(account.authenticator_pubkeys.len(), 2);
+    assert_eq!(account.authenticator_pubkeys[0], None);
+    assert_eq!(account.authenticator_pubkeys[1], Some(U256::from(456)));
     assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
@@ -295,8 +351,8 @@ async fn test_reset_authenticator() {
     assert_eq!(account.authenticator_pubkeys.len(), 1);
 
     // Verify the new authenticator values
-    assert_eq!(account.authenticator_addresses[0], new_address);
-    assert_eq!(account.authenticator_pubkeys[0], new_pubkey);
+    assert_eq!(account.authenticator_addresses[0], Some(new_address));
+    assert_eq!(account.authenticator_pubkeys[0], Some(new_pubkey));
     assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
