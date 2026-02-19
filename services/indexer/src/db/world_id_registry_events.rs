@@ -9,7 +9,7 @@ use crate::{
         AuthenticatorInsertedEvent, AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent,
         RootRecordedEvent,
     },
-    db::DBResult,
+    db::{DBError::InvalidEventType, DBResult},
 };
 
 /// Event identifier for World ID Registry events
@@ -32,6 +32,7 @@ impl From<(u64, u64)> for WorldIdRegistryEventId {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorldIdRegistryEvent {
     pub id: WorldIdRegistryEventId,
+    pub block_hash: U256,
     pub tx_hash: U256,
     pub event_type: WorldIdRegistryEventType,
     pub leaf_index: Option<u64>,
@@ -76,7 +77,7 @@ impl<'a> TryFrom<&'a str> for WorldIdRegistryEventType {
             "authenticator_removed" => Ok(WorldIdRegistryEventType::AuthenticatorRemoved),
             "account_recovered" => Ok(WorldIdRegistryEventType::AccountRecovered),
             "root_recorded" => Ok(WorldIdRegistryEventType::RootRecorded),
-            _ => Err(crate::db::DBError::InvalidEventType(value.to_string())),
+            _ => Err(InvalidEventType(value.to_string())),
         }
     }
 }
@@ -139,54 +140,33 @@ pub fn deserialize_registry_event(
         WorldIdRegistryEventType::AccountCreated => {
             let recovery_address = event_data["recovery_address"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType("missing recovery_address".to_string())
-                })?
+                .ok_or_else(|| InvalidEventType("missing recovery_address".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType("invalid recovery_address".to_string())
-                })?;
+                .map_err(|_| InvalidEventType("invalid recovery_address".to_string()))?;
 
             let authenticator_addresses: Vec<_> = event_data["authenticator_addresses"]
                 .as_array()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing authenticator_addresses".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing authenticator_addresses".to_string()))?
                 .iter()
                 .filter_map(|v| v.as_str()?.parse().ok())
                 .collect();
 
             let authenticator_pubkeys: Vec<_> = event_data["authenticator_pubkeys"]
                 .as_array()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing authenticator_pubkeys".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing authenticator_pubkeys".to_string()))?
                 .iter()
                 .filter_map(|v| v.as_str()?.parse().ok())
                 .collect();
 
             let offchain_signer_commitment = event_data["offchain_signer_commitment"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing offchain_signer_commitment".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing offchain_signer_commitment".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid offchain_signer_commitment".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid offchain_signer_commitment".to_string()))?;
 
             Ok(RegistryEvent::AccountCreated(AccountCreatedEvent {
-                leaf_index: leaf_index.ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType("missing leaf_index".to_string())
-                })?,
+                leaf_index: leaf_index
+                    .ok_or_else(|| InvalidEventType("missing leaf_index".to_string()))?,
                 recovery_address,
                 authenticator_addresses,
                 authenticator_pubkeys,
@@ -194,84 +174,52 @@ pub fn deserialize_registry_event(
             }))
         }
         WorldIdRegistryEventType::AccountUpdated => {
-            let pubkey_id = event_data["pubkey_id"].as_u64().ok_or_else(|| {
-                crate::db::DBError::InvalidEventType("missing pubkey_id".to_string())
-            })? as u32;
+            let pubkey_id = event_data["pubkey_id"]
+                .as_u64()
+                .ok_or_else(|| InvalidEventType("missing pubkey_id".to_string()))?
+                as u32;
 
             let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_authenticator_pubkey".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing new_authenticator_pubkey".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_authenticator_pubkey".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid new_authenticator_pubkey".to_string()))?;
 
             let old_authenticator_address = event_data["old_authenticator_address"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing old_authenticator_address".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing old_authenticator_address".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid old_authenticator_address".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid old_authenticator_address".to_string()))?;
 
             let new_authenticator_address = event_data["new_authenticator_address"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_authenticator_address".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing new_authenticator_address".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_authenticator_address".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid new_authenticator_address".to_string()))?;
 
             let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
                 .as_str()
                 .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing old_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("missing old_offchain_signer_commitment".to_string())
                 })?
                 .parse()
                 .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid old_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("invalid old_offchain_signer_commitment".to_string())
                 })?;
 
             let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
                 .as_str()
                 .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("missing new_offchain_signer_commitment".to_string())
                 })?
                 .parse()
                 .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("invalid new_offchain_signer_commitment".to_string())
                 })?;
 
             Ok(RegistryEvent::AccountUpdated(AccountUpdatedEvent {
-                leaf_index: leaf_index.ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType("missing leaf_index".to_string())
-                })?,
+                leaf_index: leaf_index
+                    .ok_or_else(|| InvalidEventType("missing leaf_index".to_string()))?,
                 pubkey_id,
                 new_authenticator_pubkey,
                 old_authenticator_address,
@@ -281,71 +229,47 @@ pub fn deserialize_registry_event(
             }))
         }
         WorldIdRegistryEventType::AuthenticatorInserted => {
-            let pubkey_id = event_data["pubkey_id"].as_u64().ok_or_else(|| {
-                crate::db::DBError::InvalidEventType("missing pubkey_id".to_string())
-            })? as u32;
+            let pubkey_id = event_data["pubkey_id"]
+                .as_u64()
+                .ok_or_else(|| InvalidEventType("missing pubkey_id".to_string()))?
+                as u32;
 
             let authenticator_address = event_data["authenticator_address"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing authenticator_address".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing authenticator_address".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid authenticator_address".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid authenticator_address".to_string()))?;
 
             let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_authenticator_pubkey".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing new_authenticator_pubkey".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_authenticator_pubkey".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid new_authenticator_pubkey".to_string()))?;
 
             let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
                 .as_str()
                 .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing old_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("missing old_offchain_signer_commitment".to_string())
                 })?
                 .parse()
                 .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid old_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("invalid old_offchain_signer_commitment".to_string())
                 })?;
 
             let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
                 .as_str()
                 .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("missing new_offchain_signer_commitment".to_string())
                 })?
                 .parse()
                 .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("invalid new_offchain_signer_commitment".to_string())
                 })?;
 
             Ok(RegistryEvent::AuthenticatorInserted(
                 AuthenticatorInsertedEvent {
-                    leaf_index: leaf_index.ok_or_else(|| {
-                        crate::db::DBError::InvalidEventType("missing leaf_index".to_string())
-                    })?,
+                    leaf_index: leaf_index
+                        .ok_or_else(|| InvalidEventType("missing leaf_index".to_string()))?,
                     pubkey_id,
                     authenticator_address,
                     new_authenticator_pubkey,
@@ -355,67 +279,47 @@ pub fn deserialize_registry_event(
             ))
         }
         WorldIdRegistryEventType::AuthenticatorRemoved => {
-            let pubkey_id = event_data["pubkey_id"].as_u64().ok_or_else(|| {
-                crate::db::DBError::InvalidEventType("missing pubkey_id".to_string())
-            })? as u32;
+            let pubkey_id = event_data["pubkey_id"]
+                .as_u64()
+                .ok_or_else(|| InvalidEventType("missing pubkey_id".to_string()))?
+                as u32;
 
             let authenticator_address = event_data["authenticator_address"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing authenticator_address".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing authenticator_address".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid authenticator_address".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid authenticator_address".to_string()))?;
 
             let authenticator_pubkey = event_data["authenticator_pubkey"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType("missing authenticator_pubkey".to_string())
-                })?
+                .ok_or_else(|| InvalidEventType("missing authenticator_pubkey".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType("invalid authenticator_pubkey".to_string())
-                })?;
+                .map_err(|_| InvalidEventType("invalid authenticator_pubkey".to_string()))?;
 
             let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
                 .as_str()
                 .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing old_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("missing old_offchain_signer_commitment".to_string())
                 })?
                 .parse()
                 .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid old_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("invalid old_offchain_signer_commitment".to_string())
                 })?;
 
             let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
                 .as_str()
                 .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("missing new_offchain_signer_commitment".to_string())
                 })?
                 .parse()
                 .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("invalid new_offchain_signer_commitment".to_string())
                 })?;
 
             Ok(RegistryEvent::AuthenticatorRemoved(
                 AuthenticatorRemovedEvent {
-                    leaf_index: leaf_index.ok_or_else(|| {
-                        crate::db::DBError::InvalidEventType("missing leaf_index".to_string())
-                    })?,
+                    leaf_index: leaf_index
+                        .ok_or_else(|| InvalidEventType("missing leaf_index".to_string()))?,
                     pubkey_id,
                     authenticator_address,
                     authenticator_pubkey,
@@ -427,64 +331,39 @@ pub fn deserialize_registry_event(
         WorldIdRegistryEventType::AccountRecovered => {
             let new_authenticator_address = event_data["new_authenticator_address"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_authenticator_address".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing new_authenticator_address".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_authenticator_address".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid new_authenticator_address".to_string()))?;
 
             let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_authenticator_pubkey".to_string(),
-                    )
-                })?
+                .ok_or_else(|| InvalidEventType("missing new_authenticator_pubkey".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_authenticator_pubkey".to_string(),
-                    )
-                })?;
+                .map_err(|_| InvalidEventType("invalid new_authenticator_pubkey".to_string()))?;
 
             let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
                 .as_str()
                 .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing old_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("missing old_offchain_signer_commitment".to_string())
                 })?
                 .parse()
                 .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid old_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("invalid old_offchain_signer_commitment".to_string())
                 })?;
 
             let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
                 .as_str()
                 .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType(
-                        "missing new_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("missing new_offchain_signer_commitment".to_string())
                 })?
                 .parse()
                 .map_err(|_| {
-                    crate::db::DBError::InvalidEventType(
-                        "invalid new_offchain_signer_commitment".to_string(),
-                    )
+                    InvalidEventType("invalid new_offchain_signer_commitment".to_string())
                 })?;
 
             Ok(RegistryEvent::AccountRecovered(AccountRecoveredEvent {
-                leaf_index: leaf_index.ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType("missing leaf_index".to_string())
-                })?,
+                leaf_index: leaf_index
+                    .ok_or_else(|| InvalidEventType("missing leaf_index".to_string()))?,
                 new_authenticator_address,
                 new_authenticator_pubkey,
                 old_offchain_signer_commitment,
@@ -494,19 +373,15 @@ pub fn deserialize_registry_event(
         WorldIdRegistryEventType::RootRecorded => {
             let root = event_data["root"]
                 .as_str()
-                .ok_or_else(|| crate::db::DBError::InvalidEventType("missing root".to_string()))?
+                .ok_or_else(|| InvalidEventType("missing root".to_string()))?
                 .parse()
-                .map_err(|_| crate::db::DBError::InvalidEventType("invalid root".to_string()))?;
+                .map_err(|_| InvalidEventType("invalid root".to_string()))?;
 
             let timestamp = event_data["timestamp"]
                 .as_str()
-                .ok_or_else(|| {
-                    crate::db::DBError::InvalidEventType("missing timestamp".to_string())
-                })?
+                .ok_or_else(|| InvalidEventType("missing timestamp".to_string()))?
                 .parse()
-                .map_err(|_| {
-                    crate::db::DBError::InvalidEventType("invalid timestamp".to_string())
-                })?;
+                .map_err(|_| InvalidEventType("invalid timestamp".to_string()))?;
 
             Ok(RegistryEvent::RootRecorded(RootRecordedEvent {
                 root,
@@ -567,16 +442,18 @@ where
                 INSERT INTO world_id_registry_events (
                     block_number,
                     log_index,
+                    block_hash,
                     tx_hash,
                     event_type,
                     leaf_index,
                     event_data
-                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (block_number, log_index) DO NOTHING
             "#,
         )
         .bind(event.block_number as i64)
         .bind(event.log_index as i64)
+        .bind(event.block_hash)
         .bind(event.tx_hash)
         .bind(event_type.to_string())
         .bind(leaf_index)
@@ -585,36 +462,6 @@ where
         .await?;
 
         Ok(())
-    }
-
-    /// Check if an event exists and matches the expected tx_hash
-    /// Returns: Ok(Some(true)) if exists and matches, Ok(Some(false)) if exists but doesn't match, Ok(None) if doesn't exist
-    pub async fn check_event_exists(
-        self,
-        block_number: u64,
-        log_index: u64,
-        expected_tx_hash: &U256,
-    ) -> DBResult<Option<bool>> {
-        let result = sqlx::query(
-            r#"
-                SELECT tx_hash
-                FROM world_id_registry_events
-                WHERE block_number = $1 AND log_index = $2
-            "#,
-        )
-        .bind(block_number as i64)
-        .bind(log_index as i64)
-        .fetch_optional(self.executor)
-        .await?;
-
-        if let Some(row) = result {
-            let existing_tx_hash = row.get::<U256, _>("tx_hash");
-            // If tx_hash matches, it's the same event (idempotent)
-            // If tx_hash differs, it's a reorg - different transaction at same position
-            Ok(Some(existing_tx_hash == *expected_tx_hash))
-        } else {
-            Ok(None) // Event doesn't exist
-        }
     }
 
     /// Get an event by its ID
@@ -628,6 +475,7 @@ where
                 SELECT
                     block_number,
                     log_index,
+                    block_hash,
                     tx_hash,
                     event_type,
                     leaf_index,
@@ -656,6 +504,7 @@ where
                 SELECT
                     block_number,
                     log_index,
+                    block_hash,
                     tx_hash,
                     event_type,
                     leaf_index,
@@ -710,6 +559,7 @@ where
 
         Ok(WorldIdRegistryEvent {
             id: event_id,
+            block_hash: row.get::<U256, _>("block_hash"),
             tx_hash: row.get::<U256, _>("tx_hash"),
             event_type,
             leaf_index: row.get::<Option<i64>, _>("leaf_index").map(|i| i as u64),
@@ -725,6 +575,7 @@ where
 
         Ok(BlockchainEvent {
             block_number: event.id.block_number,
+            block_hash: event.block_hash,
             tx_hash: event.tx_hash,
             log_index: event.id.log_index,
             details,
@@ -781,6 +632,7 @@ where
                 SELECT
                     block_number,
                     log_index,
+                    block_hash,
                     tx_hash,
                     event_type,
                     leaf_index,

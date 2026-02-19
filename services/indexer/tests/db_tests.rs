@@ -309,11 +309,13 @@ async fn test_insert_world_tree_event() {
     let block_number = 100;
     let log_index = 5;
     let leaf_index = 1u64;
+    let block_hash = U256::from(1999);
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
     let event = world_id_indexer::blockchain::BlockchainEvent {
         block_number,
+        block_hash,
         tx_hash,
         log_index,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
@@ -355,11 +357,13 @@ async fn test_duplicate_world_tree_event_insert() {
     let block_number = 100;
     let log_index = 5;
     let leaf_index = 1u64;
+    let block_hash = U256::from(1999);
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
     let event = world_id_indexer::blockchain::BlockchainEvent {
         block_number,
+        block_hash,
         tx_hash,
         log_index,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
@@ -401,11 +405,13 @@ async fn test_get_world_tree_event() {
     let block_number = 100;
     let log_index = 5;
     let leaf_index = 1u64;
+    let block_hash = U256::from(1999);
     let tx_hash = U256::from(999);
     let commitment = U256::from(456);
 
     let insert_event = world_id_indexer::blockchain::BlockchainEvent {
         block_number,
+        block_hash,
         tx_hash,
         log_index,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
@@ -448,6 +454,7 @@ async fn test_get_latest_world_tree_events() {
     for i in 0..5 {
         let event = world_id_indexer::blockchain::BlockchainEvent {
             block_number: 100 + i,
+            block_hash: U256::from(1999),
             tx_hash: U256::from(999),
             log_index: i,
             details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
@@ -483,6 +490,7 @@ async fn test_get_latest_world_tree_events() {
         assert_eq!(event.id.block_number, 100 + i);
         assert_eq!(event.id.log_index, i);
         assert_eq!(event.leaf_index, Some(i));
+        assert_eq!(event.block_hash, U256::from(1999));
         assert_eq!(event.tx_hash, U256::from(999));
     }
 }
@@ -650,6 +658,7 @@ async fn test_multiple_operations_in_transaction() {
     // Insert event
     let event = world_id_indexer::blockchain::BlockchainEvent {
         block_number: 100,
+        block_hash: U256::from(1999),
         tx_hash: U256::from(999),
         log_index: 0,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
@@ -672,6 +681,7 @@ async fn test_multiple_operations_in_transaction() {
     // Insert root
     let root_event = world_id_indexer::blockchain::BlockchainEvent {
         block_number: 100,
+        block_hash: U256::from(1999),
         tx_hash: U256::from(999),
         log_index: 1,
         details: world_id_indexer::blockchain::RegistryEvent::RootRecorded(

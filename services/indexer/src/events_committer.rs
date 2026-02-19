@@ -43,37 +43,41 @@ impl<'a> EventsCommitter<'a> {
 
         for event in self.buffered_events.iter() {
             // First, store the full event in world_id_registry_events with idempotency check
-            let exists = transaction
+            let db_event = transaction
                 .world_id_registry_events()
                 .await?
-                .check_event_exists(event.block_number, event.log_index, &event.tx_hash)
+                .get_event((event.block_number, event.log_index))
                 .await?;
 
-            match exists {
-                Some(true) => {
-                    // Event already processed with matching tx_hash - skip it (idempotent)
-                    tracing::info!(
-                        block_number = event.block_number,
-                        log_index = event.log_index,
-                        "Event already processed, skipping"
-                    );
-                    continue;
-                }
-                Some(false) => {
-                    // Event exists but tx_hash differs - this is a reorg!
+            if let Some(db_event) = db_event {
+                if db_event.block_hash != event.block_hash {
                     return Err(crate::db::DBError::InvalidEventType(format!(
-                        "Event at block {} log_index {} exists with different tx_hash - possible reorg detected",
-                        event.block_number, event.log_index
+                        "Event at block {} log_index {} exists with different block_hash (db: {}, event: {}) - possible reorg detected",
+                        event.block_number, event.log_index, db_event.block_hash, event.block_hash,
                     )));
                 }
-                None => {
-                    // Event doesn't exist - insert it
-                    transaction
-                        .world_id_registry_events()
-                        .await?
-                        .insert_event(event)
-                        .await?;
+
+                if db_event.tx_hash != event.tx_hash {
+                    return Err(crate::db::DBError::InvalidEventType(format!(
+                        "Event at block {} log_index {} exists with different tx_hash (db: {}, event: {}) - possible reorg detected",
+                        event.block_number, event.log_index, db_event.tx_hash, event.tx_hash,
+                    )));
                 }
+
+                // Event already processed with matching tx_hash - skip it (idempotent)
+                tracing::info!(
+                    block_number = event.block_number,
+                    log_index = event.log_index,
+                    "Event already processed, skipping"
+                );
+                continue;
+            } else {
+                // Event doesn't exist - insert it
+                transaction
+                    .world_id_registry_events()
+                    .await?
+                    .insert_event(event)
+                    .await?;
             }
 
             // Apply the event to update account state

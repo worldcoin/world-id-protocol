@@ -158,6 +158,7 @@ pub async fn insert_test_world_tree_root(
 ) -> DBResult<()> {
     let event = BlockchainEvent {
         block_number,
+        block_hash: U256::ZERO,
         tx_hash: U256::ZERO,
         log_index,
         details: RegistryEvent::RootRecorded(RootRecordedEvent { root, timestamp }),

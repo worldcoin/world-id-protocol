@@ -88,6 +88,7 @@ async fn test_max_block_number() {
     // Insert event with max block number
     let event = world_id_indexer::blockchain::BlockchainEvent {
         block_number: max_block_number,
+        block_hash: U256::from(11000),
         tx_hash: U256::from(1000),
         log_index: 0,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
@@ -124,6 +125,7 @@ async fn test_max_log_index() {
     // Insert event with max log index
     let event = world_id_indexer::blockchain::BlockchainEvent {
         block_number: 100,
+        block_hash: U256::from(11000),
         tx_hash: U256::from(1000),
         log_index: max_log_index,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
@@ -263,6 +265,7 @@ async fn test_all_event_types() {
 
         let event = world_id_indexer::blockchain::BlockchainEvent {
             block_number: 100,
+            block_hash: U256::from(11000),
             tx_hash: U256::from(1000),
             log_index: i as u64,
             details,
