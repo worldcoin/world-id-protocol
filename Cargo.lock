@@ -7170,8 +7170,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f20d0cfde0733de29896420bb452d6105290695dac5c99f34889ecacdc5f24b3"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -7183,8 +7181,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-client"
 version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86ba61787bbb4fa7e5eca43f1221922a684ef2e4dd6c1bf4d2bd70a7806b9165"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -7204,8 +7200,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-core"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8105a6fa70adb6872ea2eef5ad21bfc5c943d90dc43332347ec021cd44987cb"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7226,15 +7220,16 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-dev-client"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64ce4080b3accfddcde3b9650f5342807e68c61c9e74df2bd4f8c49db0229353"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
  "clap",
  "eyre",
+ "humantime",
  "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "rustls 0.23.36",
+ "secrecy",
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-oprf-client",
@@ -7250,8 +7245,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-key-gen"
 version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d24c3f8f2019b0accd96d19a7f547eee718fe518a50391fd27f87a861f173e6"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -7292,8 +7285,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-service"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77428930b54cdcb6de1b2303e607f415dd70c270f48cc2f89bf6117229fc0079"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -7334,8 +7325,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-test-utils"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45f77f21ce1a9d774dad5f7ae104c054479e6659745f9095ac36b0f31c02d173"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -7360,8 +7349,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-types"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e6bc6213af1e0e1d7701a88fb4861cb0df966fc8ca8bb57cd432d9293d7673b"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -9084,7 +9071,9 @@ name = "world-id-oprf-dev-client"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
  "backon",
  "clap",
  "eyre",
@@ -9103,6 +9092,7 @@ dependencies = [
  "webpki-roots 1.0.6",
  "world-id-core",
  "world-id-primitives",
+ "world-id-proof",
  "world-id-test-utils",
 ]
 

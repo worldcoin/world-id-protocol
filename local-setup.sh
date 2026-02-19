@@ -148,11 +148,12 @@ client() {
     if [ -z "${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT+x}" ]; then
         export OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/core/local.json)
     fi
-    if [ -z "${OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT+x}" ]; then
-        export OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
+    if [ -z "${OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
     fi
 
-    cargo run --release --bin world-id-oprf-dev-client -- "$@"
+    cargo run --release --bin world-id-dev-client-rp -- "$@"
+    cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
 }
 
 main() {
