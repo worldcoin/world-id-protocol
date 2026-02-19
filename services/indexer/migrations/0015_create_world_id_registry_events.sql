@@ -6,6 +6,9 @@ create table if not exists world_id_registry_events (
     block_number bigint not null,
     log_index bigint not null,
 
+    -- Block metadata
+    block_hash bytea not null,
+
     -- Transaction metadata
     tx_hash bytea not null,
 
@@ -41,6 +44,10 @@ create index idx_world_id_registry_events_event_data
 -- Index for time-based queries
 create index idx_world_id_registry_events_created_at
     on world_id_registry_events(created_at);
+
+-- Index for block lookup
+create index idx_world_id_registry_events_block_hash
+    on world_id_registry_events(block_hash);
 
 -- Index for transaction lookup
 create index idx_world_id_registry_events_tx_hash
