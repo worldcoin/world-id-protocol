@@ -54,7 +54,9 @@ async fn redis_integration() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: redis_url,
+        redis_url,
+        rate_limit_window_secs: Some(5),
+        rate_limit_max_requests: Some(10),
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");

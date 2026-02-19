@@ -2,6 +2,7 @@
 
 use std::{
     path::PathBuf,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -28,6 +29,15 @@ use world_id_test_utils::{
 };
 
 const GW_PORT: u16 = 4104;
+
+fn load_embedded_materials() -> (
+    Arc<world_id_core::proof::CircomGroth16Material>,
+    Arc<world_id_core::proof::CircomGroth16Material>,
+) {
+    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
+    (Arc::new(query_material), Arc::new(nullifier_material))
+}
 
 /// Generates an entire end-to-end Uniqueness Proof Generator
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -65,6 +75,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
             .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        rate_limit_max_requests: None,
+        rate_limit_window_secs: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -87,9 +99,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         3,
     )
     .unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
 
     // World ID should not yet exist.
-    let init_result = Authenticator::init(&seed, creation_config.clone()).await;
+    let init_result = Authenticator::init(
+        &seed,
+        creation_config.clone(),
+        query_material,
+        nullifier_material,
+    )
+    .await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -97,10 +116,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone(),
+        query_material,
+        nullifier_material,
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
     println!(
         "Authentication creation took: {}ms",
         SystemTime::now().duration_since(start).unwrap().as_millis(),
@@ -110,9 +135,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let authenticator = Authenticator::init(&seed, creation_config)
-        .await
-        .wrap_err("expected authenticator to initialize after account creation")?;
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
+            .await
+            .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     // Local indexer stub serving inclusion proof.
@@ -220,9 +247,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
 
-    let authenticator = Authenticator::init(&seed, proof_config)
-        .await
-        .wrap_err("failed to reinitialize authenticator with proof config")?;
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
+            .await
+            .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     let leaf_index = authenticator.leaf_index();
@@ -273,7 +302,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
-    let nullifier = authenticator.generate_nullifier(&proof_request).await?;
+    let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
+    let nullifier = authenticator
+        .generate_nullifier(&proof_request, inclusion_proof, key_set)
+        .await?;
     let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
     assert_ne!(raw_nullifier, FieldElement::ZERO);
 

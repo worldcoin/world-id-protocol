@@ -159,6 +159,18 @@ impl GatewayErrorResponse {
     }
 
     #[must_use]
+    pub fn rate_limit_exceeded(window_secs: u64, max_requests: u64) -> Self {
+        Self::new(
+            GatewayErrorCode::RateLimitExceeded,
+            format!(
+                "Rate limit exceeded: maximum {} requests per {} seconds for this leaf_index",
+                max_requests, window_secs
+            ),
+            StatusCode::TOO_MANY_REQUESTS,
+        )
+    }
+
+    #[must_use]
     pub fn from_simulation_error(e: impl std::fmt::Display) -> Self {
         let error_str = e.to_string();
         let code = parse_contract_error(&error_str);

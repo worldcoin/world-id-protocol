@@ -64,6 +64,8 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
         max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
             .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        rate_limit_window_secs: None,
+        rate_limit_max_requests: None,
     };
     let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 

@@ -1,6 +1,6 @@
 #![cfg(feature = "authenticator")]
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     primitives::{Address, U256},
@@ -22,6 +22,15 @@ use world_id_test_utils::{
 };
 
 const GW_PORT: u16 = 4105;
+
+fn load_embedded_materials() -> (
+    Arc<world_id_core::proof::CircomGroth16Material>,
+    Arc<world_id_core::proof::CircomGroth16Material>,
+) {
+    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
+    (Arc::new(query_material), Arc::new(nullifier_material))
+}
 
 async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -120,6 +129,8 @@ async fn e2e_authenticator_insert_update_remove() {
         max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
             .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        rate_limit_max_requests: None,
+        rate_limit_window_secs: None,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -141,16 +152,29 @@ async fn e2e_authenticator_insert_update_remove() {
         "http://127.0.0.1:0",
         &gateway_url,
     );
-    let result = Authenticator::init(&primary_seed, config.clone()).await;
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let result = Authenticator::init(
+        &primary_seed,
+        config.clone(),
+        query_material,
+        nullifier_material,
+    )
+    .await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
     ));
 
-    let primary =
-        Authenticator::init_or_register(&primary_seed, config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let primary = Authenticator::init_or_register(
+        &primary_seed,
+        config.clone(),
+        query_material,
+        nullifier_material,
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(primary.leaf_index(), 1);
     assert_eq!(primary.signing_nonce().await.unwrap(), U256::from(0));
@@ -176,7 +200,10 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let mut auth = Authenticator::init(&primary_seed, config).await.unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let mut auth = Authenticator::init(&primary_seed, config, query_material, nullifier_material)
+        .await
+        .unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(0));
     let req_id = auth
@@ -214,7 +241,10 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let mut auth = Authenticator::init(&primary_seed, config).await.unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let mut auth = Authenticator::init(&primary_seed, config, query_material, nullifier_material)
+        .await
+        .unwrap();
 
     let updated_pubkey = EdDSAPrivateKey::random(&mut rand::thread_rng()).public();
     let updated_address = anvil.signer(3).unwrap().address();
@@ -267,7 +297,10 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let mut auth = Authenticator::init(&secondary_seed, config).await.unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let mut auth = Authenticator::init(&secondary_seed, config, query_material, nullifier_material)
+        .await
+        .unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(2));
     let req_id = auth.remove_authenticator(updated_address, 0).await.unwrap();

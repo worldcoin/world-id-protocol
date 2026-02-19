@@ -18,7 +18,7 @@ Deployments are tracked in [`contracts/deployments/`](contracts/deployments/)
 
 | Environment | Chain              | Config                                                          |
 | ----------- | ------------------ | --------------------------------------------------------------- |
-| Staging     | World Chain (`480`) | [`contracts/deployments/staging.json`](contracts/deployments/staging.json) |
+| Staging     | World Chain (`480`) | [`contracts/deployments/core/staging.json`](contracts/deployments/core/staging.json) |
 
 ### Services
 
@@ -47,7 +47,7 @@ world-id-primitives
     └── world-id-core
 ```
 
-- `world-id-primitives`: Foundation layer containing only raw types with **no feature flags or implementation logic** except for hashing mechanisms.
+- `world-id-primitives`: Foundation layer containing only raw types with **minimal implementation logic** except for hashing mechanisms. Has an optional `openapi` feature for OpenAPI schema derives.
 - Functionality-specific crates: Providing focused use cases for authenticator, issuer, and RP operations.
 - `world-id-core`: Top-level integration layer which exposes all functionality.
 

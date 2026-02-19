@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::primitives::Address;
 use redis::{AsyncTypedCommands, Client, SetExpiry, SetOptions, aio::ConnectionManager};
@@ -21,12 +21,15 @@ const INFLIGHT_TTL: Duration = Duration::from_secs(300);
 ///
 /// Tracks all requests made to the gateway by ID for async querying.
 /// Also tracks in-flight authenticator addresses to prevent duplicate requests.
+/// Includes rate limiting for leaf_index-based requests.
 ///
 /// Uses Redis for persistent, multi-node request storage.
 #[derive(Clone)]
 pub struct RequestTracker {
     /// The Redis connection manager.
     redis_manager: ConnectionManager,
+    /// Rate limiting configuration (window in seconds, max requests).
+    rate_limit_config: Option<(u64, u64)>,
 }
 
 impl RequestTracker {
@@ -34,7 +37,7 @@ impl RequestTracker {
     ///
     /// # Panics
     /// If the connection to Redis fails.
-    pub async fn new(redis_url: String) -> Self {
+    pub async fn new(redis_url: String, rate_limit_config: Option<(u64, u64)>) -> Self {
         let client = Client::open(redis_url.as_str()).expect("Unable to connect to Redis");
         let redis_manager = ConnectionManager::new(client)
             .await
@@ -42,7 +45,10 @@ impl RequestTracker {
 
         tracing::info!("Connection to Redis established");
 
-        Self { redis_manager }
+        Self {
+            redis_manager,
+            rate_limit_config,
+        }
     }
 
     /// Returns the Redis key for a request record.
@@ -229,6 +235,105 @@ impl RequestTracker {
             let result: Result<usize, redis::RedisError> = manager.del(&key).await;
             if let Err(e) = result {
                 tracing::error!("Failed to delete Redis key {key}: {e}");
+            }
+        }
+    }
+
+    // =========================================================================
+    // Rate limiting
+    // =========================================================================
+
+    /// Returns the Redis key for a rate limit entry.
+    fn rate_limit_key(leaf_index: u64) -> String {
+        format!("gateway:ratelimit:leaf:{}", leaf_index)
+    }
+
+    /// Checks if a request for the given leaf_index should be allowed.
+    ///
+    /// Returns `Ok(())` if the request is allowed.
+    /// Returns `Err(GatewayErrorResponse)` with rate limit error if exceeded.
+    ///
+    /// If rate limiting is not configured, always returns `Ok(())`.
+    pub async fn check_rate_limit(
+        &self,
+        leaf_index: u64,
+        request_id: &str,
+    ) -> Result<(), GatewayErrorResponse> {
+        let Some((window_secs, max_requests)) = self.rate_limit_config else {
+            return Ok(());
+        };
+
+        let key = Self::rate_limit_key(leaf_index);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        let mut manager = self.redis_manager.clone();
+
+        let script = redis::Script::new(
+            r#"
+            local key = KEYS[1]
+            local now = tonumber(ARGV[1])
+            local window = tonumber(ARGV[2])
+            local limit = tonumber(ARGV[3])
+            local request_id = ARGV[4]
+
+            -- Remove old entries outside the window
+            local min_timestamp = now - window
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', min_timestamp)
+
+            -- Count current entries in the window
+            local current = redis.call('ZCARD', key)
+
+            -- Check if we're under the limit
+            if current < limit then
+                -- Add the new request with current timestamp as score
+                redis.call('ZADD', key, now, request_id)
+                -- Set expiration on the key to cleanup old keys
+                redis.call('EXPIRE', key, window)
+                return current + 1
+            else
+                -- Rate limit exceeded
+                return -1
+            end
+            "#,
+        );
+        let result: Result<i64, redis::RedisError> = script
+            .key(&key)
+            .arg(now)
+            .arg(window_secs)
+            .arg(max_requests)
+            .arg(request_id)
+            .invoke_async(&mut manager)
+            .await;
+
+        match result {
+            Ok(-1) => {
+                tracing::warn!(
+                    leaf_index = leaf_index,
+                    request_id = request_id,
+                    "Rate limit exceeded"
+                );
+                Err(GatewayErrorResponse::rate_limit_exceeded(
+                    window_secs,
+                    max_requests,
+                ))
+            }
+            Ok(count) => {
+                tracing::debug!(
+                    leaf_index = leaf_index,
+                    request_id = request_id,
+                    count = count,
+                    max = max_requests,
+                    "Rate limit check passed"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!("Redis error during rate limit check: {}", e);
+                tracing::warn!("Rate limit check failed due to Redis error, allowing request");
+                Ok(())
             }
         }
     }

@@ -1,0 +1,38 @@
+{
+  "worldchain": {
+    "chainId": 480,
+    "deployer": "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38",
+    "timestamp": 1771247269,
+    "worldIDSource": {
+      "implementation": "0x979E510c3fa582bEb54cdCE9344278181bD70959",
+      "proxy": "0xFA7D591991a1357888b3C28580691393B824Ac45"
+    }
+  },
+  "ethereum": {
+    "chainId": 1,
+    "deployer": "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38",
+    "gateways": {
+      "ethereumMPTGateway": "0x3CFEBB49fac12B20c275954Eba0BC1EA36e2a4f9",
+      "permissionedGateway": "0x8B8900eb086815Cf6a82DDc4f84e8A9eA57999c7"
+    },
+    "timestamp": 1771246391,
+    "verifier": "0x18790B1eD5e03b8cc19B60D25D936b79Cf85b9e1",
+    "worldIDSatellite": {
+      "implementation": "0xb83Cd7341a327A7D6b147Db18ba73A9Dc08c79A0",
+      "proxy": "0xdf9bb3d8000731FE32A66Ffe949a13c5f6F3F1AB"
+    }
+  },
+  "base": {
+    "chainId": 8453,
+    "deployer": "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38",
+    "gateways": {
+      "permissionedGateway": "0x39587dC7bC2AC7bA8fEF61fac949bC7d67c7A8eb"
+    },
+    "timestamp": 1771246403,
+    "verifier": "0x5CFDe3E001Db5699fFacFb91F3BDA53d4e92d554",
+    "worldIDSatellite": {
+      "implementation": "0xF8Eaf60E2188681A86D4f7Ae20c51a2dD3e9A3A7",
+      "proxy": "0xD5cba5A01051161C8C62d06fd7b9E0Ff5fc1ddf4"
+    }
+  }
+}

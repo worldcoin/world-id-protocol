@@ -28,6 +28,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use http::StatusCode;
 use moka::future::Cache;
 use tokio::sync::mpsc;
 use utoipa::OpenApi;
@@ -60,8 +61,9 @@ pub(crate) async fn build_app(
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
     redis_url: String,
+    rate_limit_config: Option<(u64, u64)>,
 ) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(redis_url).await;
+    let tracker = RequestTracker::new(redis_url, rate_limit_config).await;
 
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -120,9 +122,10 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
-        .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
-            30,
-        )))
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(30),
+        ))
         .layer(world_id_services_common::trace_layer()))
 }
 
