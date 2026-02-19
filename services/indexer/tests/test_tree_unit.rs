@@ -98,6 +98,7 @@ async fn test_replay_with_no_new_events() {
         db,
         &BlockchainEvent {
             block_number: 10,
+            block_hash: U256::from(11),
             tx_hash: U256::from(1),
             log_index: 0,
             details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -147,6 +148,7 @@ async fn test_replay_deduplication() {
         db,
         &BlockchainEvent {
             block_number: 10,
+            block_hash: U256::from(11),
             tx_hash: U256::from(1),
             log_index: 0,
             details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -177,6 +179,7 @@ async fn test_replay_deduplication() {
             db,
             &BlockchainEvent {
                 block_number: block,
+                block_hash: U256::from(1000 + block),
                 tx_hash: U256::from(block),
                 log_index: 0,
                 details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
@@ -235,6 +238,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         &BlockchainEvent {
             block_number: 10,
+            block_hash: U256::from(11),
             tx_hash: U256::from(1),
             log_index: 0,
             details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -252,6 +256,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         &BlockchainEvent {
             block_number: 10,
+            block_hash: U256::from(12),
             tx_hash: U256::from(2),
             log_index: 1,
             details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -281,6 +286,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         &BlockchainEvent {
             block_number: 11,
+            block_hash: U256::from(111),
             tx_hash: U256::from(11),
             log_index: 0,
             details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
@@ -300,6 +306,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         &BlockchainEvent {
             block_number: 11,
+            block_hash: U256::from(112),
             tx_hash: U256::from(12),
             log_index: 1,
             details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
@@ -319,6 +326,7 @@ async fn test_replay_matches_fresh_build() {
         db,
         &BlockchainEvent {
             block_number: 12,
+            block_hash: U256::from(113),
             tx_hash: U256::from(13),
             log_index: 0,
             details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -407,6 +415,7 @@ async fn test_sync_from_db_deduplication() {
             db,
             &BlockchainEvent {
                 block_number: block,
+                block_hash: U256::from(1000 + block),
                 tx_hash: U256::from(block),
                 log_index: 0,
                 details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
@@ -462,6 +471,7 @@ async fn test_handle_registry_event_root_mismatch() {
 
     let create_event = BlockchainEvent {
         block_number: 50,
+        block_hash: U256::from(150),
         tx_hash: U256::from(50),
         log_index: 0,
         details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -475,6 +485,7 @@ async fn test_handle_registry_event_root_mismatch() {
 
     let root_event = BlockchainEvent {
         block_number: 50,
+        block_hash: U256::from(150),
         tx_hash: U256::from(50),
         log_index: 1,
         details: RegistryEvent::RootRecorded(RootRecordedEvent {
@@ -520,6 +531,7 @@ async fn test_handle_registry_event_root_match() {
 
     let create_event = BlockchainEvent {
         block_number: 50,
+        block_hash: U256::from(150),
         tx_hash: U256::from(50),
         log_index: 0,
         details: RegistryEvent::AccountCreated(AccountCreatedEvent {
@@ -533,6 +545,7 @@ async fn test_handle_registry_event_root_match() {
 
     let root_event = BlockchainEvent {
         block_number: 50,
+        block_hash: U256::from(150),
         tx_hash: U256::from(50),
         log_index: 1,
         details: RegistryEvent::RootRecorded(RootRecordedEvent {

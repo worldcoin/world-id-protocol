@@ -493,6 +493,7 @@ async fn test_authenticator_removed_replay() {
     use world_id_indexer::blockchain::{AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent};
     let removed_event = BlockchainEvent {
         block_number: last_block + 1,
+        block_hash: U256::from(11234),
         tx_hash: U256::from(1234),
         log_index: 0,
         details: RegistryEvent::AuthenticatorRemoved(AuthenticatorRemovedEvent {
