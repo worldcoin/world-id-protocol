@@ -6,7 +6,7 @@ use semaphore_rs_trees::{cascading::CascadingMerkleTree, proof::InclusionProof};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
-use crate::{db::WorldTreeEventId, tree::cached_tree::set_arbitrary_leaf};
+use crate::{db::WorldIdRegistryEventId, tree::cached_tree::set_arbitrary_leaf};
 
 /// Thread-safe wrapper around the Merkle tree and its configuration.
 #[derive(Clone, Debug)]
@@ -18,7 +18,7 @@ pub struct TreeState {
 struct TreeStateInner {
     tree: RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>>,
     tree_depth: usize,
-    last_synced_event_id: RwLock<WorldTreeEventId>,
+    last_synced_event_id: RwLock<WorldIdRegistryEventId>,
 }
 
 impl TreeState {
@@ -26,7 +26,7 @@ impl TreeState {
     pub fn new(
         tree: CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>,
         tree_depth: usize,
-        last_synced_event_id: WorldTreeEventId,
+        last_synced_event_id: WorldIdRegistryEventId,
     ) -> Self {
         Self {
             inner: Arc::new(TreeStateInner {
@@ -47,7 +47,11 @@ impl TreeState {
     pub unsafe fn new_empty(tree_depth: usize, path: impl AsRef<Path>) -> eyre::Result<Self> {
         let storage = unsafe { MmapVec::create_from_path(path)? };
         let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
-        Ok(Self::new(tree, tree_depth, WorldTreeEventId::default()))
+        Ok(Self::new(
+            tree,
+            tree_depth,
+            WorldIdRegistryEventId::default(),
+        ))
     }
 
     /// Returns the configured depth.
@@ -132,12 +136,12 @@ impl TreeState {
     }
 
     /// Get the last synced event ID.
-    pub async fn last_synced_event_id(&self) -> WorldTreeEventId {
+    pub async fn last_synced_event_id(&self) -> WorldIdRegistryEventId {
         *self.inner.last_synced_event_id.read().await
     }
 
     /// Set the last synced event ID.
-    pub async fn set_last_synced_event_id(&self, id: WorldTreeEventId) {
+    pub async fn set_last_synced_event_id(&self, id: WorldIdRegistryEventId) {
         *self.inner.last_synced_event_id.write().await = id;
     }
 }
