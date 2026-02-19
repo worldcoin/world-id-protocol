@@ -24,7 +24,6 @@ use alloy::{
     providers::DynProvider,
     uint,
 };
-use ark_babyjubjub::EdwardsAffine;
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
@@ -519,10 +518,7 @@ impl Authenticator {
         key_set: &mut AuthenticatorPublicKeySet,
         new_authenticator_pubkey: EdDSAPublicKey,
     ) -> Result<usize, AuthenticatorError> {
-        if let Some(index) = key_set
-            .iter()
-            .position(|pubkey| pubkey.pk == EdwardsAffine::default())
-        {
+        if let Some(index) = key_set.iter().position(Option::is_none) {
             key_set.try_set_at_index(index, new_authenticator_pubkey)?;
             Ok(index)
         } else {
@@ -551,7 +547,10 @@ impl Authenticator {
         let (services, threshold) = self.check_oprf_config()?;
         let key_index = key_set
             .iter()
-            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
+            })
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         let authenticator_input = AuthenticatorProofInput::new(
@@ -592,7 +591,10 @@ impl Authenticator {
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
             .iter()
-            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
+            })
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         let authenticator_input = AuthenticatorProofInput::new(
@@ -871,9 +873,7 @@ impl Authenticator {
 
         let encoded_old_offchain_pubkey = existing_pubkey.to_ethereum_representation()?;
 
-        key_set[index as usize] = EdDSAPublicKey {
-            pk: EdwardsAffine::default(),
-        };
+        key_set.try_clear_at_index(index as usize)?;
         let new_commitment: U256 = key_set.leaf_hash().into();
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
@@ -1189,12 +1189,11 @@ mod tests {
     fn test_insert_or_reuse_authenticator_key_reuses_empty_slot() {
         let mut key_set = AuthenticatorPublicKeySet::new(Some(vec![
             test_pubkey(1),
-            EdDSAPublicKey {
-                pk: EdwardsAffine::default(),
-            },
             test_pubkey(2),
+            test_pubkey(4),
         ]))
         .unwrap();
+        key_set[1] = None;
         let new_key = test_pubkey(3);
 
         let index =
@@ -1202,7 +1201,7 @@ mod tests {
 
         assert_eq!(index, 1);
         assert_eq!(key_set.len(), 3);
-        assert_eq!(key_set[1].pk, test_pubkey(3).pk);
+        assert_eq!(key_set[1].as_ref().unwrap().pk, test_pubkey(3).pk);
     }
 
     #[test]
@@ -1215,7 +1214,7 @@ mod tests {
 
         assert_eq!(index, 1);
         assert_eq!(key_set.len(), 2);
-        assert_eq!(key_set[1].pk, test_pubkey(2).pk);
+        assert_eq!(key_set[1].as_ref().unwrap().pk, test_pubkey(2).pk);
     }
 
     #[test]
@@ -1226,8 +1225,8 @@ mod tests {
         let key_set = Authenticator::decode_indexer_pubkeys(encoded_pubkeys).unwrap();
 
         assert_eq!(key_set.len(), 2);
-        assert_eq!(key_set[0].pk, test_pubkey(1).pk);
-        assert_eq!(key_set[1].pk, test_pubkey(2).pk);
+        assert_eq!(key_set[0].as_ref().unwrap().pk, test_pubkey(1).pk);
+        assert_eq!(key_set[1].as_ref().unwrap().pk, test_pubkey(2).pk);
     }
 
     #[test]

@@ -25,8 +25,8 @@ pub(crate) struct AccountInclusionProofSchema {
     #[schema(value_type = Vec<String>, format = "hex")]
     siblings: Vec<String>,
     /// The compressed authenticator public keys for the account (array of hex strings)
-    #[schema(value_type = Vec<String>, format = "hex")]
-    authenticator_pubkeys: Vec<String>,
+    #[schema(value_type = Vec<Option<String>>, format = "hex")]
+    authenticator_pubkeys: Vec<Option<String>>,
 }
 
 /// Get Inclusion Proof

@@ -94,27 +94,23 @@ pub fn decode_sparse_authenticator_pubkeys(
         .take(normalized_len)
         .enumerate()
         .map(|(idx, pubkey)| match pubkey {
-            Some(pubkey) => {
-                EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|e| {
-                    SparseAuthenticatorPubkeysError::InvalidCompressedPubkey {
+            Some(pubkey) => EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes())
+                .map(Some)
+                .map_err(
+                    |e| SparseAuthenticatorPubkeysError::InvalidCompressedPubkey {
                         slot_index: idx,
                         reason: e.to_string(),
-                    }
-                })
-            }
-            None => Ok(EdDSAPublicKey {
-                pk: EdwardsAffine::default(),
-            }),
+                    },
+                ),
+            None => Ok(None),
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Defensive conversion: this should be unreachable due to the explicit slot check above.
-    AuthenticatorPublicKeySet::new(Some(decoded_pubkeys)).map_err(|_| {
-        SparseAuthenticatorPubkeysError::SlotOutOfBounds {
-            slot_index: normalized_len,
-            max_supported_slot: MAX_AUTHENTICATOR_KEYS - 1,
-        }
-    })
+    Ok(AuthenticatorPublicKeySet(
+        decoded_pubkeys
+            .into_iter()
+            .collect::<ArrayVec<_, MAX_AUTHENTICATOR_KEYS>>(),
+    ))
 }
 
 /// A set of **off-chain** authenticator public keys for a World ID Account.
@@ -122,7 +118,7 @@ pub fn decode_sparse_authenticator_pubkeys(
 /// Each World ID Account has a number of public keys for each authorized authenticator;
 /// a commitment to the entire set of public keys is stored in the `WorldIDRegistry` contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthenticatorPublicKeySet(ArrayVec<EdDSAPublicKey, MAX_AUTHENTICATOR_KEYS>);
+pub struct AuthenticatorPublicKeySet(ArrayVec<Option<EdDSAPublicKey>, MAX_AUTHENTICATOR_KEYS>);
 
 impl AuthenticatorPublicKeySet {
     /// Creates a new authenticator public key set with the provided public keys or defaults to none.
@@ -138,6 +134,7 @@ impl AuthenticatorPublicKeySet {
             Ok(Self(
                 pubkeys
                     .into_iter()
+                    .map(Some)
                     .collect::<ArrayVec<_, MAX_AUTHENTICATOR_KEYS>>(),
             ))
         } else {
@@ -151,7 +148,9 @@ impl AuthenticatorPublicKeySet {
     pub fn as_affine_array(&self) -> [EdwardsAffine; MAX_AUTHENTICATOR_KEYS] {
         let mut array = [EdwardsAffine::default(); MAX_AUTHENTICATOR_KEYS];
         for (i, pubkey) in self.0.iter().enumerate() {
-            array[i] = pubkey.pk;
+            array[i] = pubkey
+                .as_ref()
+                .map_or_else(EdwardsAffine::default, |pubkey| pubkey.pk);
         }
         array
     }
@@ -174,7 +173,7 @@ impl AuthenticatorPublicKeySet {
     /// the key is not initialized.
     #[must_use]
     pub fn get(&self, index: usize) -> Option<&EdDSAPublicKey> {
-        self.0.get(index)
+        self.0.get(index).and_then(Option::as_ref)
     }
 
     /// Sets a new public key at the given index if it's within bounds of the initialized set.
@@ -189,7 +188,19 @@ impl AuthenticatorPublicKeySet {
         if index >= self.len() || index >= MAX_AUTHENTICATOR_KEYS {
             return Err(PrimitiveError::OutOfBounds);
         }
-        self.0[index] = pubkey;
+        self.0[index] = Some(pubkey);
+        Ok(())
+    }
+
+    /// Clears the public key at the given index while preserving slot position.
+    ///
+    /// # Errors
+    /// Returns an error if the index is out of bounds.
+    pub fn try_clear_at_index(&mut self, index: usize) -> Result<(), PrimitiveError> {
+        if index >= self.len() || index >= MAX_AUTHENTICATOR_KEYS {
+            return Err(PrimitiveError::OutOfBounds);
+        }
+        self.0[index] = None;
         Ok(())
     }
 
@@ -199,7 +210,7 @@ impl AuthenticatorPublicKeySet {
     /// Returns an error if the set is full.
     pub fn try_push(&mut self, pubkey: EdDSAPublicKey) -> Result<(), PrimitiveError> {
         self.0
-            .try_push(pubkey)
+            .try_push(Some(pubkey))
             .map_err(|_| PrimitiveError::OutOfBounds)
     }
 
@@ -225,7 +236,7 @@ impl AuthenticatorPublicKeySet {
 }
 
 impl Deref for AuthenticatorPublicKeySet {
-    type Target = ArrayVec<EdDSAPublicKey, MAX_AUTHENTICATOR_KEYS>;
+    type Target = ArrayVec<Option<EdDSAPublicKey>, MAX_AUTHENTICATOR_KEYS>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -390,8 +401,8 @@ mod tests {
         let key_set = decode_sparse_authenticator_pubkeys(encoded_pubkeys).unwrap();
 
         assert_eq!(key_set.len(), 2);
-        assert_eq!(key_set[0].pk, test_pubkey(1).pk);
-        assert_eq!(key_set[1].pk, test_pubkey(2).pk);
+        assert_eq!(key_set[0].as_ref().unwrap().pk, test_pubkey(1).pk);
+        assert_eq!(key_set[1].as_ref().unwrap().pk, test_pubkey(2).pk);
     }
 
     #[test]
@@ -404,9 +415,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(key_set.len(), 3);
-        assert_eq!(key_set[0].pk, test_pubkey(1).pk);
-        assert_eq!(key_set[1].pk, EdwardsAffine::default());
-        assert_eq!(key_set[2].pk, test_pubkey(2).pk);
+        assert_eq!(key_set[0].as_ref().unwrap().pk, test_pubkey(1).pk);
+        assert_eq!(key_set[1], None);
+        assert_eq!(key_set[2].as_ref().unwrap().pk, test_pubkey(2).pk);
     }
 
     #[test]
