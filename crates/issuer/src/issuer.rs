@@ -3,6 +3,7 @@ use alloy::{
     primitives::Address,
     providers::{DynProvider, ProviderBuilder},
     sol,
+    sol_types::SolEvent as _,
 };
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::EdDSAPublicKey;
@@ -74,12 +75,14 @@ impl Issuer {
     /// # Errors
     /// Will error if the transaction fails or if the event is not found in the receipt.
     pub async fn register_schema(&mut self, issuer_schema_id: u64) -> Result<(), IssuerError> {
+        let expected_signer = self.signer.onchain_signer_address();
+
         let receipt = self
             .issuer_registry
             .register(
                 issuer_schema_id,
                 self.signer.offchain_signer_pubkey().into(),
-                self.signer.onchain_signer_address(),
+                expected_signer,
             )
             .send()
             .await
@@ -93,6 +96,26 @@ impl Issuer {
                 receipt.transaction_hash,
                 receipt.block_number.unwrap_or_default()
             )));
+        }
+
+        let event = receipt
+            .logs()
+            .iter()
+            .find_map(|log| {
+                CredentialSchemaIssuerRegistry::IssuerSchemaRegistered::decode_log(
+                    log.inner.as_ref(),
+                )
+                .ok()
+            })
+            .ok_or(IssuerError::RegistrationEventMissing)?;
+
+        if event.issuerSchemaId != issuer_schema_id || event.signer != expected_signer {
+            return Err(IssuerError::RegistrationEventMismatch {
+                expected_schema_id: issuer_schema_id,
+                actual_schema_id: event.issuerSchemaId,
+                expected_signer,
+                actual_signer: event.signer,
+            });
         }
 
         Ok(())
@@ -112,6 +135,21 @@ pub enum IssuerError {
     /// Registration failed with revert
     #[error("Registration failed: {0}")]
     RegistrationFailed(String),
+
+    /// `IssuerSchemaRegistered` event not emitted in receipt logs.
+    #[error("Registration event `IssuerSchemaRegistered` was not emitted")]
+    RegistrationEventMissing,
+
+    /// `IssuerSchemaRegistered` event emitted with unexpected values.
+    #[error(
+        "Registration event mismatch: expected schema_id={expected_schema_id}, signer={expected_signer}; got schema_id={actual_schema_id}, signer={actual_signer}"
+    )]
+    RegistrationEventMismatch {
+        expected_schema_id: u64,
+        actual_schema_id: u64,
+        expected_signer: Address,
+        actual_signer: Address,
+    },
 
     /// Generic unexpected error
     #[error("Unexpected error: {0}")]
