@@ -8942,7 +8942,9 @@ name = "world-id-oprf-dev-client"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
  "backon",
  "clap",
  "eyre",
@@ -8961,6 +8963,7 @@ dependencies = [
  "webpki-roots 1.0.6",
  "world-id-core",
  "world-id-primitives",
+ "world-id-proof",
  "world-id-test-utils",
 ]
 
