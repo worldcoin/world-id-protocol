@@ -88,7 +88,7 @@ run_indexer_and_gateway() {
     echo "started indexer with PID $indexer_pid"
     wait_for_health 8080 "world-id-indexer" 300
 
-    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
+    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK REDIS_URL=redis://localhost:6379 cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
     gateway_pid=$!
     echo "started gateway with PID $gateway_pid"
     wait_for_health 8081 "world-id-gateway" 300
@@ -110,7 +110,7 @@ setup() {
 
     anvil &
 
-    docker compose up -d localstack postgres oprf-node-db0 oprf-node-db1 oprf-node-db2
+    docker compose up -d localstack postgres redis oprf-node-db0 oprf-node-db1 oprf-node-db2
 
     echo -e "${GREEN}deploying contracts..${NOCOLOR}"
     deploy_contracts
