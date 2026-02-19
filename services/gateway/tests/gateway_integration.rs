@@ -163,7 +163,9 @@ async fn e2e_gateway_full_flow() {
     let mut nonce = U256::from(0);
 
     // insert-authenticator
-    let new_auth2: Address = address!("0x00000000000000000000000000000000000000a2");
+    // Create a signer for the new authenticator so we can sign removal requests with it
+    let new_auth2_signer = PrivateKeySigner::random();
+    let new_auth2: Address = new_auth2_signer.address();
     let sig_ins = sign_insert_authenticator(
         &signer,
         1,
@@ -229,8 +231,9 @@ async fn e2e_gateway_full_flow() {
     nonce += U256::from(1);
 
     // remove-authenticator (remove the one we inserted)
+    // Sign with new_auth2_signer since we're removing new_auth2 - the signer must match the authenticator being removed
     let sig_rem = sign_remove_authenticator(
-        &signer,
+        &new_auth2_signer,
         1,
         new_auth2,
         1,
