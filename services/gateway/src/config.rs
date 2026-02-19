@@ -31,10 +31,9 @@ pub struct GatewayConfig {
     #[arg(long, env = "LISTEN_ADDR", default_value = "0.0.0.0:8081")]
     pub listen_addr: SocketAddr,
 
-    /// Optional Redis URL for multi-pod request storage (e.g. redis://localhost:6379)
-    /// If not provided, requests will be stored in-memory
+    /// Redis URL for request storage (e.g. redis://localhost:6379)
     #[arg(long, env = "REDIS_URL")]
-    pub redis_url: Option<String>,
+    pub redis_url: String,
 }
 
 impl GatewayConfig {

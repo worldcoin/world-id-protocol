@@ -59,7 +59,7 @@ pub(crate) async fn build_app(
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
-    redis_url: Option<String>,
+    redis_url: String,
 ) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(redis_url).await;
 

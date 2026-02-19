@@ -52,8 +52,6 @@ pub enum GatewayError {
         source: redis::RedisError,
         backtrace: String,
     },
-    #[error("redis not configured")]
-    RedisNotConfigured,
     #[error("join error: {source}")]
     Join {
         #[source]
