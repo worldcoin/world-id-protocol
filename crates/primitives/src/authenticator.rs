@@ -69,8 +69,8 @@ pub fn oprf_query_digest(
 /// Decodes sparse authenticator pubkey slots while preserving slot positions.
 ///
 /// Input may contain `None` entries for removed authenticators. Trailing empty slots are trimmed,
-/// interior holes are preserved as default affine points, and used slots beyond
-/// [`MAX_AUTHENTICATOR_KEYS`] are rejected.
+/// interior holes are preserved as `None`, and used slots beyond [`MAX_AUTHENTICATOR_KEYS`]
+/// are rejected.
 ///
 /// # Errors
 /// Returns [`SparseAuthenticatorPubkeysError`] if a used slot is out of bounds or any compressed
@@ -117,11 +117,16 @@ pub fn decode_sparse_authenticator_pubkeys(
 ///
 /// Each World ID Account has a number of public keys for each authorized authenticator;
 /// a commitment to the entire set of public keys is stored in the `WorldIDRegistry` contract.
+///
+/// Removed authenticator slots are represented as `None` to preserve stable slot indices.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthenticatorPublicKeySet(ArrayVec<Option<EdDSAPublicKey>, MAX_AUTHENTICATOR_KEYS>);
 
 impl AuthenticatorPublicKeySet {
-    /// Creates a new authenticator public key set with the provided public keys or defaults to none.
+    /// Creates a new authenticator public key set with the provided active public keys.
+    ///
+    /// The provided keys are inserted as `Some(...)` entries in order.
+    /// Sparse holes can be represented later via [`Self::try_clear_at_index`].
     ///
     /// # Errors
     /// Returns an error if the number of public keys exceeds [`MAX_AUTHENTICATOR_KEYS`].
@@ -144,7 +149,8 @@ impl AuthenticatorPublicKeySet {
 
     /// Converts the set of public keys to a fixed-length array of Affine points.
     ///
-    /// This is usually used to serialize to the circuit input which expects defaulted Affine points for unused slots.
+    /// This is usually used to serialize to circuit inputs, which require defaulted Affine points
+    /// for empty (`None`) slots.
     pub fn as_affine_array(&self) -> [EdwardsAffine; MAX_AUTHENTICATOR_KEYS] {
         let mut array = [EdwardsAffine::default(); MAX_AUTHENTICATOR_KEYS];
         for (i, pubkey) in self.0.iter().enumerate() {

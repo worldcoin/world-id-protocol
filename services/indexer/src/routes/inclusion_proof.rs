@@ -24,7 +24,9 @@ pub(crate) struct AccountInclusionProofSchema {
     /// The sibling path up to the Merkle root (array of hex strings)
     #[schema(value_type = Vec<String>, format = "hex")]
     siblings: Vec<String>,
-    /// The compressed authenticator public keys for the account (array of hex strings)
+    /// The compressed authenticator public keys for the account.
+    ///
+    /// Entries are optional to preserve sparse slot positions (`null` for removed authenticators).
     #[schema(value_type = Vec<Option<String>>, format = "hex")]
     authenticator_pubkeys: Vec<Option<String>>,
 }
@@ -32,7 +34,8 @@ pub(crate) struct AccountInclusionProofSchema {
 /// Get Inclusion Proof
 ///
 /// Returns a Merkle inclusion proof for the given leaf index to the current `WorldIDRegistry` tree. In
-/// addition, it also includes the entire list of Authenticator public keys registered for the World ID.
+/// addition, it also includes the entire authenticator slot list for the World ID account.
+/// Removed authenticators are represented as `null` entries to preserve `pubkey_id` positions.
 #[utoipa::path(
     post,
     path = "/inclusion-proof",
