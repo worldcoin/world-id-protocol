@@ -24,7 +24,6 @@ use alloy::{
     providers::DynProvider,
     uint,
 };
-use ark_babyjubjub::EdwardsAffine;
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
@@ -33,7 +32,11 @@ use secrecy::ExposeSecret;
 use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError, ZeroKnowledgeProof, authenticator::AuthenticatorPublicKeySet,
+    PrimitiveError, ZeroKnowledgeProof,
+    authenticator::{
+        AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
+        decode_sparse_authenticator_pubkeys,
+    },
     merkle::MerkleInclusionProof,
 };
 use world_id_proof::{
@@ -437,20 +440,7 @@ impl Authenticator {
         let response = response
             .json::<IndexerAuthenticatorPubkeysResponse>()
             .await?;
-
-        let decoded_pubkeys = response
-            .authenticator_pubkeys
-            .into_iter()
-            .map(|pubkey| {
-                EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|e| {
-                    PrimitiveError::Deserialization(format!(
-                        "invalid authenticator public key returned by indexer: {e}"
-                    ))
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(AuthenticatorPublicKeySet::new(Some(decoded_pubkeys))?)
+        Self::decode_indexer_pubkeys(response.authenticator_pubkeys)
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -504,6 +494,39 @@ impl Authenticator {
         Ok((services, threshold))
     }
 
+    fn decode_indexer_pubkeys(
+        pubkeys: Vec<Option<U256>>,
+    ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
+        decode_sparse_authenticator_pubkeys(pubkeys).map_err(|e| match e {
+            SparseAuthenticatorPubkeysError::SlotOutOfBounds {
+                slot_index,
+                max_supported_slot,
+            } => AuthenticatorError::InvalidIndexerPubkeySlot {
+                slot_index,
+                max_supported_slot,
+            },
+            SparseAuthenticatorPubkeysError::InvalidCompressedPubkey { slot_index, reason } => {
+                PrimitiveError::Deserialization(format!(
+                    "invalid authenticator public key returned by indexer at slot {slot_index}: {reason}"
+                ))
+                .into()
+            }
+        })
+    }
+
+    fn insert_or_reuse_authenticator_key(
+        key_set: &mut AuthenticatorPublicKeySet,
+        new_authenticator_pubkey: EdDSAPublicKey,
+    ) -> Result<usize, AuthenticatorError> {
+        if let Some(index) = key_set.iter().position(Option::is_none) {
+            key_set.try_set_at_index(index, new_authenticator_pubkey)?;
+            Ok(index)
+        } else {
+            key_set.try_push(new_authenticator_pubkey)?;
+            Ok(key_set.len() - 1)
+        }
+    }
+
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
     /// A nullifier is a unique, one-time use, anonymous identifier for a World ID
@@ -524,7 +547,10 @@ impl Authenticator {
         let (services, threshold) = self.check_oprf_config()?;
         let key_index = key_set
             .iter()
-            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
+            })
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         let authenticator_input = AuthenticatorProofInput::new(
@@ -565,7 +591,10 @@ impl Authenticator {
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
             .iter()
-            .position(|pk| pk.pk == self.offchain_pubkey().pk)
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
+            })
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         let authenticator_input = AuthenticatorProofInput::new(
@@ -686,8 +715,8 @@ impl Authenticator {
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_offchain_signer_commitment = key_set.leaf_hash();
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
-        key_set.try_push(new_authenticator_pubkey)?;
-        let index = key_set.len() - 1;
+        let index =
+            Self::insert_or_reuse_authenticator_key(&mut key_set, new_authenticator_pubkey)?;
         let new_offchain_signer_commitment = key_set.leaf_hash();
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
@@ -844,9 +873,7 @@ impl Authenticator {
 
         let encoded_old_offchain_pubkey = existing_pubkey.to_ethereum_representation()?;
 
-        key_set[index as usize] = EdDSAPublicKey {
-            pk: EdwardsAffine::default(),
-        };
+        key_set.try_clear_at_index(index as usize)?;
         let new_commitment: U256 = key_set.leaf_hash().into();
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
@@ -1105,6 +1132,17 @@ pub enum AuthenticatorError {
     #[error(transparent)]
     ProofError(#[from] ProofError),
 
+    /// Indexer returned an authenticator key slot that exceeds supported key capacity.
+    #[error(
+        "Invalid indexer authenticator pubkey slot {slot_index}; max supported slot is {max_supported_slot}"
+    )]
+    InvalidIndexerPubkeySlot {
+        /// Slot index returned by the indexer.
+        slot_index: usize,
+        /// Highest supported slot index.
+        max_supported_slot: usize,
+    },
+
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
@@ -1121,6 +1159,7 @@ mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
     use std::sync::OnceLock;
+    use world_id_primitives::authenticator::MAX_AUTHENTICATOR_KEYS;
 
     fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
         static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
@@ -1134,6 +1173,75 @@ mod tests {
         });
 
         (Arc::clone(query), Arc::clone(nullifier))
+    }
+
+    fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
+        Signer::from_seed_bytes(&[seed_byte; 32])
+            .unwrap()
+            .offchain_signer_pubkey()
+    }
+
+    fn encoded_test_pubkey(seed_byte: u8) -> U256 {
+        test_pubkey(seed_byte).to_ethereum_representation().unwrap()
+    }
+
+    #[test]
+    fn test_insert_or_reuse_authenticator_key_reuses_empty_slot() {
+        let mut key_set = AuthenticatorPublicKeySet::new(Some(vec![
+            test_pubkey(1),
+            test_pubkey(2),
+            test_pubkey(4),
+        ]))
+        .unwrap();
+        key_set[1] = None;
+        let new_key = test_pubkey(3);
+
+        let index =
+            Authenticator::insert_or_reuse_authenticator_key(&mut key_set, new_key).unwrap();
+
+        assert_eq!(index, 1);
+        assert_eq!(key_set.len(), 3);
+        assert_eq!(key_set[1].as_ref().unwrap().pk, test_pubkey(3).pk);
+    }
+
+    #[test]
+    fn test_insert_or_reuse_authenticator_key_appends_when_no_empty_slot() {
+        let mut key_set = AuthenticatorPublicKeySet::new(Some(vec![test_pubkey(1)])).unwrap();
+        let new_key = test_pubkey(2);
+
+        let index =
+            Authenticator::insert_or_reuse_authenticator_key(&mut key_set, new_key).unwrap();
+
+        assert_eq!(index, 1);
+        assert_eq!(key_set.len(), 2);
+        assert_eq!(key_set[1].as_ref().unwrap().pk, test_pubkey(2).pk);
+    }
+
+    #[test]
+    fn test_decode_indexer_pubkeys_trims_trailing_empty_slots() {
+        let mut encoded_pubkeys = vec![Some(encoded_test_pubkey(1)), Some(encoded_test_pubkey(2))];
+        encoded_pubkeys.extend(vec![None; MAX_AUTHENTICATOR_KEYS + 5]);
+
+        let key_set = Authenticator::decode_indexer_pubkeys(encoded_pubkeys).unwrap();
+
+        assert_eq!(key_set.len(), 2);
+        assert_eq!(key_set[0].as_ref().unwrap().pk, test_pubkey(1).pk);
+        assert_eq!(key_set[1].as_ref().unwrap().pk, test_pubkey(2).pk);
+    }
+
+    #[test]
+    fn test_decode_indexer_pubkeys_rejects_used_slot_beyond_max() {
+        let mut encoded_pubkeys = vec![None; MAX_AUTHENTICATOR_KEYS + 1];
+        encoded_pubkeys[MAX_AUTHENTICATOR_KEYS] = Some(encoded_test_pubkey(1));
+
+        let error = Authenticator::decode_indexer_pubkeys(encoded_pubkeys).unwrap_err();
+        assert!(matches!(
+            error,
+            AuthenticatorError::InvalidIndexerPubkeySlot {
+                slot_index,
+                max_supported_slot
+            } if slot_index == MAX_AUTHENTICATOR_KEYS && max_supported_slot == MAX_AUTHENTICATOR_KEYS - 1
+        ));
     }
 
     /// Tests that `get_packed_account_data` correctly fetches the packed account data from the indexer

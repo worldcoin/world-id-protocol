@@ -209,7 +209,10 @@ mod tests {
             let (siblings, root) = first_leaf_merkle_path(leaf_hash);
             let key_index = key_set
                 .iter()
-                .position(|pk| pk.pk == signer.offchain_signer_pubkey().pk)
+                .position(|pk| {
+                    pk.as_ref()
+                        .is_some_and(|pk| pk.pk == signer.offchain_signer_pubkey().pk)
+                })
                 .expect("key set contains signer key") as u64;
 
             anvil

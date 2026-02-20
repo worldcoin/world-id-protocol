@@ -32,11 +32,13 @@ fn proof_pubkeys_response(
         .iter()
         .map(|pubkey| {
             let mut compressed = Vec::new();
-            pubkey
-                .pk
-                .serialize_compressed(&mut compressed)
-                .expect("failed to serialize compressed authenticator pubkey");
-            U256::from_le_slice(&compressed)
+            pubkey.as_ref().map(|pubkey| {
+                pubkey
+                    .pk
+                    .serialize_compressed(&mut compressed)
+                    .expect("failed to serialize compressed authenticator pubkey");
+                U256::from_le_slice(&compressed)
+            })
         })
         .collect();
 
