@@ -15,7 +15,7 @@ use ruint::aliases::{U160, U256};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::{
     fmt,
-    io::{Read, Write},
+    io::Read,
     ops::{Deref, DerefMut},
     str::FromStr,
 };
@@ -96,14 +96,13 @@ impl FieldElement {
     /// The multiplicative identity of the field.
     pub const ONE: Self = Self(Fq::ONE);
 
-    /// Serializes the field element into a byte vector.
-    ///
-    /// # Errors
-    /// Will return an error if the serialization unexpectedly fails.
-    pub fn serialize_as_bytes<W: Write>(&self, writer: &mut W) -> Result<(), PrimitiveError> {
-        writer
-            .write_all(&self.0.into_bigint().to_bytes_be())
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))
+    /// Returns the 32-byte big-endian representation of this field element.
+    #[must_use]
+    pub fn to_be_bytes(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        let be = self.0.into_bigint().to_bytes_be();
+        bytes.copy_from_slice(&be);
+        bytes
     }
 
     /// Deserializes a field element from a big-endian byte stream.
@@ -198,7 +197,7 @@ impl FromStr for FieldElement {
 
 impl fmt::Display for FieldElement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0x{}", hex::encode(self.0.into_bigint().to_bytes_be()))
+        write!(f, "0x{}", hex::encode(self.to_be_bytes()))
     }
 }
 
@@ -253,7 +252,7 @@ impl Serialize for FieldElement {
         if serializer.is_human_readable() {
             serializer.serialize_str(&self.to_string())
         } else {
-            serializer.serialize_bytes(&self.0.into_bigint().to_bytes_be())
+            serializer.serialize_bytes(&self.to_be_bytes())
         }
     }
 }
@@ -365,13 +364,12 @@ mod tests {
     #[test]
     fn test_simple_bytes_encoding() {
         let fe = FieldElement::ONE;
-        let mut buffer = Vec::new();
-        fe.serialize_as_bytes(&mut buffer).unwrap();
+        let bytes = fe.to_be_bytes();
         let mut expected = [0u8; 32];
         expected[31] = 1;
-        assert_eq!(buffer, expected.to_vec());
+        assert_eq!(bytes, expected);
 
-        let reversed = FieldElement::deserialize_from_bytes(&mut &buffer[..]).unwrap();
+        let reversed = FieldElement::deserialize_from_bytes(&mut &bytes[..]).unwrap();
         assert_eq!(reversed, fe);
     }
 
