@@ -1,4 +1,4 @@
-use eyre::{OptionExt, bail};
+use eyre::OptionExt;
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -186,7 +186,7 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     let circom_dir = workspace_root.join("circom");
 
     if !circom_dir.is_dir() {
-        bail!("circom directory not found at {}", circom_dir.display());
+        fs::create_dir_all(&circom_dir)?;
     }
 
     // Watch the directory itself for new/removed files
