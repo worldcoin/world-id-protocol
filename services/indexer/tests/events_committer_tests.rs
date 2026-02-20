@@ -138,11 +138,13 @@ async fn test_account_update_modifies_existing_account() {
     let account = account.unwrap();
     assert_eq!(account.leaf_index, leaf_index);
     assert_eq!(
-        account.authenticator_addresses[0], updated_address,
+        account.authenticator_addresses[0],
+        Some(updated_address),
         "Authenticator address should be the UPDATED value"
     );
     assert_eq!(
-        account.authenticator_pubkeys[0], updated_pubkey,
+        account.authenticator_pubkeys[0],
+        Some(updated_pubkey),
         "Authenticator pubkey should be the UPDATED value"
     );
     assert_eq!(

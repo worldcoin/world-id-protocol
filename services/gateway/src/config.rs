@@ -38,10 +38,9 @@ pub struct GatewayConfig {
     #[arg(long, env = "LISTEN_ADDR", default_value = "0.0.0.0:8081")]
     pub listen_addr: SocketAddr,
 
-    /// Optional Redis URL for multi-pod request storage (e.g. redis://localhost:6379)
-    /// If not provided, requests will be stored in-memory
+    /// Redis URL for request storage (e.g. redis://localhost:6379)
     #[arg(long, env = "REDIS_URL")]
-    pub redis_url: Option<String>,
+    pub redis_url: String,
 
     /// Rate limit window in seconds for leaf_index-based requests (sliding window).
     /// Both this and --rate-limit-max-requests must be provided to enable rate limiting.
