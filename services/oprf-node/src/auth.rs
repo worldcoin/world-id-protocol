@@ -193,7 +193,7 @@ mod tests {
 
             let signer = Signer::from_seed_bytes(&rng.r#gen::<[u8; 32]>()).unwrap();
 
-            let mut key_set = AuthenticatorPublicKeySet::new(None)?;
+            let mut key_set = AuthenticatorPublicKeySet::default();
             key_set.try_push(signer.offchain_signer_pubkey())?;
             let leaf_hash = key_set.leaf_hash();
 
