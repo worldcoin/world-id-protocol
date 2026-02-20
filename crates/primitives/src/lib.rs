@@ -9,15 +9,13 @@
 
 use alloy_primitives::Keccak256;
 
-pub mod serde_utils;
 use ark_babyjubjub::Fq;
-use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_ff::{AdditiveGroup, BigInteger, Field, PrimeField, UniformRand};
 use ruint::aliases::{U160, U256};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::{
     fmt,
-    io::{Cursor, Read, Write},
+    io::{Read, Write},
     ops::{Deref, DerefMut},
     str::FromStr,
 };
@@ -61,6 +59,8 @@ pub use proof::ZeroKnowledgeProof;
 /// Contains types specifically related to relying parties.
 pub mod rp;
 
+pub mod serde_utils;
+
 /// Contains signer primitives for on-chain and off-chain signatures.
 mod signer;
 pub use signer::Signer;
@@ -101,31 +101,44 @@ impl FieldElement {
     /// # Errors
     /// Will return an error if the serialization unexpectedly fails.
     pub fn serialize_as_bytes<W: Write>(&self, writer: &mut W) -> Result<(), PrimitiveError> {
-        self.0
-            .serialize_compressed(writer)
+        writer
+            .write_all(&self.0.into_bigint().to_bytes_be())
             .map_err(|e| PrimitiveError::Serialization(e.to_string()))
     }
 
-    /// Deserializes a field element from a byte vector.
+    /// Deserializes a field element from a big-endian byte stream.
+    ///
+    /// Reads exactly 32 bytes and rejects values >= the field modulus.
     ///
     /// # Errors
-    /// Will return an error if the provided input is not a valid field element (e.g. not on the curve).
-    pub fn deserialize_from_bytes<R: Read>(bytes: &mut R) -> Result<Self, PrimitiveError> {
-        let field_element = Fq::deserialize_compressed(bytes)
+    /// Will return an error if the provided input is not a valid field element.
+    pub fn deserialize_from_bytes<R: Read>(reader: &mut R) -> Result<Self, PrimitiveError> {
+        let mut bytes = [0u8; 32];
+        reader
+            .read_exact(&mut bytes)
             .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
-        Ok(Self(field_element))
+        Self::from_be_bytes_strict(&bytes)
+    }
+
+    /// Constructs a field element from a 32-byte big-endian representation.
+    ///
+    /// Unlike [`Self::from_be_bytes_mod_order`], this rejects values >= the field modulus.
+    fn from_be_bytes_strict(be_bytes: &[u8; 32]) -> Result<Self, PrimitiveError> {
+        U256::from_be_bytes(*be_bytes).try_into()
     }
 
     /// Deserializes a field element from a big-endian byte slice.
+    ///
+    /// # Warning
+    /// Use this function carefully. This function will perform modulo reduction on the input, which may lead to unexpected results if the input should not be reduced.
     #[must_use]
-    pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
+    pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
     }
 
     /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
     /// and reduces it to a field element.
-    ///
     #[must_use]
     pub fn from_arbitrary_raw_bytes(bytes: &[u8]) -> Self {
         let mut hasher = Keccak256::new();
@@ -174,17 +187,18 @@ impl FromStr for FieldElement {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim_start_matches("0x");
-        let u256 = U256::from_str_radix(s, 16).map_err(|_| {
-            PrimitiveError::Deserialization("not a valid hex-encoded number".to_string())
-        })?;
-        u256.try_into()
+        let bytes = hex::decode(s)
+            .map_err(|e| PrimitiveError::Deserialization(format!("Invalid hex encoding: {e}")))?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| PrimitiveError::Deserialization("expected 32 bytes".to_string()))?;
+        Self::from_be_bytes_strict(&bytes)
     }
 }
 
 impl fmt::Display for FieldElement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let u256: U256 = (*self).into();
-        write!(f, "{u256:#066x}")
+        write!(f, "0x{}", hex::encode(self.0.into_bigint().to_bytes_be()))
     }
 }
 
@@ -239,10 +253,7 @@ impl Serialize for FieldElement {
         if serializer.is_human_readable() {
             serializer.serialize_str(&self.to_string())
         } else {
-            let mut writer = Vec::new();
-            self.serialize_compressed(&mut writer)
-                .map_err(S::Error::custom)?;
-            serializer.serialize_bytes(&writer)
+            serializer.serialize_bytes(&self.0.into_bigint().to_bytes_be())
         }
     }
 }
@@ -257,7 +268,10 @@ impl<'de> Deserialize<'de> for FieldElement {
             Self::from_str(&s).map_err(D::Error::custom)
         } else {
             let bytes = Vec::<u8>::deserialize(deserializer)?;
-            Self::deserialize_from_bytes(&mut Cursor::new(bytes)).map_err(D::Error::custom)
+            let bytes: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| D::Error::custom("expected 32 bytes"))?;
+            Self::from_be_bytes_strict(&bytes).map_err(D::Error::custom)
         }
     }
 }
@@ -381,9 +395,9 @@ mod tests {
         let field_bytes = &buffer[2..];
         assert_eq!(field_bytes.len(), 32);
 
-        let expected_le_bytes =
-            hex::decode("c224d31e05d194f1b7ac32eaa4dbfce39a43a3f050cf422f21ac917bce23d211")
+        let expected_be_bytes =
+            hex::decode("11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2")
                 .unwrap();
-        assert_eq!(field_bytes, expected_le_bytes.as_slice());
+        assert_eq!(field_bytes, expected_be_bytes.as_slice());
     }
 }

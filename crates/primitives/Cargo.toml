@@ -25,7 +25,6 @@ ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serde-compat = { workspace = true }
-ark-serialize = { workspace = true }
 arrayvec = { workspace = true, features = ["serde"] }
 circom-types = { workspace = true, features = ["groth16"] }
 groth16-material = { workspace = true, features = ["circom"] }
