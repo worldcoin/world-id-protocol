@@ -62,6 +62,7 @@ pub(crate) async fn build_app(
     max_ops_batch_size: usize,
     redis_url: String,
     rate_limit_config: Option<(u64, u64)>,
+    request_timeout_secs: u64,
 ) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(redis_url, rate_limit_config).await;
 
@@ -124,7 +125,7 @@ pub(crate) async fn build_app(
         .layer(from_fn(middleware::request_id_middleware))
         .layer(tower_http::timeout::TimeoutLayer::with_status_code(
             StatusCode::SERVICE_UNAVAILABLE,
-            Duration::from_secs(30),
+            Duration::from_secs(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer()))
 }

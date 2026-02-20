@@ -34,6 +34,10 @@ pub struct GatewayConfig {
     #[arg(long, env = "MAX_OPS_BATCH_SIZE", default_value = "10")]
     pub max_ops_batch_size: usize,
 
+    /// HTTP request timeout in seconds
+    #[arg(long, env = "REQUEST_TIMEOUT_SECS", default_value = "10")]
+    pub request_timeout_secs: u64,
+
     /// The address and port to listen for HTTP requests
     #[arg(long, env = "LISTEN_ADDR", default_value = "0.0.0.0:8081")]
     pub listen_addr: SocketAddr,
