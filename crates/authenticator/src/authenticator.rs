@@ -950,7 +950,7 @@ impl InitializingAuthenticator {
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
-        let mut key_set = AuthenticatorPublicKeySet::new(None)?;
+        let mut key_set = AuthenticatorPublicKeySet::default();
         key_set.try_push(signer.offchain_signer_pubkey())?;
         let leaf_hash = key_set.leaf_hash();
 
@@ -1187,12 +1187,9 @@ mod tests {
 
     #[test]
     fn test_insert_or_reuse_authenticator_key_reuses_empty_slot() {
-        let mut key_set = AuthenticatorPublicKeySet::new(Some(vec![
-            test_pubkey(1),
-            test_pubkey(2),
-            test_pubkey(4),
-        ]))
-        .unwrap();
+        let mut key_set =
+            AuthenticatorPublicKeySet::new(vec![test_pubkey(1), test_pubkey(2), test_pubkey(4)])
+                .unwrap();
         key_set[1] = None;
         let new_key = test_pubkey(3);
 
@@ -1206,7 +1203,7 @@ mod tests {
 
     #[test]
     fn test_insert_or_reuse_authenticator_key_appends_when_no_empty_slot() {
-        let mut key_set = AuthenticatorPublicKeySet::new(Some(vec![test_pubkey(1)])).unwrap();
+        let mut key_set = AuthenticatorPublicKeySet::new(vec![test_pubkey(1)]).unwrap();
         let new_key = test_pubkey(2);
 
         let index =

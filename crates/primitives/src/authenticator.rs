@@ -122,29 +122,31 @@ pub fn decode_sparse_authenticator_pubkeys(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthenticatorPublicKeySet(ArrayVec<Option<EdDSAPublicKey>, MAX_AUTHENTICATOR_KEYS>);
 
+impl Default for AuthenticatorPublicKeySet {
+    fn default() -> Self {
+        Self(ArrayVec::new())
+    }
+}
+
 impl AuthenticatorPublicKeySet {
     /// Creates a new authenticator public key set with the provided active public keys.
     ///
-    /// The provided keys are inserted as `Some(...)` entries in order.
+    /// The provided keys are inserted in order.
     /// Sparse holes can be represented later via [`Self::try_clear_at_index`].
     ///
     /// # Errors
     /// Returns an error if the number of public keys exceeds [`MAX_AUTHENTICATOR_KEYS`].
-    pub fn new(pubkeys: Option<Vec<EdDSAPublicKey>>) -> Result<Self, PrimitiveError> {
-        if let Some(pubkeys) = pubkeys {
-            if pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
-                return Err(PrimitiveError::OutOfBounds);
-            }
-
-            Ok(Self(
-                pubkeys
-                    .into_iter()
-                    .map(Some)
-                    .collect::<ArrayVec<_, MAX_AUTHENTICATOR_KEYS>>(),
-            ))
-        } else {
-            Ok(Self(ArrayVec::new()))
+    pub fn new(pubkeys: Vec<EdDSAPublicKey>) -> Result<Self, PrimitiveError> {
+        if pubkeys.len() > MAX_AUTHENTICATOR_KEYS {
+            return Err(PrimitiveError::OutOfBounds);
         }
+
+        Ok(Self(
+            pubkeys
+                .into_iter()
+                .map(Some)
+                .collect::<ArrayVec<_, MAX_AUTHENTICATOR_KEYS>>(),
+        ))
     }
 
     /// Converts the set of public keys to a fixed-length array of Affine points.
@@ -294,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_try_set_at_index_within_bounds() {
-        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let mut key_set = AuthenticatorPublicKeySet::default();
         let pubkey = create_test_pubkey();
 
         // Setting at index 0 when empty should fail (index >= len)
@@ -310,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_try_set_at_index_at_length() {
-        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let mut key_set = AuthenticatorPublicKeySet::default();
         let pubkey = create_test_pubkey();
 
         // Push one key
@@ -323,7 +325,7 @@ mod tests {
 
     #[test]
     fn test_try_set_at_index_out_of_bounds() {
-        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let mut key_set = AuthenticatorPublicKeySet::default();
         let pubkey = create_test_pubkey();
 
         // Try to set at index beyond MAX_AUTHENTICATOR_KEYS
@@ -342,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_try_push_within_capacity() {
-        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let mut key_set = AuthenticatorPublicKeySet::default();
         let pubkey = create_test_pubkey();
 
         // Should be able to push up to MAX_AUTHENTICATOR_KEYS without panicking
@@ -364,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_as_affine_array_empty_set() {
-        let key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let key_set = AuthenticatorPublicKeySet::default();
         let array = key_set.as_affine_array();
 
         // All elements should be default
@@ -376,7 +378,7 @@ mod tests {
 
     #[test]
     fn test_as_affine_array_partial_set() {
-        let mut key_set = AuthenticatorPublicKeySet::new(None).unwrap();
+        let mut key_set = AuthenticatorPublicKeySet::default();
         let pubkey = create_test_pubkey();
 
         // Add 3 keys

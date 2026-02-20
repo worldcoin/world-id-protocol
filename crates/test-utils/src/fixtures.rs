@@ -153,7 +153,7 @@ pub fn single_leaf_merkle_fixture(
     pubkeys: Vec<EdDSAPublicKey>,
     leaf_index: u64,
 ) -> Result<MerkleFixture> {
-    let key_set = AuthenticatorPublicKeySet::new(Some(pubkeys))?;
+    let key_set = AuthenticatorPublicKeySet::new(pubkeys)?;
     let leaf = key_set.leaf_hash();
     let (siblings, root) = first_leaf_merkle_path(leaf);
     let inclusion_proof = MerkleInclusionProof::new(root, leaf_index, siblings);
