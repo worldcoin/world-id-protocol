@@ -7,6 +7,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 use crate::FieldElement;
 
+const RP_SIGNATURE_MSG_VERSION: u8 = 0x01;
+
 /// The id of a relying party.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RpId(u64);
@@ -87,7 +89,8 @@ impl<'de> Deserialize<'de> for RpId {
 
 /// Computes the message to be signed for the RP signature.
 ///
-/// The message format is: `nonce || created_at || expires_at` (48 bytes total).
+/// The message format is: `version || nonce || created_at || expires_at` (49 bytes total).
+/// - `version`: 1 byte (currently hardcoded to `0x01`)
 /// - `nonce`: 32 bytes (big-endian)
 /// - `created_at`: 8 bytes (big-endian)
 /// - `expires_at`: 8 bytes (big-endian)
@@ -97,7 +100,8 @@ pub fn compute_rp_signature_msg(
     created_at: u64,
     expires_at: u64,
 ) -> Vec<u8> {
-    let mut msg = Vec::with_capacity(48);
+    let mut msg = Vec::with_capacity(49);
+    msg.push(RP_SIGNATURE_MSG_VERSION);
     msg.extend(nonce.into_bigint().to_bytes_be());
     msg.extend(created_at.to_be_bytes());
     msg.extend(expires_at.to_be_bytes());
@@ -182,11 +186,16 @@ mod tests {
 
         let msg = compute_rp_signature_msg(nonce, created_at, expires_at);
 
-        // Message must always be exactly 80 bytes: 32 (nonce) + 8 (created_at) + 8 (expires_at)
+        // Message must always be exactly 49 bytes:
+        // 1 (version) + 32 (nonce) + 8 (created_at) + 8 (expires_at)
         assert_eq!(
             msg.len(),
-            48,
-            "RP signature message must be exactly 48 bytes"
+            49,
+            "RP signature message must be exactly 49 bytes"
+        );
+        assert_eq!(
+            msg[0], RP_SIGNATURE_MSG_VERSION,
+            "RP signature message version must be 0x01"
         );
     }
 }
