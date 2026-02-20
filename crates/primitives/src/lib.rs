@@ -363,7 +363,20 @@ mod tests {
     }
 
     #[test]
-    fn test_field_element_binary_encoding_roundtrip() {
+    fn test_simple_bytes_encoding() {
+        let fe = FieldElement::ONE;
+        let mut buffer = Vec::new();
+        fe.serialize_as_bytes(&mut buffer).unwrap();
+        let mut expected = [0u8; 32];
+        expected[31] = 1;
+        assert_eq!(buffer, expected.to_vec());
+
+        let reversed = FieldElement::deserialize_from_bytes(&mut &buffer[..]).unwrap();
+        assert_eq!(reversed, fe);
+    }
+
+    #[test]
+    fn test_field_element_cbor_encoding_roundtrip() {
         let root = FieldElement::try_from(uint!(
             0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
         ))
