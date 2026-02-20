@@ -52,4 +52,5 @@ k256 = { workspace = true, features = ["ecdsa", "serde"] }
 getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
+ark-serialize = { workspace = true }
 ciborium = { workspace = true }
