@@ -10,7 +10,7 @@
 use alloy_primitives::Keccak256;
 
 use ark_babyjubjub::Fq;
-use ark_ff::{AdditiveGroup, BigInteger, Field, PrimeField, UniformRand};
+use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
 use ruint::aliases::{U160, U256};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::{
@@ -98,10 +98,8 @@ impl FieldElement {
     /// Returns the 32-byte big-endian representation of this field element.
     #[must_use]
     pub fn to_be_bytes(&self) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        let be = self.0.into_bigint().to_bytes_be();
-        bytes.copy_from_slice(&be);
-        bytes
+        let num: U256 = self.0.into_bigint().into();
+        num.to_be_bytes()
     }
 
     /// Constructs a field element from a 32-byte big-endian representation.

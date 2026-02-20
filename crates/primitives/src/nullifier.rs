@@ -66,7 +66,7 @@ impl SessionNullifier {
 
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
     #[must_use]
-    pub fn to_be_bytes(&self) -> [u8; 64] {
+    pub fn to_compressed_bytes(&self) -> [u8; 64] {
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(&self.nullifier.to_be_bytes());
         bytes[32..].copy_from_slice(&self.action.to_be_bytes());
@@ -108,7 +108,7 @@ impl Serialize for SessionNullifier {
     where
         S: Serializer,
     {
-        let bytes = self.to_be_bytes();
+        let bytes = self.to_compressed_bytes();
         if serializer.is_human_readable() {
             // JSON: prefixed hex-encoded compressed bytes for explicit typing.
             serializer.serialize_str(&format!("{}{}", Self::JSON_PREFIX, hex::encode(bytes)))
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn test_bytes_roundtrip() {
         let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
-        let bytes = session.to_be_bytes();
+        let bytes = session.to_compressed_bytes();
 
         assert_eq!(bytes.len(), 64); // 32 + 32 bytes
 
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn test_bytes_use_field_element_encoding() {
         let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
-        let bytes = session.to_be_bytes();
+        let bytes = session.to_compressed_bytes();
 
         let mut expected = [0u8; 64];
         expected[..32].copy_from_slice(&session.nullifier().to_be_bytes());
