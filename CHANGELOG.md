@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-proof-v0.4.1...world-id-proof-v0.4.2) - 2026-02-20
+
+### Fixed
+
+- bump circuit commit ([#463](https://github.com/worldcoin/world-id-protocol/pull/463))
+
 ## [0.4.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.0...world-id-primitives-v0.4.1) - 2026-02-20
 
 ### Added

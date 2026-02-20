@@ -8917,7 +8917,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -8946,7 +8946,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "alloy",
  "backon",
@@ -9067,7 +9067,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -9145,7 +9145,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -9182,7 +9182,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
