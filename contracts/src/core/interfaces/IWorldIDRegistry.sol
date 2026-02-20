@@ -394,7 +394,7 @@ interface IWorldIDRegistry {
      * @param authenticatorPubkey The public key of the authenticator being removed.
      * @param oldOffchainSignerCommitment The current offchain signer commitment.
      * @param newOffchainSignerCommitment The new offchain signer commitment after removal.
-     * @param signature The signature from the authenticator being removed authorizing the removal.
+     * @param signature The signature from a valid authenticator authorizing the removal.
      * @param nonce The signature nonce for replay protection.
      */
     function removeAuthenticator(
