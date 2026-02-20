@@ -106,7 +106,7 @@ impl FieldElement {
 
     /// Constructs a field element from a 32-byte big-endian representation.
     ///
-    /// Unlike [`Self::from_be_bytes_mod_order`], this rejects values >= the field modulus.
+    /// Unlike `from_be_bytes_mod_order`, this rejects values >= the field modulus.
     ///
     /// # Errors
     /// Returns [`PrimitiveError::NotInField`] if the value is >= the field modulus.
