@@ -85,9 +85,9 @@ impl SessionNullifier {
             ));
         }
 
-        let nullifier = FieldElement::deserialize_from_bytes(&mut &bytes[..32])
+        let nullifier = FieldElement::from_be_bytes(bytes[..32].try_into().unwrap())
             .map_err(|e| format!("invalid nullifier: {e}"))?;
-        let action = FieldElement::deserialize_from_bytes(&mut &bytes[32..])
+        let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid action: {e}"))?;
 
         Ok(Self { nullifier, action })
