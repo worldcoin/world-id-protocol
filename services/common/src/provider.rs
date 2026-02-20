@@ -2,18 +2,26 @@ use std::{
     num::{NonZeroU32, NonZeroUsize},
     path::Path,
     sync::Arc,
+    time::Duration,
 };
 
 use alloy::{
     network::EthereumWallet,
     providers::{DynProvider, Provider, ProviderBuilder, fillers::CachedNonceManager},
-    rpc::{client::RpcClient, json_rpc::RequestPacket},
+    rpc::{
+        client::RpcClient,
+        json_rpc::{RequestPacket, RpcError},
+    },
     signers::{
         Signer,
         aws::{AwsSigner, AwsSignerError, aws_config::BehaviorVersion},
         local::{LocalSignerError, PrivateKeySigner},
     },
-    transports::{TransportError, http::Http, layers::FallbackLayer},
+    transports::{
+        TransportError, TransportErrorKind,
+        http::{Http, reqwest},
+        layers::{FallbackLayer, RateLimitRetryPolicy, RetryBackoffLayer},
+    },
 };
 use clap::Args;
 use config::ConfigError;
@@ -66,6 +74,10 @@ pub struct ProviderArgs {
     #[command(flatten)]
     #[serde(default)]
     pub throttle: Option<ThrottleConfig>,
+
+    #[command(flatten)]
+    #[serde(default)]
+    pub retry: Option<RetryConfig>,
 }
 
 #[derive(Args, Debug, Clone, Deserialize)]
@@ -79,6 +91,34 @@ pub struct ThrottleConfig {
     #[arg(long = "burst-size", default_value_t = 10, env = "RPC_BURST_SIZE")]
     #[serde(default = "defaults::default_burst_size")]
     pub burst_size: u32,
+}
+
+#[derive(Args, Debug, Clone, Deserialize)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts for failed RPC requests.
+    #[arg(long = "rpc-max-retries", default_value_t = defaults::MAX_RETRIES, env = "RPC_MAX_RETRIES")]
+    #[serde(default = "defaults::default_max_retries")]
+    pub max_retries: u32,
+
+    /// Initial backoff delay in milliseconds before the first retry.
+    #[arg(long = "rpc-initial-backoff-ms", default_value_t = defaults::INITIAL_BACKOFF_MS, env = "RPC_INITIAL_BACKOFF_MS")]
+    #[serde(default = "defaults::default_initial_backoff_ms")]
+    pub initial_backoff_ms: u64,
+
+    /// Per-RPC request timeout in seconds.
+    #[arg(long = "rpc-timeout-secs", default_value_t = defaults::TIMEOUT_SECS, env = "RPC_TIMEOUT_SECS")]
+    #[serde(default = "defaults::default_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: defaults::MAX_RETRIES,
+            initial_backoff_ms: defaults::INITIAL_BACKOFF_MS,
+            timeout_secs: defaults::TIMEOUT_SECS,
+        }
+    }
 }
 
 /// Secrets for the signer.
@@ -164,12 +204,25 @@ pub enum SignerConfig {
 mod defaults {
     pub const BURST_SIZE: u32 = 10;
     pub const REQUESTS_PER_SECOND: u32 = 100;
+    pub const MAX_RETRIES: u32 = 10;
+    pub const INITIAL_BACKOFF_MS: u64 = 1000;
+    pub const TIMEOUT_SECS: u64 = 10;
+    pub(super) const COMPUTE_UNITS_PER_SECOND: u64 = 10_000;
 
     pub const fn default_burst_size() -> u32 {
         BURST_SIZE
     }
     pub const fn default_requests_per_second() -> u32 {
         REQUESTS_PER_SECOND
+    }
+    pub const fn default_max_retries() -> u32 {
+        MAX_RETRIES
+    }
+    pub const fn default_initial_backoff_ms() -> u64 {
+        INITIAL_BACKOFF_MS
+    }
+    pub const fn default_timeout_secs() -> u64 {
+        TIMEOUT_SECS
     }
 }
 
@@ -219,21 +272,56 @@ impl ProviderArgs {
             )
         });
 
-        let transports = http.into_iter().map(Http::new).collect::<Vec<_>>();
+        let retry_cfg = self.retry.unwrap_or_default();
+
+        // Per-request timeout configured at the HTTP client level so that
+        // hanging connections surface errors for the retry layer to act on.
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(retry_cfg.timeout_secs))
+            .build()
+            .expect("failed to build HTTP client");
+
+        let transports = http
+            .into_iter()
+            .map(|url| Http::with_client(http_client.clone(), url))
+            .collect::<Vec<_>>();
+
+        // Extended retry policy built on [`RateLimitRetryPolicy`] (which already handles 429, 503,
+        // null responses, missing batch responses, and retryable JSON-RPC error codes).
+        // The `.or()` extension adds coverage for transient transport failures.
+        let transport_retry_policy =
+            RateLimitRetryPolicy::default().or(|error: &TransportError| match error {
+                // Connection drops, DNS failures, TLS errors, reqwest timeouts
+                RpcError::Transport(TransportErrorKind::Custom(_)) => true,
+                // Request timeout, bad gateway, gateway timeout
+                RpcError::Transport(TransportErrorKind::HttpError(e)) => {
+                    matches!(e.status, 408 | 502 | 504)
+                }
+                _ => false,
+            });
+
+        let retry_layer = RetryBackoffLayer::new_with_policy(
+            retry_cfg.max_retries,
+            retry_cfg.initial_backoff_ms,
+            defaults::COMPUTE_UNITS_PER_SECOND,
+            transport_retry_policy,
+        );
 
         let client = if let Some(throttle) = throttle {
             let transport = ServiceBuilder::new()
                 .layer(throttle)
                 .layer(fallback_layer)
                 .service(transports);
-
-            RpcClient::builder().transport(transport, false)
+            RpcClient::builder()
+                .layer(retry_layer)
+                .transport(transport, false)
         } else {
             let transport = ServiceBuilder::new()
                 .layer(fallback_layer)
                 .service(transports);
-
-            RpcClient::builder().transport(transport, false)
+            RpcClient::builder()
+                .layer(retry_layer)
+                .transport(transport, false)
         };
 
         let maybe_signer = if let Some(signer) = &self.signer {
@@ -384,5 +472,27 @@ mod tests {
         let args = ProviderArgs::from_file(file.path()).unwrap();
         let signer = args.signer.unwrap();
         assert!(matches!(signer.signer_config(), SignerConfig::AwsKms(_)));
+    }
+
+    #[test]
+    fn from_file_loads_retry_config() {
+        let config = r#"
+            [provider]
+            http = ["https://rpc.example.com"]
+
+            [provider.retry]
+            max_retries = 3
+            initial_backoff_ms = 500
+            timeout_secs = 5
+        "#;
+
+        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+        file.write_all(config.as_bytes()).unwrap();
+
+        let args = ProviderArgs::from_file(file.path()).unwrap();
+        let retry = args.retry.unwrap();
+        assert_eq!(retry.max_retries, 3);
+        assert_eq!(retry.initial_backoff_ms, 500);
+        assert_eq!(retry.timeout_secs, 5);
     }
 }
