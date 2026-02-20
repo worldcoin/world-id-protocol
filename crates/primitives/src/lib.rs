@@ -98,8 +98,8 @@ impl FieldElement {
     /// Returns the 32-byte big-endian representation of this field element.
     #[must_use]
     pub fn to_be_bytes(&self) -> [u8; 32] {
-        let num: U256 = self.0.into_bigint().into();
-        num.to_be_bytes()
+        let as_num: U256 = self.0.into();
+        as_num.to_be_bytes()
     }
 
     /// Constructs a field element from a 32-byte big-endian representation.
