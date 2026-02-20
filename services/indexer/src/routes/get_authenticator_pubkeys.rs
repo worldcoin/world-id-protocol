@@ -7,6 +7,7 @@ use world_id_core::api_types::{
 /// Get Authenticator Pubkeys
 ///
 /// Returns the compressed authenticator public keys for a given World ID by leaf index.
+/// Removed authenticator slots are returned as `null` to preserve `pubkey_id` positions.
 #[utoipa::path(
     post,
     path = "/authenticator-pubkeys",

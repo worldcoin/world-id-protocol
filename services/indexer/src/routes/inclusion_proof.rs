@@ -3,12 +3,10 @@ use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;
 use semaphore_rs_trees::{Branch, proof::InclusionProof};
-use world_id_core::{
-    EdDSAPublicKey,
-    api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest},
-};
+use world_id_core::api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest};
 use world_id_primitives::{
-    FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
+    FieldElement, TREE_DEPTH,
+    authenticator::{SparseAuthenticatorPubkeysError, decode_sparse_authenticator_pubkeys},
     merkle::MerkleInclusionProof,
 };
 
@@ -26,15 +24,18 @@ pub(crate) struct AccountInclusionProofSchema {
     /// The sibling path up to the Merkle root (array of hex strings)
     #[schema(value_type = Vec<String>, format = "hex")]
     siblings: Vec<String>,
-    /// The compressed authenticator public keys for the account (array of hex strings)
-    #[schema(value_type = Vec<String>, format = "hex")]
-    authenticator_pubkeys: Vec<String>,
+    /// The compressed authenticator public keys for the account.
+    ///
+    /// Entries are optional to preserve sparse slot positions (`null` for removed authenticators).
+    #[schema(value_type = Vec<Option<String>>, format = "hex")]
+    authenticator_pubkeys: Vec<Option<String>>,
 }
 
 /// Get Inclusion Proof
 ///
 /// Returns a Merkle inclusion proof for the given leaf index to the current `WorldIDRegistry` tree. In
-/// addition, it also includes the entire list of Authenticator public keys registered for the World ID.
+/// addition, it also includes the entire authenticator slot list for the World ID account.
+/// Removed authenticators are represented as `null` entries to preserve `pubkey_id` positions.
 #[utoipa::path(
     post,
     path = "/inclusion-proof",
@@ -65,22 +66,22 @@ pub(crate) async fn handler(
         .map_err(|_err| IndexerErrorResponse::internal_server_error())?
         .ok_or(IndexerErrorResponse::not_found())?;
 
-    let pubkeys: Vec<EdDSAPublicKey> = pubkeys
-        .iter()
-        .map(|pubkey| {
-            // Encoding matches insertion in core::authenticator::Authenticator operations
-            EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes()).map_err(|err| {
+    let authenticator_pubkeys = decode_sparse_authenticator_pubkeys(pubkeys).map_err(|e| {
+        match e {
+            SparseAuthenticatorPubkeysError::SlotOutOfBounds {
+                slot_index,
+                max_supported_slot,
+            } => tracing::error!(
+                leaf_index = %leaf_index,
+                "Invalid authenticator slot index returned from DB: {slot_index} (max {max_supported_slot})"
+            ),
+            SparseAuthenticatorPubkeysError::InvalidCompressedPubkey { slot_index, reason } => {
                 tracing::error!(
                     leaf_index = %leaf_index,
-                    "Invalid public key stored for account (not affine compressed): {pubkey} ({err})"
+                    "Invalid public key stored for account at slot {slot_index}: {reason}"
                 );
-                IndexerErrorResponse::internal_server_error()
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let authenticator_pubkeys = AuthenticatorPublicKeySet::new(Some(pubkeys)).map_err(|e| {
-        tracing::error!(leaf_index = %leaf_index, "Invalid public key set stored for account: {e}");
+            }
+        }
         IndexerErrorResponse::internal_server_error()
     })?;
 

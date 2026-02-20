@@ -47,7 +47,8 @@ async fn test_authenticator_registration() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: None,
+        redis_url: std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
     };

@@ -425,7 +425,10 @@ async fn stress_test(
 
     let key_index = key_set
         .iter()
-        .position(|pk| pk.pk == authenticator.offchain_pubkey().pk)
+        .position(|pk| {
+            pk.as_ref()
+                .is_some_and(|pk| pk.pk == authenticator.offchain_pubkey().pk)
+        })
         .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
     let query_material = world_id_core::proof::load_embedded_query_material()?;
