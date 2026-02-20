@@ -86,7 +86,7 @@ impl Issuer {
             )
             .send()
             .await
-            .map_err(|e| IssuerError::Generic(format!("failed to send transaction: {e}")))?
+            .map_err(IssuerError::SendTransactionError)?
             .get_receipt()
             .await?;
 
@@ -132,6 +132,10 @@ pub enum IssuerError {
     #[error(transparent)]
     PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
 
+    /// Failed to send the registration transaction.
+    #[error("fail to send transaction: {0}")]
+    SendTransactionError(#[from] alloy::contract::Error),
+
     /// Registration failed with revert
     #[error("Registration failed: {0}")]
     RegistrationFailed(String),
@@ -150,8 +154,4 @@ pub enum IssuerError {
         expected_signer: Address,
         actual_signer: Address,
     },
-
-    /// Generic unexpected error
-    #[error("Unexpected error: {0}")]
-    Generic(String),
 }
