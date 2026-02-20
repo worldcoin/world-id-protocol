@@ -81,6 +81,9 @@ pub enum ProofError {
     /// Error originating from `oprf_client`.
     #[error(transparent)]
     OprfError(#[from] taceo_oprf::client::Error),
+    /// Errors originating from proof inputs
+    #[error(transparent)]
+    ProofInputError(#[from] errors::ProofInputError),
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
@@ -355,6 +358,8 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         // The circuit verifies that `current_timestamp < cred_expires_at`.
         current_timestamp: expires_at_min.into(),
     };
+
+    let _ = errors::check_nullifier_input_validity(&nullifier_input)?;
 
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
     nullifier_material.verify_proof(&proof, &public)?;

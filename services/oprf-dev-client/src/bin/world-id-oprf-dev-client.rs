@@ -33,7 +33,7 @@ use uuid::Uuid;
 use world_id_core::{
     Authenticator, AuthenticatorError, Credential, EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature,
     FieldElement,
-    proof::CircomGroth16Material,
+    proof::{CircomGroth16Material, errors},
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
 use world_id_primitives::{
@@ -311,6 +311,7 @@ fn generate_oprf_auth_request(
         action: *action,
         nonce: *proof_request.nonce,
     };
+    let _ = errors::check_query_input_validity(&query_proof_input)?;
 
     let (proof, public_inputs) = query_material.generate_proof(&query_proof_input, &mut rng)?;
     query_material
@@ -519,6 +520,7 @@ async fn stress_test(
                 cred_sub_blinding_factor: *req.credential_sub_blinding_factor,
                 cred_id: req.credential.id.into(),
             };
+            let _ = errors::check_nullifier_input_validity(&nullifier_input)?;
 
             let (proof, public) = nullifier_material.generate_proof(&nullifier_input, &mut rng)?;
             nullifier_material.verify_proof(&proof, &public)?;
