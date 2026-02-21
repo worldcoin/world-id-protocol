@@ -71,6 +71,8 @@ pub use request::{
     ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
+pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+
 /// The scalar field used in the World ID Protocol.
 ///
 /// This is the scalar field of the `BabyJubJub` curve.
