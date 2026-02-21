@@ -5,5 +5,7 @@ mod tracing;
 
 // TODO: FIXME: Provider Metrics
 
-pub use provider::{ProviderArgs, ProviderError, ProviderResult, SignerArgs, SignerConfig};
+pub use provider::{
+    ProviderArgs, ProviderError, ProviderResult, RetryConfig, SignerArgs, SignerConfig,
+};
 pub use tracing::trace_layer;
