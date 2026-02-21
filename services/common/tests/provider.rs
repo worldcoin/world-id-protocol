@@ -62,6 +62,7 @@ fn fast_retry(max_retries: u32) -> RetryConfig {
         max_retries,
         initial_backoff_ms: 10,
         timeout_secs: 10,
+        ..RetryConfig::default()
     }
 }
 
@@ -124,6 +125,7 @@ async fn fallback_succeeds_when_endpoint_times_out() {
         max_retries: 3,
         initial_backoff_ms: 10,
         timeout_secs: 1,
+        ..RetryConfig::default()
     };
     let provider = build_provider_args(vec![slow_url, fast_url], retry)
         .http()

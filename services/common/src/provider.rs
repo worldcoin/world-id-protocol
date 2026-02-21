@@ -109,6 +109,11 @@ pub struct RetryConfig {
     #[arg(long = "rpc-timeout-secs", default_value_t = defaults::TIMEOUT_SECS, env = "RPC_TIMEOUT_SECS")]
     #[serde(default = "defaults::default_timeout_secs")]
     pub timeout_secs: u64,
+
+    /// Compute units per second budget used for backoff scaling under concurrent load.
+    #[arg(long = "rpc-compute-units-per-second", default_value_t = defaults::COMPUTE_UNITS_PER_SECOND, env = "RPC_COMPUTE_UNITS_PER_SECOND")]
+    #[serde(default = "defaults::default_compute_units_per_second")]
+    pub compute_units_per_second: u64,
 }
 
 impl Default for RetryConfig {
@@ -117,6 +122,7 @@ impl Default for RetryConfig {
             max_retries: defaults::MAX_RETRIES,
             initial_backoff_ms: defaults::INITIAL_BACKOFF_MS,
             timeout_secs: defaults::TIMEOUT_SECS,
+            compute_units_per_second: defaults::COMPUTE_UNITS_PER_SECOND,
         }
     }
 }
@@ -207,7 +213,7 @@ mod defaults {
     pub const MAX_RETRIES: u32 = 10;
     pub const INITIAL_BACKOFF_MS: u64 = 1000;
     pub const TIMEOUT_SECS: u64 = 10;
-    pub(super) const COMPUTE_UNITS_PER_SECOND: u64 = 10_000;
+    pub const COMPUTE_UNITS_PER_SECOND: u64 = 10_000;
 
     pub const fn default_burst_size() -> u32 {
         BURST_SIZE
@@ -223,6 +229,9 @@ mod defaults {
     }
     pub const fn default_timeout_secs() -> u64 {
         TIMEOUT_SECS
+    }
+    pub const fn default_compute_units_per_second() -> u64 {
+        COMPUTE_UNITS_PER_SECOND
     }
 }
 
@@ -303,7 +312,7 @@ impl ProviderArgs {
         let retry_layer = RetryBackoffLayer::new_with_policy(
             retry_cfg.max_retries,
             retry_cfg.initial_backoff_ms,
-            defaults::COMPUTE_UNITS_PER_SECOND,
+            retry_cfg.compute_units_per_second,
             transport_retry_policy,
         );
 
@@ -484,6 +493,7 @@ mod tests {
             max_retries = 3
             initial_backoff_ms = 500
             timeout_secs = 5
+            compute_units_per_second = 5000
         "#;
 
         let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
@@ -494,5 +504,6 @@ mod tests {
         assert_eq!(retry.max_retries, 3);
         assert_eq!(retry.initial_backoff_ms, 500);
         assert_eq!(retry.timeout_secs, 5);
+        assert_eq!(retry.compute_units_per_second, 5000);
     }
 }
