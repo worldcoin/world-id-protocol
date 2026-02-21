@@ -1,12 +1,16 @@
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU32, Ordering},
+};
 
 use alloy::providers::Provider;
-use axum::body::Body;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::routing::post;
-use axum::Router;
+use axum::{
+    Router,
+    body::Body,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::post,
+};
 use tokio::net::TcpListener;
 use url::Url;
 use world_id_services_common::{ProviderArgs, RetryConfig};
@@ -162,7 +166,8 @@ async fn max_retries_exhausted_returns_error() {
 
 #[tokio::test]
 async fn contract_revert_not_retried() {
-    let revert_response = r#"{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted"}}"#;
+    let revert_response =
+        r#"{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted"}}"#;
 
     let (url, counter) = spawn_mock_rpc(move |_| {
         Response::builder()
