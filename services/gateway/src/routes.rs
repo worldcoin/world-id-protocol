@@ -124,7 +124,7 @@ pub(crate) async fn build_app(
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
         .layer(tower_http::timeout::TimeoutLayer::with_status_code(
-            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::GATEWAY_TIMEOUT,
             Duration::from_secs(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer()))
