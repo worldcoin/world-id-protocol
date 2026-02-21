@@ -49,6 +49,7 @@ async fn test_authenticator_registration() {
         max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
             .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
     };
