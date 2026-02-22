@@ -11,13 +11,13 @@ use std::{fs::File, io};
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 
 #[cfg(feature = "embed-zkeys")]
-const CIRCUIT_COMMIT: &str = "92cee94c2fb242055abd0a629f71d406bf6d626b"; // TODO: Figure out a better way for static commits
+const CIRCUIT_COMMIT: &str = "d9d61e26ac5802c27a5984875db6c4572af5b24c"; // TODO: Figure out a better way for static commits
 
 const CIRCUIT_FILES: &[&str] = &[
-    "circom/artifacts/deprecated/OPRFQueryGraph.bin",
-    "circom/artifacts/deprecated/OPRFNullifierGraph.bin",
-    "circom/artifacts/deprecated/OPRFQuery.arks.zkey",
-    "circom/artifacts/deprecated/OPRFNullifier.arks.zkey",
+    "circom/artifacts/OPRFQueryProof/OPRFQueryProofGraph.bin",
+    "circom/artifacts/OPRFNullifierProof/OPRFNullifierProofGraph.bin",
+    "circom/artifacts/OPRFQueryProof/oprfqueryproof_final.zkey",
+    "circom/artifacts/OPRFNullifierProof/oprfnullifierproof_final.zkey",
 ];
 
 fn main() -> eyre::Result<()> {

@@ -16,7 +16,7 @@ use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{
-    Credential, FieldElement, RequestItem, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
+    circuit_inputs::NullifierProofCircuitInput, Credential, FieldElement, RequestItem, TREE_DEPTH,
 };
 
 pub use groth16_material::circom::{
@@ -29,10 +29,10 @@ pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "292483d5631c28f15613b26bee6cf62a8cc9bbd74a97f375aea89e4dfbf7a10f";
+    "03899a095915800757ecb9c79e1f350e95aa23b080bda83d36d4c3d6281559e0";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "14bd468c7fc6e91e48fa776995c267493845d93648a4c1ee24c2567b18b1795a";
+    "cef08ef106d7fdef3640a2bbb2d5e65fc2bef0c613ba65b900b65d4321a24139";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
@@ -220,16 +220,23 @@ fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
         entry.read_to_end(&mut buf)?;
 
         match name {
-            "OPRFQueryGraph.bin" => query_graph = Some(buf),
-            "OPRFNullifierGraph.bin" => nullifier_graph = Some(buf),
-            n if n.starts_with("OPRFQuery.arks.zkey") => query_zkey = Some(buf),
-            n if n.starts_with("OPRFNullifier.arks.zkey") => nullifier_zkey = Some(buf),
+            "OPRFQueryProofGraph.bin" => query_graph = Some(buf),
+            "OPRFNullifierProofGraph.bin" => nullifier_graph = Some(buf),
+            n if n == "oprfqueryproof_final.zkey" || n.starts_with("OPRFQuery.arks.zkey") => {
+                query_zkey = Some(buf)
+            }
+            n if n == "oprfnullifierproof_final.zkey"
+                || n.starts_with("OPRFNullifier.arks.zkey") =>
+            {
+                nullifier_zkey = Some(buf)
+            }
             _ => {}
         }
     }
 
-    let query_graph = query_graph.context("OPRFQueryGraph.bin not found in archive")?;
-    let nullifier_graph = nullifier_graph.context("OPRFNullifierGraph.bin not found in archive")?;
+    let query_graph = query_graph.context("OPRFQueryProofGraph.bin not found in archive")?;
+    let nullifier_graph =
+        nullifier_graph.context("OPRFNullifierProofGraph.bin not found in archive")?;
     #[allow(unused_mut)]
     let mut query_zkey = query_zkey.context("OPRFQuery zkey not found in archive")?;
     #[allow(unused_mut)]
@@ -238,8 +245,12 @@ fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
     // Step 3: ARK decompress zkeys if compress-zkeys is active
     #[cfg(feature = "compress-zkeys")]
     {
-        query_zkey = ark_decompress_zkey(&query_zkey)?;
-        nullifier_zkey = ark_decompress_zkey(&nullifier_zkey)?;
+        if let Ok(decompressed) = ark_decompress_zkey(&query_zkey) {
+            query_zkey = decompressed;
+        }
+        if let Ok(decompressed) = ark_decompress_zkey(&nullifier_zkey) {
+            nullifier_zkey = decompressed;
+        }
     }
 
     Ok(EmbeddedCircuitFiles {
