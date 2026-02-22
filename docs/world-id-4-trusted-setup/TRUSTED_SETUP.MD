@@ -138,27 +138,27 @@ cd /Users/dcbuilder/Code/world/world-id-protocol
 snarkjs zkey verify \
   /tmp/oprf-r1cs/OPRFKeyGenProof13.r1cs \
   /tmp/powersOfTau28_hez_final_15.ptau \
-  circom/OPRFKeyGenProof13/oprfkeygenproof13_final.zkey
+  circom/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.zkey
 
 snarkjs zkey verify \
   /tmp/oprf-r1cs/OPRFKeyGenProof25.r1cs \
   /tmp/powersOfTau28_hez_final_16.ptau \
-  circom/OPRFKeyGenProof25/oprfkeygenproof25_final.zkey
+  circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_final.zkey
 
 snarkjs zkey verify \
   /tmp/oprf-r1cs/OPRFKeyGenProof37.r1cs \
   /tmp/powersOfTau28_hez_final_16.ptau \
-  circom/OPRFKeyGenProof37/oprfkeygenproof37_final.zkey
+  circom/artifacts/OPRFKeyGenProof37/oprfkeygenproof37_final.zkey
 
 snarkjs zkey verify \
   /tmp/oprf-r1cs/OPRFNullifierProof.r1cs \
   /tmp/powersOfTau28_hez_final_16.ptau \
-  circom/OPRFNullifierProof/oprfnullifierproof_final.zkey
+  circom/artifacts/OPRFNullifierProof/oprfnullifierproof_final.zkey
 
 snarkjs zkey verify \
   /tmp/oprf-r1cs/OPRFQueryProof.r1cs \
   /tmp/powersOfTau28_hez_final_15.ptau \
-  circom/OPRFQueryProof/oprfqueryproof_final.zkey
+  circom/artifacts/OPRFQueryProof/oprfqueryproof_final.zkey
 ```
 
 Each command must end with:
@@ -179,18 +179,18 @@ Expected final `zkey` SHA-256:
 
 Transcript files:
 
-- `circom/OPRFKeyGenProof13/oprfkeygenproof13_dcbuild3r-19372745_final_verification_transcript.log`
-- `circom/OPRFKeyGenProof25/oprfkeygenproof25_dcbuild3r-19372745_final_verification_transcript.log`
-- `circom/OPRFKeyGenProof37/oprfkeygenproof37_dcbuild3r-19372745_final_verification_transcript.log`
-- `circom/OPRFNullifierProof/oprfnullifierproof_dcbuild3r-19372745_final_verification_transcript.log`
-- `circom/OPRFQueryProof/oprfqueryproof_dcbuild3r-19372745_final_verification_transcript.log`
+- `circom/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_dcbuild3r-19372745_final_verification_transcript.log`
+- `circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_dcbuild3r-19372745_final_verification_transcript.log`
+- `circom/artifacts/OPRFKeyGenProof37/oprfkeygenproof37_dcbuild3r-19372745_final_verification_transcript.log`
+- `circom/artifacts/OPRFNullifierProof/oprfnullifierproof_dcbuild3r-19372745_final_verification_transcript.log`
+- `circom/artifacts/OPRFQueryProof/oprfqueryproof_dcbuild3r-19372745_final_verification_transcript.log`
 
 Check summary fields (contribution count, beacon, and `ZKey Ok!`):
 
 ```bash
 cd /Users/dcbuilder/Code/world/world-id-protocol
 
-for f in circom/OPRF*Proof*/oprf*_final_verification_transcript.log; do
+for f in circom/artifacts/OPRF*Proof*/oprf*_final_verification_transcript.log; do
   echo "===== $f"
   rg '^contribution #' "$f" | wc -l
   rg '^Beacon generator:' "$f"
@@ -230,7 +230,7 @@ cd /Users/dcbuilder/Code/world/world-id-protocol
 
 echo "circuit,contribution_number,contributor_tag,contribution_hash,attestation_gist_url" > /tmp/oprf_attestations.csv
 
-for log in circom/OPRF*Proof*/oprf*_final_verification_transcript.log; do
+for log in circom/artifacts/OPRF*Proof*/oprf*_final_verification_transcript.log; do
   circuit=$(basename "$(dirname "$log")")
   awk -v circuit="$circuit" '
     /^contribution #[0-9]+ /{
