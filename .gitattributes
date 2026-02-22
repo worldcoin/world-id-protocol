@@ -2,3 +2,6 @@ contracts/out/**/*.json linguist-generated
 circom/OPRF*Proof*/**/*.zkey filter=lfs diff=lfs merge=lfs -text
 circom/OPRF*Proof*/**/*.r1cs filter=lfs diff=lfs merge=lfs -text
 circom/OPRF*Proof*/**/*.wasm filter=lfs diff=lfs merge=lfs -text
+docs/world-id-4-trusted-setup/manim/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+docs/world-id-4-trusted-setup/*.MP4 filter=lfs diff=lfs merge=lfs -text
+docs/world-id-4-trusted-setup/*.mp4 filter=lfs diff=lfs merge=lfs -text
