@@ -283,12 +283,11 @@ These files are committed in `docs/world-id-4-trusted-setup/artifacts/`:
 - `contributions.csv`: all contribution rows extracted from transcripts.
   - columns: `circuit,contribution_number,contributor_tag,username,github_numeric_id,contribution_hash`
 - `contributor_usernames.txt`: unique contributor GitHub usernames (one per line).
-- `contributor_gist_check.tsv`: concise reviewer table with one primary hash-match gist URL per user.
+- `contributor_gist_check.tsv`: concise reviewer table summarizing gist discovery and hash-match coverage per user.
   - columns: `username,gist_count,metadata_matches,hash_matches,primary_hash_gist`
-- `hash_gists_primary.tsv`: one hash-match gist URL per user.
+- `hash_gists_primary.tsv`: canonical attestation gist URL per contributor where the gist includes a file named `world-id-protocol_attestation.log`.
   - columns: `username,gist_url`
-- `gist_matches_fast.tsv`: full raw match rows (metadata and hash matches).
-  - columns: `username,gist_id,gist_url,updated_at,match_type,match_value,description,files`
+  - contributors without a gist containing that exact file title are excluded from this file.
 
 Quick check:
 
@@ -297,7 +296,6 @@ cd /Users/dcbuilder/Code/world/world-id-protocol
 
 wc -l docs/world-id-4-trusted-setup/artifacts/contributions.csv
 wc -l docs/world-id-4-trusted-setup/artifacts/contributor_gist_check.tsv
-wc -l docs/world-id-4-trusted-setup/artifacts/gist_matches_fast.tsv
 ```
 
 ## 7. Final Acceptance Criteria
@@ -308,4 +306,4 @@ Trusted setup is accepted when all are true:
 2. Every `snarkjs zkey verify r1cs ptau final.zkey` returns `ZKey Ok!`.
 3. Transcript logs end with `ZKey Ok!`, use the expected beacon, and have expected contribution counts.
 4. Contribution-to-attestation mapping is indexed in `docs/world-id-4-trusted-setup/artifacts/contributions.csv`.
-5. Contributor gist evidence is indexed and reviewable in `docs/world-id-4-trusted-setup/artifacts/contributor_gist_check.tsv`, with canonical gist links in `docs/world-id-4-trusted-setup/artifacts/hash_gists_primary.tsv` and raw match rows in `docs/world-id-4-trusted-setup/artifacts/gist_matches_fast.tsv`.
+5. Contributor gist evidence is indexed and reviewable in `docs/world-id-4-trusted-setup/artifacts/contributor_gist_check.tsv`, with canonical attestation gist links in `docs/world-id-4-trusted-setup/artifacts/hash_gists_primary.tsv` (restricted to gists containing `world-id-protocol_attestation.log`).

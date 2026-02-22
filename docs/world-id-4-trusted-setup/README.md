@@ -45,4 +45,5 @@ If you had any issues contributing to the ceremony, please contact our ceremony 
 - Trusted setup result files: [`circom/artifacts/`](../../circom/artifacts/)
 - Verification guide: [`TRUSTED_SETUP.MD`](./TRUSTED_SETUP.MD)
 - Verification artifacts: [`artifacts/`](./artifacts/)
+- Canonical attestation gists: [`artifacts/hash_gists_primary.tsv`](./artifacts/hash_gists_primary.tsv) (requires file title `world-id-protocol_attestation.log`)
 - Local rendered video file (Git LFS): [`World ID Trusted Setup.MP4`](./World%20ID%20Trusted%20Setup.MP4)
