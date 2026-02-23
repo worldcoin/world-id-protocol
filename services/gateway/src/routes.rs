@@ -28,7 +28,6 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use http::StatusCode;
 use moka::future::Cache;
 use tokio::sync::mpsc;
 use utoipa::OpenApi;
@@ -123,10 +122,7 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
-        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
-            StatusCode::GATEWAY_TIMEOUT,
-            Duration::from_secs(request_timeout_secs),
-        ))
+        .layer(world_id_services_common::timeout_layer(request_timeout_secs))
         .layer(world_id_services_common::trace_layer()))
 }
 
