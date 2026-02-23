@@ -92,6 +92,7 @@ async fn test_rate_limit_basic() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: redis_url.clone(),
+        request_timeout_secs: 10,
         rate_limit_window_secs: Some(10), // 10 second window for testing
         rate_limit_max_requests: Some(3), // Only 3 requests allowed
     };
@@ -297,6 +298,7 @@ async fn test_rate_limit_different_leaf_indexes() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: redis_url.clone(),
+        request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
         rate_limit_max_requests: Some(2), // Only 2 requests per leaf_index
     };
@@ -451,6 +453,7 @@ async fn test_rate_limit_sliding_window() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: redis_url.clone(),
+        request_timeout_secs: 10,
         rate_limit_window_secs: Some(3), // 3 second window for faster testing
         rate_limit_max_requests: Some(2),
     };
@@ -602,6 +605,7 @@ async fn test_rate_limit_multiple_endpoints() {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: redis_url.clone(),
+        request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
         rate_limit_max_requests: Some(3),
     };

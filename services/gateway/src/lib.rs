@@ -53,6 +53,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.max_ops_batch_size,
         cfg.redis_url,
         rate_limit_config,
+        cfg.request_timeout_secs,
     )
     .await?;
 
@@ -101,6 +102,7 @@ pub async fn run() -> GatewayResult<()> {
         cfg.max_ops_batch_size,
         cfg.redis_url,
         rate_limit_config,
+        cfg.request_timeout_secs,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
