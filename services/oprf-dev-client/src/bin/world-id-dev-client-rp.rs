@@ -112,7 +112,10 @@ impl DevClient for WorldIdRpDevClient {
 
         let key_index = key_set
             .iter()
-            .position(|pk| pk.pk == self.authenticator.offchain_pubkey().pk)
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.authenticator.offchain_pubkey().pk)
+            })
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
         tracing::info!("fetched data from authenticator");
 

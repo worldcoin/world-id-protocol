@@ -109,7 +109,10 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
 
         let key_index = key_set
             .iter()
-            .position(|pk| pk.pk == self.authenticator.offchain_pubkey().pk)
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.authenticator.offchain_pubkey().pk)
+            })
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         let (issuer_schema_id, issuer_schema_oprf_public_key) = tokio::time::timeout(
