@@ -2,7 +2,7 @@
 
 This document describes how to independently verify the Phase 2 Groth16 artifacts committed in this repository.
 
-It follows the same core pattern as the SMTB guide's verification phase, but simplified for this OPRF setup:
+It follows the same core pattern as the SMTB guide's verification phase, adapted for this OPRF setup:
 
 1. Rebuild the exact `r1cs` from upstream circuit source.
 2. Verify each final `zkey` against `(r1cs, ptau)` with `snarkjs zkey verify`.
@@ -11,27 +11,27 @@ It follows the same core pattern as the SMTB guide's verification phase, but sim
 
 Reference methodology:
 
-- https://github.com/worldcoin/smtb-ceremony/blob/main/GUIDE.md#verify-contributions-happened-correctly
+- <https://github.com/worldcoin/smtb-ceremony/blob/main/GUIDE.md#verify-contributions-happened-correctly>
 
 Source circuits used for this ceremony:
 
-- https://github.com/TaceoLabs/oprf-service/tree/02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71/circom/main
+- <https://github.com/TaceoLabs/oprf-service/tree/02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71/circom/main>
 
-Repository audit artifacts generated from transcript parsing and GitHub gist matching are committed under:
+Repository audit artifacts are committed under:
 
-- `docs/world-id-4-trusted-setup/artifacts/`
+- [`docs/world-id-4-trusted-setup/artifacts/`](./artifacts/)
 
 ## 1. Prerequisites
 
 - `git`
 - `node` + `snarkjs`
-- `circom` (use `2.2.x`; ceremony toolchain target is `2.2.3`)
+- `circom` (`2.2.x`; ceremony toolchain target is `2.2.3`)
 
 Quick check:
 
 ```bash
-snarkjs --version
 circom --version
+snarkjs --help | head -n 1
 ```
 
 Install `snarkjs` if needed:
@@ -40,10 +40,17 @@ Install `snarkjs` if needed:
 npm i -g snarkjs@0.7.6
 ```
 
+Recommended verification invocation (version-pinned):
+
+```bash
+npx -y snarkjs@0.7.6 --help
+```
+
 Notes:
 
 - The upstream circuits declare `pragma circom 2.2.0`, so use a `2.2.x` compiler.
-- The upstream build flow itself is `circom` + `snarkjs` (not `gnark`) for Groth16 setup.
+- The upstream build flow is `circom` + `snarkjs` (not `gnark`) for Groth16 setup.
+- Older `snarkjs` versions can fail verification even when artifacts are correct; prefer `0.7.6` for parity with the ceremony toolchain.
 
 ## 2. Fetch Exact Source Commit
 
@@ -98,11 +105,11 @@ Expected SHA-256:
 Check constraints (used to choose PTAU power):
 
 ```bash
-snarkjs r1cs info /tmp/oprf-r1cs/OPRFKeyGenProof13.r1cs
-snarkjs r1cs info /tmp/oprf-r1cs/OPRFKeyGenProof25.r1cs
-snarkjs r1cs info /tmp/oprf-r1cs/OPRFKeyGenProof37.r1cs
-snarkjs r1cs info /tmp/oprf-r1cs/OPRFNullifierProof.r1cs
-snarkjs r1cs info /tmp/oprf-r1cs/OPRFQueryProof.r1cs
+npx -y snarkjs@0.7.6 r1cs info /tmp/oprf-r1cs/OPRFKeyGenProof13.r1cs
+npx -y snarkjs@0.7.6 r1cs info /tmp/oprf-r1cs/OPRFKeyGenProof25.r1cs
+npx -y snarkjs@0.7.6 r1cs info /tmp/oprf-r1cs/OPRFKeyGenProof37.r1cs
+npx -y snarkjs@0.7.6 r1cs info /tmp/oprf-r1cs/OPRFNullifierProof.r1cs
+npx -y snarkjs@0.7.6 r1cs info /tmp/oprf-r1cs/OPRFQueryProof.r1cs
 ```
 
 Expected constraint counts:
@@ -135,27 +142,27 @@ Run `snarkjs zkey verify` with the correct PTAU per circuit:
 ```bash
 cd /Users/dcbuilder/Code/world/world-id-protocol
 
-snarkjs zkey verify \
+npx -y snarkjs@0.7.6 zkey verify \
   /tmp/oprf-r1cs/OPRFKeyGenProof13.r1cs \
   /tmp/powersOfTau28_hez_final_15.ptau \
   circom/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.zkey
 
-snarkjs zkey verify \
+npx -y snarkjs@0.7.6 zkey verify \
   /tmp/oprf-r1cs/OPRFKeyGenProof25.r1cs \
   /tmp/powersOfTau28_hez_final_16.ptau \
   circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_final.zkey
 
-snarkjs zkey verify \
+npx -y snarkjs@0.7.6 zkey verify \
   /tmp/oprf-r1cs/OPRFKeyGenProof37.r1cs \
   /tmp/powersOfTau28_hez_final_16.ptau \
   circom/artifacts/OPRFKeyGenProof37/oprfkeygenproof37_final.zkey
 
-snarkjs zkey verify \
+npx -y snarkjs@0.7.6 zkey verify \
   /tmp/oprf-r1cs/OPRFNullifierProof.r1cs \
   /tmp/powersOfTau28_hez_final_16.ptau \
   circom/artifacts/OPRFNullifierProof/oprfnullifierproof_final.zkey
 
-snarkjs zkey verify \
+npx -y snarkjs@0.7.6 zkey verify \
   /tmp/oprf-r1cs/OPRFQueryProof.r1cs \
   /tmp/powersOfTau28_hez_final_15.ptau \
   circom/artifacts/OPRFQueryProof/oprfqueryproof_final.zkey
@@ -215,95 +222,236 @@ Expected beacon in all five logs:
 ## 6. Contributor Attestation Gists (Indexing)
 
 Attestation links are expected to be provided as GitHub Gists by contributors.
-To make auditing easy, maintain an index file with one row per contribution:
+To make auditing easy, keep a canonical mapping file with one row per contributor:
 
-- `circuit`
-- `contribution_number`
-- `contributor_tag` (from transcript, e.g. `dcbuild3r-19372745`)
-- `contribution_hash`
-- `attestation_gist_url`
+- `username`
+- `gist_url`
 
-Generate a starter CSV directly from transcript logs:
+The committed canonical mapping is:
 
-```bash
-cd /Users/dcbuilder/Code/world/world-id-protocol
+- [`docs/world-id-4-trusted-setup/artifacts/contributions.tsv`](./artifacts/contributions.tsv)
 
-echo "circuit,contribution_number,contributor_tag,contribution_hash,attestation_gist_url" > /tmp/oprf_attestations.csv
+This mapping is restricted to gists containing the file title:
 
-for log in circom/artifacts/OPRF*Proof*/oprf*_final_verification_transcript.log; do
-  circuit=$(basename "$(dirname "$log")")
-  awk -v circuit="$circuit" '
-    /^contribution #[0-9]+ /{
-      contribution=$2
-      gsub("#","",contribution)
-      contributor=$3
-      gsub(":$","",contributor)
-      getline h1; getline h2; getline h3; getline h4
-      gsub(/[[:space:]]/,"",h1)
-      gsub(/[[:space:]]/,"",h2)
-      gsub(/[[:space:]]/,"",h3)
-      gsub(/[[:space:]]/,"",h4)
-      hash=h1 h2 h3 h4
-      printf "%s,%s,%s,%s,\n", circuit, contribution, contributor, hash
-    }
-  ' "$log" >> /tmp/oprf_attestations.csv
-done
+- `world-id-protocol_attestation.log`
 
-wc -l /tmp/oprf_attestations.csv
-```
+### 6.1 File Format Note (`.tsv`)
 
-After filling the `attestation_gist_url` column, verify all URLs are reachable:
+- `TSV` = Tab-Separated Values (fields separated by a tab character).
+
+Example:
 
 ```bash
-awk -F, 'NR>1 && $5 != "" {print $5}' /tmp/oprf_attestations.csv | while read -r url; do
-  curl -fsSI "$url" >/dev/null || echo "invalid: $url"
-done
-```
-
-### 6.1 File Format Note (`.csv` vs `.tsv`)
-
-- `CSV` = Comma-Separated Values.
-- `TSV` = Tab-Separated Values (fields are separated by a tab character, not a comma).
-- Both are plain-text table formats; you can open them in spreadsheets or parse them in shell tools.
-
-Examples:
-
-```bash
-# CSV: split on comma
-awk -F, 'NR==1 {print $0}' docs/world-id-4-trusted-setup/artifacts/contributions.csv
-
-# TSV: split on tab
-awk -F'\t' 'NR==1 {print $0}' docs/world-id-4-trusted-setup/artifacts/contributor_gist_check.tsv
+awk -F'\t' 'NR==1 {print $0}' docs/world-id-4-trusted-setup/artifacts/contributions.tsv
 ```
 
 ### 6.2 Committed Artifact Set
 
-These files are committed in `docs/world-id-4-trusted-setup/artifacts/`:
+These files are committed in [`docs/world-id-4-trusted-setup/artifacts/`](./artifacts/):
 
-- `contributions.csv`: all contribution rows extracted from transcripts.
-  - columns: `circuit,contribution_number,contributor_tag,username,github_numeric_id,contribution_hash`
-- `contributor_usernames.txt`: unique contributor GitHub usernames (one per line).
-- `contributor_gist_check.tsv`: concise reviewer table summarizing gist discovery and hash-match coverage per user.
-  - columns: `username,gist_count,metadata_matches,hash_matches,primary_hash_gist`
-- `hash_gists_primary.tsv`: canonical attestation gist URL per contributor where the gist includes a file named `world-id-protocol_attestation.log`.
+- `contributions.tsv`: canonical contributor -> gist mapping for attestation gists that include `world-id-protocol_attestation.log`.
   - columns: `username,gist_url`
-  - contributors without a gist containing that exact file title are excluded from this file.
 
 Quick check:
 
 ```bash
 cd /Users/dcbuilder/Code/world/world-id-protocol
 
-wc -l docs/world-id-4-trusted-setup/artifacts/contributions.csv
-wc -l docs/world-id-4-trusted-setup/artifacts/contributor_gist_check.tsv
+wc -l docs/world-id-4-trusted-setup/artifacts/contributions.tsv
 ```
 
-## 7. Final Acceptance Criteria
+## 7. Deriving Runtime Artifacts (`.arks.zkey`, `.bin`, `.sol`)
+
+This section documents how the currently committed runtime artifacts in
+[`circom/artifacts/`](../../circom/artifacts/) are derived from final ceremony `*.zkey` files.
+
+### 7.1 Generate `.arks.zkey` from final `.zkey` (TACEO `convert-zkey-to-ark`)
+
+Tool:
+
+- `convert-zkey-to-ark` from [TaceoLabs/circom-helpers](https://github.com/TaceoLabs/circom-helpers)
+
+Install (example):
+
+```bash
+cargo install --git https://github.com/TaceoLabs/circom-helpers --locked \
+  taceo-circom-types --features bin --bin convert-zkey-to-ark
+```
+
+Generate uncompressed Arkworks-compatible zkeys:
+
+```bash
+cd /Users/dcbuilder/Code/world/world-id-protocol
+
+convert-zkey-to-ark \
+  --zkey-path circom/artifacts/OPRFQueryProof/oprfqueryproof_final.zkey \
+  --arks-zkey-path circom/artifacts/OPRFQueryProof/oprfqueryproof_final.arks.zkey \
+  --uncompressed
+
+convert-zkey-to-ark \
+  --zkey-path circom/artifacts/OPRFNullifierProof/oprfnullifierproof_final.zkey \
+  --arks-zkey-path circom/artifacts/OPRFNullifierProof/oprfnullifierproof_final.arks.zkey \
+  --uncompressed
+
+convert-zkey-to-ark \
+  --zkey-path circom/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.zkey \
+  --arks-zkey-path circom/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.arks.zkey \
+  --uncompressed
+
+convert-zkey-to-ark \
+  --zkey-path circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_final.zkey \
+  --arks-zkey-path circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_final.arks.zkey \
+  --uncompressed
+
+convert-zkey-to-ark \
+  --zkey-path circom/artifacts/OPRFKeyGenProof37/oprfkeygenproof37_final.zkey \
+  --arks-zkey-path circom/artifacts/OPRFKeyGenProof37/oprfkeygenproof37_final.arks.zkey \
+  --uncompressed
+```
+
+### 7.2 What `.arks.zkey` contains
+
+The output type is
+[`ArkZkey<P>`](https://github.com/TaceoLabs/circom-helpers/blob/393a5b6910432f81a34a51e47d1fe6dc75c00b4c/circom-types/src/groth16/zkey_to_ark.rs#L13-L17),
+which serializes:
+
+1. `matrices`: Arkworks [`ConstraintMatrices`](https://docs.rs/ark-relations/latest/ark_relations/r1cs/struct.ConstraintMatrices.html)
+   (R1CS sparse matrices and metadata such as variable/constraint counts).
+2. `pk`: Arkworks [`ProvingKey`](https://docs.rs/ark-groth16/latest/ark_groth16/data_structures/struct.ProvingKey.html)
+   (Groth16 proving material including verification key elements and query vectors).
+
+Conversion from Circom `zkey` to Arkworks format maps Circom Groth16 sections to
+these Arkworks structures, then canonical-serializes them using `ark-serialize`.
+With `--uncompressed`, group elements are written in uncompressed canonical form.
+
+### 7.3 Generate `.bin` witness graphs (philsippl `circom-witness-rs`)
+
+Tool:
+
+- [circom-witness-rs](https://github.com/philsippl/circom-witness-rs)
+
+Conceptually, `circom-witness-rs` does this:
+
+1. Builds against Circom-generated C++ witness code.
+2. Hooks field operations and executes symbolically to recover an execution graph.
+3. Builds a DAG of nodes (`Input`, `Constant`, arithmetic/logical `Op`, optional `BBF`).
+4. Optimizes the graph (tree-shaking, constant propagation, value numbering, Montgomery normalization).
+5. Serializes `(nodes, outputs, input_map)` to `graph.bin`.
+
+At runtime, the graph is deserialized and interpreted to compute witnesses without WASM.
+
+The graphs in this repo were regenerated from:
+
+- circuit sources: `https://github.com/TaceoLabs/oprf-service/tree/02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71/circom/main`
+- crate: `circom-witness-rs = 0.2.3`
+
+Runner pattern (equivalent to what was used):
+
+```bash
+# helper crate:
+# [dependencies]
+# circom-witness-rs = { version = "0.2.3", features = ["build-witness"] }
+#
+# main():
+#   circom_witness_rs::generate::build_witness().unwrap();
+
+cd /tmp/circom-witgen-runner
+
+WITNESS_CPP=/tmp/oprf-service/circom/main/OPRFQueryProof.circom \
+CIRCOM_LIBRARY_PATH=/tmp/oprf-service/circom \
+CARGO_TARGET_DIR=/tmp/circom-witgen-target-OPRFQueryProof \
+cargo run --release
+
+# move graph.bin to:
+# /Users/dcbuilder/Code/world/world-id-protocol/circom/artifacts/OPRFQueryProof/OPRFQueryProofGraph.bin
+```
+
+Repeat per circuit (`OPRFNullifierProof`, `OPRFKeyGenProof13`, `OPRFKeyGenProof25`, `OPRFKeyGenProof37`).
+
+### 7.4 Generate Solidity verifiers (`.sol`) from vkeys (TACEO `groth16-sol-utils`)
+
+Tool:
+
+- `groth16-sol-utils extract-verifier` from [TaceoLabs/circom-helpers](https://github.com/TaceoLabs/circom-helpers)
+
+Install from a pinned checkout (example):
+
+```bash
+git clone https://github.com/TaceoLabs/circom-helpers /tmp/circom-helpers
+git -C /tmp/circom-helpers checkout 393a5b6910432f81a34a51e47d1fe6dc75c00b4c
+cargo install --path /tmp/circom-helpers/groth16-sol --locked --features bin --bin groth16-sol-utils
+```
+
+Generate verifiers from each `*_vkey.json` (use pragma `^0.8.28` to reproduce committed files exactly):
+
+```bash
+cd /Users/dcbuilder/Code/world/world-id-protocol
+
+groth16-sol-utils extract-verifier \
+  --vk circom/artifacts/OPRFQueryProof/oprfqueryproof_vkey.json \
+  --output circom/artifacts/OPRFQueryProof/oprfqueryproof_verifier.sol \
+  --pragma-version '^0.8.28'
+
+groth16-sol-utils extract-verifier \
+  --vk circom/artifacts/OPRFNullifierProof/oprfnullifierproof_vkey.json \
+  --output circom/artifacts/OPRFNullifierProof/oprfnullifierproof_verifier.sol \
+  --pragma-version '^0.8.28'
+
+groth16-sol-utils extract-verifier \
+  --vk circom/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_vkey.json \
+  --output circom/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_verifier.sol \
+  --pragma-version '^0.8.28'
+
+groth16-sol-utils extract-verifier \
+  --vk circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_vkey.json \
+  --output circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_verifier.sol \
+  --pragma-version '^0.8.28'
+
+groth16-sol-utils extract-verifier \
+  --vk circom/artifacts/OPRFKeyGenProof37/oprfkeygenproof37_vkey.json \
+  --output circom/artifacts/OPRFKeyGenProof37/oprfkeygenproof37_verifier.sol \
+  --pragma-version '^0.8.28'
+```
+
+## 8. Toolchain Provenance (Releases / Commits)
+
+The following identifiers are the versions/commits used to generate or derive trusted
+setup artifacts for this repository.
+
+| Component | Role | Release / commit |
+| --- | --- | --- |
+| `TaceoLabs/oprf-service` | Source circuits for rebuild/verification | `02c6442349cc6a2baf35ec8d94ae5b4ac4f49a71` |
+| `@worldcoin/world-id-trusted-setup-cli` | Ceremony client (Worldcoin p0tion fork) | `1.2.18`, gitHead `632e0c6e05cf89f649674a36b8607fcb5d09cf24` |
+| `worldcoin/p0tion` | Repository for the CLI above | `632e0c6e05cf89f649674a36b8607fcb5d09cf24` |
+| `snarkjs` (ceremony CLI dependency) | Phase-2 contribution/verification in p0tion flow | `0.7.6` |
+| `circom` (toolchain target) | Compile Circom sources to `r1cs` | `2.2.x` (`2.2.3` target family) |
+| `iden3/circom` (local binary provenance) | Local binary used during reproduction | tag `v2.2.2`, commit `e410b0d5cd2948a15931df0bc50d79ce56fa8c32` |
+| `circom-witness-rs` | Generate optimized witness graph `.bin` files | `0.2.3` |
+| `TaceoLabs/circom-helpers` | Zkey conversion + Solidity verifier tooling | `393a5b6910432f81a34a51e47d1fe6dc75c00b4c` |
+| `taceo-circom-types` | `convert-zkey-to-ark` binary | `0.2.2` |
+| `taceo-groth16-sol` | `groth16-sol-utils` binary | `0.2.2` |
+| `ark-groth16` | `ProvingKey` format used inside `.arks.zkey` | `0.5.0` |
+| `ark-relations` | `ConstraintMatrices` format used inside `.arks.zkey` | `0.5.1` |
+
+Reference links:
+
+- `@worldcoin/world-id-trusted-setup-cli`: <https://www.npmjs.com/package/@worldcoin/world-id-trusted-setup-cli>
+- `worldcoin/p0tion`: <https://github.com/worldcoin/p0tion>
+- `circom-witness-rs`: <https://github.com/philsippl/circom-witness-rs>
+- `circom-helpers`: <https://github.com/TaceoLabs/circom-helpers>
+- `ConstraintMatrices`: <https://docs.rs/ark-relations/latest/ark_relations/r1cs/struct.ConstraintMatrices.html>
+- `ProvingKey`: <https://docs.rs/ark-groth16/latest/ark_groth16/data_structures/struct.ProvingKey.html>
+
+## 9. Final Acceptance Criteria
 
 Trusted setup is accepted when all are true:
 
 1. Recompiled `r1cs` from upstream commit matches expected hashes.
 2. Every `snarkjs zkey verify r1cs ptau final.zkey` returns `ZKey Ok!`.
 3. Transcript logs end with `ZKey Ok!`, use the expected beacon, and have expected contribution counts.
-4. Contribution-to-attestation mapping is indexed in `docs/world-id-4-trusted-setup/artifacts/contributions.csv`.
-5. Contributor gist evidence is indexed and reviewable in `docs/world-id-4-trusted-setup/artifacts/contributor_gist_check.tsv`, with canonical attestation gist links in `docs/world-id-4-trusted-setup/artifacts/hash_gists_primary.tsv` (restricted to gists containing `world-id-protocol_attestation.log`).
+4. Final `zkey` SHA-256 hashes match expected values in this guide.
+5. Regenerated runtime artifacts match committed files bit-for-bit:
+   - `.arks.zkey`
+   - `.bin` witness graphs
+   - `.sol` verifiers (with `--pragma-version '^0.8.28'`)
+6. Canonical contributor attestation mapping is present in [`docs/world-id-4-trusted-setup/artifacts/contributions.tsv`](./artifacts/contributions.tsv), restricted to gists containing `world-id-protocol_attestation.log`.
