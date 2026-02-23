@@ -24,12 +24,15 @@ Repository audit artifacts are committed under:
 ## 1. Prerequisites
 
 - `git`
+- `git-lfs`
 - `node` + `snarkjs`
 - `circom` (`2.2.x`; ceremony toolchain target is `2.2.3`)
 
 Quick check:
 
 ```bash
+git --version
+git lfs version
 circom --version
 snarkjs --help | head -n 1
 ```
@@ -39,6 +42,17 @@ Install `snarkjs` if needed:
 ```bash
 npm i -g snarkjs@0.7.6
 ```
+
+Hydrate LFS-tracked setup artifacts in this repository before running verification:
+
+```bash
+cd /Users/dcbuilder/Code/world/world-id-protocol
+git lfs install --local
+git lfs pull --include="circom/artifacts/**/*.r1cs,circom/artifacts/**/*.zkey,circom/artifacts/**/*.wasm"
+```
+
+If these files are not hydrated, they remain 3-line Git LFS pointer files and
+`snarkjs zkey verify ... circom/artifacts/..._final.zkey` will fail before cryptographic checks.
 
 Recommended verification invocation (version-pinned):
 
