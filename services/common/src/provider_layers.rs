@@ -64,10 +64,6 @@ pub struct ThrottleConfig {
     pub burst_size: u32,
 }
 
-// ---------------------------------------------------------------------------
-// RetryConfig
-// ---------------------------------------------------------------------------
-
 #[derive(Args, Debug, Clone, Deserialize)]
 pub struct RetryConfig {
     /// Maximum number of retry attempts for failed RPC requests.

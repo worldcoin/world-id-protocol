@@ -17,7 +17,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.4.2"
+version = "0.4.3"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -77,9 +77,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2", features = ["serde"] }
 utoipa = "5"
-reqwest = { version = "0.13", default-features = false, features = [
+reqwest = { version = "0.12", default-features = false, features = [
   "json",
-  "rustls",
+  "rustls-tls",
 ] }
 uuid = { version = "1" }
 webpki-roots = "1.0"
@@ -122,11 +122,11 @@ tokio-util = "0.7"
 tower = "0.5.3"
 
 # Internal
-world-id-core = { version = "0.4.2", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.4.2", path = "crates/issuer" }
-world-id-proof = { version = "0.4.2", path = "crates/proof" }
-world-id-authenticator = { version = "0.4.2", path = "crates/authenticator" }
-world-id-primitives = { version = "0.4.2", path = "crates/primitives", default-features = false }
+world-id-core = { version = "0.4.3", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.4.3", path = "crates/issuer" }
+world-id-proof = { version = "0.4.3", path = "crates/proof" }
+world-id-authenticator = { version = "0.4.3", path = "crates/authenticator" }
+world-id-primitives = { version = "0.4.3", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
 world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }

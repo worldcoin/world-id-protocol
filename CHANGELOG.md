@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.2...world-id-primitives-v0.4.3) - 2026-02-23
+
+### Added
+
+- *(rp)* include version byte in rp signature message
+
+### Other
+
+- expose eddsa keys & sig ([#467](https://github.com/worldcoin/world-id-protocol/pull/467))
+
 ## [0.4.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-proof-v0.4.1...world-id-proof-v0.4.2) - 2026-02-20
 
 ### Fixed

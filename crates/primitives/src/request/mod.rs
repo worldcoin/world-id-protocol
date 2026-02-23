@@ -385,7 +385,7 @@ impl ProofRequest {
     /// # Errors
     /// Returns a `PrimitiveError` if `FieldElement` serialization fails (which should never occur in practice).
     ///
-    /// The digest is computed as: `SHA256(nonce || action || created_at || expires_at)`.
+    /// The digest is computed as: `SHA256(version || nonce || created_at || expires_at)`.
     /// This mirrors the RP signature message format from `rp::compute_rp_signature_msg`.
     /// Note: the timestamp is encoded as big-endian to mirror the RP-side signing
     /// performed in test fixtures and the OPRF stub.
