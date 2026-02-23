@@ -11,6 +11,7 @@ use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
+use world_id_services_common::ProviderArgs;
 
 /// Tests the signature_nonce endpoint that retrieves signature nonces by account index
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -47,7 +48,7 @@ async fn test_signature_nonce_endpoint() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
