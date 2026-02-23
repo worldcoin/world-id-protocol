@@ -77,9 +77,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2", features = ["serde"] }
 utoipa = "5"
-reqwest = { version = "0.13", default-features = false, features = [
+reqwest = { version = "0.12", default-features = false, features = [
   "json",
-  "rustls",
+  "rustls-tls",
 ] }
 uuid = { version = "1" }
 webpki-roots = "1.0"
