@@ -29,10 +29,10 @@ pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "03899a095915800757ecb9c79e1f350e95aa23b080bda83d36d4c3d6281559e0";
+    "616c98c6ba024b5a4015d3ebfd20f6cab12e1e33486080c5167a4bcfac111798";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "cef08ef106d7fdef3640a2bbb2d5e65fc2bef0c613ba65b900b65d4321a24139";
+    "4247e6bfe1af211e72d3657346802e1af00e6071fb32429a200f9fc0a25a36f9";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
@@ -222,10 +222,13 @@ fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
         match name {
             "OPRFQueryProofGraph.bin" => query_graph = Some(buf),
             "OPRFNullifierProofGraph.bin" => nullifier_graph = Some(buf),
-            n if n == "oprfqueryproof_final.zkey" || n.starts_with("OPRFQuery.arks.zkey") => {
+            n if n == "oprfqueryproof_final.arks.zkey"
+                || n == "oprfqueryproof_final.zkey"
+                || n.starts_with("OPRFQuery.arks.zkey") => {
                 query_zkey = Some(buf)
             }
-            n if n == "oprfnullifierproof_final.zkey"
+            n if n == "oprfnullifierproof_final.arks.zkey"
+                || n == "oprfnullifierproof_final.zkey"
                 || n.starts_with("OPRFNullifier.arks.zkey") =>
             {
                 nullifier_zkey = Some(buf)
