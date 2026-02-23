@@ -39,7 +39,7 @@ services:
       OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
       OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
       OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n0
-      OPRF_KEY_GEN_ZKEY_PATH: /app/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.zkey
+      OPRF_KEY_GEN_ZKEY_PATH: /app/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.arks.zkey
       OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/artifacts/OPRFKeyGenProof13/OPRFKeyGenProof13Graph.bin
       OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
       OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5440/postgres
@@ -56,7 +56,7 @@ services:
       OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
       OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
       OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n1
-      OPRF_KEY_GEN_ZKEY_PATH: /app/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.zkey
+      OPRF_KEY_GEN_ZKEY_PATH: /app/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.arks.zkey
       OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/artifacts/OPRFKeyGenProof13/OPRFKeyGenProof13Graph.bin
       OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
       OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5441/postgres
@@ -73,7 +73,7 @@ services:
       OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
       OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
       OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n2
-      OPRF_KEY_GEN_ZKEY_PATH: /app/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.zkey
+      OPRF_KEY_GEN_ZKEY_PATH: /app/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.arks.zkey
       OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/artifacts/OPRFKeyGenProof13/OPRFKeyGenProof13Graph.bin
       OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
       OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5442/postgres
