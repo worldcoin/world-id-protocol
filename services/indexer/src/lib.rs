@@ -4,10 +4,7 @@ use crate::{
     db::DB,
     events_committer::EventsCommitter,
 };
-use alloy::{
-    primitives::Address,
-    providers::{Provider, ProviderBuilder},
-};
+use alloy::{primitives::Address, providers::DynProvider};
 use futures_util::{Stream, StreamExt};
 use std::{
     backtrace::Backtrace,
@@ -85,15 +82,14 @@ async fn tree_sync_loop(
 
 #[instrument(level = "info", skip_all, fields(%addr))]
 async fn start_http_server(
-    rpc_url: &str,
+    http_provider: DynProvider,
     registry_address: Address,
     addr: SocketAddr,
     db: DB,
     tree_state: tree::TreeState,
     request_timeout_secs: u64,
 ) -> eyre::Result<()> {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
-    let registry = WorldIdRegistry::new(registry_address, provider.erased());
+    let registry = WorldIdRegistry::new(registry_address, http_provider);
     let router = routes::handler(
         AppState::new(db, Arc::new(registry), tree_state),
         request_timeout_secs,
@@ -128,13 +124,15 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     db.run_migrations().await?;
     tracing::info!("🟢 DB successfully created .");
 
+    let http_provider = cfg.provider.http().await?;
+
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
 
             run_indexer_only(
                 db,
-                &cfg.http_rpc_url,
+                http_provider,
                 &cfg.ws_rpc_url,
                 cfg.registry_address,
                 indexer_config,
@@ -150,7 +148,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
 
             run_http_only(
                 db,
-                &cfg.http_rpc_url,
+                http_provider,
                 cfg.registry_address,
                 http_config,
                 tree_state,
@@ -166,7 +164,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             unsafe {
                 run_both(
                     db,
-                    &cfg.http_rpc_url,
+                    http_provider,
                     &cfg.ws_rpc_url,
                     cfg.registry_address,
                     indexer_config,
@@ -181,13 +179,13 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
 #[instrument(level = "info", skip_all)]
 async fn run_indexer_only(
     db: DB,
-    http_rpc_url: &str,
+    http_provider: DynProvider,
     ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
 ) -> eyre::Result<()> {
     process_registry_events(
-        http_rpc_url,
+        http_provider,
         ws_rpc_url,
         registry_address,
         indexer_cfg,
@@ -202,7 +200,7 @@ async fn run_indexer_only(
 #[instrument(level = "info", skip_all)]
 async fn run_http_only(
     db: DB,
-    rpc_url: &str,
+    http_provider: DynProvider,
     registry_address: Address,
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
@@ -218,11 +216,11 @@ async fn run_http_only(
 
     // Start root sanity checker in the background
     let sanity_handle = if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
-        let rpc_url = rpc_url.to_string();
+        let sanity_provider = http_provider.clone();
         let sanity_tree_state = tree_state.clone();
         Some(tokio::spawn(async move {
             sanity_check::root_sanity_check_loop(
-                rpc_url,
+                sanity_provider,
                 registry_address,
                 sanity_interval,
                 sanity_tree_state,
@@ -234,12 +232,11 @@ async fn run_http_only(
     };
 
     // Start HTTP server
-    let rpc_url = rpc_url.to_string();
     let http_addr = http_cfg.http_addr;
     let request_timeout_secs = http_cfg.request_timeout_secs;
     let http_handle = tokio::spawn(async move {
         start_http_server(
-            &rpc_url,
+            http_provider,
             registry_address,
             http_addr,
             db,
@@ -276,7 +273,7 @@ async fn run_http_only(
 #[instrument(level = "info", skip_all)]
 async unsafe fn run_both(
     db: DB,
-    http_rpc_url: &str,
+    http_provider: DynProvider,
     ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
@@ -298,7 +295,8 @@ async unsafe fn run_both(
     );
 
     {
-        let blockchain = Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await?;
+        let blockchain =
+            Blockchain::new(http_provider.clone(), ws_rpc_url, registry_address).await?;
         let (backfill_stream, last_block) = blockchain.backfill_events(from, batch_size);
         let committed_batches = save_events(&db, backfill_stream).await?;
         let backfill_up_to_block = last_block.load(Ordering::Relaxed);
@@ -308,7 +306,7 @@ async unsafe fn run_both(
             backfill_up_to_block,
             "Phase 1: backfill complete, all historical events stored in DB"
         );
-    } // blockchain dropped — provider no longer needed
+    } // blockchain dropped, WS connection closed 
 
     // --- Phase 2: Build tree from complete DB ---
     tracing::info!("Phase 2: building tree from DB");
@@ -326,12 +324,12 @@ async unsafe fn run_both(
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
     let request_timeout_secs = http_cfg.request_timeout_secs;
-    let rpc_url_clone = http_rpc_url.to_string();
+    let http_provider_clone = http_provider.clone();
     // Spawned tasks run for the lifetime of the process; they are not
     // joined because the Phase 4 retry loop below never returns.
     let http_handle = tokio::spawn(async move {
         start_http_server(
-            &rpc_url_clone,
+            http_provider_clone,
             registry_address,
             http_addr,
             http_pool,
@@ -342,10 +340,10 @@ async unsafe fn run_both(
     });
 
     let sanity_handle = if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
-        let rpc_url = http_rpc_url.to_string();
+        let sanity_provider = http_provider.clone();
         Some(tokio::spawn(async move {
             sanity_check::root_sanity_check_loop(
-                rpc_url,
+                sanity_provider,
                 registry_address,
                 sanity_interval,
                 sanity_tree_state,
@@ -360,7 +358,7 @@ async unsafe fn run_both(
     // Wait for the first task to complete — any failure is fatal.
     tokio::select! {
         result = process_registry_events(
-            http_rpc_url,
+            http_provider,
             ws_rpc_url,
             registry_address,
             indexer_cfg,
@@ -436,7 +434,7 @@ async fn save_events(
 /// Restart when websocket connection is dropped.
 #[instrument(level = "info", skip_all, fields(start_from))]
 pub async fn process_registry_events(
-    http_rpc_url: &str,
+    http_provider: DynProvider,
     ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
@@ -448,14 +446,15 @@ pub async fn process_registry_events(
     loop {
         tracing::info!("starting blockchain connection");
 
-        let blockchain = match Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::error!(?e, "failed to create blockchain connection, retrying");
-                tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
-                continue;
-            }
-        };
+        let blockchain =
+            match Blockchain::new(http_provider.clone(), ws_rpc_url, registry_address).await {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!(?e, "failed to create blockchain connection, retrying");
+                    tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
+                    continue;
+                }
+            };
 
         let from = match db.world_id_registry_events().get_latest_block().await? {
             Some(block) => block + 1,
