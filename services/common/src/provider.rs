@@ -1,17 +1,9 @@
-use std::{
-    num::{NonZeroU32, NonZeroUsize},
-    path::Path,
-    sync::Arc,
-    time::Duration,
-};
+use std::{num::NonZeroUsize, path::Path, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
     providers::{DynProvider, Provider, ProviderBuilder, fillers::CachedNonceManager},
-    rpc::{
-        client::RpcClient,
-        json_rpc::{RequestPacket, RpcError},
-    },
+    rpc::{client::RpcClient, json_rpc::RpcError},
     signers::{
         Signer,
         aws::{AwsSigner, AwsSignerError, aws_config::BehaviorVersion},
@@ -20,25 +12,17 @@ use alloy::{
     transports::{
         TransportError, TransportErrorKind,
         http::{Http, reqwest},
-        layers::{FallbackLayer, RateLimitRetryPolicy, RetryBackoffLayer},
+        layers::{FallbackLayer, RateLimitRetryPolicy},
     },
 };
 use clap::Args;
 use config::ConfigError;
-use governor::{
-    Quota, RateLimiter,
-    clock::DefaultClock,
-    state::{InMemoryState, NotKeyed},
-};
 use serde::Deserialize;
-use std::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
 use thiserror::Error;
-use tower::{Layer, Service, ServiceBuilder};
+use tower::ServiceBuilder;
 use url::Url;
+
+use crate::provider_layers::{RetryConfig, RetryLayer, ThrottleConfig, ThrottleLayer};
 
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
@@ -78,53 +62,6 @@ pub struct ProviderArgs {
     #[command(flatten)]
     #[serde(default)]
     pub retry: Option<RetryConfig>,
-}
-
-#[derive(Args, Debug, Clone, Deserialize)]
-pub struct ThrottleConfig {
-    /// Requests per second rate limit.
-    #[arg(long = "rps", default_value_t = 100, env = "RPC_REQUESTS_PER_SECOND")]
-    #[serde(default = "defaults::default_requests_per_second")]
-    pub requests_per_second: u32,
-
-    /// Burst size for rate limiting.
-    #[arg(long = "burst-size", default_value_t = 10, env = "RPC_BURST_SIZE")]
-    #[serde(default = "defaults::default_burst_size")]
-    pub burst_size: u32,
-}
-
-#[derive(Args, Debug, Clone, Deserialize)]
-pub struct RetryConfig {
-    /// Maximum number of retry attempts for failed RPC requests.
-    #[arg(long = "rpc-max-retries", default_value_t = defaults::MAX_RETRIES, env = "RPC_MAX_RETRIES")]
-    #[serde(default = "defaults::default_max_retries")]
-    pub max_retries: u32,
-
-    /// Initial backoff delay in milliseconds before the first retry.
-    #[arg(long = "rpc-initial-backoff-ms", default_value_t = defaults::INITIAL_BACKOFF_MS, env = "RPC_INITIAL_BACKOFF_MS")]
-    #[serde(default = "defaults::default_initial_backoff_ms")]
-    pub initial_backoff_ms: u64,
-
-    /// Per-RPC request timeout in seconds.
-    #[arg(long = "rpc-timeout-secs", default_value_t = defaults::TIMEOUT_SECS, env = "RPC_TIMEOUT_SECS")]
-    #[serde(default = "defaults::default_timeout_secs")]
-    pub timeout_secs: u64,
-
-    /// Compute units per second budget used for backoff scaling under concurrent load.
-    #[arg(long = "rpc-compute-units-per-second", default_value_t = defaults::COMPUTE_UNITS_PER_SECOND, env = "RPC_COMPUTE_UNITS_PER_SECOND")]
-    #[serde(default = "defaults::default_compute_units_per_second")]
-    pub compute_units_per_second: u64,
-}
-
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: defaults::MAX_RETRIES,
-            initial_backoff_ms: defaults::INITIAL_BACKOFF_MS,
-            timeout_secs: defaults::TIMEOUT_SECS,
-            compute_units_per_second: defaults::COMPUTE_UNITS_PER_SECOND,
-        }
-    }
 }
 
 /// Secrets for the signer.
@@ -207,34 +144,6 @@ pub enum SignerConfig {
     AwsKms(String),
 }
 
-mod defaults {
-    pub const BURST_SIZE: u32 = 10;
-    pub const REQUESTS_PER_SECOND: u32 = 100;
-    pub const MAX_RETRIES: u32 = 10;
-    pub const INITIAL_BACKOFF_MS: u64 = 1000;
-    pub const TIMEOUT_SECS: u64 = 10;
-    pub const COMPUTE_UNITS_PER_SECOND: u64 = 10_000;
-
-    pub const fn default_burst_size() -> u32 {
-        BURST_SIZE
-    }
-    pub const fn default_requests_per_second() -> u32 {
-        REQUESTS_PER_SECOND
-    }
-    pub const fn default_max_retries() -> u32 {
-        MAX_RETRIES
-    }
-    pub const fn default_initial_backoff_ms() -> u64 {
-        INITIAL_BACKOFF_MS
-    }
-    pub const fn default_timeout_secs() -> u64 {
-        TIMEOUT_SECS
-    }
-    pub const fn default_compute_units_per_second() -> u64 {
-        COMPUTE_UNITS_PER_SECOND
-    }
-}
-
 impl ProviderArgs {
     /// Create a new provider configuration with sensible defaults.
     pub fn new() -> Self {
@@ -270,17 +179,6 @@ impl ProviderArgs {
         // Save first URL for signer (needed for AWS KMS chain_id lookup)
         let first_url = http.first().cloned().ok_or(ProviderError::NoHttpUrls)?;
 
-        // Configure the fallback layer
-        let fallback_layer = FallbackLayer::default()
-            .with_active_transport_count(NonZeroUsize::new(http.len()).unwrap());
-
-        let throttle = self.throttle.map(|throttle_config| {
-            ThrottleLayer::new_with_config(
-                throttle_config.requests_per_second,
-                throttle_config.burst_size,
-            )
-        });
-
         let retry_cfg = self.retry.unwrap_or_default();
 
         // Per-request timeout configured at the HTTP client level so that
@@ -290,47 +188,53 @@ impl ProviderArgs {
             .build()
             .expect("failed to build HTTP client");
 
+        let num_urls = http.len();
+
         let transports = http
             .into_iter()
             .map(|url| Http::with_client(http_client.clone(), url))
             .collect::<Vec<_>>();
 
-        // Extended retry policy built on [`RateLimitRetryPolicy`] (which already handles 429, 503,
-        // null responses, missing batch responses, and retryable JSON-RPC error codes).
+        // Configure the fallback layer (always)
+        let fallback_layer = FallbackLayer::default()
+            .with_active_transport_count(NonZeroUsize::new(num_urls).unwrap());
+
+        // Extended retry policy built on [`RateLimitRetryPolicy`] (which already handles 429,
+        // 503, null responses, missing batch responses, and retryable JSON-RPC error codes).
         // The `.or()` extension adds coverage for transient transport failures.
-        let transport_retry_policy =
+        let retry_policy =
             RateLimitRetryPolicy::default().or(|error: &TransportError| match error {
-                // Connection drops, DNS failures, TLS errors, reqwest timeouts
                 RpcError::Transport(TransportErrorKind::Custom(_)) => true,
-                // Request timeout, bad gateway, gateway timeout
                 RpcError::Transport(TransportErrorKind::HttpError(e)) => {
                     matches!(e.status, 408 | 502 | 504)
                 }
                 _ => false,
             });
+        let retry_layer = RetryLayer::new(retry_policy, &retry_cfg);
 
-        let retry_layer = RetryBackoffLayer::new_with_policy(
-            retry_cfg.max_retries,
-            retry_cfg.initial_backoff_ms,
-            retry_cfg.compute_units_per_second,
-            transport_retry_policy,
-        );
+        // Flow is: RetryLayer calls ThrottleLayer calls FallbackLayer calls transports
+        // I.e. if throttling is enabled retries count into the request budget
+        // NOTE: Retries can be disabled by setting max_retries to 0 in the retry config. Layer could be made optional as well.
+        let client = if let Some(throttle_cfg) = self.throttle {
+            let throttle_layer = ThrottleLayer::new_with_config(
+                throttle_cfg.requests_per_second,
+                throttle_cfg.burst_size,
+            );
 
-        let client = if let Some(throttle) = throttle {
             let transport = ServiceBuilder::new()
-                .layer(throttle)
+                .layer(retry_layer)
+                .layer(throttle_layer)
                 .layer(fallback_layer)
                 .service(transports);
-            RpcClient::builder()
-                .layer(retry_layer)
-                .transport(transport, false)
+
+            RpcClient::builder().transport(transport, false)
         } else {
             let transport = ServiceBuilder::new()
+                .layer(retry_layer)
                 .layer(fallback_layer)
                 .service(transports);
-            RpcClient::builder()
-                .layer(retry_layer)
-                .transport(transport, false)
+
+            RpcClient::builder().transport(transport, false)
         };
 
         let maybe_signer = if let Some(signer) = &self.signer {
@@ -353,70 +257,6 @@ impl ProviderArgs {
         };
 
         Ok(provider)
-    }
-}
-
-/// Rate limiting for RPC requests.
-type Limiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
-
-#[derive(Clone)]
-/// A Tower layer that applies rate limiting to RPC requests.
-struct ThrottleLayer {
-    limiter: Arc<Limiter>,
-}
-
-impl ThrottleLayer {
-    /// Creates a new [`ThrottleLayer`] with specified RPS and burst size.
-    pub fn new_with_config(rps: u32, burst: u32) -> Self {
-        let rps = NonZeroU32::new(rps).expect("RPS must be non-zero");
-        let burst = NonZeroU32::new(burst).unwrap_or(NonZeroU32::MIN);
-        Self {
-            limiter: RateLimiter::direct(Quota::per_second(rps).allow_burst(burst)).into(),
-        }
-    }
-}
-
-impl<S> Layer<S> for ThrottleLayer {
-    type Service = ThrottleService<S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        ThrottleService {
-            inner,
-            limiter: self.limiter.clone(),
-        }
-    }
-}
-
-#[derive(Clone)]
-/// A Tower service that applies rate limiting to RPC requests.
-struct ThrottleService<S> {
-    inner: S,
-    limiter: Arc<Limiter>,
-}
-
-impl<S> Service<RequestPacket> for ThrottleService<S>
-where
-    S: Service<RequestPacket> + Clone + Send + Sync + 'static,
-    S::Response: Send + Sync + 'static,
-    S::Error: Send + Sync + 'static,
-    S::Future: Send,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
-    }
-
-    fn call(&mut self, req: RequestPacket) -> Self::Future {
-        let limiter = self.limiter.clone();
-        let mut inner = self.inner.clone();
-
-        Box::pin(async move {
-            limiter.until_ready().await;
-            inner.call(req).await
-        })
     }
 }
 
@@ -492,8 +332,8 @@ mod tests {
             [provider.retry]
             max_retries = 3
             initial_backoff_ms = 500
+            max_backoff_ms = 30000
             timeout_secs = 5
-            compute_units_per_second = 5000
         "#;
 
         let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
@@ -503,7 +343,7 @@ mod tests {
         let retry = args.retry.unwrap();
         assert_eq!(retry.max_retries, 3);
         assert_eq!(retry.initial_backoff_ms, 500);
+        assert_eq!(retry.max_backoff_ms, 30000);
         assert_eq!(retry.timeout_secs, 5);
-        assert_eq!(retry.compute_units_per_second, 5000);
     }
 }
