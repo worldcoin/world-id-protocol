@@ -447,13 +447,10 @@ impl TestAnvil {
             })
             .to_string();
         let baby_jub_jub_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-        let baby_jub_jub_address = Self::deploy_contract(
-            provider.clone(),
-            baby_jub_jub_bytecode,
-            Bytes::new(),
-        )
-        .await
-        .context("failed to deploy local BabyJubJub library")?;
+        let baby_jub_jub_address =
+            Self::deploy_contract(provider.clone(), baby_jub_jub_bytecode, Bytes::new())
+                .await
+                .context("failed to deploy local BabyJubJub library")?;
 
         let oprf_key_registry_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -477,13 +474,10 @@ impl TestAnvil {
             baby_jub_jub_address,
         )?;
         let oprf_key_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-        let implementation_address = Self::deploy_contract(
-            provider.clone(),
-            oprf_key_registry_bytecode,
-            Bytes::new(),
-        )
-        .await
-        .context("failed to deploy local OprfKeyRegistry implementation")?;
+        let implementation_address =
+            Self::deploy_contract(provider.clone(), oprf_key_registry_bytecode, Bytes::new())
+                .await
+                .context("failed to deploy local OprfKeyRegistry implementation")?;
 
         let init_data = Bytes::from(
             TestOprfKeyRegistry::initializeCall {
