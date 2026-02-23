@@ -90,10 +90,11 @@ async fn start_http_server(
     addr: SocketAddr,
     db: DB,
     tree_state: tree::TreeState,
+    request_timeout_secs: u64,
 ) -> eyre::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
     let registry = WorldIdRegistry::new(registry_address, provider.erased());
-    let router = routes::handler(AppState::new(db, Arc::new(registry), tree_state));
+    let router = routes::handler(AppState::new(db, Arc::new(registry), tree_state), request_timeout_secs);
     tracing::info!(%addr, "HTTP server listening");
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -232,8 +233,9 @@ async fn run_http_only(
     // Start HTTP server
     let rpc_url = rpc_url.to_string();
     let http_addr = http_cfg.http_addr;
+    let request_timeout_secs = http_cfg.request_timeout_secs;
     let http_handle = tokio::spawn(async move {
-        start_http_server(&rpc_url, registry_address, http_addr, db, tree_state).await
+        start_http_server(&rpc_url, registry_address, http_addr, db, tree_state, request_timeout_secs).await
     });
 
     // Wait for the first task to complete — any failure is fatal.
@@ -312,6 +314,7 @@ async unsafe fn run_both(
 
     let http_pool = db.clone();
     let http_addr = http_cfg.http_addr;
+    let request_timeout_secs = http_cfg.request_timeout_secs;
     let rpc_url_clone = http_rpc_url.to_string();
     // Spawned tasks run for the lifetime of the process; they are not
     // joined because the Phase 4 retry loop below never returns.
@@ -322,6 +325,7 @@ async unsafe fn run_both(
             http_addr,
             http_pool,
             http_tree_state,
+            request_timeout_secs,
         )
         .await
     });

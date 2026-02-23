@@ -96,6 +96,8 @@ pub struct GlobalConfig {
 pub struct HttpConfig {
     pub http_addr: SocketAddr,
     pub db_poll_interval_secs: u64,
+    /// HTTP request timeout in seconds.
+    pub request_timeout_secs: u64,
     /// Optional sanity check interval in seconds. If not set, the sanity check will not be run.
     ///
     /// The sanity check calls the `isValidRoot` function on the `WorldIDRegistry` contract to ensure the local Merkle root is valid.
@@ -117,11 +119,17 @@ impl HttpConfig {
             ConfigError::InvalidDbPollInterval(format!("{}: {}", db_poll_interval_str, e))
         })?;
 
+        let request_timeout_secs = std::env::var("REQUEST_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
+
         let tree_cache = TreeCacheConfig::from_env()?;
 
         let config = Self {
             http_addr,
             db_poll_interval_secs,
+            request_timeout_secs,
             sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS").ok().and_then(
                 |s| {
                     let val = s.parse::<u64>().ok().unwrap_or(0);
@@ -294,6 +302,7 @@ mod tests {
             // HTTP config
             env::remove_var("HTTP_ADDR");
             env::remove_var("DB_POLL_INTERVAL_SECS");
+            env::remove_var("REQUEST_TIMEOUT_SECS");
             env::remove_var("SANITY_CHECK_INTERVAL_SECS");
 
             // Indexer config
@@ -408,6 +417,7 @@ mod tests {
 
         assert_eq!(config.http_addr.to_string(), "0.0.0.0:8080");
         assert_eq!(config.db_poll_interval_secs, 1);
+        assert_eq!(config.request_timeout_secs, 10);
         assert_eq!(config.sanity_check_interval_secs, None);
         assert_eq!(config.tree_cache.cache_file_path, "/tmp/test_cache");
         assert_eq!(config.tree_cache.tree_depth, 30); // default
@@ -421,12 +431,14 @@ mod tests {
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
         set_env("HTTP_ADDR", "127.0.0.1:9000");
         set_env("DB_POLL_INTERVAL_SECS", "5");
+        set_env("REQUEST_TIMEOUT_SECS", "30");
         set_env("SANITY_CHECK_INTERVAL_SECS", "60");
 
         let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
 
         assert_eq!(config.http_addr.to_string(), "127.0.0.1:9000");
         assert_eq!(config.db_poll_interval_secs, 5);
+        assert_eq!(config.request_timeout_secs, 30);
         assert_eq!(config.sanity_check_interval_secs, Some(60));
         assert_eq!(config.tree_cache.cache_file_path, "/tmp/test_cache");
     }

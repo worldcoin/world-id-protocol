@@ -40,7 +40,7 @@ async fn openapi() -> impl IntoResponse {
     Json(ApiDoc::openapi())
 }
 
-pub(crate) fn handler(state: AppState) -> Router {
+pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
     Router::new()
         .route(
             "/inclusion-proof",
@@ -61,5 +61,6 @@ pub(crate) fn handler(state: AppState) -> Router {
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
         .with_state(state)
+        .layer(world_id_services_common::timeout_layer(request_timeout_secs))
         .layer(world_id_services_common::trace_layer())
 }
