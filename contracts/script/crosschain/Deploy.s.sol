@@ -57,24 +57,29 @@ contract BridgeDeployer {
 ///   Optional: DEPLOY_CHAINS=ethereum,base (filter which networks to deploy).
 contract Deploy is Script {
     // ─── Deployer helper (re-deployed per fork) ───
-    BridgeDeployer internal deployer;
+    BridgeDeployer internal _deployer;
 
-    struct SatelliteChainArtifacts {
-        address worldIDSatelliteImpl;
-        WorldIDSatellite worldIDSatelliteProxy;
-        IGateway[] registeredGateways;
-    }
+    // ─── Config (loaded once from JSON) ───
+    string internal _config;
 
-    struct DeploymentArtifacts {
-        address worldIDSourceImpl;
-        WorldChainSource worldIDSourceProxy;
-        address worldIDSatelliteImpl;
-        WorldIDSatellite worldIDSatelliteProxy;
-        EthereumMPTGatewayAdapter ethereumMPTGateway;
-        SatelliteChainArtifacts[] satelliteChains;
-    }
+    // ─── Git metadata ───
+    string internal _commitSha;
+    string internal _gitTag;
 
-    DeploymentArtifacts public deployments;
+    // ─── Cross-chain state (persists across forks) ───
+    address internal _wcSourceProxy;
+    uint256 internal _wcChainId;
+    address internal _l1BridgeProxy;
+    uint256 internal _l1ChainId;
+    address internal _broadcaster;
+    string[] internal _deployFilter;
+
+    // ─── Per-network deployment results (reset per fork) ───
+    address public verifierAddr;
+    address public bridgeImpl;
+    address public bridgeProxy;
+    address[] internal _gwAddrs;
+    string[] internal _gwTypes;
 
     ////////////////////////////////////////////////////////////
     //                       ENTRY POINT                      //
@@ -83,10 +88,13 @@ contract Deploy is Script {
     /// @notice Deploy all bridge infrastructure across configured networks.
     /// @param env Environment name — maps to `script/crosschain/config/{env}.json`.
     function run(string calldata env) public {
-        string memory config = vm.readFile(string.concat("script/crosschain/config/", env, ".json"));
+        _config = vm.readFile(string.concat("script/crosschain/config/", env, ".json"));
+        _loadGitInfo();
+        _deployFilter = vm.envOr("DEPLOY_CHAINS", ",", new string[](0));
 
-        deployments = _loadDeployments(env);
+        string memory deployments = _loadDeployments(env);
         uint256 pk = vm.envUint("PRIVATE_KEY");
+        _broadcaster = vm.addr(pk);
 
         // ── Phase 1: World Chain (source) ──
         _wcChainId = vm.parseJsonUint(_config, ".worldchain.chainId");
@@ -457,6 +465,29 @@ contract Deploy is Script {
         console2.log("  Written to", deployPath, string.concat("[", network, "]"));
     }
 
+    ////////////////////////////////////////////////////////////
+    //                       HELPERS                          //
+    ////////////////////////////////////////////////////////////
+
+    /// @dev Captures git commit SHA and tag via FFI for deployment artifacts.
+    function _loadGitInfo() internal {
+        {
+            string[] memory cmd = new string[](3);
+            cmd[0] = "git";
+            cmd[1] = "rev-parse";
+            cmd[2] = "HEAD";
+            _commitSha = string(vm.ffi(cmd));
+        }
+        {
+            string[] memory cmd = new string[](4);
+            cmd[0] = "git";
+            cmd[1] = "describe";
+            cmd[2] = "--tags";
+            cmd[3] = "--always";
+            _gitTag = string(vm.ffi(cmd));
+        }
+    }
+
     /// @dev Resolves an RPC URL for a chain from config.
     ///   Prefers Alchemy (slug + API key), falls back to explicit "rpc" field.
     function _resolveRpc(string memory chain) internal returns (string memory) {
@@ -509,31 +540,12 @@ contract Deploy is Script {
         }
     }
 
-    function _loadDeployments(string memory env) internal returns (DeploymentArtifacts memory) {
+    function _loadDeployments(string memory env) internal returns (string memory) {
         string memory path = string.concat("deployments/crosschain/", env, ".json");
         try vm.readFile(path) returns (string memory content) {
-            if (bytes(content).length > 0) {
-                DeploymentArtifacts memory d;
-                d.worldIDSourceImpl = _tryLoadAddress(content, ".worldchain.worldIDSource.implementation");
-                d.worldIDSourceProxy = WorldChainSource(_tryLoadAddress(content, ".worldchain.worldIDSource.proxy"));
-                d.worldIDSatelliteImpl =
-                    _tryLoadAddress(content, string.concat(".", env, ".worldIDSatellite.implementation"));
-                d.worldIDSatelliteProxy =
-                    WorldIDSatellite(_tryLoadAddress(content, string.concat(".", env, ".worldIDSatellite.proxy")));
-                d.ethereumMPTGateway = EthereumMPTGatewayAdapter(
-                    _tryLoadAddress(content, string.concat(".", env, ".gateways.ethereumMPTGateway"))
-                );
-                return d;
-            }
+            if (bytes(content).length > 0) return content;
         } catch {}
-        return DeploymentArtifacts(
-            address(0),
-            WorldChainSource(address(0)),
-            address(0),
-            WorldIDSatellite(address(0)),
-            EthereumMPTGatewayAdapter(address(0)),
-            new SatelliteChainArtifacts[](0)
-        );
+        return "{}";
     }
 
     function _ensureDeploymentFileExists(string memory path) internal {

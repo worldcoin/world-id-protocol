@@ -13,7 +13,6 @@ members = [
   "services/common",
   "services/faux-issuer",
   "services/relay",
-  "xtask",
 ]
 resolver = "2"
 

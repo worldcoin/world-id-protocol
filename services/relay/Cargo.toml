@@ -33,6 +33,11 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 world-id-services-common = { workspace = true }
+config = { workspace = true }
+futures-util = { workspace = true }
+tokio-util = { workspace = true }
+tokio-stream = { version = "*" }
+async-stream = { version = "*" }
 
 [dev-dependencies]
 testcontainers = "0.27"

@@ -3,19 +3,35 @@ use alloy::sol;
 sol! {
     #[sol(rpc)]
     interface IWorldIDSource {
+        #[derive(Debug)]
         struct Chain {
             bytes32 head;
             uint64 length;
         }
 
+        #[derive(Debug)]
         struct Commitment {
             bytes32 blockHash;
             bytes data;
         }
 
-        function propagateState(uint64[] calldata issuerSchemaIds, uint160[] calldata oprfKeyIds) external;
+        #[derive(Debug)]
+        struct Affine {
+            uint256 x;
+            uint256 y;
+        }
 
+        #[derive(Debug)]
+        struct ProvenPubKeyInfo {
+            Affine pubKey;
+            bytes32 proofId;
+        }
+
+        function propagateState(uint64[] calldata issuerSchemaIds, uint160[] calldata oprfKeyIds) external;
         function KECCAK_CHAIN() external view returns (Chain memory);
+        function LATEST_ROOT() external view returns (uint256);
+        function issuerSchemaIdToPubkeyAndProofId(uint64 schemaId) external view returns (ProvenPubKeyInfo memory);
+        function oprfKeyIdToPubkeyAndProofId(uint160 oprfKeyId) external view returns (ProvenPubKeyInfo memory);
 
         event ChainCommitted(
             bytes32 indexed keccakChain,
@@ -61,6 +77,51 @@ sol! {
     interface ILightClientGateway {
         function head() external view returns (uint256);
         function headers(uint256 slot) external view returns (bytes32);
+    }
+
+    // ── World Chain registry read interfaces ──────────────────────────────
+
+    #[sol(rpc)]
+    interface IWorldIDRegistry {
+        function getLatestRoot() external view returns (uint256);
+
+        event RootRecorded(uint256 indexed root, uint256 timestamp);
+    }
+
+    #[sol(rpc)]
+    interface ICredentialSchemaIssuerRegistry {
+        #[derive(Debug)]
+        struct Pubkey {
+            uint256 x;
+            uint256 y;
+        }
+            
+        event IssuerSchemaRegistered(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer, uint160 oprfKeyId);
+        event IssuerSchemaRemoved(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
+        event IssuerSchemaPubkeyUpdated(uint64 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
+        event IssuerSchemaSignerUpdated(uint64 indexed issuerSchemaId, address oldSigner, address newSigner);
+        event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
+
+        function issuerSchemaIdToPubkey(uint64 issuerSchemaId) external view returns (Pubkey memory);
+    }
+
+    #[sol(rpc)]
+    interface IOprfKeyRegistry {
+        #[derive(Debug)]
+        struct OprfPublicKey {
+            uint256 x;
+            uint256 y;
+        }
+
+        #[derive(Debug)]
+        struct RegisteredOprfPublicKey {
+            OprfPublicKey key;
+            uint256 epoch;
+        }
+
+        function getOprfPublicKeyAndEpoch(uint160 oprfKeyId) external view returns (RegisteredOprfPublicKey memory);
+
+        event SecretGenFinalize(uint160 indexed oprfKeyId, uint32 indexed epoch);
     }
 }
 

@@ -9,8 +9,7 @@ use alloy::{
 use tracing::{debug, info, warn};
 
 use crate::{
-    contracts::{self, IDisputeGame, IDisputeGameFactory, L2_TO_L1_MESSAGE_PASSER},
-    error::RelayError,
+    bindings::{self, IDisputeGame, IDisputeGameFactory, L2_TO_L1_MESSAGE_PASSER},
     proof::{ChainCommitment, mpt},
 };
 
@@ -44,7 +43,7 @@ pub async fn build_l1_proof_attributes(
     commitment: &ChainCommitment,
     poll_interval: Duration,
     timeout: Duration,
-) -> Result<(Bytes, Bytes), RelayError> {
+) -> eyre::Result<(Bytes, Bytes)> {
     // Step 1: Find a dispute game covering the target WC block
     let game = wait_for_dispute_game(
         l1_provider,
@@ -66,11 +65,11 @@ pub async fn build_l1_proof_attributes(
     // Step 2: Get WC block at the game's L2 block number
     let wc_block = wc_provider
         .get_block_by_number(BlockNumberOrTag::Number(game.l2_block_number))
-        .await
-        .map_err(RelayError::Rpc)?
-        .ok_or_else(|| {
-            RelayError::Other(eyre::eyre!("WC block {} not found", game.l2_block_number))
-        })?;
+        .await?
+        .ok_or(eyre::eyre!(
+            "WC block not found at number {}",
+            game.l2_block_number
+        ))?;
 
     let wc_state_root = wc_block.header.state_root;
     let wc_block_hash = wc_block.header.hash;
@@ -102,10 +101,11 @@ pub async fn build_l1_proof_attributes(
     );
 
     if computed_output_root != game.root_claim {
-        return Err(RelayError::OutputRootMismatch {
-            expected: game.root_claim,
-            actual: computed_output_root,
-        });
+        return eyre::bail!(
+            "computed output root does not match game root claim: computed {}, claimed {}",
+            computed_output_root,
+            game.root_claim
+        );
     }
 
     debug!("output root verified: {}", computed_output_root);
@@ -114,7 +114,7 @@ pub async fn build_l1_proof_attributes(
     let mpt_proof = mpt::fetch_storage_proof(
         wc_provider,
         wc_source_address,
-        contracts::STATE_BRIDGE_STORAGE_SLOT,
+        bindings::STATE_BRIDGE_STORAGE_SLOT,
         BlockNumberOrTag::Number(game.l2_block_number),
     )
     .await?;
@@ -151,13 +151,16 @@ async fn wait_for_dispute_game(
     target_wc_block: u64,
     poll_interval: Duration,
     timeout: Duration,
-) -> Result<DisputeGameInfo, RelayError> {
+) -> eyre::Result<DisputeGameInfo> {
     let deadline = tokio::time::Instant::now() + timeout;
     let factory = IDisputeGameFactory::new(factory_address, l1_provider);
 
     loop {
         if tokio::time::Instant::now() >= deadline {
-            return Err(RelayError::DisputeGameTimeout(target_wc_block));
+            return eyre::bail!(
+                "timed out waiting for dispute game covering WC block {}",
+                target_wc_block
+            );
         }
 
         match find_dispute_game(
@@ -192,7 +195,7 @@ async fn find_dispute_game(
     target_game_type: u32,
     require_finalized: bool,
     target_wc_block: u64,
-) -> Result<Option<DisputeGameInfo>, RelayError> {
+) -> eyre::Result<Option<DisputeGameInfo>> {
     let game_count: u64 = factory.gameCount().call().await?.to::<u64>();
 
     if game_count == 0 {

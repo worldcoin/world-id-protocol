@@ -3,9 +3,7 @@ use alloy::{
     providers::{DynProvider, Provider},
 };
 use alloy_primitives::{Address, B256, Bytes};
-
-use crate::error::RelayError;
-
+use eyre::{Result, eyre};
 /// MPT proof data for a single storage slot, ready for on-chain verification.
 #[derive(Debug, Clone)]
 pub struct MptProof {
@@ -23,18 +21,16 @@ pub async fn fetch_storage_proof(
     address: Address,
     slot: B256,
     block: BlockNumberOrTag,
-) -> Result<MptProof, RelayError> {
+) -> Result<MptProof> {
     let proof_response = provider
         .get_proof(address, vec![slot])
         .block_id(block.into())
-        .await
-        .map_err(RelayError::Rpc)?;
+        .await?;
 
     let storage = proof_response
         .storage_proof
         .first()
-        .ok_or(RelayError::MissingStorageProof(slot))?;
-
+        .ok_or(eyre!("no storage proof found for slot {slot:#x}"))?;
     let storage_value = B256::from(storage.value);
 
     Ok(MptProof {
@@ -50,12 +46,11 @@ pub async fn fetch_storage_root(
     provider: &DynProvider,
     address: Address,
     block: BlockNumberOrTag,
-) -> Result<B256, RelayError> {
+) -> Result<B256> {
     let proof_response = provider
         .get_proof(address, vec![])
         .block_id(block.into())
-        .await
-        .map_err(RelayError::Rpc)?;
+        .await?;
 
     Ok(proof_response.storage_hash)
 }

@@ -18,6 +18,8 @@
   "worldchain": {
     "chainId": 480,
     "alchemySlug": "worldchain-mainnet",
+    "registry": "0x7215Be2f5521985e2169f376B36a57473eaaAe6f",
+    "issuerRegistry": "0x9037125Ae10e9E89fDbe7001228289462EFA3eF3",
     "oprfRegistry": "0x0000000000000000000000000000000000000000"
   },
 
