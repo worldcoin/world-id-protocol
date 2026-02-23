@@ -23,10 +23,6 @@ use tower::{Layer, Service};
 
 pub use alloy::transports::layers::RetryPolicy;
 
-// ---------------------------------------------------------------------------
-// Config defaults
-// ---------------------------------------------------------------------------
-
 mod defaults {
     pub const BURST_SIZE: u32 = 10;
     pub const REQUESTS_PER_SECOND: u32 = 100;
@@ -54,10 +50,6 @@ mod defaults {
         TIMEOUT_SECS
     }
 }
-
-// ---------------------------------------------------------------------------
-// ThrottleConfig
-// ---------------------------------------------------------------------------
 
 #[derive(Args, Debug, Clone, Deserialize)]
 pub struct ThrottleConfig {
@@ -112,12 +104,14 @@ impl Default for RetryConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ThrottleLayer / ThrottleService
-// ---------------------------------------------------------------------------
-
 type Limiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 
+/// A Tower layer that rate-limits outgoing RPC requests using a
+/// token-bucket algorithm (powered by [`governor`]).
+///
+/// Requests that exceed the configured rate are delayed (not rejected)
+/// until a token becomes available, keeping the downstream provider
+/// within its rate budget.
 #[derive(Clone)]
 pub(crate) struct ThrottleLayer {
     limiter: Arc<Limiter>,
@@ -144,6 +138,7 @@ impl<S> Layer<S> for ThrottleLayer {
     }
 }
 
+/// Tower service that awaits a rate-limit token before forwarding each request.
 #[derive(Clone)]
 pub(crate) struct ThrottleService<S> {
     inner: S,
@@ -175,10 +170,6 @@ where
         })
     }
 }
-
-// ---------------------------------------------------------------------------
-// RetryLayer / RetryService
-// ---------------------------------------------------------------------------
 
 /// A Tower layer that retries failed RPC requests with exponential backoff
 /// (powered by [`backon::ExponentialBuilder`]).
