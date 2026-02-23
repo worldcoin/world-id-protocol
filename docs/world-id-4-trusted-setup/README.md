@@ -42,8 +42,16 @@ If you had any issues contributing to the ceremony, please contact our ceremony 
 > [!NOTE]
 > If you want to learn more about the trusted setup, watch the rendered explainer video: [World Chain post](https://x.com/world_chain_/status/2023451971651596718?s=20).
 
+Contribution totals (excluding the coordinator finalization contribution) are documented in this summary tweet by [@dcbuilder](https://x.com/dcbuilder/status/2025266795691557260):
+
+- `OPRFKeyGenProof13`: `113`
+- `OPRFKeyGenProof25`: `111`
+- `OPRFKeyGenProof37`: `105`
+- `OPRFNullifierProof`: `104`
+- `OPRFQueryProof`: `104`
+
 - Trusted setup result files: [`circom/artifacts/`](../../circom/artifacts/)
 - Verification guide: [`TRUSTED_SETUP.MD`](./TRUSTED_SETUP.MD)
 - Verification artifacts: [`artifacts/`](./artifacts/)
-- Canonical attestation gists: [`artifacts/hash_gists_primary.tsv`](./artifacts/hash_gists_primary.tsv) (requires file title `world-id-protocol_attestation.log`)
+- Canonical attestation gists: [`artifacts/contributions.tsv`](./artifacts/contributions.tsv) (requires file title `world-id-protocol_attestation.log`)
 - Local rendered video file (Git LFS): [`World ID Trusted Setup.MP4`](./World%20ID%20Trusted%20Setup.MP4)
