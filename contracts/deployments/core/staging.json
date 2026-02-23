@@ -12,10 +12,10 @@
   "timestamp": 1770925941,
   "verifier": "0x39CcB3b670651a14da8b3835f42924f49C2C5986",
   "worldIDRegistry": {
-    "implementation": "0x3bEa0754795255C41737414bDf70CBCf5EA98900",
-    "proxy": "0x7215Be2f5521985e2169f376B36a57473eaaAe6f"
+    "implementation": "0x0eDa27c00436F2bB9f8CF67eFA2863141C727728",
+    "proxy": "0x8556d07D75025f286fe757C7EeEceC40D54FA16D"
   },
-  "worldIDVerifier": {
+   "worldIDVerifier": {
     "implementation": "0xCA7d6822b9c6913B1A1416cE30eF14c4e7f0bFb1",
     "proxy": "0x703a6316c975DEabF30b637c155edD53e24657DB"
   }
