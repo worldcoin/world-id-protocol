@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
@@ -17,4 +19,13 @@ pub fn trace_layer() -> TraceLayer<
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
         .on_request(DefaultOnRequest::new().level(Level::INFO))
         .on_response(DefaultOnResponse::new().level(Level::INFO))
+}
+
+/// Creates a [`tower_http::timeout::TimeoutLayer`] that responds with
+/// `504 Gateway Timeout` when a request exceeds the given duration.
+pub fn timeout_layer(timeout_secs: u64) -> tower_http::timeout::TimeoutLayer {
+    tower_http::timeout::TimeoutLayer::with_status_code(
+        http::StatusCode::GATEWAY_TIMEOUT,
+        Duration::from_secs(timeout_secs),
+    )
 }
