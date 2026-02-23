@@ -94,7 +94,10 @@ async fn start_http_server(
 ) -> eyre::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse().expect("invalid RPC URL"));
     let registry = WorldIdRegistry::new(registry_address, provider.erased());
-    let router = routes::handler(AppState::new(db, Arc::new(registry), tree_state), request_timeout_secs);
+    let router = routes::handler(
+        AppState::new(db, Arc::new(registry), tree_state),
+        request_timeout_secs,
+    );
     tracing::info!(%addr, "HTTP server listening");
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -235,7 +238,15 @@ async fn run_http_only(
     let http_addr = http_cfg.http_addr;
     let request_timeout_secs = http_cfg.request_timeout_secs;
     let http_handle = tokio::spawn(async move {
-        start_http_server(&rpc_url, registry_address, http_addr, db, tree_state, request_timeout_secs).await
+        start_http_server(
+            &rpc_url,
+            registry_address,
+            http_addr,
+            db,
+            tree_state,
+            request_timeout_secs,
+        )
+        .await
     });
 
     // Wait for the first task to complete — any failure is fatal.

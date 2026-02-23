@@ -122,7 +122,9 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
-        .layer(world_id_services_common::timeout_layer(request_timeout_secs))
+        .layer(world_id_services_common::timeout_layer(
+            request_timeout_secs,
+        ))
         .layer(world_id_services_common::trace_layer()))
 }
 
