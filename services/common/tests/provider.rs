@@ -264,3 +264,21 @@ async fn retry_after_tcp_reset_on_same_endpoint() {
     assert_eq!(chain_id, 1);
     assert!(counter.load(Ordering::SeqCst) >= 2);
 }
+
+// ---------------------------------------------------------------------------
+// Test 7: Retries disabled when max_retries == 0
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn retries_disabled_when_max_retries_zero() {
+    let (url, counter) = spawn_mock_rpc(|_| StatusCode::BAD_GATEWAY.into_response()).await;
+
+    let provider = build_provider_args(vec![url], fast_retry(0))
+        .http()
+        .await
+        .unwrap();
+
+    let result = provider.get_chain_id().await;
+    assert!(result.is_err());
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+}
