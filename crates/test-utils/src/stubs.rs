@@ -329,8 +329,10 @@ async fn spawn_key_gen(
         oprf_key_registry_contract: rp_registry_contract,
         chain_ws_rpc_url: chain_ws_rpc_url.into(),
         wallet_private_key_secret_id: "not-used".into(),
-        zkey_path: dir.join("../../circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_final.arks.zkey"),
-        witness_graph_path: dir.join("../../circom/artifacts/OPRFKeyGenProof25/OPRFKeyGenProof25Graph.bin"),
+        zkey_path: dir
+            .join("../../circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_final.arks.zkey"),
+        witness_graph_path: dir
+            .join("../../circom/artifacts/OPRFKeyGenProof25/OPRFKeyGenProof25Graph.bin"),
         max_wait_time_shutdown: Duration::from_secs(10),
         start_block: Some(0),
         max_transaction_attempts: 3,

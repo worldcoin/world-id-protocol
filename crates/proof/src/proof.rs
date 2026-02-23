@@ -16,7 +16,7 @@ use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{
-    circuit_inputs::NullifierProofCircuitInput, Credential, FieldElement, RequestItem, TREE_DEPTH,
+    Credential, FieldElement, RequestItem, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
 };
 
 pub use groth16_material::circom::{
@@ -224,7 +224,8 @@ fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
             "OPRFNullifierProofGraph.bin" => nullifier_graph = Some(buf),
             n if n == "oprfqueryproof_final.arks.zkey"
                 || n == "oprfqueryproof_final.zkey"
-                || n.starts_with("OPRFQuery.arks.zkey") => {
+                || n.starts_with("OPRFQuery.arks.zkey") =>
+            {
                 query_zkey = Some(buf)
             }
             n if n == "oprfnullifierproof_final.arks.zkey"
