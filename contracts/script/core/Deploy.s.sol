@@ -98,7 +98,7 @@ contract Deploy is Script {
         bytes32 salt = vm.parseJsonBytes32(config, ".salts.worldIDRegistry");
 
         // Deploy implementation
-        WorldIDRegistry implementation = new WorldIDRegistry{salt: bytes32(uint256(0))}();
+        WorldIDRegistry implementation = new WorldIDRegistry{salt: bytes32(uint256(2))}();
         worldIDRegistryImplAddress = address(implementation);
 
         // Encode initializer call
@@ -239,5 +239,20 @@ contract Deploy is Script {
     /// @param initCode The init code of the contract to deploy.
     function deploy(bytes32 salt, bytes memory initCode) public returns (address addr) {
         addr = _deployer.deploy(salt, initCode);
+    }
+
+    /// @notice Updates the WorldIDRegistry address on a deployed WorldIDVerifier proxy.
+    /// @dev Usage: forge script script/core/Deploy.s.sol:Deploy --sig "updateWorldIDRegistry(address,address)" \
+    ///     <VERIFIER_PROXY> <NEW_REGISTRY> --broadcast --private-key $PK --chain 480
+    function updateWorldIDRegistry(address verifierProxy, address newWorldIDRegistry) public {
+        console2.log("WorldIDVerifier proxy:", verifierProxy);
+        console2.log("Current WorldIDRegistry:", WorldIDVerifier(verifierProxy).getWorldIDRegistry());
+        console2.log("New WorldIDRegistry:", newWorldIDRegistry);
+
+        vm.startBroadcast();
+        WorldIDVerifier(verifierProxy).updateWorldIDRegistry(newWorldIDRegistry);
+        vm.stopBroadcast();
+
+        console2.log("Updated WorldIDRegistry to:", WorldIDVerifier(verifierProxy).getWorldIDRegistry());
     }
 }
