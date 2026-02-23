@@ -10,7 +10,6 @@ async fn main() -> GatewayResult<()> {
 
     let _ = dotenvy::dotenv();
     tracing::info!("Starting world-id-gateway");
-    println!("Starting world-id-gateway");
 
     if let Err(error) = world_id_gateway::run().await {
         tracing::error!(error = ?error, "gateway terminated with error");

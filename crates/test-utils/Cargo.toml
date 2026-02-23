@@ -36,4 +36,5 @@ tokio-util = { workspace = true }
 world-id-oprf-node = { workspace = true }
 reqwest = { workspace = true }
 semver = { workspace = true }
+tracing = { workspace = true }
 world-id-primitives = { workspace = true }

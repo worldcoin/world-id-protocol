@@ -127,7 +127,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .await
     .unwrap();
-    println!(
+    tracing::info!(
         "Authentication creation took: {}ms",
         SystemTime::now().duration_since(start).unwrap().as_millis(),
     );

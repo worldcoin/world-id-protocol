@@ -57,19 +57,19 @@ async fn test_packed_account_endpoint() {
 
     // Add a small delay to let initialization start
     tokio::time::sleep(Duration::from_millis(500)).await;
-    println!("Indexer task spawned, waiting for backfill...");
+    tracing::info!("Indexer task spawned, waiting for backfill...");
 
     // Wait for account to be indexed
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         let c = query_count(&setup.pool).await;
-        println!(
+        tracing::info!(
             "Current account count: {} (elapsed: {:?})",
             c,
             deadline.saturating_duration_since(std::time::Instant::now())
         );
         if c >= 1 {
-            println!("Account found! Backfill complete.");
+            tracing::info!("Account found! Backfill complete.");
             break;
         }
         if std::time::Instant::now() > deadline {

@@ -235,7 +235,7 @@ async fn spawn_orpf_node(
         let res = axum::serve(listener, router)
             .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
             .await;
-        eprintln!("service failed to start: {res:?}");
+        tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
     tokio::time::timeout(Duration::from_secs(60), async {
@@ -361,7 +361,7 @@ async fn spawn_key_gen(
         let res = axum::serve(listener, router)
             .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
             .await;
-        eprintln!("service failed to start: {res:?}");
+        tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
     tokio::time::timeout(Duration::from_secs(60), async {

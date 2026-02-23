@@ -8791,6 +8791,7 @@ dependencies = [
  "taceo-oprf",
  "taceo-oprf-test-utils",
  "tokio",
+ "tracing",
  "tracing-subscriber 0.3.22",
  "world-id-authenticator",
  "world-id-gateway",
@@ -9082,6 +9083,7 @@ dependencies = [
  "taceo-poseidon2",
  "tokio",
  "tokio-util",
+ "tracing",
  "world-id-oprf-node",
  "world-id-primitives",
 ]
