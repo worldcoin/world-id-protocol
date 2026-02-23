@@ -141,16 +141,6 @@ sol!(
     )
 );
 
-
-sol!(
-    #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
-    KeyGenVerifier25,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/lib/oprf-key-registry/out/VerifierKeyGen25.sol/Verifier.json"
-    )
-);
 pub struct TestAnvil {
     pub instance: AnvilInstance,
     pub rpc_url: String,
@@ -423,86 +413,6 @@ impl TestAnvil {
         Ok(*proxy.address())
     }
 
-    async fn deploy_local_oprf_key_registry_25<P: Provider + Clone>(
-        provider: P,
-        admin: Address,
-    ) -> Result<Address> {
-        let key_gen_verifier = KeyGenVerifier25::deploy(provider.clone())
-            .await
-            .context("failed to deploy local VerifierKeyGen25 contract")?;
-
-        let baby_jub_jub_json = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/BabyJubJub.sol/BabyJubJub.json"
-        ));
-        let json_value: serde_json::Value = serde_json::from_str(baby_jub_jub_json)?;
-        let bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("BabyJubJub bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            })
-            .to_string();
-        let baby_jub_jub_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-        let baby_jub_jub_address = Self::deploy_contract(
-            provider.clone(),
-            baby_jub_jub_bytecode,
-            Bytes::new(),
-        )
-        .await
-        .context("failed to deploy local BabyJubJub library")?;
-
-        let oprf_key_registry_json = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/OprfKeyRegistry.sol/OprfKeyRegistry.json"
-        ));
-        let json_value: serde_json::Value = serde_json::from_str(oprf_key_registry_json)?;
-        let mut bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("OprfKeyRegistry bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            })
-            .to_string();
-        bytecode_str = Self::link_bytecode_hex(
-            oprf_key_registry_json,
-            &bytecode_str,
-            "lib/oprf-key-registry/src/BabyJubJub.sol:BabyJubJub",
-            baby_jub_jub_address,
-        )?;
-        let oprf_key_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-        let implementation_address = Self::deploy_contract(
-            provider.clone(),
-            oprf_key_registry_bytecode,
-            Bytes::new(),
-        )
-        .await
-        .context("failed to deploy local OprfKeyRegistry implementation")?;
-
-        let init_data = Bytes::from(
-            TestOprfKeyRegistry::initializeCall {
-                _owner: admin,
-                _keygenAdmin: admin,
-                _keyGenVerifierAddress: *key_gen_verifier.address(),
-                _threshold: 3,
-                _numPeers: 5,
-            }
-            .abi_encode(),
-        );
-
-        let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
-            .await
-            .context("failed to deploy local OprfKeyRegistry proxy")?;
-
-        Ok(*proxy.address())
-    }
-
     /// Deploys the `OprfKeyRegistry` contract using the supplied signer.
     #[allow(dead_code)]
     pub async fn deploy_oprf_key_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
@@ -510,9 +420,12 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        Self::deploy_local_oprf_key_registry_25(provider, signer.address())
-            .await
-            .context("failed to deploy OprfKeyRegistry contract")
+        taceo_oprf_test_utils::deploy_anvil::deploy_oprf_key_registry_25(
+            provider.erased(),
+            signer.address(),
+        )
+        .await
+        .context("failed to deploy OprfKeyRegistry contract")
     }
 
     /// Deploys a lightweight mock `OprfKeyRegistry` used by auth tests.
