@@ -1,0 +1,5 @@
+circom/artifacts/**/*.zkey filter=lfs diff=lfs merge=lfs -text
+circom/artifacts/**/*.r1cs filter=lfs diff=lfs merge=lfs -text
+circom/artifacts/**/*.wasm filter=lfs diff=lfs merge=lfs -text
+docs/world-id-4-trusted-setup/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+docs/world-id-4-trusted-setup/**/*.MP4 filter=lfs diff=lfs merge=lfs -text
