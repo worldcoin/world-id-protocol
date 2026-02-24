@@ -24,7 +24,7 @@ Deployments are tracked in [`contracts/deployments/`](contracts/deployments/)
 
 | Service            | URL                                                   |
 | ------------------ | ----------------------------------------------------- |
-| `world-id-indexer` | `https://world-id-indexer.stage-crypto.worldcoin.org` |
+| `world-id-indexer` | `https://indexer.us.id-infra.worldcoin.dev`<br />`https://indexer.eu.id-infra.worldcoin.dev`<br />`https://indexer.ap.id-infra.worldcoin.dev` |
 | `world-id-gateway` | `https://world-id-gateway.stage-crypto.worldcoin.org` |
 
 ## 🏗️ Project Structure
