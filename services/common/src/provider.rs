@@ -170,6 +170,14 @@ impl ProviderArgs {
         self
     }
 
+    /// Set the maximum number of RPC retries. Set to 0 to disable retries.
+    pub fn with_max_rpc_retries(mut self, max_retries: u32) -> Self {
+        self.retry
+            .get_or_insert_with(RetryConfig::default)
+            .max_retries = max_retries;
+        self
+    }
+
     /// Build a dynamic provider from the configuration.
     pub async fn http(self) -> ProviderResult<DynProvider> {
         let Some(http) = self.http else {
