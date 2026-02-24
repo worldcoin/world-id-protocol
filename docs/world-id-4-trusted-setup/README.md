@@ -50,8 +50,5 @@ Contribution totals (excluding the coordinator finalization contribution) are do
 - `OPRFNullifierProof`: `104`
 - `OPRFQueryProof`: `104`
 
-- Trusted setup result files: [`circom/artifacts/`](../../circom/artifacts/)
-- Verification guide: [`TRUSTED_SETUP.MD`](./TRUSTED_SETUP.MD)
-- Verification artifacts: [`artifacts/`](./artifacts/)
-- Canonical attestation gists: [`artifacts/contributions.tsv`](./artifacts/contributions.tsv) (requires file title `world-id-protocol_attestation.log`)
-- Local rendered video file (Git LFS): [`World ID Trusted Setup.MP4`](./World%20ID%20Trusted%20Setup.MP4)
+Full ceremony artifacts, verification transcripts, the explainer video, manim source, and contribution attestations
+are stored on the [`trusted-setup`](../../tree/trusted-setup) orphan branch to keep the main branch lightweight.

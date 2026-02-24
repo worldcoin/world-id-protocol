@@ -1,12 +1,1 @@
 contracts/out/**/*.json linguist-generated
-circom/artifacts/OPRF*Proof*/**/*.zkey filter=lfs diff=lfs merge=lfs -text
-circom/artifacts/OPRF*Proof*/**/*.r1cs filter=lfs diff=lfs merge=lfs -text
-circom/artifacts/OPRF*Proof*/**/*.wasm filter=lfs diff=lfs merge=lfs -text
-docs/world-id-4-trusted-setup/manim/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
-docs/world-id-4-trusted-setup/*.MP4 filter=lfs diff=lfs merge=lfs -text
-docs/world-id-4-trusted-setup/*.mp4 filter=lfs diff=lfs merge=lfs -text
-# CI-critical proving keys tracked as regular Git blobs (no Git LFS)
-circom/artifacts/OPRFKeyGenProof13/oprfkeygenproof13_final.arks.zkey -filter -diff -merge -text
-circom/artifacts/OPRFKeyGenProof25/oprfkeygenproof25_final.arks.zkey -filter -diff -merge -text
-circom/artifacts/OPRFQueryProof/oprfqueryproof_final.arks.zkey -filter -diff -merge -text
-circom/artifacts/OPRFNullifierProof/oprfnullifierproof_final.arks.zkey -filter -diff -merge -text

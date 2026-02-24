@@ -220,17 +220,17 @@ fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
         entry.read_to_end(&mut buf)?;
 
         match name {
-            "OPRFQueryProofGraph.bin" => query_graph = Some(buf),
-            "OPRFNullifierProofGraph.bin" => nullifier_graph = Some(buf),
-            "oprfqueryproof_final.arks.zkey" => query_zkey = Some(buf),
-            "oprfnullifierproof_final.arks.zkey" => nullifier_zkey = Some(buf),
+            "OPRFQueryGraph.bin" => query_graph = Some(buf),
+            "OPRFNullifierGraph.bin" => nullifier_graph = Some(buf),
+            "OPRFQuery.arks.zkey" => query_zkey = Some(buf),
+            "OPRFNullifier.arks.zkey" => nullifier_zkey = Some(buf),
             _ => {}
         }
     }
 
-    let query_graph = query_graph.context("OPRFQueryProofGraph.bin not found in archive")?;
+    let query_graph = query_graph.context("OPRFQueryGraph.bin not found in archive")?;
     let nullifier_graph =
-        nullifier_graph.context("OPRFNullifierProofGraph.bin not found in archive")?;
+        nullifier_graph.context("OPRFNullifierGraph.bin not found in archive")?;
     #[allow(unused_mut)]
     let mut query_zkey = query_zkey.context("OPRFQuery zkey not found in archive")?;
     #[allow(unused_mut)]

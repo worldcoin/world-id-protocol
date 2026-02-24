@@ -14,10 +14,10 @@ const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 const CIRCUIT_COMMIT: &str = "d9d61e26ac5802c27a5984875db6c4572af5b24c"; // TODO: Figure out a better way for static commits
 
 const CIRCUIT_FILES: &[&str] = &[
-    "circom/artifacts/OPRFQueryProof/OPRFQueryProofGraph.bin",
-    "circom/artifacts/OPRFNullifierProof/OPRFNullifierProofGraph.bin",
-    "circom/artifacts/OPRFQueryProof/oprfqueryproof_final.arks.zkey",
-    "circom/artifacts/OPRFNullifierProof/oprfnullifierproof_final.arks.zkey",
+    "circom/OPRFQueryGraph.bin",
+    "circom/OPRFNullifierGraph.bin",
+    "circom/OPRFQuery.arks.zkey",
+    "circom/OPRFNullifier.arks.zkey",
 ];
 
 fn main() -> eyre::Result<()> {
