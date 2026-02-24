@@ -83,10 +83,11 @@ impl GatewayConfig {
 impl GatewayConfig {
     pub fn from_env() -> GatewayResult<Self> {
         let config = Self::parse();
-        config.validate()
+        config.validate()?;
+        Ok(config)
     }
 
-    pub fn validate(self) -> GatewayResult<Self> {
+    pub fn validate(&self) -> GatewayResult<()> {
         if self.provider.signer.is_none() {
             return Err(GatewayError::Config(
                 "exactly one of --wallet-private-key or --aws-kms-key-id must be provided"
@@ -100,7 +101,7 @@ impl GatewayConfig {
             );
         }
 
-        Ok(self)
+        Ok(())
     }
 }
 
