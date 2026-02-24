@@ -215,6 +215,7 @@ async fn spawn_orpf_node(
             db_connection_string: "not-used".into(),
             db_max_connections: 1.try_into().unwrap(), // not used
             db_schema: "not-used".into(),
+            i_am_alive_interval: Duration::from_secs(60),
             reload_key_material_interval: Duration::from_secs(3600),
             db_acquire_timeout: Duration::from_secs(0), // not used
             db_retry_delay: Duration::from_secs(0),     // not used
@@ -334,6 +335,7 @@ async fn spawn_key_gen(
         witness_graph_path: dir
             .join("../../circom/artifacts/OPRFKeyGenProof25/OPRFKeyGenProof25Graph.bin"),
         max_wait_time_shutdown: Duration::from_secs(10),
+        i_am_alive_interval: Duration::from_secs(60),
         start_block: Some(0),
         max_transaction_attempts: 3,
         max_wait_time_transaction_confirmation: Duration::from_secs(60),
