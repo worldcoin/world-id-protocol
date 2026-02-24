@@ -1,24 +1,23 @@
 use crate::{
-    db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
+    db::{DBResult, PostgresDBTransaction, WorldIdRegistryEventId},
     events_processor::EventsProcessor,
 };
 
-pub struct RollbackExecutor<'a> {
-    db: &'a DB,
+pub struct RollbackExecutor<'a, 'b> {
+    tx: &'a mut PostgresDBTransaction<'b>,
 }
 
-impl<'a> RollbackExecutor<'a> {
-    pub fn new(db: &'a DB) -> Self {
-        Self { db }
+impl<'a, 'b> RollbackExecutor<'a, 'b> {
+    pub fn new(tx: &'a mut PostgresDBTransaction<'b>) -> Self {
+        Self { tx }
     }
 
     pub async fn rollback_to_event(&mut self, event_id: WorldIdRegistryEventId) -> DBResult<()> {
         tracing::info!("rolling back up to event = {:?}", event_id);
 
-        let mut transaction = self.db.transaction(IsolationLevel::Serializable).await?;
-
         // Step 1: Get leaf indices where latest event is after rollback point
-        let affected_leaf_indices = transaction
+        let affected_leaf_indices = self
+            .tx
             .accounts()
             .await?
             .get_after_event((event_id.block_number, event_id.log_index))
@@ -27,7 +26,8 @@ impl<'a> RollbackExecutor<'a> {
         tracing::info!("Found {} accounts to rollback", affected_leaf_indices.len());
 
         // Step 2: Remove those accounts
-        let removed_accounts = transaction
+        let removed_accounts = self
+            .tx
             .accounts()
             .await?
             .delete_after_event((event_id.block_number, event_id.log_index))
@@ -36,7 +36,8 @@ impl<'a> RollbackExecutor<'a> {
         tracing::info!("Removed {} accounts", removed_accounts);
 
         // Step 3: Remove world_id_registry_events greater than event_id
-        let removed_registry_events = transaction
+        let removed_registry_events = self
+            .tx
             .world_id_registry_events()
             .await?
             .delete_after_event(&event_id)
@@ -46,11 +47,8 @@ impl<'a> RollbackExecutor<'a> {
 
         // Step 4: Replay events for each affected leaf index
         for leaf_index in affected_leaf_indices {
-            self.replay_events_for_leaf(&mut transaction, leaf_index, &event_id)
-                .await?;
+            self.replay_events_for_leaf(leaf_index, &event_id).await?;
         }
-
-        transaction.commit().await?;
 
         tracing::info!("Rollback completed successfully");
 
@@ -59,13 +57,13 @@ impl<'a> RollbackExecutor<'a> {
 
     /// Replay all events for a specific leaf index up to the rollback point
     async fn replay_events_for_leaf(
-        &self,
-        tx: &mut PostgresDBTransaction<'_>,
+        &mut self,
         leaf_index: u64,
         event_id: &WorldIdRegistryEventId,
     ) -> DBResult<()> {
         // Get all events for this leaf up to the rollback point from the full events table
-        let events = tx
+        let events = self
+            .tx
             .world_id_registry_events()
             .await?
             .get_events_for_leaf(leaf_index, event_id)
@@ -89,7 +87,7 @@ impl<'a> RollbackExecutor<'a> {
 
         // Apply each event in order
         for event in events {
-            EventsProcessor::process_event(tx, &event).await?;
+            EventsProcessor::process_event(self.tx, &event).await?;
         }
 
         Ok(())

@@ -1,4 +1,7 @@
-use crate::{blockchain::BlockchainError, config::ConfigError, db::DBError, tree::TreeError};
+use crate::{
+    blockchain::BlockchainError, blockchain_reorg_check::ReorgHandleError, config::ConfigError,
+    db::DBError, tree::TreeError,
+};
 use axum::response::IntoResponse;
 use http::StatusCode;
 use std::backtrace::Backtrace;
@@ -45,6 +48,12 @@ pub enum IndexerError {
         source: std::io::Error,
         backtrace: String,
     },
+    #[error("reorg handling error: {source}")]
+    ReorgHandle {
+        #[source]
+        source: ReorgHandleError,
+        backtrace: String,
+    },
 }
 
 impl From<BlockchainError> for IndexerError {
@@ -77,6 +86,15 @@ impl From<DBError> for IndexerError {
 impl From<TreeError> for IndexerError {
     fn from(source: TreeError) -> Self {
         Self::Tree {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        }
+    }
+}
+
+impl From<ReorgHandleError> for IndexerError {
+    fn from(source: ReorgHandleError) -> Self {
+        Self::ReorgHandle {
             source,
             backtrace: Backtrace::capture().to_string(),
         }

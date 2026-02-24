@@ -23,6 +23,7 @@ pub use config::GlobalConfig;
 pub use error::{IndexerError, IndexerResult};
 
 pub mod blockchain;
+mod blockchain_reorg_check;
 pub mod config;
 pub mod db;
 mod error;
@@ -229,6 +230,25 @@ async fn run_http_only(
         None
     };
 
+    // Start blockchain reorg checker in the background
+    let reorg_handle = if let Some(reorg_interval) = http_cfg.reorg_check_interval_secs {
+        let reorg_db = db.clone();
+        // Note: reorg check only needs HTTP RPC, but Blockchain requires both URLs
+        let reorg_blockchain = Blockchain::new(rpc_url, rpc_url, registry_address).await?;
+        let max_reorg_blocks = http_cfg.max_reorg_blocks;
+        Some(tokio::spawn(async move {
+            blockchain_reorg_check::blockchain_reorg_check_loop(
+                reorg_interval,
+                &reorg_db,
+                &reorg_blockchain,
+                max_reorg_blocks,
+            )
+            .await
+        }))
+    } else {
+        None
+    };
+
     // Start HTTP server
     let rpc_url = rpc_url.to_string();
     let http_addr = http_cfg.http_addr;
@@ -249,6 +269,10 @@ async fn run_http_only(
         result = async { sanity_handle.unwrap().await }, if sanity_handle.is_some() => {
             result??;
             eyre::bail!("sanity check loop exited unexpectedly");
+        }
+        result = async { reorg_handle.unwrap().await }, if reorg_handle.is_some() => {
+            result??;
+            eyre::bail!("reorg check loop exited unexpectedly");
         }
     }
 }
@@ -341,6 +365,24 @@ async unsafe fn run_both(
         None
     };
 
+    let reorg_handle = if let Some(reorg_interval) = http_cfg.reorg_check_interval_secs {
+        let reorg_db = db.clone();
+        // Note: reorg check only needs HTTP RPC, but Blockchain requires both URLs
+        let reorg_blockchain = Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await?;
+        let max_reorg_blocks = http_cfg.max_reorg_blocks;
+        Some(tokio::spawn(async move {
+            blockchain_reorg_check::blockchain_reorg_check_loop(
+                reorg_interval,
+                &reorg_db,
+                &reorg_blockchain,
+                max_reorg_blocks,
+            )
+            .await
+        }))
+    } else {
+        None
+    };
+
     // --- Phase 4: Stream live events, updating tree after each batch ---
     // Wait for the first task to complete — any failure is fatal.
     tokio::select! {
@@ -362,6 +404,10 @@ async unsafe fn run_both(
         result = async { sanity_handle.unwrap().await }, if sanity_handle.is_some() => {
             result??;
             eyre::bail!("sanity check loop exited unexpectedly");
+        }
+        result = async { reorg_handle.unwrap().await }, if reorg_handle.is_some() => {
+            result??;
+            eyre::bail!("reorg check loop exited unexpectedly");
         }
     }
 }

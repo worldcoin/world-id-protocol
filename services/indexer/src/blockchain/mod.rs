@@ -7,6 +7,7 @@ use std::{
 };
 
 use alloy::{
+    eips::BlockNumberOrTag,
     primitives::{Address, FixedBytes},
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     pubsub::Subscription,
@@ -193,6 +194,25 @@ impl Blockchain {
             .backfill_stream(from_block, batch_size, last_block.clone())
             .stop_after_first_error();
         (stream, last_block)
+    }
+
+    /// Fetches a block by its number from the blockchain.
+    ///
+    /// # Arguments
+    ///
+    /// * `block_number` - The block number to fetch.
+    ///
+    /// # Returns
+    ///
+    /// An optional [`alloy::rpc::types::Block`] if the block exists, or `None` if not found.
+    pub async fn get_block_by_number(
+        &self,
+        block_number: u64,
+    ) -> BlockchainResult<Option<alloy::rpc::types::Block>> {
+        self.http_provider
+            .get_block_by_number(BlockNumberOrTag::Number(block_number))
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))
     }
 
     /// Starts a WebSocket log subscription and bridges the gap between the

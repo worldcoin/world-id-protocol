@@ -450,6 +450,7 @@ where
     }
 
     /// Get an event by its ID
+    #[instrument(level = "info", skip(self, event_id))]
     pub async fn get_event<T: Into<WorldIdRegistryEventId>>(
         self,
         event_id: T,
@@ -479,6 +480,7 @@ where
     }
 
     /// Get all events for a specific leaf index up to (and including) the given event_id
+    #[instrument(level = "info", skip(self))]
     pub async fn get_events_for_leaf(
         self,
         leaf_index: u64,
@@ -518,6 +520,7 @@ where
     }
 
     /// Delete events after the given event_id
+    #[instrument(level = "info", skip(self))]
     pub async fn delete_after_event(self, event_id: &WorldIdRegistryEventId) -> DBResult<u64> {
         let result = sqlx::query(
             r#"
@@ -534,39 +537,6 @@ where
         Ok(result.rows_affected())
     }
 
-    fn map_event(row: &PgRow) -> DBResult<WorldIdRegistryEvent> {
-        let event_id = WorldIdRegistryEventId {
-            block_number: row.get::<i64, _>("block_number") as u64,
-            log_index: row.get::<i64, _>("log_index") as u64,
-        };
-
-        let event_type = WorldIdRegistryEventType::try_from(row.get::<&str, _>("event_type"))?;
-
-        Ok(WorldIdRegistryEvent {
-            id: event_id,
-            block_hash: row.get::<U256, _>("block_hash"),
-            tx_hash: row.get::<U256, _>("tx_hash"),
-            event_type,
-            leaf_index: row.get::<Option<i64>, _>("leaf_index").map(|i| i as u64),
-            event_data: row.get::<serde_json::Value, _>("event_data"),
-        })
-    }
-
-    fn map_event_to_blockchain_event(row: &PgRow) -> DBResult<BlockchainEvent<RegistryEvent>> {
-        let event = Self::map_event(row)?;
-
-        let details =
-            deserialize_registry_event(event.event_type, event.leaf_index, &event.event_data)?;
-
-        Ok(BlockchainEvent {
-            block_number: event.id.block_number,
-            block_hash: event.block_hash,
-            tx_hash: event.tx_hash,
-            log_index: event.id.log_index,
-            details,
-        })
-    }
-
     /// Get the latest block number from the registry events
     #[instrument(level = "info", skip(self))]
     pub async fn get_latest_block(self) -> DBResult<Option<u64>> {
@@ -575,6 +545,27 @@ where
                 .fetch_optional(self.executor)
                 .await?;
         Ok(rec.and_then(|t| t.0.map(|v| v as u64)))
+    }
+
+    /// Get all unique block hashes for events at the specified block number
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_block_hashes(self, block_number: u64) -> DBResult<Vec<U256>> {
+        let rows = sqlx::query(
+            r#"
+                SELECT DISTINCT block_hash
+                FROM world_id_registry_events
+                WHERE block_number = $1
+                ORDER BY block_hash
+            "#,
+        )
+        .bind(block_number as i64)
+        .fetch_all(self.executor)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| row.get::<U256, _>("block_hash"))
+            .collect())
     }
 
     /// Get the latest event ID from the registry events
@@ -592,6 +583,39 @@ where
                 LIMIT 1
             "#,
         )
+        .fetch_optional(self.executor)
+        .await?;
+
+        if let Some(row) = result {
+            Ok(Some(WorldIdRegistryEventId {
+                block_number: row.get::<i64, _>("block_number") as u64,
+                log_index: row.get::<i64, _>("log_index") as u64,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the latest event ID from the registry events for given block number
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_latest_id_for_block_number(
+        self,
+        block_number: u64,
+    ) -> DBResult<Option<WorldIdRegistryEventId>> {
+        let result = sqlx::query(
+            r#"
+                    SELECT
+                        block_number,
+                        log_index
+                    FROM world_id_registry_events
+                    WHERE
+                        block_number = $1
+                    ORDER BY
+                        log_index DESC
+                    LIMIT 1
+                "#,
+        )
+        .bind(block_number as i64)
         .fetch_optional(self.executor)
         .await?;
 
@@ -662,5 +686,38 @@ where
         .await?;
 
         Ok(result.is_some())
+    }
+
+    fn map_event(row: &PgRow) -> DBResult<WorldIdRegistryEvent> {
+        let event_id = WorldIdRegistryEventId {
+            block_number: row.get::<i64, _>("block_number") as u64,
+            log_index: row.get::<i64, _>("log_index") as u64,
+        };
+
+        let event_type = WorldIdRegistryEventType::try_from(row.get::<&str, _>("event_type"))?;
+
+        Ok(WorldIdRegistryEvent {
+            id: event_id,
+            block_hash: row.get::<U256, _>("block_hash"),
+            tx_hash: row.get::<U256, _>("tx_hash"),
+            event_type,
+            leaf_index: row.get::<Option<i64>, _>("leaf_index").map(|i| i as u64),
+            event_data: row.get::<serde_json::Value, _>("event_data"),
+        })
+    }
+
+    fn map_event_to_blockchain_event(row: &PgRow) -> DBResult<BlockchainEvent<RegistryEvent>> {
+        let event = Self::map_event(row)?;
+
+        let details =
+            deserialize_registry_event(event.event_type, event.leaf_index, &event.event_data)?;
+
+        Ok(BlockchainEvent {
+            block_number: event.id.block_number,
+            block_hash: event.block_hash,
+            tx_hash: event.tx_hash,
+            log_index: event.id.log_index,
+            details,
+        })
     }
 }
