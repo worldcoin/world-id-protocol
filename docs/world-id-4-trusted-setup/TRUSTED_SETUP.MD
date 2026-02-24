@@ -9,6 +9,21 @@ It follows the same core pattern as the SMTB guide's verification phase, adapted
 3. Check the committed transcript logs (`contribution #...`, circuit hash, beacon, `ZKey Ok!`).
 4. Index and validate contributor attestation gist links.
 
+**Important: Git LFS Required.**
+Many of the trusted setup artifacts in this repository (`.zkey`, `.arks.zkey`, `.r1cs`, `.wasm`, `.bin` files)
+are stored using [Git Large File Storage (LFS)](https://git-lfs.com/). When you clone or checkout this
+repository, these files will initially appear as small LFS pointer files rather than their actual contents.
+Before working with any trusted setup artifacts, make sure you have Git LFS installed and have pulled the
+actual file contents:
+
+```bash
+git lfs install
+git lfs pull
+```
+
+Without this step, tools like `snarkjs` and other verification utilities will fail because they will
+encounter LFS pointer stubs instead of valid binary data.
+
 Reference methodology:
 
 - <https://github.com/worldcoin/smtb-ceremony/blob/main/GUIDE.md#verify-contributions-happened-correctly>
