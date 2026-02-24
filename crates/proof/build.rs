@@ -11,7 +11,7 @@ use std::{fs::File, io};
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 
 #[cfg(feature = "embed-zkeys")]
-const CIRCUIT_COMMIT: &str = "92cee94c2fb242055abd0a629f71d406bf6d626b"; // TODO: Figure out a better way for static commits
+const CIRCUIT_COMMIT: &str = "d9d61e26ac5802c27a5984875db6c4572af5b24c"; // TODO: Figure out a better way for static commits
 
 const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFQueryGraph.bin",
