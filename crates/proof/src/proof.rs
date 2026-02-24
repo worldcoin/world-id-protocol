@@ -222,18 +222,8 @@ fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
         match name {
             "OPRFQueryProofGraph.bin" => query_graph = Some(buf),
             "OPRFNullifierProofGraph.bin" => nullifier_graph = Some(buf),
-            n if n == "oprfqueryproof_final.arks.zkey"
-                || n == "oprfqueryproof_final.zkey"
-                || n.starts_with("OPRFQuery.arks.zkey") =>
-            {
-                query_zkey = Some(buf)
-            }
-            n if n == "oprfnullifierproof_final.arks.zkey"
-                || n == "oprfnullifierproof_final.zkey"
-                || n.starts_with("OPRFNullifier.arks.zkey") =>
-            {
-                nullifier_zkey = Some(buf)
-            }
+            "oprfqueryproof_final.arks.zkey" => query_zkey = Some(buf),
+            "oprfnullifierproof_final.arks.zkey" => nullifier_zkey = Some(buf),
             _ => {}
         }
     }
