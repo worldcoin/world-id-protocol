@@ -644,8 +644,14 @@ async fn generate_solidity_fixtures() -> Result<()> {
         .await?;
 
     // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
-    let session_id = FieldElement::random(&mut rng);
+    // The circuit constrains: id_commitment * (id_commitment - Poseidon2(DS_C, mt_index, id_commitment_r)[1]) === 0
+    // So session_id must equal Poseidon2_t3(DS_C, mt_index, session_id_r_seed)[1].
     let session_id_r_seed2 = FieldElement::random(&mut rng);
+    let ds_c = ark_babyjubjub::Fq::from(5199521648757207593u64); // b"H(id, r)"
+    let mt_index = ark_babyjubjub::Fq::from(leaf_index);
+    let mut id_state = [ds_c, mt_index, *session_id_r_seed2];
+    poseidon2::bn254::t3::permutation_in_place(&mut id_state);
+    let session_id: FieldElement = id_state[1].into();
     let session_response = authenticator.generate_single_proof(
         nullifier_data_for_session,
         request_item,
