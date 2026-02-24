@@ -35,30 +35,35 @@ impl<B> OnResponse<B> for ConditionalOnResponse {
         latency: std::time::Duration,
         span: &Span,
     ) {
-        if !span.is_disabled() && response.status() != StatusCode::NOT_FOUND {
-            let message = format!(
-                "{}Request completed with status {} in {}ms",
-                if response.status() == StatusCode::BAD_REQUEST {
-                    "🟡 Bad "
-                } else {
-                    ""
-                },
-                response.status(),
-                latency.as_millis()
-            );
-            if response.status() == StatusCode::INTERNAL_SERVER_ERROR {
-                tracing::error!(
-                    message,
-                    status = %response.status(),
-                    latency = ?latency,
-                );
+        let message = format!(
+            "{}Request completed with status {} in {}ms",
+            if response.status() == StatusCode::BAD_REQUEST {
+                "🟡 Bad "
             } else {
-                tracing::debug!(
-                    message,
-                    status = %response.status(),
-                    latency = ?latency,
-                );
-            }
+                ""
+            },
+            response.status(),
+            latency.as_millis()
+        );
+
+        let error_status = [
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ];
+
+        if error_status.contains(&response.status()) {
+            tracing::error!(
+                message,
+                status = %response.status(),
+                latency = ?latency,
+            );
+        } else if !span.is_disabled() && response.status() != StatusCode::NOT_FOUND {
+            tracing::debug!(
+                message,
+                status = %response.status(),
+                latency = ?latency,
+            );
         }
     }
 }
