@@ -11,6 +11,7 @@ use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
+use world_id_services_common::ProviderArgs;
 
 /// Tests the packed_account endpoint that maps authenticator addresses to account indices
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -37,6 +38,7 @@ async fn test_packed_account_endpoint() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8083".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
@@ -46,7 +48,7 @@ async fn test_packed_account_endpoint() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };

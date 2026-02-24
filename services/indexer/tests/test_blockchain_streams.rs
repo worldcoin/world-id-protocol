@@ -12,6 +12,7 @@ use alloy::{
 use futures_util::{StreamExt, TryStreamExt};
 use world_id_core::{EdDSAPrivateKey, world_id_registry::WorldIdRegistry};
 use world_id_indexer::blockchain::{Blockchain, BlockchainError, BlockchainEvent, RegistryEvent};
+use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 
 const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
@@ -85,7 +86,13 @@ async fn test_stream_world_tree_events() {
         .await
         .expect("failed to deploy registry");
 
-    let blockchain = Blockchain::new(anvil.endpoint(), anvil.ws_endpoint(), registry_address)
+    let provider = ProviderArgs::new()
+        .with_http_urls([anvil.endpoint()])
+        .http()
+        .await
+        .expect("failed to build provider");
+
+    let blockchain = Blockchain::new(provider.clone(), anvil.ws_endpoint(), registry_address)
         .await
         .expect("failed to create Blockchain");
 
@@ -221,7 +228,13 @@ async fn test_backfill_events() {
         .await
         .expect("failed to deploy registry");
 
-    let blockchain = Blockchain::new(anvil.endpoint(), anvil.ws_endpoint(), registry_address)
+    let provider = ProviderArgs::new()
+        .with_http_urls([anvil.endpoint()])
+        .http()
+        .await
+        .expect("failed to build provider");
+
+    let blockchain = Blockchain::new(provider.clone(), anvil.ws_endpoint(), registry_address)
         .await
         .expect("failed to create Blockchain");
 
@@ -307,10 +320,16 @@ async fn test_stream_stops_on_error() {
         .await
         .expect("failed to deploy registry");
 
-    let blockchain = Blockchain::new(anvil.endpoint(), anvil.ws_endpoint(), registry_address)
+    let provider = ProviderArgs::new()
+        .with_http_urls([anvil.endpoint()])
+        .with_max_rpc_retries(0)
+        .http()
         .await
-        .expect("failed to create Blockchain")
-        .with_max_rpc_retries(0);
+        .expect("failed to build provider");
+
+    let blockchain = Blockchain::new(provider.clone(), anvil.ws_endpoint(), registry_address)
+        .await
+        .expect("failed to create Blockchain");
 
     let http_provider =
         ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
@@ -401,7 +420,13 @@ async fn test_stream_stops_on_ws_drop() {
         .await
         .expect("failed to deploy registry");
 
-    let blockchain = Blockchain::new(anvil.endpoint(), anvil.ws_endpoint(), registry_address)
+    let provider = ProviderArgs::new()
+        .with_http_urls([anvil.endpoint()])
+        .http()
+        .await
+        .expect("failed to build provider");
+
+    let blockchain = Blockchain::new(provider.clone(), anvil.ws_endpoint(), registry_address)
         .await
         .expect("failed to create Blockchain");
 

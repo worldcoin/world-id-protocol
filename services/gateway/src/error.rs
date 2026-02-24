@@ -58,6 +58,8 @@ pub enum GatewayError {
         source: tokio::task::JoinError,
         backtrace: String,
     },
+    #[error("config error: {0}")]
+    Config(String),
 }
 
 impl From<ProviderError> for GatewayError {

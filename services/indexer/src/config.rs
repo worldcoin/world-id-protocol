@@ -1,10 +1,19 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use alloy::{primitives::Address, providers::DynProvider};
+use clap::Parser;
 use thiserror::Error;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_services_common::ProviderArgs;
 
 use crate::{db::DB, tree::state::TreeState};
+
+/// Small clap wrapper to parse only [`ProviderArgs`] from environment variables.
+#[derive(Parser)]
+struct ProviderCli {
+    #[command(flatten)]
+    provider: ProviderArgs,
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -87,7 +96,7 @@ pub struct GlobalConfig {
     pub environment: Environment,
     pub run_mode: RunMode,
     pub db_url: String,
-    pub http_rpc_url: String,
+    pub provider: ProviderArgs,
     pub ws_rpc_url: String,
     pub registry_address: Address,
 }
@@ -96,6 +105,8 @@ pub struct GlobalConfig {
 pub struct HttpConfig {
     pub http_addr: SocketAddr,
     pub db_poll_interval_secs: u64,
+    /// HTTP request timeout in seconds.
+    pub request_timeout_secs: u64,
     /// Optional sanity check interval in seconds. If not set, the sanity check will not be run.
     ///
     /// The sanity check calls the `isValidRoot` function on the `WorldIDRegistry` contract to ensure the local Merkle root is valid.
@@ -117,11 +128,17 @@ impl HttpConfig {
             ConfigError::InvalidDbPollInterval(format!("{}: {}", db_poll_interval_str, e))
         })?;
 
+        let request_timeout_secs = std::env::var("REQUEST_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
+
         let tree_cache = TreeCacheConfig::from_env()?;
 
         let config = Self {
             http_addr,
             db_poll_interval_secs,
+            request_timeout_secs,
             sanity_check_interval_secs: std::env::var("SANITY_CHECK_INTERVAL_SECS").ok().and_then(
                 |s| {
                     let val = s.parse::<u64>().ok().unwrap_or(0);
@@ -233,6 +250,8 @@ pub enum ConfigError {
     InvalidHttpAddr(String),
     #[error("invalid DB_POLL_INTERVAL_SECS: {0}")]
     InvalidDbPollInterval(String),
+    #[error("provider configuration error: {0}")]
+    Provider(String),
 }
 
 impl GlobalConfig {
@@ -247,7 +266,13 @@ impl GlobalConfig {
 
         let db_url = std::env::var("DATABASE_URL").map_err(|_| ConfigError::MissingDatabaseUrl)?;
 
-        let http_rpc_url = std::env::var("RPC_URL").map_err(|_| ConfigError::MissingRpcUrl)?;
+        let provider = ProviderCli::try_parse_from(["indexer"])
+            .map_err(|e| ConfigError::Provider(e.to_string()))?
+            .provider;
+        if provider.http.is_none() {
+            return Err(ConfigError::MissingRpcUrl);
+        }
+
         let ws_rpc_url = std::env::var("WS_URL").map_err(|_| ConfigError::MissingWsUrl)?;
 
         let registry_address_str =
@@ -260,7 +285,7 @@ impl GlobalConfig {
             environment,
             run_mode,
             db_url,
-            http_rpc_url,
+            provider,
             ws_rpc_url,
             registry_address,
         })
@@ -291,9 +316,20 @@ mod tests {
             env::remove_var("REGISTRY_ADDRESS");
             env::remove_var("RUN_MODE");
 
+            // Provider args (parsed via clap)
+            env::remove_var("WALLET_PRIVATE_KEY");
+            env::remove_var("AWS_KMS_KEY_ID");
+            env::remove_var("RPC_REQUESTS_PER_SECOND");
+            env::remove_var("RPC_BURST_SIZE");
+            env::remove_var("RPC_MAX_RETRIES");
+            env::remove_var("RPC_INITIAL_BACKOFF_MS");
+            env::remove_var("RPC_MAX_BACKOFF_MS");
+            env::remove_var("RPC_TIMEOUT_SECS");
+
             // HTTP config
             env::remove_var("HTTP_ADDR");
             env::remove_var("DB_POLL_INTERVAL_SECS");
+            env::remove_var("REQUEST_TIMEOUT_SECS");
             env::remove_var("SANITY_CHECK_INTERVAL_SECS");
 
             // Indexer config
@@ -408,6 +444,7 @@ mod tests {
 
         assert_eq!(config.http_addr.to_string(), "0.0.0.0:8080");
         assert_eq!(config.db_poll_interval_secs, 1);
+        assert_eq!(config.request_timeout_secs, 10);
         assert_eq!(config.sanity_check_interval_secs, None);
         assert_eq!(config.tree_cache.cache_file_path, "/tmp/test_cache");
         assert_eq!(config.tree_cache.tree_depth, 30); // default
@@ -421,12 +458,14 @@ mod tests {
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
         set_env("HTTP_ADDR", "127.0.0.1:9000");
         set_env("DB_POLL_INTERVAL_SECS", "5");
+        set_env("REQUEST_TIMEOUT_SECS", "30");
         set_env("SANITY_CHECK_INTERVAL_SECS", "60");
 
         let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
 
         assert_eq!(config.http_addr.to_string(), "127.0.0.1:9000");
         assert_eq!(config.db_poll_interval_secs, 5);
+        assert_eq!(config.request_timeout_secs, 30);
         assert_eq!(config.sanity_check_interval_secs, Some(60));
         assert_eq!(config.tree_cache.cache_file_path, "/tmp/test_cache");
     }
@@ -503,7 +542,7 @@ mod tests {
         // Verify all environment variables were loaded correctly
         assert_eq!(config.environment, Environment::Development);
         assert_eq!(config.db_url, "postgresql://localhost/test");
-        assert_eq!(config.http_rpc_url, "http://localhost:8545");
+        assert!(config.provider.http.is_some());
         assert_eq!(config.ws_rpc_url, "ws://localhost:8545");
         assert_eq!(
             config.registry_address.to_string(),

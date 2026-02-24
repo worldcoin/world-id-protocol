@@ -89,7 +89,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> GatewayResult<()> {
-    let cfg = GatewayConfig::from_env();
+    let cfg = GatewayConfig::from_env()?;
     let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
     let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));

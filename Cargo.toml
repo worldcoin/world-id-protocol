@@ -12,12 +12,13 @@ members = [
   "services/oprf-dev-client",
   "services/common",
   "services/faux-issuer",
+  "tools/generate-solidity-fixtures",
 ]
 resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.4.3"
+version = "0.4.4"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -56,9 +57,9 @@ itertools = "0.14"
 k256 = { version = "0.13" }
 num-bigint = "0.4"
 taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.6", default-features = false }
-taceo-oprf-test-utils = { version = "0.6", default-features = false }
-taceo-oprf-key-gen = "0.5"
+taceo-oprf = { version = "0.7", default-features = false }
+taceo-oprf-test-utils = { version = "0.7", default-features = false }
+taceo-oprf-key-gen = { version="0.6"}
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
@@ -122,11 +123,11 @@ tokio-util = "0.7"
 tower = "0.5.3"
 
 # Internal
-world-id-core = { version = "0.4.3", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.4.3", path = "crates/issuer" }
-world-id-proof = { version = "0.4.3", path = "crates/proof" }
-world-id-authenticator = { version = "0.4.3", path = "crates/authenticator" }
-world-id-primitives = { version = "0.4.3", path = "crates/primitives", default-features = false }
+world-id-core = { version = "0.4.4", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.4.4", path = "crates/issuer" }
+world-id-proof = { version = "0.4.4", path = "crates/proof" }
+world-id-authenticator = { version = "0.4.4", path = "crates/authenticator" }
+world-id-primitives = { version = "0.4.4", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
 world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }

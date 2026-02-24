@@ -2,10 +2,10 @@
 
 mod provider;
 mod provider_layers;
-mod tracing;
+mod server_layers;
 
 // TODO: FIXME: Provider Metrics
 
 pub use provider::{ProviderArgs, ProviderError, ProviderResult, SignerArgs, SignerConfig};
 pub use provider_layers::RetryConfig;
-pub use tracing::trace_layer;
+pub use server_layers::{timeout_layer, trace_layer};
