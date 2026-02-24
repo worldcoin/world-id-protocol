@@ -4,6 +4,8 @@ use alloy::primitives::Address;
 use clap::Parser;
 use world_id_services_common::ProviderArgs;
 
+use crate::error::{GatewayError, GatewayResult};
+
 /// Rate limiting configuration for leaf_index-based requests.
 #[derive(Clone, Debug)]
 pub struct RateLimitConfig {
@@ -79,16 +81,26 @@ impl GatewayConfig {
 }
 
 impl GatewayConfig {
-    pub fn from_env() -> Self {
+    pub fn from_env() -> GatewayResult<Self> {
         let config = Self::parse();
+        config.validate()
+    }
 
-        if config.listen_addr.port() != 8080 {
+    pub fn validate(self) -> GatewayResult<Self> {
+        if self.provider.signer.is_none() {
+            return Err(GatewayError::Config(
+                "exactly one of --wallet-private-key or --aws-kms-key-id must be provided"
+                    .to_string(),
+            ));
+        }
+
+        if self.listen_addr.port() != 8080 {
             tracing::warn!(
                 "Gateway is not running on port 8080, this may not work as expected when running dockerized (image exposes port 8080)"
             );
         }
 
-        config
+        Ok(self)
     }
 }
 
@@ -103,6 +115,8 @@ mod tests {
         "0x0000000000000000000000000000000000000001",
         "--rpc-url",
         "http://localhost:8545",
+        "--redis-url",
+        "redis://localhost:6379",
     ];
 
     fn parse_with_signer_args(signer_args: &[&str]) -> Result<GatewayConfig, clap::Error> {
@@ -129,11 +143,11 @@ mod tests {
     }
 
     #[test]
-    fn test_neither_option_fails() {
-        let result = parse_with_signer_args(&[]);
+    fn test_neither_option_fails_validation() {
+        let config = parse_with_signer_args(&[]).expect("clap parsing should succeed");
+        let result = config.validate();
         assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("wallet-private-key"));
     }
 }
