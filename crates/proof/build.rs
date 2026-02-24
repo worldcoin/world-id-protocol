@@ -11,7 +11,9 @@ use std::{fs::File, io};
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 
 #[cfg(feature = "embed-zkeys")]
-const CIRCUIT_COMMIT: &str = "d9d61e26ac5802c27a5984875db6c4572af5b24c"; // TODO: Figure out a better way for static commits
+// This commit hash is automatically updated by the update-circuit-commit CI
+// workflow whenever files in circom/ change on main. Do not edit manually.
+const CIRCUIT_COMMIT: &str = "d9d61e26ac5802c27a5984875db6c4572af5b24c";
 
 const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFQueryGraph.bin",
