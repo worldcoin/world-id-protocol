@@ -42,6 +42,8 @@ issuer = [
 
 rp = []
 
+contracts = ["dep:alloy"]
+
 [dependencies]
 eddsa-babyjubjub = { workspace = true }
 
@@ -50,6 +52,7 @@ world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
+alloy = { workspace = true, features = ["sol-types", "contract"], optional = true }
 
 [dev-dependencies]
 alloy = { workspace = true }

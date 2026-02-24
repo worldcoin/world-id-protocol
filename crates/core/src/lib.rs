@@ -8,6 +8,13 @@
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
+/// Solidity contract bindings (e.g. `IWorldIDVerifier`) for on-chain
+/// interaction via [`alloy`].
+///
+/// Enable the `contracts` feature to use this module.
+#[cfg(feature = "contracts")]
+pub mod contracts;
+
 #[cfg(feature = "authenticator")]
 pub use world_id_authenticator::{
     Authenticator, AuthenticatorError, InitializingAuthenticator, OnchainKeyRepresentable,
