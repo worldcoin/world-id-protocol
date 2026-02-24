@@ -320,7 +320,10 @@ mod tests {
 
         let args = ProviderArgs::from_file(file.path()).unwrap();
         let signer = args.signer.unwrap();
-        assert!(matches!(signer.signer_config(), Some(SignerConfig::AwsKms(_))));
+        assert!(matches!(
+            signer.signer_config(),
+            Some(SignerConfig::AwsKms(_))
+        ));
     }
 
     #[test]
