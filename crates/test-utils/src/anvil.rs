@@ -141,16 +141,6 @@ sol!(
     )
 );
 
-sol!(
-    #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
-    KeyGenVerifier25,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/VerifierKeyGen25.sol/Verifier.json"
-    )
-);
-
 pub struct TestAnvil {
     pub instance: AnvilInstance,
     pub rpc_url: String,
