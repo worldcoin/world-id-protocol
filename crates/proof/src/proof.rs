@@ -229,8 +229,7 @@ fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
     }
 
     let query_graph = query_graph.context("OPRFQueryGraph.bin not found in archive")?;
-    let nullifier_graph =
-        nullifier_graph.context("OPRFNullifierGraph.bin not found in archive")?;
+    let nullifier_graph = nullifier_graph.context("OPRFNullifierGraph.bin not found in archive")?;
     #[allow(unused_mut)]
     let mut query_zkey = query_zkey.context("OPRFQuery zkey not found in archive")?;
     #[allow(unused_mut)]

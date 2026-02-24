@@ -22,8 +22,7 @@ use world_id_primitives::TREE_DEPTH;
 use crate::auth::merkle_watcher::{MerkleWatcher, MerkleWatcherError};
 
 /// The embedded Groth16 verification key for OPRF query proofs.
-const QUERY_VERIFICATION_KEY: &str =
-    include_str!("../../../circom/OPRFQuery.vk.json");
+const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
 
 pub(crate) mod credential_blinding_factor;
 pub(crate) mod merkle_watcher;
