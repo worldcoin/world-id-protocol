@@ -12,6 +12,7 @@ members = [
   "services/oprf-dev-client",
   "services/common",
   "services/faux-issuer",
+  "tools/generate-solidity-fixtures",
 ]
 resolver = "2"
 

@@ -63,6 +63,7 @@ taceo-oprf = { workspace = true, features = ["types"] }
 backon = { workspace = true }
 chrono = { workspace = true }
 hex = { workspace = true }
+tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 serde_json = { workspace = true }
