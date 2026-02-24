@@ -1,0 +1,15 @@
+{
+  "chainId": 480,
+  "oprfKeyRegistry": {
+    "implementation": "0xBe90E65A3204ca9c194b85d02e14D4C855ac87dF",
+    "proxy": "0x0D8b461799474207A3d223553d4d5e6609cb0c69",
+    "admins": [
+      "0x588DA525a1c7986B4BB2C521Ea67b95603Be6c26"
+    ],
+    "owner": {
+      "wallet": "0x588DA525a1c7986B4BB2C521Ea67b95603Be6c26",
+      "description": "Hardware wallet in TACEO's possession. Ownership will be transferred to a multisig wallet in the foreseeable future."
+    }
+  },
+  "verifierKeyGen25": "0x23f7d6e35836F21717d3346fe3078aE695619BFB"
+}
