@@ -1,13 +1,18 @@
-use std::sync::Arc;
+use std::{str::FromStr as _, sync::Arc};
 
-use alloy::primitives::Address;
+use alloy::{
+    primitives::Address,
+    signers::{k256::ecdsa::SigningKey, local::LocalSigner},
+};
 use ark_bn254::Bn254;
 use ark_groth16::Proof;
+use clap::Parser;
 use eyre::Context as _;
 use secrecy::ExposeSecret as _;
 use taceo_oprf::{core::oprf::BlindingFactor, dev_client::DevClientConfig};
 use world_id_core::{
-    Authenticator, EdDSAPrivateKey, EdDSASignature, FieldElement, proof::CircomGroth16Material,
+    Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
+    proof::CircomGroth16Material,
 };
 use world_id_primitives::{
     TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, circuit_inputs::QueryProofCircuitInput,
@@ -61,6 +66,94 @@ pub fn create_query_proof(args: CreateQueryProofArgs<'_>) -> eyre::Result<Proof<
         .verify_proof(&proof, &public_inputs)
         .expect("proof verifies");
     Ok(proof)
+}
+
+/// Shared configuration structure for both client types
+#[derive(Parser, Debug)]
+pub struct WorldDevClientConfig {
+    /// Indexer address
+    #[clap(
+        long,
+        env = "OPRF_DEV_CLIENT_INDEXER_URL",
+        default_value = "http://localhost:8080"
+    )]
+    pub indexer_url: String,
+
+    /// Gateway address
+    #[clap(
+        long,
+        env = "OPRF_DEV_CLIENT_GATEWAY_URL",
+        default_value = "http://localhost:8081"
+    )]
+    pub gateway_url: String,
+
+    /// If set to `true` uses chain_id 31_337 (anvil). If set to `false` uses chain_id 480 (world chain).
+    #[clap(long, env = "OPRF_DEV_CLIENT_ANVIL")]
+    pub anvil: bool,
+
+    /// The Address of the WorldIDRegistry contract.
+    #[clap(long, env = "OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT")]
+    pub world_id_registry_contract: Address,
+
+    #[clap(flatten)]
+    pub config: DevClientConfig,
+}
+
+/// Shared client components
+pub struct SharedDevClientComponents {
+    pub authenticator: Authenticator,
+    pub signer: LocalSigner<SigningKey>,
+    pub authenticator_private_key: EdDSAPrivateKey,
+    pub query_material: Arc<CircomGroth16Material>,
+}
+
+impl SharedDevClientComponents {
+    pub async fn fetch_inclusion_proof(
+        &self,
+    ) -> eyre::Result<(
+        MerkleInclusionProof<TREE_DEPTH>,
+        AuthenticatorPublicKeySet,
+        u64,
+    )> {
+        let (inclusion_proof, key_set) = self.authenticator.fetch_inclusion_proof().await?;
+
+        let key_index = key_set
+            .iter()
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.authenticator.offchain_pubkey().pk)
+            })
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+        Ok((inclusion_proof, key_set, key_index))
+    }
+}
+
+pub async fn init_shared_components(
+    config: &WorldDevClientConfig,
+) -> eyre::Result<SharedDevClientComponents> {
+    let query_material = Arc::new(
+        world_id_core::proof::load_embedded_query_material()
+            .context("while loading query material")?,
+    );
+    let (authenticator, authenticator_private_key) = init_authenticator(
+        config.indexer_url.to_owned(),
+        config.gateway_url.to_owned(),
+        config.world_id_registry_contract,
+        &config.config,
+        config.anvil,
+        Arc::clone(&query_material),
+    )
+    .await?;
+    let signer = alloy::signers::local::PrivateKeySigner::from_str(
+        config.config.taceo_private_key.expose_secret(),
+    )?;
+
+    Ok(SharedDevClientComponents {
+        authenticator,
+        signer,
+        authenticator_private_key,
+        query_material,
+    })
 }
 
 pub async fn init_authenticator(

@@ -1,18 +1,13 @@
-use std::{str::FromStr as _, sync::Arc, time::Duration};
+use std::time::Duration;
 
 use alloy::{
     primitives::{Address, U160, U256},
     providers::DynProvider,
-    signers::{
-        k256::ecdsa::SigningKey,
-        local::{LocalSigner, PrivateKeySigner},
-    },
 };
 use ark_ff::PrimeField as _;
 use clap::Parser;
 use eyre::Context as _;
 use rand::{CryptoRng, Rng};
-use secrecy::ExposeSecret as _;
 use taceo_oprf::{
     client::Connector,
     core::oprf::BlindingFactor,
@@ -21,10 +16,8 @@ use taceo_oprf::{
 };
 use taceo_oprf_test_utils::{async_trait, health_checks};
 use uuid::Uuid;
-use world_id_core::{
-    Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
-    proof::CircomGroth16Material,
-};
+use world_id_core::{EdDSAPrivateKey, EdDSASignature, FieldElement, proof::CircomGroth16Material};
+use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
     TREE_DEPTH,
     authenticator::AuthenticatorPublicKeySet,
@@ -37,50 +30,23 @@ use world_id_proof::{
 use world_id_test_utils::anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry};
 
 #[derive(Parser, Debug)]
-struct WorldDevClientConfig {
-    /// Indexer address
-    #[clap(
-        long,
-        env = "OPRF_DEV_CLIENT_INDEXER_URL",
-        default_value = "http://localhost:8080"
-    )]
-    pub indexer_url: String,
-
-    /// Gateway address
-    #[clap(
-        long,
-        env = "OPRF_DEV_CLIENT_GATEWAY_URL",
-        default_value = "http://localhost:8081"
-    )]
-    pub gateway_url: String,
-
-    /// If set to `true` uses chain_id 31_337 (anvil). If set to `false` uses chain_id 480 (world chain).
-    #[clap(long, env = "OPRF_DEV_CLIENT_ANVIL")]
-    pub anvil: bool,
-
-    /// rp id of already registered rp
+struct IssuerSchemaConfig {
+    /// Issuer schema id of already registered issuer
     #[clap(long, env = "OPRF_DEV_CLIENT_ISSUER_SCHEMA_ID")]
     pub issuer_schema_id: Option<u64>,
 
-    /// The Address of the WorldIDRegistry contract.
-    #[clap(long, env = "OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT")]
-    pub world_id_registry_contract: Address,
-
-    /// The Address of the RpRegistry contract.
+    /// The Address of the IssuerSchemaRegistry contract.
     #[clap(long, env = "OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT")]
     pub issuer_schema_registry_contract: Address,
 
     #[clap(flatten)]
-    config: DevClientConfig,
+    base: WorldDevClientConfig,
 }
 
 struct WorldIdIssuerSchemaDevClient {
     issuer_schema_id: Option<u64>,
     issuer_schema_registry_contract: Address,
-    authenticator: Authenticator,
-    signer: LocalSigner<SigningKey>,
-    authenticator_private_key: EdDSAPrivateKey,
-    query_material: Arc<CircomGroth16Material>,
+    components: SharedDevClientComponents,
 }
 
 #[derive(Clone)]
@@ -103,17 +69,13 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         config: &DevClientConfig,
         provider: DynProvider,
     ) -> eyre::Result<Self::Setup> {
-        let signer_address = self.signer.address();
+        let signer_address = self.components.signer.address();
 
-        let (inclusion_proof, key_set) = self.authenticator.fetch_inclusion_proof().await?;
-
-        let key_index = key_set
-            .iter()
-            .position(|pk| {
-                pk.as_ref()
-                    .is_some_and(|pk| pk.pk == self.authenticator.offchain_pubkey().pk)
-            })
-            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+        let (inclusion_proof, key_set, key_index) = self
+            .components
+            .fetch_inclusion_proof()
+            .await
+            .context("while fetching inclusion proof")?;
 
         let (issuer_schema_id, issuer_schema_oprf_public_key) = tokio::time::timeout(
             config.max_wait_time,
@@ -141,14 +103,14 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         let authenticator_input = AuthenticatorProofInput::new(
             setup.key_set.clone(),
             setup.inclusion_proof.clone(),
-            self.authenticator_private_key.clone(),
+            self.components.authenticator_private_key.clone(),
             setup.key_index,
         );
 
         let blinding_factor = OprfCredentialBlindingFactor::generate(
             &config.nodes,
             config.threshold,
-            &self.query_material,
+            &self.components.query_material,
             authenticator_input,
             setup.issuer_schema_id,
             FieldElement::ZERO, // for now action is always zero, might change in future
@@ -164,7 +126,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         setup: &Self::Setup,
         rng: &mut R,
     ) -> eyre::Result<StressTestItem<Self::RequestAuth>> {
-        let leaf_index = self.authenticator.leaf_index();
+        let leaf_index = self.components.authenticator.leaf_index();
         let request_id = Uuid::new_v4();
         let action = FieldElement::ZERO;
         let nonce = FieldElement::random(rng);
@@ -174,7 +136,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             setup.issuer_schema_id.into(),
         );
         let oprf_blinding_factor = BlindingFactor::rand(rng);
-        let signature = self.authenticator_private_key.sign(*query_hash);
+        let signature = self.components.authenticator_private_key.sign(*query_hash);
 
         let oprf_request_auth = generate_oprf_auth_request(
             setup,
@@ -182,7 +144,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             nonce,
             &oprf_blinding_factor,
             signature,
-            &self.query_material,
+            &self.components.query_material,
         )?;
 
         let blinded_query =
@@ -213,29 +175,12 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
 }
 
 impl WorldIdIssuerSchemaDevClient {
-    async fn new(config: &WorldDevClientConfig) -> eyre::Result<Self> {
-        let query_material = Arc::new(
-            world_id_core::proof::load_embedded_query_material()
-                .context("while loading query material")?,
-        );
-        let (authenticator, authenticator_private_key) =
-            world_id_oprf_dev_client::init_authenticator(
-                config.indexer_url.to_owned(),
-                config.gateway_url.to_owned(),
-                config.world_id_registry_contract,
-                &config.config,
-                config.anvil,
-                Arc::clone(&query_material),
-            )
-            .await?;
-        let signer = PrivateKeySigner::from_str(config.config.taceo_private_key.expose_secret())?;
+    async fn new(config: &IssuerSchemaConfig) -> eyre::Result<Self> {
+        let components = world_id_oprf_dev_client::init_shared_components(&config.base).await?;
         Ok(Self {
             issuer_schema_id: config.issuer_schema_id,
             issuer_schema_registry_contract: config.issuer_schema_registry_contract,
-            authenticator,
-            signer,
-            authenticator_private_key,
-            query_material,
+            components,
         })
     }
 
@@ -336,10 +281,12 @@ async fn main() -> eyre::Result<()> {
         .install_default()
         .expect("can install");
 
-    let config = WorldDevClientConfig::parse();
-    tracing::info!("starting with config: {config:#?}");
-    let dev_client = WorldIdIssuerSchemaDevClient::new(&config)
+    let issuer_config = IssuerSchemaConfig::parse();
+    tracing::info!("starting with config: {issuer_config:#?}");
+
+    let dev_client = WorldIdIssuerSchemaDevClient::new(&issuer_config)
         .await
         .context("while creating dev-client")?;
-    taceo_oprf::dev_client::run(config.config, dev_client).await
+
+    taceo_oprf::dev_client::run(issuer_config.base.config, dev_client).await
 }
