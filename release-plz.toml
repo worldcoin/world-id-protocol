@@ -3,10 +3,17 @@
 # This creates tags like: world-id-core-v0.1.4, world-id-primitives-v0.1.2
 git_release_enable = true
 git_release_type = "auto"
-changelog_update = false
 pr_labels = ["release"]
 release = false # only process specifically defined packages
 publish = false # only process specifically defined packages
+
+# Maintain a single workspace-level changelog that aggregates changes from all
+# published crates.  Previously every [[package]] pointed changelog_path at the
+# same root CHANGELOG.md, which meant the last crate release-plz processed
+# would overwrite all earlier crates' entries for that version – effectively
+# losing changes (the changelog was always "one release behind" for some crates).
+changelog_update = true
+changelog_path = "CHANGELOG.md"
 
 # Publish only specific packages to crates.io
 # Services (indexer, gateway, ...) are not published to crates.io
@@ -14,37 +21,27 @@ publish = false # only process specifically defined packages
 name = "world-id-primitives"
 release = true
 publish = true
-changelog_update = true
-changelog_path = "CHANGELOG.md"
 
 
 [[package]]
 name = "world-id-core"
 release = true
 publish = true
-changelog_update = true
-changelog_path = "CHANGELOG.md"
 
 
 [[package]]
 name = "world-id-authenticator"
 release = true
 publish = true
-changelog_update = true
-changelog_path = "CHANGELOG.md"
 
 
 [[package]]
 name = "world-id-issuer"
 release = true
 publish = true
-changelog_update = true
-changelog_path = "CHANGELOG.md"
 
 
 [[package]]
 name = "world-id-proof"
 release = true
 publish = true
-changelog_update = true # each crate maintains its own changelog
-changelog_path = "CHANGELOG.md"
