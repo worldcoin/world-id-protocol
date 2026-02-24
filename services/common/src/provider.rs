@@ -65,9 +65,10 @@ pub struct ProviderArgs {
 }
 
 /// Secrets for the signer.
-/// Exactly one of `wallet_private_key` or `aws_kms_key_id` must be provided.
+/// At most one of `wallet_private_key` or `aws_kms_key_id` may be provided.
+/// When neither is set, no signer is configured.
 #[derive(Args, Debug, Clone, Deserialize)]
-#[group(required = true, multiple = false)]
+#[group(required = false, multiple = false)]
 pub struct SignerArgs {
     /// The signer wallet private key (hex) that will submit transactions (pays for gas)
     #[arg(long, env = "WALLET_PRIVATE_KEY")]
@@ -79,7 +80,7 @@ pub struct SignerArgs {
 }
 
 impl SignerArgs {
-    pub async fn signer(&self, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
+    async fn signer(&self, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
         match (&self.wallet_private_key, &self.aws_kms_key_id) {
             (Some(s), None) => {
                 // PrivateKey: No RPC call needed
@@ -127,13 +128,12 @@ impl SignerArgs {
         }
     }
 
-    /// Create and return a `SignerConfig`.
-    pub fn signer_config(&self) -> SignerConfig {
+    /// Create and return a `SignerConfig`, if a signer key is configured.
+    pub fn signer_config(&self) -> Option<SignerConfig> {
         match (&self.wallet_private_key, &self.aws_kms_key_id) {
-            (Some(pk), None) => SignerConfig::PrivateKey(pk.clone()),
-            (None, Some(key_id)) => SignerConfig::AwsKms(key_id.clone()),
-            // Clap's group constraint enforces exactly one of these is set
-            _ => unreachable!("clap enforces exactly one of wallet_private_key or aws_kms_key_id"),
+            (Some(pk), None) => Some(SignerConfig::PrivateKey(pk.clone())),
+            (None, Some(key_id)) => Some(SignerConfig::AwsKms(key_id.clone())),
+            _ => None,
         }
     }
 }
@@ -167,6 +167,14 @@ impl ProviderArgs {
             urls.into_iter()
                 .map(|u| Url::parse(u.as_ref()).expect("invalid URL")),
         );
+        self
+    }
+
+    /// Set the maximum number of RPC retries. Set to 0 to disable retries.
+    pub fn with_max_rpc_retries(mut self, max_retries: u32) -> Self {
+        self.retry
+            .get_or_insert_with(RetryConfig::default)
+            .max_retries = max_retries;
         self
     }
 
@@ -301,7 +309,7 @@ mod tests {
         let signer = args.signer.unwrap();
         assert!(matches!(
             signer.signer_config(),
-            SignerConfig::PrivateKey(_)
+            Some(SignerConfig::PrivateKey(_))
         ));
     }
 
@@ -320,7 +328,10 @@ mod tests {
 
         let args = ProviderArgs::from_file(file.path()).unwrap();
         let signer = args.signer.unwrap();
-        assert!(matches!(signer.signer_config(), SignerConfig::AwsKms(_)));
+        assert!(matches!(
+            signer.signer_config(),
+            Some(SignerConfig::AwsKms(_))
+        ));
     }
 
     #[test]

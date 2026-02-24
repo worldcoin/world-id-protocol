@@ -1,10 +1,19 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use alloy::{primitives::Address, providers::DynProvider};
+use clap::Parser;
 use thiserror::Error;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_services_common::ProviderArgs;
 
 use crate::{db::DB, tree::state::TreeState};
+
+/// Small clap wrapper to parse only [`ProviderArgs`] from environment variables.
+#[derive(Parser)]
+struct ProviderCli {
+    #[command(flatten)]
+    provider: ProviderArgs,
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -87,7 +96,7 @@ pub struct GlobalConfig {
     pub environment: Environment,
     pub run_mode: RunMode,
     pub db_url: String,
-    pub http_rpc_url: String,
+    pub provider: ProviderArgs,
     pub ws_rpc_url: String,
     pub registry_address: Address,
 }
@@ -241,6 +250,8 @@ pub enum ConfigError {
     InvalidHttpAddr(String),
     #[error("invalid DB_POLL_INTERVAL_SECS: {0}")]
     InvalidDbPollInterval(String),
+    #[error("provider configuration error: {0}")]
+    Provider(String),
 }
 
 impl GlobalConfig {
@@ -255,7 +266,13 @@ impl GlobalConfig {
 
         let db_url = std::env::var("DATABASE_URL").map_err(|_| ConfigError::MissingDatabaseUrl)?;
 
-        let http_rpc_url = std::env::var("RPC_URL").map_err(|_| ConfigError::MissingRpcUrl)?;
+        let provider = ProviderCli::try_parse_from(["indexer"])
+            .map_err(|e| ConfigError::Provider(e.to_string()))?
+            .provider;
+        if provider.http.is_none() {
+            return Err(ConfigError::MissingRpcUrl);
+        }
+
         let ws_rpc_url = std::env::var("WS_URL").map_err(|_| ConfigError::MissingWsUrl)?;
 
         let registry_address_str =
@@ -268,7 +285,7 @@ impl GlobalConfig {
             environment,
             run_mode,
             db_url,
-            http_rpc_url,
+            provider,
             ws_rpc_url,
             registry_address,
         })
@@ -298,6 +315,16 @@ mod tests {
             env::remove_var("WS_URL");
             env::remove_var("REGISTRY_ADDRESS");
             env::remove_var("RUN_MODE");
+
+            // Provider args (parsed via clap)
+            env::remove_var("WALLET_PRIVATE_KEY");
+            env::remove_var("AWS_KMS_KEY_ID");
+            env::remove_var("RPC_REQUESTS_PER_SECOND");
+            env::remove_var("RPC_BURST_SIZE");
+            env::remove_var("RPC_MAX_RETRIES");
+            env::remove_var("RPC_INITIAL_BACKOFF_MS");
+            env::remove_var("RPC_MAX_BACKOFF_MS");
+            env::remove_var("RPC_TIMEOUT_SECS");
 
             // HTTP config
             env::remove_var("HTTP_ADDR");
@@ -515,7 +542,7 @@ mod tests {
         // Verify all environment variables were loaded correctly
         assert_eq!(config.environment, Environment::Development);
         assert_eq!(config.db_url, "postgresql://localhost/test");
-        assert_eq!(config.http_rpc_url, "http://localhost:8545");
+        assert!(config.provider.http.is_some());
         assert_eq!(config.ws_rpc_url, "ws://localhost:8545");
         assert_eq!(
             config.registry_address.to_string(),

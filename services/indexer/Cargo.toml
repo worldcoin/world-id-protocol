@@ -18,6 +18,7 @@ alloy = { workspace = true, default-features = true, features = [
   "rpc-types",
   "provider-ws",
 ] }
+clap = { workspace = true, features = ["derive", "env"] }
 eyre = { workspace = true }
 dotenvy = { workspace = true }
 url = { workspace = true }
