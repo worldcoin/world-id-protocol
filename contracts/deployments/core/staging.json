@@ -15,8 +15,8 @@
     "implementation": "0x0eDa27c00436F2bB9f8CF67eFA2863141C727728",
     "proxy": "0x8556d07D75025f286fe757C7EeEceC40D54FA16D"
   },
-   "worldIDVerifier": {
-    "implementation": "0xCA7d6822b9c6913B1A1416cE30eF14c4e7f0bFb1",
+  "worldIDVerifier": {
+    "implementation": "0x72EF65C95e7569024c8Bc37F055A781E7Cc61C66",
     "proxy": "0x703a6316c975DEabF30b637c155edD53e24657DB"
   }
 }
