@@ -13,20 +13,7 @@ It follows the same core pattern as the SMTB guide's verification phase, adapted
 4. Index and validate contributor attestation gist links.
 
 **Important: Git LFS Required.**
-Many of the artifacts on this branch (`.zkey`, `.r1cs`, `.wasm` files)
-are stored using [Git Large File Storage (LFS)](https://git-lfs.com/). When you checkout this
-branch, these files will initially appear as small LFS pointer files rather than their actual contents.
-Make sure you have Git LFS installed and have pulled the actual file contents:
-
-```bash
-git fetch origin trusted-setup
-git checkout trusted-setup
-git lfs install
-git lfs pull
-```
-
-Without this step, tools like `snarkjs` and other verification utilities will fail because they will
-encounter LFS pointer stubs instead of valid binary data.
+Make sure you have checked out this branch and pulled LFS files before proceeding — see the [Git LFS instructions](../../README.md#git-lfs) in the repository README. Without this step, verification tools will encounter LFS pointer stubs instead of valid binary data.
 
 Reference methodology:
 
