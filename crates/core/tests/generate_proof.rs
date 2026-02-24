@@ -711,8 +711,14 @@ async fn generate_solidity_fixtures() -> Result<()> {
     eprintln!("╚══════════════════════════════════════════════════════════════╝\n");
 
     eprintln!("// ── Constants ──");
-    eprintln!("uint64 constant credentialIssuerIdCorrect = {};", issuer_schema_id);
-    eprintln!("uint64 constant rpIdCorrect = {:#x};", rp_fixture.world_rp_id.into_inner());
+    eprintln!(
+        "uint64 constant credentialIssuerIdCorrect = {};",
+        issuer_schema_id
+    );
+    eprintln!(
+        "uint64 constant rpIdCorrect = {:#x};",
+        rp_fixture.world_rp_id.into_inner()
+    );
     eprintln!("uint256 constant rootCorrect = {:#x};\n", root_u256);
 
     eprintln!("// ── OprfKeyRegistryMock (rpIdCorrect branch) ──");
@@ -725,7 +731,10 @@ async fn generate_solidity_fixtures() -> Result<()> {
 
     eprintln!("// ── Uniqueness Proof inputs ──");
     eprintln!("uint256 nullifier = {:#x};", nullifier_u256);
-    eprintln!("uint64 expiresAtMin = {:#x};", uniqueness_response.expires_at_min);
+    eprintln!(
+        "uint64 expiresAtMin = {:#x};",
+        uniqueness_response.expires_at_min
+    );
     eprintln!("uint256 action = {:#x};", action_u256);
     eprintln!("uint256 signalHash = {:#x};", signal_hash_u256);
     eprintln!("uint256 nonce = {:#x};", nonce_u256);
@@ -743,7 +752,10 @@ async fn generate_solidity_fixtures() -> Result<()> {
     let s_proof = session_response.proof.as_ethereum_representation();
     let s_null = session_nullifier.as_ethereum_representation();
     eprintln!("uint256 sessionId = {:#x};", session_id_u256);
-    eprintln!("uint64 sessionExpiresAtMin = {:#x};", session_response.expires_at_min);
+    eprintln!(
+        "uint64 sessionExpiresAtMin = {:#x};",
+        session_response.expires_at_min
+    );
 
     eprintln!("\nuint256[5] sessionProof = [");
     eprintln!("    {:#x},", s_proof[0]);
