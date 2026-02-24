@@ -37,6 +37,7 @@ async fn test_signature_nonce_endpoint() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8084".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
