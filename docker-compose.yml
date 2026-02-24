@@ -31,7 +31,7 @@ services:
       - DEBUG=1
   oprf-key-gen0:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.5
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.7
     network_mode: "host"
     environment:
       OPRF_KEY_GEN_ENVIRONMENT: dev
@@ -48,7 +48,7 @@ services:
       - ./circom/artifacts:/app/artifacts:ro
   oprf-key-gen1:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.5
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.7
     network_mode: "host"
     environment:
       OPRF_KEY_GEN_ENVIRONMENT: dev
@@ -65,7 +65,7 @@ services:
       - ./circom/artifacts:/app/artifacts:ro
   oprf-key-gen2:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.5
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.7
     network_mode: "host"
     environment:
       OPRF_KEY_GEN_ENVIRONMENT: dev
