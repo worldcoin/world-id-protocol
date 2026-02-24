@@ -65,7 +65,6 @@ chrono = { workspace = true }
 hex = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 serde_json = { workspace = true }
 rand = { workspace = true }
