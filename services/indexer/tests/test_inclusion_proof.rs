@@ -52,6 +52,8 @@ async fn test_backfill_and_live_sync() {
                 http_addr: "0.0.0.0:8080".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
+                reorg_check_interval_secs: None,
+                max_reorg_blocks: 100,
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,
@@ -180,6 +182,8 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                 http_addr: "0.0.0.0:8082".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
+                reorg_check_interval_secs: None,
+                max_reorg_blocks: 100,
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,

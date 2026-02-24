@@ -38,6 +38,8 @@ async fn test_packed_account_endpoint() {
                 http_addr: "0.0.0.0:8083".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
+                reorg_check_interval_secs: None,
+                max_reorg_blocks: 100,
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
                     tree_depth: 6,
