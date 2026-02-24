@@ -1,6 +1,9 @@
 # World ID 4.0 Trusted Setup Verification (snarkjs)
 
-This document describes how to independently verify the Phase 2 Groth16 artifacts committed in this repository.
+This document describes how to independently verify the Phase 2 Groth16 artifacts for the World ID 4.0 trusted setup ceremony.
+
+> [!NOTE]
+> You are on the [`trusted-setup`](https://github.com/worldcoin/world-id-protocol/tree/trusted-setup) orphan branch which contains all ceremony artifacts. For the main protocol codebase, see the [`main`](https://github.com/worldcoin/world-id-protocol) branch.
 
 It follows the same core pattern as the SMTB guide's verification phase, adapted for this OPRF setup:
 
@@ -10,13 +13,14 @@ It follows the same core pattern as the SMTB guide's verification phase, adapted
 4. Index and validate contributor attestation gist links.
 
 **Important: Git LFS Required.**
-Many of the trusted setup artifacts in this repository (`.zkey`, `.arks.zkey`, `.r1cs`, `.wasm`, `.bin` files)
-are stored using [Git Large File Storage (LFS)](https://git-lfs.com/). When you clone or checkout this
-repository, these files will initially appear as small LFS pointer files rather than their actual contents.
-Before working with any trusted setup artifacts, make sure you have Git LFS installed and have pulled the
-actual file contents:
+Many of the artifacts on this branch (`.zkey`, `.r1cs`, `.wasm` files)
+are stored using [Git Large File Storage (LFS)](https://git-lfs.com/). When you checkout this
+branch, these files will initially appear as small LFS pointer files rather than their actual contents.
+Make sure you have Git LFS installed and have pulled the actual file contents:
 
 ```bash
+git fetch origin trusted-setup
+git checkout trusted-setup
 git lfs install
 git lfs pull
 ```
@@ -58,10 +62,9 @@ Install `snarkjs` if needed:
 npm i -g snarkjs@0.7.6
 ```
 
-Hydrate LFS-tracked setup artifacts in this repository before running verification:
+Hydrate LFS-tracked setup artifacts on this branch before running verification:
 
 ```bash
-cd /Users/dcbuilder/Code/world/world-id-protocol
 git lfs install --local
 git lfs pull --include="circom/artifacts/**/*.r1cs,circom/artifacts/**/*.zkey,circom/artifacts/**/*.wasm"
 ```
@@ -113,7 +116,7 @@ circom --r1cs main/OPRFQueryProof.circom -l . --O2 --output /tmp/oprf-r1cs
 Compare rebuilt `r1cs` hashes to this repo's committed files:
 
 ```bash
-cd /Users/dcbuilder/Code/world/world-id-protocol
+cd <world-id-protocol-repo>
 
 shasum -a 256 \
   /tmp/oprf-r1cs/OPRFKeyGenProof13.r1cs \
@@ -169,7 +172,7 @@ PTAU mapping for this ceremony:
 Run `snarkjs zkey verify` with the correct PTAU per circuit:
 
 ```bash
-cd /Users/dcbuilder/Code/world/world-id-protocol
+cd <world-id-protocol-repo>
 
 npx -y snarkjs@0.7.6 zkey verify \
   /tmp/oprf-r1cs/OPRFKeyGenProof13.r1cs \
@@ -224,7 +227,7 @@ Transcript files:
 Check summary fields (contribution count, beacon, and `ZKey Ok!`):
 
 ```bash
-cd /Users/dcbuilder/Code/world/world-id-protocol
+cd <world-id-protocol-repo>
 
 for f in circom/artifacts/OPRF*Proof*/oprf*_final_verification_transcript.log; do
   echo "===== $f"
@@ -284,7 +287,7 @@ These files are committed in [`docs/world-id-4-trusted-setup/artifacts/`](./arti
 Quick check:
 
 ```bash
-cd /Users/dcbuilder/Code/world/world-id-protocol
+cd <world-id-protocol-repo>
 
 wc -l docs/world-id-4-trusted-setup/artifacts/contributions.tsv
 ```
@@ -310,7 +313,7 @@ cargo install --git https://github.com/TaceoLabs/circom-helpers --locked \
 Generate uncompressed Arkworks-compatible zkeys:
 
 ```bash
-cd /Users/dcbuilder/Code/world/world-id-protocol
+cd <world-id-protocol-repo>
 
 convert-zkey-to-ark \
   --zkey-path circom/artifacts/OPRFQueryProof/oprfqueryproof_final.zkey \
@@ -392,7 +395,7 @@ CARGO_TARGET_DIR=/tmp/circom-witgen-target-OPRFQueryProof \
 cargo run --release
 
 # move graph.bin to:
-# /Users/dcbuilder/Code/world/world-id-protocol/circom/artifacts/OPRFQueryProof/OPRFQueryProofGraph.bin
+# <world-id-protocol-repo>/circom/artifacts/OPRFQueryProof/OPRFQueryProofGraph.bin
 ```
 
 Repeat per circuit (`OPRFNullifierProof`, `OPRFKeyGenProof13`, `OPRFKeyGenProof25`, `OPRFKeyGenProof37`).
@@ -414,7 +417,7 @@ cargo install --path /tmp/circom-helpers/groth16-sol --locked --features bin --b
 Generate verifiers from each `*_vkey.json` (use pragma `^0.8.28` to reproduce committed files exactly):
 
 ```bash
-cd /Users/dcbuilder/Code/world/world-id-protocol
+cd <world-id-protocol-repo>
 
 groth16-sol-utils extract-verifier \
   --vk circom/artifacts/OPRFQueryProof/oprfqueryproof_vkey.json \
