@@ -584,7 +584,7 @@ async fn generate_solidity_fixtures() -> Result<()> {
         oprf_key_id: rp_fixture.oprf_key_id,
         session_id: None,
         action: Some(rp_fixture.action.into()),
-        signature: rp_fixture.signature.clone(),
+        signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
