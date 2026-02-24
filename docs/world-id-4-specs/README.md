@@ -1,5 +1,9 @@
 # Abstract
 
+## Companion Specs
+
+- [AddressBook Spec](./address-book.md): period-scoped on-chain soft cache for World ID proof verifications.
+
 The World ID v4.0 release introduces *account abstraction* at its core, transforming a World ID from a single secret into an abstract record in a public registry (called `WorldIDRegistry`) with multiple authorized keys. This fundamental change enables several key improvements:
 
 1. **Multi-key support**: Users can generate proofs using multiple valid authenticators (such as across multiple devices, multiple platforms or multiple applications) while maintaining the same identity.
