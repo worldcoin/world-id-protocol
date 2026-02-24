@@ -603,6 +603,10 @@ async fn generate_solidity_fixtures() -> Result<()> {
     let nullifier_data = authenticator
         .generate_nullifier(&uniqueness_request, incl_proof, key_set)
         .await?;
+    // Clone the nullifier data before it's consumed — we reuse it for the session proof.
+    // The OPRF output is independent of session_id, so this is safe.
+    let nullifier_data_for_session = nullifier_data.clone();
+
     let session_id_r_seed = FieldElement::random(&mut rng);
     let uniqueness_response = authenticator.generate_single_proof(
         nullifier_data,
@@ -639,86 +643,42 @@ async fn generate_solidity_fixtures() -> Result<()> {
         .call()
         .await?;
 
-    // ── SESSION PROOF (separate OPRF round, may fail if nodes are flaky) ──
+    // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
     let session_id = FieldElement::random(&mut rng);
-    let session_result: Option<(_, _, _)> = async {
-        let session_request = ProofRequest {
-            id: "fixture_session".to_string(),
-            version: RequestVersion::V1,
-            created_at: rp_fixture.current_timestamp,
-            expires_at: rp_fixture.expiration_timestamp,
-            rp_id: rp_fixture.world_rp_id,
-            oprf_key_id: rp_fixture.oprf_key_id,
-            session_id: Some(session_id),
-            action: Some(rp_fixture.action.into()),
-            signature: rp_fixture.signature.clone(),
-            nonce: rp_fixture.nonce.into(),
-            requests: vec![RequestItem {
-                identifier: "test_credential".to_string(),
-                issuer_schema_id,
-                signal: Some(signal_str.to_string()),
-                genesis_issued_at_min: None,
-                expires_at_min: None,
-            }],
-            constraints: None,
-        };
-        let session_request_item = session_request
-            .find_request_by_issuer_schema_id(issuer_schema_id)
-            .unwrap();
+    let session_id_r_seed2 = FieldElement::random(&mut rng);
+    let session_response = authenticator.generate_single_proof(
+        nullifier_data_for_session,
+        request_item,
+        &credential,
+        credential_sub_blinding_factor,
+        session_id_r_seed2,
+        Some(session_id),
+        uniqueness_request.created_at,
+    )?;
 
-        let (incl_proof, key_set) = authenticator.fetch_inclusion_proof().await.ok()?;
-        let session_nullifier_data = authenticator
-            .generate_nullifier(&session_request, incl_proof, key_set)
-            .await
-            .ok()?;
-        let session_id_r_seed2 = FieldElement::random(&mut rand::thread_rng());
-        let session_response = authenticator
-            .generate_single_proof(
-                session_nullifier_data,
-                session_request_item,
-                &credential,
-                credential_sub_blinding_factor,
-                session_id_r_seed2,
-                session_request.session_id,
-                session_request.created_at,
-            )
-            .ok()?;
+    let session_nullifier = session_response
+        .session_nullifier
+        .expect("session proof should have session_nullifier");
 
-        let session_nullifier = session_response.session_nullifier?;
-
-        // Verify session proof on-chain.
-        verifier_instance
-            .verifySession(
-                rp_fixture.world_rp_id.into_inner(),
-                rp_fixture.nonce.into(),
-                session_request_item.signal_hash().into(),
-                session_response.expires_at_min,
-                issuer_schema_id,
-                session_request_item
-                    .genesis_issued_at_min
-                    .unwrap_or_default()
-                    .try_into()
-                    .expect("u64 fits into U256"),
-                session_id.into(),
-                session_nullifier.as_ethereum_representation(),
-                session_response.proof.as_ethereum_representation(),
-            )
-            .call()
-            .await
-            .ok()?;
-
-        Some((
-            session_response.proof.as_ethereum_representation(),
-            session_nullifier.as_ethereum_representation(),
+    // Verify session proof on-chain.
+    verifier_instance
+        .verifySession(
+            rp_fixture.world_rp_id.into_inner(),
+            rp_fixture.nonce.into(),
+            request_item.signal_hash().into(),
             session_response.expires_at_min,
-        ))
-    }
-    .await;
-
-    if session_result.is_none() {
-        eprintln!("\nWARN: Session proof OPRF round failed (nodes may be flaky). Session fixtures skipped.");
-        eprintln!("      Re-run the test to try again, or generate session fixtures separately.\n");
-    }
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            session_id.into(),
+            session_nullifier.as_ethereum_representation(),
+            session_response.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await?;
 
     // ── PRINT SOLIDITY FIXTURE ──
     let u_proof = uniqueness_response.proof.as_ethereum_representation();
@@ -774,24 +734,21 @@ async fn generate_solidity_fixtures() -> Result<()> {
 
     eprintln!("// ── Session Proof inputs ──");
     let session_id_u256: U256 = session_id.into();
+    let s_proof = session_response.proof.as_ethereum_representation();
+    let s_null = session_nullifier.as_ethereum_representation();
     eprintln!("uint256 sessionId = {:#x};", session_id_u256);
+    eprintln!("uint64 sessionExpiresAtMin = {:#x};", session_response.expires_at_min);
 
-    if let Some((s_proof, s_null, s_expires_at_min)) = &session_result {
-        eprintln!("uint64 sessionExpiresAtMin = {:#x};", s_expires_at_min);
+    eprintln!("\nuint256[5] sessionProof = [");
+    eprintln!("    {:#x},", s_proof[0]);
+    eprintln!("    {:#x},", s_proof[1]);
+    eprintln!("    {:#x},", s_proof[2]);
+    eprintln!("    {:#x},", s_proof[3]);
+    eprintln!("    rootCorrect");
+    eprintln!("];\n");
 
-        eprintln!("\nuint256[5] sessionProof = [");
-        eprintln!("    {:#x},", s_proof[0]);
-        eprintln!("    {:#x},", s_proof[1]);
-        eprintln!("    {:#x},", s_proof[2]);
-        eprintln!("    {:#x},", s_proof[3]);
-        eprintln!("    rootCorrect");
-        eprintln!("];\n");
-
-        eprintln!("// session nullifier for verifySession: [nullifier, action]");
-        eprintln!("[{:#x}, {:#x}]", s_null[0], s_null[1]);
-    } else {
-        eprintln!("// SESSION PROOF NOT GENERATED – re-run the test to try again");
-    }
+    eprintln!("// session nullifier for verifySession: [nullifier, action]");
+    eprintln!("[{:#x}, {:#x}]", s_null[0], s_null[1]);
 
     eprintln!("\n// ── Done ──");
 
