@@ -14,6 +14,8 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub enum ReorgHandleError {
+    #[error("reorg beyond conifugred max reorg blocks detectd.")]
+    ReorgBeyondMaxReorgBlocks(),
     #[error("this should never happen: '{0}'.")]
     ShouldNotHappen(String),
 }
@@ -112,6 +114,10 @@ async fn handle_reorg<'a>(
 ) -> IndexerResult<()> {
     let mut latest_valid_block = latest_block;
     let mut earliest_valid_block = latest_block - max_reorg_blocks;
+
+    if !is_same_block(tx, blockchain, earliest_valid_block).await? {
+        return Err(ReorgHandleError::ReorgBeyondMaxReorgBlocks().into());
+    }
 
     // Binary search for the latest valid block
     while earliest_valid_block < latest_valid_block {

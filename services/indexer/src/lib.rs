@@ -23,7 +23,7 @@ pub use config::GlobalConfig;
 pub use error::{IndexerError, IndexerResult};
 
 pub mod blockchain;
-mod blockchain_reorg_check;
+pub mod blockchain_reorg_check;
 pub mod config;
 pub mod db;
 mod error;
