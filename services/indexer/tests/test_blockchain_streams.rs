@@ -322,6 +322,7 @@ async fn test_stream_stops_on_error() {
 
     let provider = ProviderArgs::new()
         .with_http_urls([anvil.endpoint()])
+        .with_max_rpc_retries(0)
         .http()
         .await
         .expect("failed to build provider");
