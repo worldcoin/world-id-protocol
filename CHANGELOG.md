@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.3...world-id-primitives-v0.4.4) - 2026-02-24
+
+### Other
+
+- update Cargo.toml dependencies
+- Finalize World ID 4 trusted setup docs, artifacts, and explainer video ([#468](https://github.com/worldcoin/world-id-protocol/pull/468))
+
 ## [0.4.3](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.2...world-id-primitives-v0.4.3) - 2026-02-23
 
 ### Added
