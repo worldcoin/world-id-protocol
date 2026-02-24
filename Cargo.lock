@@ -3486,6 +3486,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
+name = "generate-solidity-fixtures"
+version = "0.4.3"
+dependencies = [
+ "alloy",
+ "eyre",
+ "hex",
+ "rand 0.8.5",
+ "rustls 0.23.36",
+ "taceo-ark-babyjubjub",
+ "taceo-oprf",
+ "taceo-oprf-test-utils",
+ "taceo-poseidon2",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+ "world-id-core",
+ "world-id-gateway",
+ "world-id-primitives",
+ "world-id-test-utils",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8797,6 +8819,7 @@ dependencies = [
  "taceo-oprf-test-utils",
  "taceo-poseidon2",
  "tokio",
+ "tracing",
  "tracing-subscriber 0.3.22",
  "world-id-authenticator",
  "world-id-gateway",
