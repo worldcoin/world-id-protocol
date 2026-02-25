@@ -152,11 +152,11 @@ client() {
         export OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
     fi
     if [ -z "${RUST_LOG+x}" ]; then
-        export RUST_LOG="world_id_oprf_dev_client_rp=trace,world_id_oprf_dev_client_issuer_blinding=trace,taceo_oprf_dev_client=trace,warn"
+        export RUST_LOG="world_id_dev_client_rp=trace,world_id_dev_client_issuer_blinding=trace,world_id_oprf_dev_client=trace,taceo_oprf_dev_client=trace,taceo_oprf_client=trace,warn"
     fi
 
-    cargo run --release --bin world-id-dev-client-rp -- "$@"
-    cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
+    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- "$@"
+    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
 }
 
 main() {
