@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::primitives::Address;
-use redis::{AsyncTypedCommands, Client, SetExpiry, SetOptions, aio::ConnectionManager};
+use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use world_id_core::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
@@ -66,6 +66,8 @@ impl RequestTracker {
     }
 
     /// Creates a new request with a specific ID.
+    ///
+    /// Expects the request ID to be unique, returns an error if it already exists.
     pub async fn new_request_with_id(
         &self,
         id: String,
@@ -84,19 +86,27 @@ impl RequestTracker {
             GatewayErrorResponse::internal_server_error()
         })?;
 
-        let opts = SetOptions::default()
-            .conditional_set(redis::ExistenceCheck::NX)
-            .with_expiration(SetExpiry::EX(REQUESTS_TTL.as_secs()));
+        let script = r#"
+            local ok = redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2])
+            if not ok then
+                return redis.error_reply('request already exists')
+            end
+            redis.call('SADD', KEYS[2], ARGV[3])
+            return redis.status_reply('OK')
+        "#;
 
-        manager
-            .set_options(&key, json_str, opts)
+        redis::Script::new(script)
+            .key(&key)
+            .key(PENDING_SET_KEY)
+            .arg(&json_str)
+            .arg(REQUESTS_TTL.as_secs())
+            .arg(&id)
+            .invoke_async::<()>(&mut manager)
             .await
-            .map_err(handle_redis_error)?;
-
-        manager
-            .sadd(PENDING_SET_KEY, &id)
-            .await
-            .map_err(handle_redis_error)?;
+            .map_err(|e| {
+                tracing::error!("Error creating request {id}: {e}");
+                GatewayErrorResponse::internal_server_error()
+            })?;
 
         Ok(())
     }
