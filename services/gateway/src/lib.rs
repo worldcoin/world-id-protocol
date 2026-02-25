@@ -49,8 +49,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
 
     // Use Redis-backed nonce manager for distributed nonce coordination.
-    let redis_client = redis::Client::open(cfg.redis_url.as_str())
-        .expect("invalid REDIS_URL");
+    let redis_client = redis::Client::open(cfg.redis_url.as_str()).expect("invalid REDIS_URL");
     let redis_conn = ConnectionManager::new(redis_client)
         .await
         .expect("failed to connect to Redis for nonce manager");
@@ -112,9 +111,9 @@ pub async fn run() -> GatewayResult<()> {
     // value is reused — no new configuration required.
     let redis_client = redis::Client::open(cfg.redis_url.as_str())
         .map_err(|e| GatewayError::Config(format!("invalid REDIS_URL for nonce manager: {e}")))?;
-    let redis_conn = ConnectionManager::new(redis_client)
-        .await
-        .map_err(|e| GatewayError::Config(format!("Redis connection for nonce manager failed: {e}")))?;
+    let redis_conn = ConnectionManager::new(redis_client).await.map_err(|e| {
+        GatewayError::Config(format!("Redis connection for nonce manager failed: {e}"))
+    })?;
     let nonce_mgr = RedisNonceManager::new(redis_conn);
     tracing::info!("Redis-backed nonce manager initialised");
 

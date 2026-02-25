@@ -23,7 +23,7 @@
 use alloy::{
     network::Network,
     primitives::Address,
-    providers::{fillers::NonceManager, Provider},
+    providers::{Provider, fillers::NonceManager},
     transports::TransportResult,
 };
 use async_trait::async_trait;
@@ -200,7 +200,10 @@ mod tests {
             .invoke_async(&mut conn)
             .await
             .unwrap();
-        assert_eq!(n2, 10, "should jump to on-chain nonce when Redis value is stale");
+        assert_eq!(
+            n2, 10,
+            "should jump to on-chain nonce when Redis value is stale"
+        );
 
         // Next allocation should be 11
         let n3: u64 = redis::Script::new(NONCE_LUA)
