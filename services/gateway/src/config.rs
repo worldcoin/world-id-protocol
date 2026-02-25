@@ -29,6 +29,16 @@ pub struct OrphanSweeperConfig {
     pub stale_submitted_threshold_secs: u64,
 }
 
+impl Default for OrphanSweeperConfig {
+    fn default() -> Self {
+        Self {
+            interval_secs: 30,
+            stale_queued_threshold_secs: 60,
+            stale_submitted_threshold_secs: 600,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct GatewayConfig {

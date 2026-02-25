@@ -58,11 +58,7 @@ async fn redis_integration() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(5),
         rate_limit_max_requests: Some(10),
-        sweeper: OrphanSweeperConfig {
-            interval_secs: 30,
-            stale_queued_threshold_secs: 60,
-            stale_submitted_threshold_secs: 600,
-        },
+        sweeper: OrphanSweeperConfig::default(),
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");

@@ -234,11 +234,7 @@ async fn sweep_stale_queued_request() {
         alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
-    let config = OrphanSweeperConfig {
-        interval_secs: 30,
-        stale_queued_threshold_secs: 60,
-        stale_submitted_threshold_secs: 600,
-    };
+    let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
     let record = read_raw_record(&mut redis, "stale-queued").await.unwrap();
@@ -274,11 +270,7 @@ async fn sweep_fresh_queued_untouched() {
         alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
-    let config = OrphanSweeperConfig {
-        interval_secs: 30,
-        stale_queued_threshold_secs: 60,
-        stale_submitted_threshold_secs: 600,
-    };
+    let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
     let record = read_raw_record(&mut redis, "fresh-queued").await.unwrap();
@@ -309,11 +301,7 @@ async fn sweep_stale_batching_request() {
         alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
-    let config = OrphanSweeperConfig {
-        interval_secs: 30,
-        stale_queued_threshold_secs: 60,
-        stale_submitted_threshold_secs: 600,
-    };
+    let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
     let record = read_raw_record(&mut redis, "stale-batching").await.unwrap();
@@ -337,11 +325,7 @@ async fn sweep_dangling_set_member() {
         alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
-    let config = OrphanSweeperConfig {
-        interval_secs: 30,
-        stale_queued_threshold_secs: 60,
-        stale_submitted_threshold_secs: 600,
-    };
+    let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
     assert!(
@@ -374,11 +358,7 @@ async fn sweep_already_terminal_in_set() {
         alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
-    let config = OrphanSweeperConfig {
-        interval_secs: 30,
-        stale_queued_threshold_secs: 60,
-        stale_submitted_threshold_secs: 600,
-    };
+    let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
     assert!(
@@ -421,9 +401,8 @@ async fn sweep_submitted_no_receipt_stale() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval_secs: 30,
-        stale_queued_threshold_secs: 60,
         stale_submitted_threshold_secs: 120, // 2-minute submitted threshold
+        ..Default::default()
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
@@ -465,11 +444,7 @@ async fn sweep_submitted_no_receipt_fresh() {
         alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
-    let config = OrphanSweeperConfig {
-        interval_secs: 30,
-        stale_queued_threshold_secs: 60,
-        stale_submitted_threshold_secs: 600,
-    };
+    let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
     let record = read_raw_record(&mut redis, "fresh-submitted")
@@ -514,8 +489,7 @@ async fn sweep_submitted_with_real_receipt() {
         rate_limit_max_requests: None,
         sweeper: OrphanSweeperConfig {
             interval_secs: 9999, // don't auto-sweep during this test
-            stale_queued_threshold_secs: 60,
-            stale_submitted_threshold_secs: 600,
+            ..Default::default()
         },
     };
 
@@ -561,11 +535,7 @@ async fn sweep_submitted_with_real_receipt() {
     let provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url.parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
-    let config = OrphanSweeperConfig {
-        interval_secs: 30,
-        stale_queued_threshold_secs: 60,
-        stale_submitted_threshold_secs: 600,
-    };
+    let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
     let record = read_raw_record(&mut redis, "orphan-with-receipt")

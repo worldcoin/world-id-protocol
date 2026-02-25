@@ -97,11 +97,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
-        sweeper: OrphanSweeperConfig {
-            interval_secs: 30,
-            stale_queued_threshold_secs: 60,
-            stale_submitted_threshold_secs: 600,
-        },
+        sweeper: OrphanSweeperConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await

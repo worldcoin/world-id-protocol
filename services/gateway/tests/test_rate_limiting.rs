@@ -95,11 +95,7 @@ async fn test_rate_limit_basic() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10), // 10 second window for testing
         rate_limit_max_requests: Some(3), // Only 3 requests allowed
-        sweeper: OrphanSweeperConfig {
-            interval_secs: 30,
-            stale_queued_threshold_secs: 60,
-            stale_submitted_threshold_secs: 600,
-        },
+        sweeper: OrphanSweeperConfig::default(),
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -306,11 +302,7 @@ async fn test_rate_limit_different_leaf_indexes() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
         rate_limit_max_requests: Some(2), // Only 2 requests per leaf_index
-        sweeper: OrphanSweeperConfig {
-            interval_secs: 30,
-            stale_queued_threshold_secs: 60,
-            stale_submitted_threshold_secs: 600,
-        },
+        sweeper: OrphanSweeperConfig::default(),
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -466,11 +458,7 @@ async fn test_rate_limit_sliding_window() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(3), // 3 second window for faster testing
         rate_limit_max_requests: Some(2),
-        sweeper: OrphanSweeperConfig {
-            interval_secs: 30,
-            stale_queued_threshold_secs: 60,
-            stale_submitted_threshold_secs: 600,
-        },
+        sweeper: OrphanSweeperConfig::default(),
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -623,11 +611,7 @@ async fn test_rate_limit_multiple_endpoints() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
         rate_limit_max_requests: Some(3),
-        sweeper: OrphanSweeperConfig {
-            interval_secs: 30,
-            stale_queued_threshold_secs: 60,
-            stale_submitted_threshold_secs: 600,
-        },
+        sweeper: OrphanSweeperConfig::default(),
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
