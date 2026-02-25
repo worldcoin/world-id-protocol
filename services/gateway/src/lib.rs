@@ -1,6 +1,6 @@
 pub use crate::{
-    config::{GatewayConfig, RateLimitConfig},
-    orphan_sweeper::{OrphanSweeperConfig, sweep_once},
+    config::{GatewayConfig, OrphanSweeperConfig, RateLimitConfig},
+    orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
 use crate::{routes::build_app, types::AppState};
@@ -45,13 +45,6 @@ impl GatewayHandle {
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
     let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
-    let sweeper_config = OrphanSweeperConfig {
-        interval: std::time::Duration::from_secs(cfg.orphan_sweeper_interval_secs),
-        stale_queued_threshold: std::time::Duration::from_secs(cfg.stale_queued_threshold_secs),
-        stale_submitted_threshold: std::time::Duration::from_secs(
-            cfg.stale_submitted_threshold_secs,
-        ),
-    };
     let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
@@ -65,7 +58,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.redis_url,
         rate_limit_config,
         cfg.request_timeout_secs,
-        sweeper_config,
+        cfg.sweeper,
     )
     .await?;
 
@@ -103,13 +96,6 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env()?;
     let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
-    let sweeper_config = OrphanSweeperConfig {
-        interval: std::time::Duration::from_secs(cfg.orphan_sweeper_interval_secs),
-        stale_queued_threshold: std::time::Duration::from_secs(cfg.stale_queued_threshold_secs),
-        stale_submitted_threshold: std::time::Duration::from_secs(
-            cfg.stale_submitted_threshold_secs,
-        ),
-    };
     let provider = Arc::new(cfg.provider.http().await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
@@ -122,7 +108,7 @@ pub async fn run() -> GatewayResult<()> {
         cfg.redis_url,
         rate_limit_config,
         cfg.request_timeout_secs,
-        sweeper_config,
+        cfg.sweeper,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

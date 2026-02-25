@@ -188,6 +188,7 @@ impl RequestTracker {
 
             redis.call('SET', KEYS[1], updated, 'KEEPTTL')
 
+            -- If the request is finalized or failed, remove it from the pending set
             local state = decoded.status.state
             if state == 'finalized' or state == 'failed' then
                 redis.call('SREM', KEYS[2], ARGV[3])

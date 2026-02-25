@@ -6,14 +6,8 @@ use alloy::{
 };
 use world_id_core::api_types::{GatewayErrorCode, GatewayRequestState};
 
+use crate::config::OrphanSweeperConfig;
 use crate::request_tracker::{RequestTracker, now_unix_secs};
-
-#[derive(Debug, Clone)]
-pub struct OrphanSweeperConfig {
-    pub interval: Duration,
-    pub stale_queued_threshold: Duration,
-    pub stale_submitted_threshold: Duration,
-}
 
 /// Runs the orphan sweeper loop indefinitely.
 ///
@@ -25,7 +19,7 @@ pub async fn run_orphan_sweeper(
     config: OrphanSweeperConfig,
 ) {
     loop {
-        tokio::time::sleep(config.interval).await;
+        tokio::time::sleep(Duration::from_secs(config.interval_secs)).await;
         sweep_once(&tracker, &provider, &config).await;
     }
 }
@@ -62,7 +56,7 @@ pub async fn sweep_once(
             }
             GatewayRequestState::Queued | GatewayRequestState::Batching => {
                 let age = now.saturating_sub(record.updated_at);
-                if age > config.stale_queued_threshold.as_secs() {
+                if age > config.stale_queued_threshold_secs {
                     tracing::warn!(
                         request_id = %id,
                         age_secs = age,
@@ -106,7 +100,7 @@ pub async fn sweep_once(
             Ok(None) => {
                 for (id, updated_at) in group {
                     let age = now.saturating_sub(*updated_at);
-                    if age > config.stale_submitted_threshold.as_secs() {
+                    if age > config.stale_submitted_threshold_secs {
                         tracing::warn!(
                             request_id = %id,
                             tx_hash = %tx_hash,

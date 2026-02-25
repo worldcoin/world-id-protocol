@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    AppState, OrphanSweeperConfig,
+    AppState,
+    config::OrphanSweeperConfig,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::{GatewayErrorBody, GatewayResult},

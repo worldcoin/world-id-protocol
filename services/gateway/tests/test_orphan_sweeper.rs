@@ -235,9 +235,9 @@ async fn sweep_stale_queued_request() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval: Duration::from_secs(30),
-        stale_queued_threshold: Duration::from_secs(60),
-        stale_submitted_threshold: Duration::from_secs(600),
+        interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
@@ -275,9 +275,9 @@ async fn sweep_fresh_queued_untouched() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval: Duration::from_secs(30),
-        stale_queued_threshold: Duration::from_secs(60),
-        stale_submitted_threshold: Duration::from_secs(600),
+        interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
@@ -310,9 +310,9 @@ async fn sweep_stale_batching_request() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval: Duration::from_secs(30),
-        stale_queued_threshold: Duration::from_secs(60),
-        stale_submitted_threshold: Duration::from_secs(600),
+        interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
@@ -338,9 +338,9 @@ async fn sweep_dangling_set_member() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval: Duration::from_secs(30),
-        stale_queued_threshold: Duration::from_secs(60),
-        stale_submitted_threshold: Duration::from_secs(600),
+        interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
@@ -375,9 +375,9 @@ async fn sweep_already_terminal_in_set() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval: Duration::from_secs(30),
-        stale_queued_threshold: Duration::from_secs(60),
-        stale_submitted_threshold: Duration::from_secs(600),
+        interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
@@ -421,9 +421,9 @@ async fn sweep_submitted_no_receipt_stale() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval: Duration::from_secs(30),
-        stale_queued_threshold: Duration::from_secs(60),
-        stale_submitted_threshold: Duration::from_secs(120), // 2-minute submitted threshold
+        interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 120, // 2-minute submitted threshold
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
@@ -466,9 +466,9 @@ async fn sweep_submitted_no_receipt_fresh() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval: Duration::from_secs(30),
-        stale_queued_threshold: Duration::from_secs(60),
-        stale_submitted_threshold: Duration::from_secs(600),
+        interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
@@ -512,9 +512,11 @@ async fn sweep_submitted_with_real_receipt() {
         request_timeout_secs: 10,
         rate_limit_window_secs: None,
         rate_limit_max_requests: None,
-        orphan_sweeper_interval_secs: 9999, // don't auto-sweep during this test
-        stale_queued_threshold_secs: 60,
-        stale_submitted_threshold_secs: 600,
+        sweeper: OrphanSweeperConfig {
+            interval_secs: 9999, // don't auto-sweep during this test
+            stale_queued_threshold_secs: 60,
+            stale_submitted_threshold_secs: 600,
+        },
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -560,9 +562,9 @@ async fn sweep_submitted_with_real_receipt() {
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        interval: Duration::from_secs(30),
-        stale_queued_threshold: Duration::from_secs(60),
-        stale_submitted_threshold: Duration::from_secs(600),
+        interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 

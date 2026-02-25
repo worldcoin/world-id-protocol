@@ -13,6 +13,22 @@ pub struct RateLimitConfig {
     pub max_requests: u64,
 }
 
+/// Configuration for the orphan sweeper background task.
+#[derive(Clone, Debug, clap::Args)]
+pub struct OrphanSweeperConfig {
+    /// How often the orphan sweeper runs, in seconds.
+    #[arg(long, env = "ORPHAN_SWEEPER_INTERVAL_SECS", default_value = "30")]
+    pub interval_secs: u64,
+
+    /// Staleness threshold for Queued/Batching requests (seconds).
+    #[arg(long, env = "STALE_QUEUED_THRESHOLD_SECS", default_value = "60")]
+    pub stale_queued_threshold_secs: u64,
+
+    /// Staleness threshold for Submitted requests with no receipt (seconds).
+    #[arg(long, env = "STALE_SUBMITTED_THRESHOLD_SECS", default_value = "600")]
+    pub stale_submitted_threshold_secs: u64,
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct GatewayConfig {
@@ -66,19 +82,8 @@ pub struct GatewayConfig {
     )]
     pub rate_limit_max_requests: Option<u64>,
 
-    /// How often the orphan sweeper runs, in seconds.
-    #[arg(long, env = "ORPHAN_SWEEPER_INTERVAL_SECS", default_value = "30")]
-    pub orphan_sweeper_interval_secs: u64,
-
-    /// Staleness threshold for Queued/Batching requests (seconds).
-    /// Requests stuck longer than this are marked as failed.
-    #[arg(long, env = "STALE_QUEUED_THRESHOLD_SECS", default_value = "60")]
-    pub stale_queued_threshold_secs: u64,
-
-    /// Staleness threshold for Submitted requests with no receipt (seconds).
-    /// Transactions not confirmed within this window are presumed dropped.
-    #[arg(long, env = "STALE_SUBMITTED_THRESHOLD_SECS", default_value = "600")]
-    pub stale_submitted_threshold_secs: u64,
+    #[command(flatten)]
+    pub sweeper: OrphanSweeperConfig,
 }
 
 impl GatewayConfig {
