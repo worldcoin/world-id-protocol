@@ -257,9 +257,7 @@ impl RequestTracker {
                 let record = maybe_json.and_then(|json_str| {
                     serde_json::from_str::<RequestRecord>(&json_str)
                         .map_err(|e| {
-                            tracing::error!(
-                                "Failed to deserialize request {id} from Redis: {e}"
-                            );
+                            tracing::error!("Failed to deserialize request {id} from Redis: {e}");
                         })
                         .ok()
                 });
