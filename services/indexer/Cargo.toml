@@ -17,6 +17,7 @@ poseidon2 = { workspace = true }
 alloy = { workspace = true, default-features = true, features = [
   "rpc-types",
   "provider-ws",
+  "contract",
 ] }
 eyre = { workspace = true }
 dotenvy = { workspace = true }

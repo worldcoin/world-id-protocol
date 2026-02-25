@@ -1,8 +1,14 @@
 mod helpers;
 
 use alloy::primitives::{Address, U256};
-use helpers::db_helpers::*;
-use world_id_indexer::db::IsolationLevel;
+use helpers::{
+    db_helpers::*,
+    mock_blockchain::{mock_account_created_event, mock_root_recorded_event},
+};
+use world_id_indexer::{
+    blockchain::RegistryEvent,
+    db::{IsolationLevel, WorldIdRegistryEventId},
+};
 
 /// Test inserting an account
 #[tokio::test]
@@ -767,4 +773,166 @@ async fn test_multiple_operations_in_transaction() {
     assert_eq!(account_count, 1);
     assert_eq!(event_count, 1);
     assert_eq!(root_count, 1);
+}
+
+#[tokio::test]
+async fn test_get_latest_root_recorded() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    // Insert some events including RootRecorded
+    let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
+    let root1 = mock_root_recorded_event(100, 1, U256::from(1000), U256::from(100));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
+    let root2 = mock_root_recorded_event(101, 1, U256::from(2000), U256::from(101));
+    let event3 = mock_account_created_event(102, 0, 3, Address::ZERO, U256::from(300));
+    let root3 = mock_root_recorded_event(102, 1, U256::from(3000), U256::from(102));
+
+    insert_test_world_tree_event(db, &event1).await.unwrap();
+    insert_test_world_tree_event(db, &root1).await.unwrap();
+    insert_test_world_tree_event(db, &event2).await.unwrap();
+    insert_test_world_tree_event(db, &root2).await.unwrap();
+    insert_test_world_tree_event(db, &event3).await.unwrap();
+    insert_test_world_tree_event(db, &root3).await.unwrap();
+
+    // Get latest RootRecorded event
+    let latest = db
+        .world_id_registry_events()
+        .get_latest_root_recorded()
+        .await
+        .unwrap();
+
+    assert!(latest.is_some(), "Should have a latest RootRecorded event");
+    let latest_event = latest.unwrap();
+
+    // Should be root3 (block 102, log_index 1)
+    assert_eq!(latest_event.block_number, 102);
+    assert_eq!(latest_event.log_index, 1);
+
+    match latest_event.details {
+        RegistryEvent::RootRecorded(root) => {
+            assert_eq!(root.root, U256::from(3000));
+        }
+        _ => panic!("Expected RootRecorded event"),
+    }
+}
+
+#[tokio::test]
+async fn test_get_root_recorded_before() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    // Insert events with multiple RootRecorded
+    let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
+    let root1 = mock_root_recorded_event(100, 1, U256::from(1000), U256::from(100));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
+    let root2 = mock_root_recorded_event(101, 1, U256::from(2000), U256::from(101));
+    let event3 = mock_account_created_event(102, 0, 3, Address::ZERO, U256::from(300));
+    let root3 = mock_root_recorded_event(102, 1, U256::from(3000), U256::from(102));
+
+    insert_test_world_tree_event(db, &event1).await.unwrap();
+    insert_test_world_tree_event(db, &root1).await.unwrap();
+    insert_test_world_tree_event(db, &event2).await.unwrap();
+    insert_test_world_tree_event(db, &root2).await.unwrap();
+    insert_test_world_tree_event(db, &event3).await.unwrap();
+    insert_test_world_tree_event(db, &root3).await.unwrap();
+
+    // Get RootRecorded before block 102, log_index 1 (should return root2)
+    let before_event_id = WorldIdRegistryEventId {
+        block_number: 102,
+        log_index: 1,
+    };
+
+    let result = db
+        .world_id_registry_events()
+        .get_root_recorded_before(before_event_id)
+        .await
+        .unwrap();
+
+    assert!(result.is_some(), "Should find a RootRecorded event before");
+    let event = result.unwrap();
+
+    // Should be root2 (block 101, log_index 1)
+    assert_eq!(event.block_number, 101);
+    assert_eq!(event.log_index, 1);
+
+    match event.details {
+        RegistryEvent::RootRecorded(root) => {
+            assert_eq!(root.root, U256::from(2000));
+        }
+        _ => panic!("Expected RootRecorded event"),
+    }
+}
+
+#[tokio::test]
+async fn test_get_root_recorded_before_same_block() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    // Insert multiple events in the same block
+    let root1 = mock_root_recorded_event(100, 1, U256::from(1000), U256::from(100));
+    let event1 = mock_account_created_event(100, 2, 1, Address::ZERO, U256::from(100));
+    let root2 = mock_root_recorded_event(100, 3, U256::from(2000), U256::from(100));
+    let event2 = mock_account_created_event(100, 4, 2, Address::ZERO, U256::from(200));
+
+    insert_test_world_tree_event(db, &root1).await.unwrap();
+    insert_test_world_tree_event(db, &event1).await.unwrap();
+    insert_test_world_tree_event(db, &root2).await.unwrap();
+    insert_test_world_tree_event(db, &event2).await.unwrap();
+
+    // Get RootRecorded before block 100, log_index 3 (should return root1)
+    let before_event_id = WorldIdRegistryEventId {
+        block_number: 100,
+        log_index: 3,
+    };
+
+    let result = db
+        .world_id_registry_events()
+        .get_root_recorded_before(before_event_id)
+        .await
+        .unwrap();
+
+    assert!(
+        result.is_some(),
+        "Should find a RootRecorded event before in same block"
+    );
+    let event = result.unwrap();
+
+    // Should be root1 (block 100, log_index 1)
+    assert_eq!(event.block_number, 100);
+    assert_eq!(event.log_index, 1);
+
+    match event.details {
+        RegistryEvent::RootRecorded(root) => {
+            assert_eq!(root.root, U256::from(1000));
+        }
+        _ => panic!("Expected RootRecorded event"),
+    }
+}
+
+#[tokio::test]
+async fn test_get_root_recorded_before_none() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    // Insert only one RootRecorded event
+    let root1 = mock_root_recorded_event(100, 1, U256::from(1000), U256::from(100));
+    insert_test_world_tree_event(db, &root1).await.unwrap();
+
+    // Try to get RootRecorded before the first event (should return None)
+    let before_event_id = WorldIdRegistryEventId {
+        block_number: 100,
+        log_index: 1,
+    };
+
+    let result = db
+        .world_id_registry_events()
+        .get_root_recorded_before(before_event_id)
+        .await
+        .unwrap();
+
+    assert!(
+        result.is_none(),
+        "Should return None when no RootRecorded exists before"
+    );
 }

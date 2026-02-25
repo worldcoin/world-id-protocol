@@ -12,7 +12,11 @@ impl<'a, 'b> RollbackExecutor<'a, 'b> {
         Self { tx }
     }
 
-    pub async fn rollback_to_event(&mut self, event_id: WorldIdRegistryEventId) -> DBResult<()> {
+    pub async fn rollback_to_event<T: Into<WorldIdRegistryEventId>>(
+        &mut self,
+        event_id: T,
+    ) -> DBResult<()> {
+        let event_id: WorldIdRegistryEventId = event_id.into();
         tracing::info!("rolling back up to event = {:?}", event_id);
 
         // Step 1: Get leaf indices where latest event is after rollback point

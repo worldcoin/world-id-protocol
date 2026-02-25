@@ -19,6 +19,8 @@ use alloy::{
 };
 use futures_util::{Stream, StreamExt, TryStreamExt, stream};
 use thiserror::Error;
+use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use url::Url;
 
@@ -213,6 +215,10 @@ impl Blockchain {
             .get_block_by_number(BlockNumberOrTag::Number(block_number))
             .await
             .map_err(|err| BlockchainError::Rpc(Box::new(err)))
+    }
+
+    pub fn world_id_registry(&self) -> WorldIdRegistryInstance<DynProvider> {
+        WorldIdRegistry::new(self.world_id_registry, self.http_provider.clone())
     }
 
     /// Starts a WebSocket log subscription and bridges the gap between the

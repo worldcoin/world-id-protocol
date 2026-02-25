@@ -23,7 +23,7 @@ pub use config::GlobalConfig;
 pub use error::{IndexerError, IndexerResult};
 
 pub mod blockchain;
-pub mod blockchain_reorg_check;
+pub mod blockchain_sync_check;
 pub mod config;
 pub mod db;
 mod error;
@@ -148,6 +148,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             run_http_only(
                 db,
                 &cfg.http_rpc_url,
+                &cfg.ws_rpc_url,
                 cfg.registry_address,
                 http_config,
                 tree_state,
@@ -199,7 +200,8 @@ async fn run_indexer_only(
 #[instrument(level = "info", skip_all)]
 async fn run_http_only(
     db: DB,
-    rpc_url: &str,
+    http_rpc_url: &str,
+    ws_rpc_url: &str,
     registry_address: Address,
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
@@ -215,11 +217,11 @@ async fn run_http_only(
 
     // Start root sanity checker in the background
     let sanity_handle = if let Some(sanity_interval) = http_cfg.sanity_check_interval_secs {
-        let rpc_url = rpc_url.to_string();
+        let http_rpc_url = http_rpc_url.to_string();
         let sanity_tree_state = tree_state.clone();
         Some(tokio::spawn(async move {
             sanity_check::root_sanity_check_loop(
-                rpc_url,
+                http_rpc_url,
                 registry_address,
                 sanity_interval,
                 sanity_tree_state,
@@ -231,26 +233,26 @@ async fn run_http_only(
     };
 
     // Start blockchain reorg checker in the background
-    let reorg_handle = if let Some(reorg_interval) = http_cfg.reorg_check_interval_secs {
-        let reorg_db = db.clone();
-        // Note: reorg check only needs HTTP RPC, but Blockchain requires both URLs
-        let reorg_blockchain = Blockchain::new(rpc_url, rpc_url, registry_address).await?;
-        let max_reorg_blocks = http_cfg.max_reorg_blocks;
-        Some(tokio::spawn(async move {
-            blockchain_reorg_check::blockchain_reorg_check_loop(
-                reorg_interval,
-                &reorg_db,
-                &reorg_blockchain,
-                max_reorg_blocks,
-            )
-            .await
-        }))
-    } else {
-        None
-    };
+    let blockchain_sync_check_handle =
+        if let Some(reorg_interval) = http_cfg.reorg_check_interval_secs {
+            let reorg_db = db.clone();
+            let blockchain = Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await?;
+            let max_sync_backward_check_blocks = http_cfg.max_sync_backward_check_blocks;
+            Some(tokio::spawn(async move {
+                blockchain_sync_check::blockchain_sync_check_loop(
+                    reorg_interval,
+                    &reorg_db,
+                    &blockchain,
+                    max_sync_backward_check_blocks,
+                )
+                .await
+            }))
+        } else {
+            None
+        };
 
     // Start HTTP server
-    let rpc_url = rpc_url.to_string();
+    let rpc_url = http_rpc_url.to_string();
     let http_addr = http_cfg.http_addr;
     let http_handle = tokio::spawn(async move {
         start_http_server(&rpc_url, registry_address, http_addr, db, tree_state).await
@@ -270,9 +272,9 @@ async fn run_http_only(
             result??;
             eyre::bail!("sanity check loop exited unexpectedly");
         }
-        result = async { reorg_handle.unwrap().await }, if reorg_handle.is_some() => {
+        result = async { blockchain_sync_check_handle.unwrap().await }, if blockchain_sync_check_handle.is_some() => {
             result??;
-            eyre::bail!("reorg check loop exited unexpectedly");
+            eyre::bail!("blockchain sync check loop exited unexpectedly");
         }
     }
 }
@@ -369,13 +371,13 @@ async unsafe fn run_both(
         let reorg_db = db.clone();
         // Note: reorg check only needs HTTP RPC, but Blockchain requires both URLs
         let reorg_blockchain = Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await?;
-        let max_reorg_blocks = http_cfg.max_reorg_blocks;
+        let max_sync_backward_check_blocks = http_cfg.max_sync_backward_check_blocks;
         Some(tokio::spawn(async move {
-            blockchain_reorg_check::blockchain_reorg_check_loop(
+            blockchain_sync_check::blockchain_sync_check_loop(
                 reorg_interval,
                 &reorg_db,
                 &reorg_blockchain,
-                max_reorg_blocks,
+                max_sync_backward_check_blocks,
             )
             .await
         }))

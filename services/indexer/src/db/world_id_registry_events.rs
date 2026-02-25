@@ -376,6 +376,13 @@ pub fn deserialize_registry_event(
     }
 }
 
+/// A block number with all distinct block hashes observed for it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockWithConflictingHashes {
+    pub block_number: u64,
+    pub block_hashes: Vec<U256>,
+}
+
 pub struct WorldIdRegistryEvents<'a, E>
 where
     E: sqlx::Executor<'a, Database = Postgres>,
@@ -537,6 +544,22 @@ where
         Ok(result.rows_affected())
     }
 
+    /// Delete all events with block_number >= the given block_number
+    #[instrument(level = "info", skip(self))]
+    pub async fn delete_from_block_number_inclusively(self, block_number: u64) -> DBResult<u64> {
+        let result = sqlx::query(
+            r#"
+                DELETE FROM world_id_registry_events
+                WHERE block_number >= $1
+            "#,
+        )
+        .bind(block_number as i64)
+        .execute(self.executor)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     /// Get the latest block number from the registry events
     #[instrument(level = "info", skip(self))]
     pub async fn get_latest_block(self) -> DBResult<Option<u64>> {
@@ -686,6 +709,112 @@ where
         .await?;
 
         Ok(result.is_some())
+    }
+
+    /// Get the latest RootRecorded event
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_latest_root_recorded(
+        self,
+    ) -> DBResult<Option<BlockchainEvent<RegistryEvent>>> {
+        let row = sqlx::query(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    block_hash,
+                    tx_hash,
+                    event_type,
+                    leaf_index,
+                    event_data
+                FROM world_id_registry_events
+                WHERE event_type = 'root_recorded'
+                ORDER BY
+                    block_number DESC,
+                    log_index DESC
+                LIMIT 1
+            "#,
+        )
+        .fetch_optional(self.executor)
+        .await?;
+
+        if let Some(row) = row {
+            Ok(Some(Self::map_event_to_blockchain_event(&row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the all RootRecorded events after (inclusively) the provided block number
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_roots_recorded_after_block_number_inclusively(
+        self,
+        block_number: u64,
+    ) -> DBResult<Vec<BlockchainEvent<RegistryEvent>>> {
+        let rows = sqlx::query(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    block_hash,
+                    tx_hash,
+                    event_type,
+                    leaf_index,
+                    event_data
+                FROM world_id_registry_events
+                WHERE event_type = 'root_recorded'
+                  AND (
+                    block_number >= $1
+                  )
+                ORDER BY
+                    block_number ASC,
+                    log_index ASC
+                LIMIT 1
+            "#,
+        )
+        .bind(block_number as i64)
+        .fetch_all(self.executor)
+        .await?;
+
+        rows.iter()
+            .map(|row| Self::map_event_to_blockchain_event(row))
+            .collect()
+    }
+
+    /// Get block numbers that have more than one distinct block_hash, along with those hashes
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_reorged_block_hashes(self) -> DBResult<Vec<BlockWithConflictingHashes>> {
+        let rows = sqlx::query(
+            r#"
+                SELECT block_number, block_hash
+                FROM world_id_registry_events
+                WHERE block_number IN (
+                    SELECT block_number
+                    FROM world_id_registry_events
+                    GROUP BY block_number
+                    HAVING COUNT(DISTINCT block_hash) > 1
+                )
+                GROUP BY block_number, block_hash
+                ORDER BY block_number ASC
+            "#,
+        )
+        .fetch_all(self.executor)
+        .await?;
+
+        let mut result: Vec<BlockWithConflictingHashes> = Vec::new();
+        for row in &rows {
+            let block_number = row.get::<i64, _>("block_number") as u64;
+            let block_hash = row.get::<U256, _>("block_hash");
+            if let Some(entry) = result.last_mut().filter(|e| e.block_number == block_number) {
+                entry.block_hashes.push(block_hash);
+            } else {
+                result.push(BlockWithConflictingHashes {
+                    block_number,
+                    block_hashes: vec![block_hash],
+                });
+            }
+        }
+
+        Ok(result)
     }
 
     fn map_event(row: &PgRow) -> DBResult<WorldIdRegistryEvent> {

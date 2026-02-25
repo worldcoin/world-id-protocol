@@ -339,7 +339,7 @@ async fn test_deep_reorg_beyond_max_blocks() {
     // Run the actual blockchain_reorg_check_loop
     // Since the second blockchain has completely different block hashes,
     // it should detect a reorg beyond max_reorg_blocks and return an error
-    let result = world_id_indexer::blockchain_reorg_check::blockchain_reorg_check_loop(
+    let result = world_id_indexer::blockchain_sync_check::blockchain_sync_check_loop(
         1, // interval_secs - doesn't matter since it will fail on first check
         db,
         &blockchain2,

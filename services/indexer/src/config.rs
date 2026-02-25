@@ -105,7 +105,7 @@ pub struct HttpConfig {
     /// The reorg check compares block hashes in the database with the blockchain to detect reorganizations.
     pub reorg_check_interval_secs: Option<u64>,
     /// Maximum number of blocks to check back during reorg detection (default: 100)
-    pub max_reorg_blocks: u64,
+    pub max_sync_backward_check_blocks: u64,
     pub tree_cache: TreeCacheConfig,
 }
 
@@ -140,7 +140,7 @@ impl HttpConfig {
                     if val == 0 { None } else { Some(val) }
                 },
             ),
-            max_reorg_blocks: std::env::var("MAX_REORG_BLOCKS")
+            max_sync_backward_check_blocks: std::env::var("MAX_SYNC_BACKWARD_CHECK_BLOCKS")
                 .ok()
                 .and_then(|s| s.parse::<u64>().ok())
                 .unwrap_or(100),
