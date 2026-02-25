@@ -11,11 +11,20 @@ use crate::error::{GatewayErrorResponse, GatewayResult};
 pub struct RequestRecord {
     pub kind: GatewayRequestKind,
     pub status: GatewayRequestState,
+    pub updated_at: u64,
 }
 
 const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
 /// TTL for in-flight authenticator addresses (5 minutes safety fallback).
 const INFLIGHT_TTL: Duration = Duration::from_secs(300);
+const PENDING_SET_KEY: &str = "gateway:pending_requests";
+
+pub fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs()
+}
 
 /// Global request tracker instance.
 ///
@@ -65,6 +74,7 @@ impl RequestTracker {
         let record = RequestRecord {
             kind,
             status: GatewayRequestState::Queued,
+            updated_at: now_unix_secs(),
         };
 
         let mut manager = self.redis_manager.clone();
@@ -80,6 +90,11 @@ impl RequestTracker {
 
         manager
             .set_options(&key, json_str, opts)
+            .await
+            .map_err(handle_redis_error)?;
+
+        manager
+            .sadd(PENDING_SET_KEY, &id)
             .await
             .map_err(handle_redis_error)?;
 
@@ -123,6 +138,10 @@ impl RequestTracker {
     }
 
     /// Sets the status of a specific request in Redis.
+    ///
+    /// Atomically updates the status and `updated_at` timestamp. When the new
+    /// status is terminal (`finalized` or `failed`), the request ID is also
+    /// removed from the pending set in the same Lua script invocation.
     async fn set_status_on_redis(
         &self,
         id: &str,
@@ -131,6 +150,7 @@ impl RequestTracker {
         let mut manager = self.redis_manager.clone();
         let key = Self::request_key(id);
         let status_json = serde_json::to_string(status)?;
+        let now = now_unix_secs();
 
         let script = r#"
             local record = redis.call('GET', KEYS[1])
@@ -140,20 +160,96 @@ impl RequestTracker {
 
             local decoded = cjson.decode(record)
             decoded.status = cjson.decode(ARGV[1])
+            decoded.updated_at = tonumber(ARGV[2])
             local updated = cjson.encode(decoded)
 
             redis.call('SET', KEYS[1], updated, 'KEEPTTL')
+
+            local state = decoded.status.state
+            if state == 'finalized' or state == 'failed' then
+                redis.call('SREM', KEYS[2], ARGV[3])
+            end
+
             return redis.status_reply('OK')
         "#;
 
         let result: Result<(), redis::RedisError> = redis::Script::new(script)
             .key(&key)
+            .key(PENDING_SET_KEY)
             .arg(&status_json)
+            .arg(now)
+            .arg(id)
             .invoke_async(&mut manager)
             .await;
 
         result?;
         Ok(())
+    }
+
+    // =========================================================================
+    // Pending-set helpers (used by orphan_sweeper)
+    // =========================================================================
+
+    /// Returns all request IDs currently in the pending set.
+    pub async fn get_pending_requests(&self) -> Vec<String> {
+        let mut manager = self.redis_manager.clone();
+        let result: Result<std::collections::HashSet<String>, redis::RedisError> =
+            manager.smembers(PENDING_SET_KEY).await;
+
+        match result {
+            Ok(ids) => ids.into_iter().collect(),
+            Err(e) => {
+                tracing::error!("Failed to get pending requests from Redis: {e}");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Fetches multiple request records in a single `MGET` round-trip.
+    pub async fn snapshot_batch(&self, ids: &[String]) -> Vec<(String, Option<RequestRecord>)> {
+        if ids.is_empty() {
+            return Vec::new();
+        }
+
+        let keys: Vec<String> = ids.iter().map(|id| Self::request_key(id)).collect();
+        let mut manager = self.redis_manager.clone();
+
+        let result: Result<Vec<Option<String>>, redis::RedisError> = redis::cmd("MGET")
+            .arg(&keys)
+            .query_async(&mut manager)
+            .await;
+
+        match result {
+            Ok(values) => ids
+                .iter()
+                .zip(values)
+                .map(|(id, maybe_json)| {
+                    let record = maybe_json.and_then(|json_str| {
+                        serde_json::from_str::<RequestRecord>(&json_str)
+                            .map_err(|e| {
+                                tracing::error!(
+                                    "Failed to deserialize request {id} from Redis: {e}"
+                                );
+                            })
+                            .ok()
+                    });
+                    (id.clone(), record)
+                })
+                .collect(),
+            Err(e) => {
+                tracing::error!("Failed to MGET requests from Redis: {e}");
+                ids.iter().map(|id| (id.clone(), None)).collect()
+            }
+        }
+    }
+
+    /// Removes a request ID from the pending set (safety-net cleanup).
+    pub async fn remove_from_pending_set(&self, id: &str) {
+        let mut manager = self.redis_manager.clone();
+        let result: Result<usize, redis::RedisError> = manager.srem(PENDING_SET_KEY, id).await;
+        if let Err(e) = result {
+            tracing::error!("Failed to SREM {id} from pending set: {e}");
+        }
     }
 
     // =========================================================================

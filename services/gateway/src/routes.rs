@@ -1,11 +1,12 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    AppState,
+    AppState, OrphanSweeperConfig,
     batcher::BatcherHandle,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::{GatewayErrorBody, GatewayResult},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
+    orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
@@ -62,6 +63,7 @@ pub(crate) async fn build_app(
     redis_url: String,
     rate_limit_config: Option<(u64, u64)>,
     request_timeout_secs: u64,
+    orphan_sweeper_config: OrphanSweeperConfig,
 ) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(redis_url, rate_limit_config).await;
 
@@ -89,6 +91,15 @@ pub(crate) async fn build_app(
     tokio::spawn(ops_runner.run());
 
     tracing::info!("Ops batcher initialized");
+
+    let sweeper_tracker = tracker.clone();
+    let sweeper_provider = registry.provider().clone();
+    tokio::spawn(run_orphan_sweeper(
+        sweeper_tracker,
+        sweeper_provider,
+        orphan_sweeper_config,
+    ));
+    tracing::info!("Orphan sweeper initialized");
 
     let root_cache = Cache::builder()
         .max_capacity(ROOT_CACHE_SIZE)
