@@ -131,28 +131,13 @@ impl CreateBatcherRunner {
                     tokio::spawn(async move {
                         match builder.get_receipt().await {
                             Ok(receipt) => {
-                                if receipt.status() {
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            GatewayRequestState::Finalized {
-                                                tx_hash: hash.clone(),
-                                            },
-                                        )
-                                        .await;
-                                } else {
-                                    tracker
-                                        .set_status_batch(
-                                            &ids_for_receipt,
-                                            GatewayRequestState::failed(
-                                                format!(
-                                                    "transaction reverted on-chain (tx: {hash})"
-                                                ),
-                                                Some(GatewayErrorCode::TransactionReverted),
-                                            ),
-                                        )
-                                        .await;
-                                }
+                                tracker
+                                    .finalize_from_receipt(
+                                        &ids_for_receipt,
+                                        receipt.status(),
+                                        &hash,
+                                    )
+                                    .await;
                             }
                             Err(err) => {
                                 tracker
@@ -166,7 +151,6 @@ impl CreateBatcherRunner {
                                     .await;
                             }
                         }
-                        // Remove all addresses from the in-flight tracker after finalization
                         tracker.remove_inflight(&addresses_for_cleanup).await;
                     });
                 }

@@ -115,6 +115,29 @@ impl RequestTracker {
         self.set_status_batch(&[id.to_string()], status).await;
     }
 
+    /// Resolves a batch of requests based on a transaction receipt outcome.
+    ///
+    /// If the receipt indicates success, marks all requests as `Finalized`.
+    /// If the receipt indicates a revert, marks all requests as `Failed`.
+    pub async fn finalize_from_receipt(
+        &self,
+        ids: &[String],
+        receipt_succeeded: bool,
+        tx_hash: &str,
+    ) {
+        let status = if receipt_succeeded {
+            GatewayRequestState::Finalized {
+                tx_hash: tx_hash.to_string(),
+            }
+        } else {
+            GatewayRequestState::failed(
+                format!("transaction reverted on-chain (tx: {tx_hash})"),
+                Some(GatewayErrorCode::TransactionReverted),
+            )
+        };
+        self.set_status_batch(ids, status).await;
+    }
+
     /// Returns a snapshot of the current state of a request, if it exists.
     pub async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
         let mut manager = self.redis_manager.clone();

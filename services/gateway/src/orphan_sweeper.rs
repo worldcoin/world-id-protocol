@@ -56,6 +56,7 @@ pub async fn sweep_once(
         };
 
         match &record.status {
+            // Requests that are finalized but were not removed from the pending set. This likely never happens.
             GatewayRequestState::Finalized { .. } | GatewayRequestState::Failed { .. } => {
                 tracker.remove_from_pending_set(id).await;
             }
@@ -98,26 +99,9 @@ pub async fn sweep_once(
         match provider.get_transaction_receipt(hash).await {
             Ok(Some(receipt)) => {
                 let ids: Vec<String> = group.iter().map(|(id, _)| id.clone()).collect();
-                if receipt.status() {
-                    tracker
-                        .set_status_batch(
-                            &ids,
-                            GatewayRequestState::Finalized {
-                                tx_hash: tx_hash.clone(),
-                            },
-                        )
-                        .await;
-                } else {
-                    tracker
-                        .set_status_batch(
-                            &ids,
-                            GatewayRequestState::failed(
-                                format!("transaction reverted on-chain (tx: {tx_hash})"),
-                                Some(GatewayErrorCode::TransactionReverted),
-                            ),
-                        )
-                        .await;
-                }
+                tracker
+                    .finalize_from_receipt(&ids, receipt.status(), tx_hash)
+                    .await;
             }
             Ok(None) => {
                 for (id, updated_at) in group {
