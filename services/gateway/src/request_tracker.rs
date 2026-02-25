@@ -91,6 +91,8 @@ impl RequestTracker {
             if not ok then
                 return redis.error_reply('request already exists')
             end
+
+            -- Add the request ID to the pending set
             redis.call('SADD', KEYS[2], ARGV[3])
             return redis.status_reply('OK')
         "#;
