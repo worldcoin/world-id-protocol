@@ -100,6 +100,8 @@ pub async fn sweep_once(
             Ok(None) => {
                 for (id, updated_at) in group {
                     let age = now.saturating_sub(*updated_at);
+                    // Request is stale if it has been submitted for longer than the threshold.
+                    // We assume that sequencer has dropped the transaction from mempool if it hasn't been included in a block yet.
                     if age > config.stale_submitted_threshold_secs {
                         tracing::warn!(
                             request_id = %id,
