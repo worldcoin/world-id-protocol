@@ -1,7 +1,7 @@
 pub use crate::{
     config::{GatewayConfig, OrphanSweeperConfig, RateLimitConfig},
     orphan_sweeper::sweep_once,
-    request_tracker::{now_unix_secs, RequestRecord, RequestTracker},
+    request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
 use crate::{nonce::RedisNonceManager, routes::build_app, types::AppState};
 use redis::aio::ConnectionManager;
@@ -48,12 +48,18 @@ impl GatewayHandle {
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
     let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
 
-    // Use Redis-backed nonce manager for distributed nonce coordination.
+    // Each test gateway gets a unique Redis key prefix so that concurrent
+    // tests (each backed by a separate Anvil chain) do not share nonce state.
     let redis_client = redis::Client::open(cfg.redis_url.as_str()).expect("invalid REDIS_URL");
     let redis_conn = ConnectionManager::new(redis_client)
         .await
         .expect("failed to connect to Redis for nonce manager");
-    let nonce_mgr = RedisNonceManager::new(redis_conn);
+    let test_prefix = format!(
+        "gateway:nonce:test:{}",
+        uuid::Uuid::new_v4().as_hyphenated()
+    );
+    let nonce_mgr = RedisNonceManager::with_prefix(redis_conn, test_prefix);
+
     let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,

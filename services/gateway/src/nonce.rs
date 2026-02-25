@@ -5,11 +5,19 @@
 //!
 //! # How it works
 //!
-//! Each signer address gets a Redis key (`gateway:nonce:{address}`) that holds
+//! Each signer address gets a Redis key (`{prefix}:{address}`) that holds
 //! the last allocated nonce.  A Lua script atomically initialises from the
 //! on-chain pending nonce (via `SETNX`) and then increments, guaranteeing
 //! every caller – even across processes – receives a unique, monotonically
 //! increasing nonce.
+//!
+//! # Key prefix
+//!
+//! In production all gateway replicas **must** share the same prefix
+//! (the default `gateway:nonce`) so they coordinate nonce allocation.
+//! In tests each gateway instance should use a unique prefix (see
+//! [`RedisNonceManager::with_prefix`]) so that concurrent test gateways
+//! backed by different Anvil chains do not interfere with each other.
 //!
 //! # Failure modes
 //!
@@ -29,8 +37,8 @@ use alloy::{
 use async_trait::async_trait;
 use redis::aio::ConnectionManager;
 
-/// Nonce key prefix in Redis – one key per signer address.
-const NONCE_KEY_PREFIX: &str = "gateway:nonce";
+/// Default nonce key prefix in Redis – one key per signer address.
+const DEFAULT_NONCE_KEY_PREFIX: &str = "gateway:nonce";
 
 /// A [`NonceManager`] that coordinates nonce allocation via Redis.
 ///
@@ -38,16 +46,58 @@ const NONCE_KEY_PREFIX: &str = "gateway:nonce";
 #[derive(Clone, Debug)]
 pub struct RedisNonceManager {
     redis: ConnectionManager,
+    /// Key prefix used for all nonce keys managed by this instance.
+    prefix: String,
 }
 
 impl RedisNonceManager {
-    /// Create a new `RedisNonceManager` from an existing Redis connection manager.
+    /// Create a new `RedisNonceManager` with the default key prefix.
+    ///
+    /// All gateway replicas sharing a signer key **must** use the default
+    /// prefix so they coordinate on nonce allocation.
     pub fn new(redis: ConnectionManager) -> Self {
-        Self { redis }
+        Self {
+            redis,
+            prefix: DEFAULT_NONCE_KEY_PREFIX.to_string(),
+        }
     }
 
-    fn nonce_key(address: &Address) -> String {
-        format!("{NONCE_KEY_PREFIX}:{address}")
+    /// Create a new `RedisNonceManager` with a custom key prefix.
+    ///
+    /// Useful in tests where multiple gateway instances (each backed by a
+    /// separate Anvil chain) run concurrently and must not share nonce state.
+    pub fn with_prefix(redis: ConnectionManager, prefix: impl Into<String>) -> Self {
+        Self {
+            redis,
+            prefix: prefix.into(),
+        }
+    }
+
+    fn nonce_key(&self, address: &Address) -> String {
+        format!("{}:{address}", self.prefix)
+    }
+
+    /// Delete all nonce keys under this instance's prefix.
+    ///
+    /// This is intended for **test environments only** where a fresh chain
+    /// (e.g. Anvil) is started but Redis retains stale nonce values from a
+    /// previous run.  In production the keys should never be deleted — the
+    /// Lua safety floor handles on-chain nonce jumps.
+    pub async fn reset_all_keys(&self) -> Result<(), redis::RedisError> {
+        let mut conn = self.redis.clone();
+        // KEYS is O(N) blocking — acceptable only in test environments with few keys.
+        let keys: Vec<String> = redis::cmd("KEYS")
+            .arg(format!("{}:*", self.prefix))
+            .query_async(&mut conn)
+            .await?;
+        if !keys.is_empty() {
+            tracing::info!(count = keys.len(), prefix = %self.prefix, "Flushing stale Redis nonce keys");
+            redis::cmd("DEL")
+                .arg(&keys)
+                .query_async::<()>(&mut conn)
+                .await?;
+        }
+        Ok(())
     }
 }
 
@@ -85,7 +135,7 @@ impl NonceManager for RedisNonceManager {
         // knows about).  This is the floor for any nonce we hand out.
         let on_chain_nonce = provider.get_transaction_count(address).pending().await?;
 
-        let key = Self::nonce_key(&address);
+        let key = self.nonce_key(&address);
         let mut conn = self.redis.clone();
 
         let next: u64 = redis::Script::new(NONCE_LUA)
