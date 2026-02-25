@@ -55,6 +55,8 @@ pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 
+// TODO: Refactor config into structs to reduce number of arguments
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batch_ms: u64,
