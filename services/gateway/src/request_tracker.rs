@@ -470,9 +470,3 @@ impl RequestTracker {
         }
     }
 }
-
-/// Converts a Redis error into a gateway error response.
-fn handle_redis_error(e: redis::RedisError) -> GatewayErrorResponse {
-    tracing::error!("Unhandled Redis error: {}", e);
-    GatewayErrorResponse::internal_server_error()
-}
