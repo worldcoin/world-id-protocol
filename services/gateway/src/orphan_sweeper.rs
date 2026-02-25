@@ -6,8 +6,10 @@ use alloy::{
 };
 use world_id_core::api_types::{GatewayErrorCode, GatewayRequestState};
 
-use crate::config::OrphanSweeperConfig;
-use crate::request_tracker::{RequestTracker, now_unix_secs};
+use crate::{
+    config::OrphanSweeperConfig,
+    request_tracker::{RequestTracker, now_unix_secs},
+};
 
 /// Runs the orphan sweeper loop indefinitely.
 ///
