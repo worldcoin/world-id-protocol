@@ -1,6 +1,9 @@
-pub use crate::config::{GatewayConfig, RateLimitConfig};
+pub use crate::{
+    config::{GatewayConfig, OrphanSweeperConfig, RateLimitConfig},
+    orphan_sweeper::sweep_once,
+    request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
+};
 use crate::{routes::build_app, types::AppState};
-use request_tracker::RequestTracker;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
@@ -11,8 +14,9 @@ mod create_batcher;
 mod error;
 mod metrics;
 mod ops_batcher;
+pub mod orphan_sweeper;
 mod request;
-mod request_tracker;
+pub mod request_tracker;
 mod routes;
 mod types;
 
@@ -54,6 +58,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.redis_url,
         rate_limit_config,
         cfg.request_timeout_secs,
+        cfg.sweeper,
     )
     .await?;
 
@@ -103,6 +108,7 @@ pub async fn run() -> GatewayResult<()> {
         cfg.redis_url,
         rate_limit_config,
         cfg.request_timeout_secs,
+        cfg.sweeper,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
