@@ -79,6 +79,8 @@ async fn is_in_pending_set(redis: &mut ConnectionManager, id: &str) -> bool {
 // RequestTracker unit-level tests (Redis only)
 // =========================================================================
 
+/// Verifies that creating a request adds it to the pending set, and
+/// transitioning to `Finalized` atomically removes it.
 #[tokio::test]
 async fn pending_set_lifecycle_finalized() {
     let url = redis_url();
@@ -115,6 +117,7 @@ async fn pending_set_lifecycle_finalized() {
     );
 }
 
+/// Verifies that failing a request also removes it from the pending set.
 #[tokio::test]
 async fn pending_set_lifecycle_failed() {
     let url = redis_url();
@@ -138,6 +141,8 @@ async fn pending_set_lifecycle_failed() {
     assert!(!is_in_pending_set(&mut redis, &id).await);
 }
 
+/// Verifies that `updated_at` is set on creation and bumped on status
+/// changes. This timestamp drives staleness calculations in the sweeper.
 #[tokio::test]
 async fn updated_at_written_and_updated() {
     let url = redis_url();
@@ -173,6 +178,8 @@ async fn updated_at_written_and_updated() {
     assert!(submitted_at >= created_at);
 }
 
+/// Verifies that `snapshot_batch` (MGET) returns records for existing keys
+/// and `None` for missing keys, preserving input order.
 #[tokio::test]
 async fn snapshot_batch_returns_records() {
     let url = redis_url();
@@ -211,6 +218,8 @@ async fn snapshot_batch_returns_records() {
 // Sweeper integration tests (Redis + Anvil)
 // =========================================================================
 
+/// Verifies that a `Queued` request older than the staleness threshold is
+/// marked as `Failed` with an "orphaned" error and removed from the pending set.
 #[tokio::test]
 async fn sweep_stale_queued_request() {
     let url = redis_url();
@@ -248,6 +257,8 @@ async fn sweep_stale_queued_request() {
     assert!(!is_in_pending_set(&mut redis, "stale-queued").await);
 }
 
+/// Verifies that a recently-created `Queued` request is left alone by the
+/// sweeper. Ensures the sweeper only acts on stale requests.
 #[tokio::test]
 async fn sweep_fresh_queued_untouched() {
     let url = redis_url();
@@ -278,6 +289,8 @@ async fn sweep_fresh_queued_untouched() {
     assert!(is_in_pending_set(&mut redis, "fresh-queued").await);
 }
 
+/// Verifies that a `Batching` request older than the queued threshold is
+/// marked as `Failed`. Batching and Queued share the same staleness logic.
 #[tokio::test]
 async fn sweep_stale_batching_request() {
     let url = redis_url();
@@ -309,6 +322,8 @@ async fn sweep_stale_batching_request() {
     assert!(!is_in_pending_set(&mut redis, "stale-batching").await);
 }
 
+/// Verifies that a pending set entry with no corresponding request record
+/// in Redis is cleaned up (e.g. the record expired or was never written).
 #[tokio::test]
 async fn sweep_dangling_set_member() {
     let url = redis_url();
@@ -334,6 +349,8 @@ async fn sweep_dangling_set_member() {
     );
 }
 
+/// Verifies that a `Finalized` request left in the pending set gets cleaned
+/// out without changing its status. A safety-net for inconsistent state.
 #[tokio::test]
 async fn sweep_already_terminal_in_set() {
     let url = redis_url();
@@ -374,6 +391,8 @@ async fn sweep_already_terminal_in_set() {
     );
 }
 
+/// Verifies that a `Submitted` request with no on-chain receipt that exceeds
+/// the submitted threshold is marked as `Failed`. Covers dropped transactions.
 #[tokio::test]
 async fn sweep_submitted_no_receipt_stale() {
     let url = redis_url();
@@ -419,6 +438,8 @@ async fn sweep_submitted_no_receipt_stale() {
     assert!(!is_in_pending_set(&mut redis, "stale-submitted").await);
 }
 
+/// Verifies that a recently-submitted request without a receipt is left
+/// alone. The transaction may still be pending in the sequencer's mempool.
 #[tokio::test]
 async fn sweep_submitted_no_receipt_fresh() {
     let url = redis_url();
@@ -457,6 +478,9 @@ async fn sweep_submitted_no_receipt_fresh() {
     assert!(is_in_pending_set(&mut redis, "fresh-submitted").await);
 }
 
+/// End-to-end: submits a real transaction, then injects an orphaned request
+/// referencing the same tx hash. Verifies the sweeper finalizes it via the
+/// actual on-chain receipt.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sweep_submitted_with_real_receipt() {
     let url = redis_url();
