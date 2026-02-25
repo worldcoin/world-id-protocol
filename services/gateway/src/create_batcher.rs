@@ -151,7 +151,6 @@ impl CreateBatcherRunner {
                                     .await;
                             }
                         }
-                        // Remove all addresses from the in-flight tracker after finalization
                         tracker.remove_inflight(&addresses_for_cleanup).await;
                     });
                 }
