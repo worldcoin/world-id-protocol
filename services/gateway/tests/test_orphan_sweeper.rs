@@ -59,8 +59,8 @@ async fn inject_dangling_set_member(redis: &mut ConnectionManager, id: &str) {
     let _: () = redis.sadd("gateway:pending_requests", id).await.unwrap();
 }
 
-/// Read the raw request record JSON from Redis.
-async fn read_raw_record(redis: &mut ConnectionManager, id: &str) -> Option<serde_json::Value> {
+/// Read request record from Redis.
+async fn read_record(redis: &mut ConnectionManager, id: &str) -> Option<RequestRecord> {
     let key = format!("gateway:request:{id}");
     let result: Option<String> = redis.get(&key).await.unwrap();
     result.map(|s| serde_json::from_str(&s).unwrap())
@@ -95,7 +95,7 @@ async fn pending_set_lifecycle_finalized() {
         .await
         .unwrap();
 
-    let pending = tracker.get_pending_requests().await;
+    let pending = tracker.get_pending_requests().await.unwrap();
     assert!(
         pending.contains(&id),
         "new request should be in pending set"
@@ -110,7 +110,7 @@ async fn pending_set_lifecycle_finalized() {
         )
         .await;
 
-    let pending = tracker.get_pending_requests().await;
+    let pending = tracker.get_pending_requests().await.unwrap();
     assert!(
         !pending.contains(&id),
         "finalized request should be removed from pending set"
@@ -158,8 +158,8 @@ async fn updated_at_written_and_updated() {
         .await
         .unwrap();
 
-    let record = read_raw_record(&mut redis, &id).await.unwrap();
-    let created_at = record["updated_at"].as_u64().unwrap();
+    let record = read_record(&mut redis, &id).await.unwrap();
+    let created_at = record.updated_at;
     assert!(created_at >= before);
 
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -173,9 +173,8 @@ async fn updated_at_written_and_updated() {
         )
         .await;
 
-    let record = read_raw_record(&mut redis, &id).await.unwrap();
-    let submitted_at = record["updated_at"].as_u64().unwrap();
-    assert!(submitted_at >= created_at);
+    let record = read_record(&mut redis, &id).await.unwrap();
+    assert!(record.updated_at > created_at);
 }
 
 /// Verifies that `snapshot_batch` (MGET) returns records for existing keys
@@ -206,7 +205,8 @@ async fn snapshot_batch_returns_records() {
             "batch-2".to_string(),
             "nonexistent".to_string(),
         ])
-        .await;
+        .await
+        .unwrap();
 
     assert_eq!(results.len(), 3);
     assert!(results[0].1.is_some());
@@ -246,14 +246,13 @@ async fn sweep_stale_queued_request() {
     let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
-    let record = read_raw_record(&mut redis, "stale-queued").await.unwrap();
-    assert_eq!(record["status"]["state"], "failed");
-    assert!(
-        record["status"]["error"]
-            .as_str()
-            .unwrap()
-            .contains("orphaned")
-    );
+    let record = read_record(&mut redis, "stale-queued").await.unwrap();
+    match &record.status {
+        GatewayRequestState::Failed { error, .. } => {
+            assert!(error.contains("orphaned"));
+        }
+        other => panic!("expected Failed, got {other:?}"),
+    }
     assert!(!is_in_pending_set(&mut redis, "stale-queued").await);
 }
 
@@ -284,8 +283,8 @@ async fn sweep_fresh_queued_untouched() {
     let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
-    let record = read_raw_record(&mut redis, "fresh-queued").await.unwrap();
-    assert_eq!(record["status"]["state"], "queued");
+    let record = read_record(&mut redis, "fresh-queued").await.unwrap();
+    assert!(matches!(record.status, GatewayRequestState::Queued));
     assert!(is_in_pending_set(&mut redis, "fresh-queued").await);
 }
 
@@ -317,8 +316,8 @@ async fn sweep_stale_batching_request() {
     let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
-    let record = read_raw_record(&mut redis, "stale-batching").await.unwrap();
-    assert_eq!(record["status"]["state"], "failed");
+    let record = read_record(&mut redis, "stale-batching").await.unwrap();
+    assert!(matches!(record.status, GatewayRequestState::Failed { .. }));
     assert!(!is_in_pending_set(&mut redis, "stale-batching").await);
 }
 
@@ -382,11 +381,9 @@ async fn sweep_already_terminal_in_set() {
         !is_in_pending_set(&mut redis, "already-finalized").await,
         "terminal request should be cleaned from pending set"
     );
-    let record = read_raw_record(&mut redis, "already-finalized")
-        .await
-        .unwrap();
-    assert_eq!(
-        record["status"]["state"], "finalized",
+    let record = read_record(&mut redis, "already-finalized").await.unwrap();
+    assert!(
+        matches!(record.status, GatewayRequestState::Finalized { .. }),
         "status should remain unchanged"
     );
 }
@@ -425,16 +422,13 @@ async fn sweep_submitted_no_receipt_stale() {
     };
     sweep_once(&tracker, &dyn_provider, &config).await;
 
-    let record = read_raw_record(&mut redis, "stale-submitted")
-        .await
-        .unwrap();
-    assert_eq!(record["status"]["state"], "failed");
-    assert!(
-        record["status"]["error"]
-            .as_str()
-            .unwrap()
-            .contains("not confirmed")
-    );
+    let record = read_record(&mut redis, "stale-submitted").await.unwrap();
+    match &record.status {
+        GatewayRequestState::Failed { error, .. } => {
+            assert!(error.contains("not confirmed"));
+        }
+        other => panic!("expected Failed, got {other:?}"),
+    }
     assert!(!is_in_pending_set(&mut redis, "stale-submitted").await);
 }
 
@@ -468,11 +462,9 @@ async fn sweep_submitted_no_receipt_fresh() {
     let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
-    let record = read_raw_record(&mut redis, "fresh-submitted")
-        .await
-        .unwrap();
-    assert_eq!(
-        record["status"]["state"], "submitted",
+    let record = read_record(&mut redis, "fresh-submitted").await.unwrap();
+    assert!(
+        matches!(record.status, GatewayRequestState::Submitted { .. }),
         "fresh submitted request should not be touched"
     );
     assert!(is_in_pending_set(&mut redis, "fresh-submitted").await);
@@ -562,11 +554,11 @@ async fn sweep_submitted_with_real_receipt() {
     let config = OrphanSweeperConfig::default();
     sweep_once(&tracker, &dyn_provider, &config).await;
 
-    let record = read_raw_record(&mut redis, "orphan-with-receipt")
+    let record = read_record(&mut redis, "orphan-with-receipt")
         .await
         .unwrap();
-    assert_eq!(
-        record["status"]["state"], "finalized",
+    assert!(
+        matches!(record.status, GatewayRequestState::Finalized { .. }),
         "submitted request with on-chain receipt should be finalized by sweeper"
     );
     assert!(!is_in_pending_set(&mut redis, "orphan-with-receipt").await);

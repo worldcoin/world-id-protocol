@@ -227,56 +227,45 @@ impl RequestTracker {
     // =========================================================================
 
     /// Returns all request IDs currently in the pending set.
-    pub async fn get_pending_requests(&self) -> Vec<String> {
+    pub async fn get_pending_requests(&self) -> GatewayResult<Vec<String>> {
         let mut manager = self.redis_manager.clone();
-        let result: Result<std::collections::HashSet<String>, redis::RedisError> =
-            manager.smembers(PENDING_SET_KEY).await;
-
-        match result {
-            Ok(ids) => ids.into_iter().collect(),
-            Err(e) => {
-                tracing::error!("Failed to get pending requests from Redis: {e}");
-                Vec::new()
-            }
-        }
+        let ids: std::collections::HashSet<String> = manager.smembers(PENDING_SET_KEY).await?;
+        Ok(ids.into_iter().collect())
     }
 
     /// Fetches multiple request records in a single `MGET` round-trip.
-    pub async fn snapshot_batch(&self, ids: &[String]) -> Vec<(String, Option<RequestRecord>)> {
+    pub async fn snapshot_batch(
+        &self,
+        ids: &[String],
+    ) -> GatewayResult<Vec<(String, Option<RequestRecord>)>> {
         if ids.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         let keys: Vec<String> = ids.iter().map(|id| Self::request_key(id)).collect();
         let mut manager = self.redis_manager.clone();
 
-        let result: Result<Vec<Option<String>>, redis::RedisError> = redis::cmd("MGET")
+        let values: Vec<Option<String>> = redis::cmd("MGET")
             .arg(&keys)
             .query_async(&mut manager)
-            .await;
+            .await?;
 
-        match result {
-            Ok(values) => ids
-                .iter()
-                .zip(values)
-                .map(|(id, maybe_json)| {
-                    let record = maybe_json.and_then(|json_str| {
-                        serde_json::from_str::<RequestRecord>(&json_str)
-                            .map_err(|e| {
-                                tracing::error!(
-                                    "Failed to deserialize request {id} from Redis: {e}"
-                                );
-                            })
-                            .ok()
-                    });
-                    (id.clone(), record)
-                })
-                .collect(),
-            Err(e) => {
-                tracing::error!("Failed to MGET requests from Redis: {e}");
-                ids.iter().map(|id| (id.clone(), None)).collect()
-            }
-        }
+        Ok(ids
+            .iter()
+            .zip(values)
+            .map(|(id, maybe_json)| {
+                let record = maybe_json.and_then(|json_str| {
+                    serde_json::from_str::<RequestRecord>(&json_str)
+                        .map_err(|e| {
+                            tracing::error!(
+                                "Failed to deserialize request {id} from Redis: {e}"
+                            );
+                        })
+                        .ok()
+                });
+                (id.clone(), record)
+            })
+            .collect())
     }
 
     /// Removes a request ID from the pending set (safety-net cleanup).

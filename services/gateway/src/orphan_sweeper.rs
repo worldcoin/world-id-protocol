@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::B256,
+    primitives::TxHash,
     providers::{DynProvider, Provider},
 };
 use world_id_core::api_types::{GatewayErrorCode, GatewayRequestState};
@@ -34,18 +34,32 @@ pub async fn sweep_once(
     config: &OrphanSweeperConfig,
 ) {
     let now = now_unix_secs();
-    let pending_ids = tracker.get_pending_requests().await;
+    let pending_ids = match tracker.get_pending_requests().await {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::error!(error = %e, "sweeper: failed to fetch pending set, skipping pass");
+            return;
+        }
+    };
 
     if pending_ids.is_empty() {
         return;
     }
 
-    let records = tracker.snapshot_batch(&pending_ids).await;
+    let records = match tracker.snapshot_batch(&pending_ids).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "sweeper: failed to snapshot pending records, skipping pass");
+            return;
+        }
+    };
 
     // tx_hash -> [(request_id, updated_at)]
     let mut submitted_groups: HashMap<String, Vec<(String, u64)>> = HashMap::new();
 
+    // Phase 1: check requests in the pending set
     for (id, maybe_record) in &records {
+        // Pending set contains a request that has no status record in Redis. This likely never happens.
         let Some(record) = maybe_record else {
             tracker.remove_from_pending_set(id).await;
             continue;
@@ -85,10 +99,23 @@ pub async fn sweep_once(
         }
     }
 
-    // Phase 2: deduplicated receipt lookups
+    // Phase 2: deduplicated receipt lookups for submitted requests
     for (tx_hash, group) in &submitted_groups {
-        let Ok(hash) = tx_hash.parse::<B256>() else {
-            tracing::error!(tx_hash = %tx_hash, "sweeper: invalid tx_hash, skipping group");
+        let Ok(hash) = tx_hash.parse::<TxHash>() else {
+            // This should never happen unless there is some data corruption bug in Redis
+            tracing::error!(tx_hash = %tx_hash, "sweeper: invalid tx_hash, failing group");
+            // Fail requests since we can not look up the receipt anyways and the sweeper will run into the exact same error again and again until TTL is reached.
+            for (id, _) in group {
+                tracker
+                    .set_status(
+                        id,
+                        GatewayRequestState::failed(
+                            format!("corrupt tx_hash in request record: {tx_hash}"),
+                            Some(GatewayErrorCode::ConfirmationError),
+                        ),
+                    )
+                    .await;
+            }
             continue;
         };
 
