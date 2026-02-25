@@ -19,6 +19,9 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
 };
 
+const HARDCODED_RP_SIGNER: &str =
+    "1111111111111111111111111111111111111111111111111111111111111111";
+
 pub struct CreateQueryProofArgs<'a> {
     pub authenticator_signature: EdDSASignature,
     pub action: FieldElement,
@@ -95,6 +98,10 @@ pub struct WorldDevClientConfig {
     #[clap(long, env = "OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT")]
     pub world_id_registry_contract: Address,
 
+    /// The Address of the WorldIDRegistry contract.
+    #[clap(long, env = "OPRF_DEV_CLIENT_USE_HARDCODED_RP_SIGNER")]
+    pub use_hardcoded_rp_signer: bool,
+
     #[clap(flatten)]
     pub config: DevClientConfig,
 }
@@ -144,9 +151,15 @@ pub async fn init_shared_components(
         Arc::clone(&query_material),
     )
     .await?;
-    let signer = alloy::signers::local::PrivateKeySigner::from_str(
-        config.config.taceo_private_key.expose_secret(),
-    )?;
+
+    let signer =
+        alloy::signers::local::PrivateKeySigner::from_str(if config.use_hardcoded_rp_signer {
+            tracing::info!("using hardcoded RP signer");
+            HARDCODED_RP_SIGNER
+        } else {
+            tracing::info!("using provided private key as signer");
+            config.config.taceo_private_key.expose_secret()
+        })?;
 
     Ok(SharedDevClientComponents {
         authenticator,
