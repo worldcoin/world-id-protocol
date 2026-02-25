@@ -52,6 +52,9 @@ async fn test_authenticator_registration() {
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
+        orphan_sweeper_interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
