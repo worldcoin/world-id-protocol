@@ -110,6 +110,11 @@ impl RequestTracker {
                 GatewayErrorResponse::internal_server_error()
             })?;
 
+        manager
+            .sadd(PENDING_SET_KEY, &id)
+            .await
+            .map_err(handle_redis_error)?;
+
         Ok(())
     }
 

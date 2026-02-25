@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    AppState,
+    AppState, OrphanSweeperConfig,
     batcher::BatcherHandle,
     config::OrphanSweeperConfig,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
