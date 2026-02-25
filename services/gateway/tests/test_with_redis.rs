@@ -98,6 +98,10 @@ async fn redis_integration() {
         "updated_at should be present and numeric"
     );
 
+    // Verify the request was added to the pending set atomically with the record
+    let is_pending: bool = redis.sismember("gateway:pending_requests", &request_id).await.unwrap();
+    assert!(is_pending, "new request should be in the pending set immediately after creation");
+
     // Check that TTL is set (should be ~86400 seconds)
     match redis.ttl(&redis_key).await.unwrap() {
         IntegerReplyOrNoOp::IntegerReply(ttl) => {
