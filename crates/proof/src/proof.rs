@@ -14,7 +14,7 @@
 use ark_bn254::Bn254;
 use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
-use std::{io::Read, path::Path};
+use std::{collections::HashMap, io::Read, path::Path};
 use world_id_primitives::{
     Credential, FieldElement, RequestItem, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
 };
@@ -26,6 +26,143 @@ pub use groth16_material::circom::{
 use crate::nullifier::OprfNullifier;
 
 pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
+
+/// Typed error codes for OPRF node server errors.
+///
+/// These variants represent the known error categories that OPRF nodes
+/// can return in their HTTP response bodies. They are used to classify
+/// raw error strings and find consensus among multiple node failures.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum OprfNodeErrorCode {
+    /// Groth16 query proof verification failed.
+    InvalidProof,
+    /// Provided merkle root doesn't match any known root.
+    InvalidMerkleRoot,
+    /// Client timestamp too far from server time (nullifier-specific).
+    TimestampTooLarge,
+    /// Invalid signature error (nullifier-specific).
+    InvalidSignature,
+    /// Recovered signer doesn't match RP's registered signer (nullifier-specific).
+    InvalidSigner,
+    /// Nonce/signature replay detected (nullifier-specific).
+    DuplicateSignature,
+    /// RP ID not registered (nullifier-specific).
+    UnknownRp,
+    /// RP is deactivated (nullifier-specific).
+    RpInactive,
+    /// Action field must be zero (credential blinding factor-specific).
+    InvalidAction,
+    /// Issuer schema not registered (credential blinding factor-specific).
+    UnknownSchemaIssuer,
+    /// Internal server error with UUID.
+    InternalServerError,
+    /// Catch-all for unrecognized or miscellaneous server errors.
+    Unknown(String),
+}
+
+impl std::fmt::Display for OprfNodeErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidProof => write!(f, "invalid proof"),
+            Self::InvalidMerkleRoot => write!(f, "invalid merkle root"),
+            Self::TimestampTooLarge => write!(f, "timestamp difference too large"),
+            Self::InvalidSignature => write!(f, "invalid signature"),
+            Self::InvalidSigner => write!(f, "invalid signer"),
+            Self::DuplicateSignature => write!(f, "duplicate signature"),
+            Self::UnknownRp => write!(f, "unknown RP"),
+            Self::RpInactive => write!(f, "RP inactive"),
+            Self::InvalidAction => write!(f, "invalid action"),
+            Self::UnknownSchemaIssuer => write!(f, "unknown schema issuer"),
+            Self::InternalServerError => write!(f, "internal server error"),
+            Self::Unknown(msg) => write!(f, "unknown error: {msg}"),
+        }
+    }
+}
+
+/// Classifies a raw OPRF server error message into a typed error code.
+///
+/// Uses prefix and substring matching to identify known error patterns.
+/// Server messages may evolve, so this matching is intentionally flexible.
+fn classify_server_error(msg: &str) -> OprfNodeErrorCode {
+    let lower = msg.to_lowercase();
+
+    if lower.contains("invalid proof") {
+        OprfNodeErrorCode::InvalidProof
+    } else if lower.contains("invalid merkle root") {
+        OprfNodeErrorCode::InvalidMerkleRoot
+    } else if lower.contains("time stamp difference is too large")
+        || lower.contains("timestamp difference")
+    {
+        OprfNodeErrorCode::TimestampTooLarge
+    } else if lower.contains("invalid signer") {
+        OprfNodeErrorCode::InvalidSigner
+    } else if lower.contains("signature") && (lower.contains("invalid") || lower.contains("error"))
+    {
+        OprfNodeErrorCode::InvalidSignature
+    } else if lower.contains("duplicate") && lower.contains("signature") {
+        OprfNodeErrorCode::DuplicateSignature
+    } else if lower.contains("unknown rp") {
+        OprfNodeErrorCode::UnknownRp
+    } else if lower.contains("rp") && lower.contains("inactive") {
+        OprfNodeErrorCode::RpInactive
+    } else if lower.contains("invalid action") {
+        OprfNodeErrorCode::InvalidAction
+    } else if lower.contains("unknown schema issuer") {
+        OprfNodeErrorCode::UnknownSchemaIssuer
+    } else if lower.contains("internal server error") || lower.contains("error id=") {
+        OprfNodeErrorCode::InternalServerError
+    } else {
+        OprfNodeErrorCode::Unknown(msg.to_string())
+    }
+}
+
+/// Finds a consensus error code among OPRF node failures.
+///
+/// Returns the error code if a majority (> half) of all nodes that returned
+/// `ServerError` failures share the same classified error code.
+///
+/// Non-`ServerError` failures (e.g., `Eof`, network errors) are ignored
+/// for consensus purposes.
+///
+/// Returns `None` if:
+/// - There are no `ServerError` failures
+/// - No single error code is shared by a majority
+fn find_consensus_error(
+    node_errors: &HashMap<String, taceo_oprf::client::Error>,
+) -> Option<OprfNodeErrorCode> {
+    // Classify all ServerError failures
+    let mut classified: Vec<OprfNodeErrorCode> = Vec::new();
+
+    for err in node_errors.values() {
+        if let taceo_oprf::client::Error::ServerError(msg) = err {
+            classified.push(classify_server_error(msg));
+        }
+    }
+
+    if classified.is_empty() {
+        return None;
+    }
+
+    // Count occurrences of each error code
+    let mut counts: HashMap<OprfNodeErrorCode, usize> = HashMap::new();
+    for code in &classified {
+        *counts.entry(code.clone()).or_insert(0) += 1;
+    }
+
+    // Find the most common error code
+    let max_count = counts.values().max().copied()?;
+    let majority_threshold = classified.len() / 2;
+
+    // Return the code if it appears in more than half of the classified errors
+    if max_count > majority_threshold {
+        counts
+            .into_iter()
+            .find(|(_, count)| *count == max_count)
+            .map(|(code, _)| code)
+    } else {
+        None
+    }
+}
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
@@ -78,13 +215,70 @@ static CIRCUIT_FILES: std::sync::OnceLock<Result<EmbeddedCircuitFiles, String>> 
 pub enum ProofError {
     /// Error originating from `oprf_client`.
     #[error(transparent)]
-    OprfError(#[from] taceo_oprf::client::Error),
+    OprfError(taceo_oprf::client::Error),
+    /// Not enough OPRF node responses were received to satisfy the threshold.
+    ///
+    /// Unlike `OprfError`, this variant provides structured per-node error
+    /// information so callers can inspect individual failures and decide how
+    /// to present or aggregate them.
+    ///
+    /// When a majority of nodes return the same typed error, `code` reflects
+    /// that consensus. Otherwise, it contains a fallback `Unknown` code.
+    #[error("OPRF nodes did not reach threshold ({threshold_required} required) — consensus error: {code}; details: {}", format_node_errors(.node_errors))]
+    OprfNodeError {
+        /// The consensus error code, or `Unknown` if no majority was found.
+        code: OprfNodeErrorCode,
+        /// Threshold that was required for the OPRF protocol to succeed.
+        threshold_required: usize,
+        /// Individual `(node_url, error_message)` pairs — one entry per node
+        /// that returned an error.  Callers are free to inspect, filter, or
+        /// summarise these however they see fit.
+        node_errors: Vec<(String, String)>,
+    },
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
+}
+
+/// Format node errors for the `Display` impl of `ProofError::OprfNodeError`.
+fn format_node_errors(node_errors: &[(String, String)]) -> String {
+    if node_errors.is_empty() {
+        return "no error details available".to_string();
+    }
+    node_errors
+        .iter()
+        .map(|(url, err)| format!("{url}: {err}"))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+impl From<taceo_oprf::client::Error> for ProofError {
+    fn from(err: taceo_oprf::client::Error) -> Self {
+        match err {
+            taceo_oprf::client::Error::NotEnoughOprfResponses(threshold, node_errors_map) => {
+                // Attempt to find a consensus error code among the failures
+                let code = find_consensus_error(&node_errors_map).unwrap_or_else(|| {
+                    OprfNodeErrorCode::Unknown("no consensus among node errors".to_string())
+                });
+
+                // Convert the HashMap to a Vec for storage
+                let node_errors: Vec<(String, String)> = node_errors_map
+                    .into_iter()
+                    .map(|(url, e)| (url, e.to_string()))
+                    .collect();
+
+                Self::OprfNodeError {
+                    code,
+                    threshold_required: threshold,
+                    node_errors,
+                }
+            }
+            other => Self::OprfError(other),
+        }
+    }
 }
 
 // ============================================================================
@@ -423,5 +617,293 @@ mod tests {
 
         let decompressed = ark_decompress_zkey(&compressed).unwrap();
         assert_eq!(decompressed, files.query_zkey);
+    }
+}
+
+#[cfg(test)]
+mod oprf_error_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_classify_server_error_known_patterns() {
+        assert_eq!(
+            classify_server_error("invalid proof"),
+            OprfNodeErrorCode::InvalidProof
+        );
+        assert_eq!(
+            classify_server_error("invalid merkle root"),
+            OprfNodeErrorCode::InvalidMerkleRoot
+        );
+        assert_eq!(
+            classify_server_error("the time stamp difference is too large"),
+            OprfNodeErrorCode::TimestampTooLarge
+        );
+        assert_eq!(
+            classify_server_error("invalid signer"),
+            OprfNodeErrorCode::InvalidSigner
+        );
+        assert_eq!(
+            classify_server_error("SignatureError: invalid signature"),
+            OprfNodeErrorCode::InvalidSignature
+        );
+        assert_eq!(
+            classify_server_error("duplicate signature detected"),
+            OprfNodeErrorCode::DuplicateSignature
+        );
+        assert_eq!(
+            classify_server_error("unknown rp: 42"),
+            OprfNodeErrorCode::UnknownRp
+        );
+        assert_eq!(
+            classify_server_error("rp is inactive"),
+            OprfNodeErrorCode::RpInactive
+        );
+        assert_eq!(
+            classify_server_error("invalid action (must be 0 for now)"),
+            OprfNodeErrorCode::InvalidAction
+        );
+        assert_eq!(
+            classify_server_error("unknown schema issuer: 127"),
+            OprfNodeErrorCode::UnknownSchemaIssuer
+        );
+        assert_eq!(
+            classify_server_error("An internal server error has occurred. Error ID=abc123"),
+            OprfNodeErrorCode::InternalServerError
+        );
+
+        // Unknown patterns
+        match classify_server_error("something completely different") {
+            OprfNodeErrorCode::Unknown(msg) => {
+                assert_eq!(msg, "something completely different");
+            }
+            _ => panic!("Expected Unknown variant"),
+        }
+    }
+
+    #[test]
+    fn test_find_consensus_error_majority_found() {
+        let mut node_errors = HashMap::new();
+        node_errors.insert(
+            "node1".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+        node_errors.insert(
+            "node2".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+        node_errors.insert(
+            "node3".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid merkle root".to_string()),
+        );
+
+        let consensus = find_consensus_error(&node_errors);
+        assert_eq!(consensus, Some(OprfNodeErrorCode::InvalidProof));
+    }
+
+    #[test]
+    fn test_find_consensus_error_no_majority() {
+        let mut node_errors = HashMap::new();
+        node_errors.insert(
+            "node1".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+        node_errors.insert(
+            "node2".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid merkle root".to_string()),
+        );
+        node_errors.insert(
+            "node3".to_string(),
+            taceo_oprf::client::Error::ServerError("unknown schema issuer: 1".to_string()),
+        );
+
+        let consensus = find_consensus_error(&node_errors);
+        assert_eq!(consensus, None);
+    }
+
+    #[test]
+    fn test_find_consensus_error_ignores_non_server_errors() {
+        let mut node_errors = HashMap::new();
+        node_errors.insert(
+            "node1".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+        node_errors.insert(
+            "node2".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+        node_errors.insert("node3".to_string(), taceo_oprf::client::Error::Eof);
+        node_errors.insert(
+            "node4".to_string(),
+            taceo_oprf::client::Error::InvalidDLogProof,
+        );
+
+        // Only the 2 ServerError nodes count toward consensus
+        // 2 out of 2 ServerErrors is > 50%, so consensus is found
+        let consensus = find_consensus_error(&node_errors);
+        assert_eq!(consensus, Some(OprfNodeErrorCode::InvalidProof));
+    }
+
+    #[test]
+    fn test_find_consensus_error_no_server_errors() {
+        let mut node_errors = HashMap::new();
+        node_errors.insert("node1".to_string(), taceo_oprf::client::Error::Eof);
+        node_errors.insert(
+            "node2".to_string(),
+            taceo_oprf::client::Error::InvalidDLogProof,
+        );
+
+        let consensus = find_consensus_error(&node_errors);
+        assert_eq!(consensus, None);
+    }
+
+    #[test]
+    fn test_convert_not_enough_responses_with_consensus() {
+        let mut node_errors = HashMap::new();
+        node_errors.insert(
+            "node1".to_string(),
+            taceo_oprf::client::Error::ServerError("unknown schema issuer: 127".to_string()),
+        );
+        node_errors.insert(
+            "node2".to_string(),
+            taceo_oprf::client::Error::ServerError("unknown schema issuer: 127".to_string()),
+        );
+        node_errors.insert(
+            "node3".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+
+        let err = taceo_oprf::client::Error::NotEnoughOprfResponses(3, node_errors);
+        let proof_err = ProofError::from(err);
+
+        match proof_err {
+            ProofError::OprfNodeError {
+                code,
+                threshold_required,
+                node_errors,
+            } => {
+                assert_eq!(code, OprfNodeErrorCode::UnknownSchemaIssuer);
+                assert_eq!(threshold_required, 3);
+                assert_eq!(node_errors.len(), 3);
+
+                // Per-node errors are still preserved
+                let by_url: HashMap<&str, &str> = node_errors
+                    .iter()
+                    .map(|(u, e)| (u.as_str(), e.as_str()))
+                    .collect();
+                assert!(
+                    by_url
+                        .get("node1")
+                        .unwrap()
+                        .contains("unknown schema issuer")
+                );
+                assert!(
+                    by_url
+                        .get("node2")
+                        .unwrap()
+                        .contains("unknown schema issuer")
+                );
+                assert!(by_url.get("node3").unwrap().contains("invalid proof"));
+            }
+            _ => panic!("Expected OprfNodeError, got {proof_err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_convert_not_enough_responses_no_consensus() {
+        // All different server errors — no majority
+        let mut node_errors = HashMap::new();
+        node_errors.insert(
+            "node1".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+        node_errors.insert(
+            "node2".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid merkle root".to_string()),
+        );
+        node_errors.insert(
+            "node3".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid signer".to_string()),
+        );
+
+        let err = taceo_oprf::client::Error::NotEnoughOprfResponses(3, node_errors);
+        let proof_err = ProofError::from(err);
+
+        match &proof_err {
+            ProofError::OprfNodeError {
+                code,
+                threshold_required,
+                node_errors,
+            } => {
+                assert!(
+                    matches!(code, OprfNodeErrorCode::Unknown(_)),
+                    "Expected Unknown code when no consensus, got {code:?}"
+                );
+                assert_eq!(*threshold_required, 3);
+                assert_eq!(node_errors.len(), 3);
+            }
+            _ => panic!("Expected OprfNodeError, got {proof_err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_convert_not_enough_responses_empty_errors() {
+        let node_errors = HashMap::new();
+        let err = taceo_oprf::client::Error::NotEnoughOprfResponses(3, node_errors);
+        let proof_err = ProofError::from(err);
+
+        match &proof_err {
+            ProofError::OprfNodeError {
+                code,
+                threshold_required,
+                node_errors,
+            } => {
+                match code {
+                    OprfNodeErrorCode::Unknown(_) => {}
+                    _ => panic!("Expected Unknown code for empty errors"),
+                }
+                assert_eq!(*threshold_required, 3);
+                assert!(node_errors.is_empty());
+                // Display should indicate no details
+                let msg = format!("{proof_err}");
+                assert!(msg.contains("no error details"));
+            }
+            _ => panic!("Expected OprfNodeError"),
+        }
+    }
+
+    #[test]
+    fn test_convert_other_oprf_errors_pass_through() {
+        let err = taceo_oprf::client::Error::InvalidDLogProof;
+        let proof_err = ProofError::from(err);
+        assert!(matches!(proof_err, ProofError::OprfError(_)));
+
+        let err = taceo_oprf::client::Error::InconsistentOprfPublicKeys;
+        let proof_err = ProofError::from(err);
+        assert!(matches!(proof_err, ProofError::OprfError(_)));
+    }
+
+    #[test]
+    fn test_display_includes_consensus_code_and_node_errors() {
+        let mut node_errors = HashMap::new();
+        node_errors.insert(
+            "node1".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+        node_errors.insert(
+            "node2".to_string(),
+            taceo_oprf::client::Error::ServerError("invalid proof".to_string()),
+        );
+
+        let err = taceo_oprf::client::Error::NotEnoughOprfResponses(2, node_errors);
+        let proof_err = ProofError::from(err);
+        let msg = format!("{proof_err}");
+
+        assert!(msg.contains("threshold"));
+        assert!(msg.contains("2 required"));
+        assert!(msg.contains("consensus error"));
+        assert!(msg.contains("invalid proof"));
+        assert!(msg.contains("node1"));
+        assert!(msg.contains("node2"));
     }
 }
