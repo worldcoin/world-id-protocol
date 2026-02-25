@@ -55,6 +55,13 @@ contract Deploy is Script {
 
         vm.startBroadcast();
 
+        if (address(_deployer).code.length == 0) {
+            _deployer = new WorldIDDeployer{salt: bytes32(0)}();
+            console2.log("Deployed WorldIDDeployer at:", address(_deployer));
+        } else {
+            console2.log("WorldIDDeployer found at:", address(_deployer));
+        }
+
         _run(config);
 
         // Accept ownership on all proxies (completing the 2-step transfer)
@@ -85,11 +92,7 @@ contract Deploy is Script {
     /// @param config The raw JSON config string.
     /// @param key    The key under `.salts` in the config (e.g. "worldIDRegistry").
     /// @param envVar The env var name to check first (e.g. "SALT_WORLD_ID_REGISTRY").
-    function _getSalt(string memory config, string memory key, string memory envVar)
-        internal
-        view
-        returns (bytes32)
-    {
+    function _getSalt(string memory config, string memory key, string memory envVar) internal view returns (bytes32) {
         return vm.envOr(envVar, vm.parseJsonBytes32(config, string.concat(".salts.", key)));
     }
 
