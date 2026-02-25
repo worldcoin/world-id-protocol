@@ -1,9 +1,10 @@
 pub use crate::{
     config::{GatewayConfig, OrphanSweeperConfig, RateLimitConfig},
     orphan_sweeper::sweep_once,
-    request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
+    request_tracker::{now_unix_secs, RequestRecord, RequestTracker},
 };
-use crate::{routes::build_app, types::AppState};
+use crate::{nonce::RedisNonceManager, routes::build_app, types::AppState};
+use redis::aio::ConnectionManager;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
@@ -13,6 +14,7 @@ mod config;
 mod create_batcher;
 mod error;
 mod metrics;
+pub mod nonce;
 mod ops_batcher;
 pub mod orphan_sweeper;
 mod request;
@@ -45,7 +47,15 @@ impl GatewayHandle {
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
     let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
-    let provider = Arc::new(cfg.provider.http().await?);
+
+    // Use Redis-backed nonce manager for distributed nonce coordination.
+    let redis_client = redis::Client::open(cfg.redis_url.as_str())
+        .expect("invalid REDIS_URL");
+    let redis_conn = ConnectionManager::new(redis_client)
+        .await
+        .expect("failed to connect to Redis for nonce manager");
+    let nonce_mgr = RedisNonceManager::new(redis_conn);
+    let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -96,7 +106,19 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env()?;
     let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
-    let provider = Arc::new(cfg.provider.http().await?);
+
+    // Use Redis-backed nonce manager so multiple replicas sharing the same
+    // signer key never collide on nonces.  The existing REDIS_URL config
+    // value is reused — no new configuration required.
+    let redis_client = redis::Client::open(cfg.redis_url.as_str())
+        .map_err(|e| GatewayError::Config(format!("invalid REDIS_URL for nonce manager: {e}")))?;
+    let redis_conn = ConnectionManager::new(redis_client)
+        .await
+        .map_err(|e| GatewayError::Config(format!("Redis connection for nonce manager failed: {e}")))?;
+    let nonce_mgr = RedisNonceManager::new(redis_conn);
+    tracing::info!("Redis-backed nonce manager initialised");
+
+    let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!("Config is ready. Building app...");
