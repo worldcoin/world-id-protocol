@@ -780,6 +780,46 @@ where
             .collect()
     }
 
+    /// Get the latest RootRecorded event strictly before the given event_id
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_root_recorded_before(
+        self,
+        event_id: WorldIdRegistryEventId,
+    ) -> DBResult<Option<BlockchainEvent<RegistryEvent>>> {
+        let row = sqlx::query(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    block_hash,
+                    tx_hash,
+                    event_type,
+                    leaf_index,
+                    event_data
+                FROM world_id_registry_events
+                WHERE event_type = 'root_recorded'
+                  AND (
+                      block_number < $1
+                      OR (block_number = $1 AND log_index < $2)
+                  )
+                ORDER BY
+                    block_number DESC,
+                    log_index DESC
+                LIMIT 1
+            "#,
+        )
+        .bind(event_id.block_number as i64)
+        .bind(event_id.log_index as i64)
+        .fetch_optional(self.executor)
+        .await?;
+
+        if let Some(row) = row {
+            Ok(Some(Self::map_event_to_blockchain_event(&row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Get block numbers that have more than one distinct block_hash, along with those hashes
     #[instrument(level = "info", skip(self))]
     pub async fn get_reorged_block_hashes(self) -> DBResult<Vec<BlockWithConflictingHashes>> {
