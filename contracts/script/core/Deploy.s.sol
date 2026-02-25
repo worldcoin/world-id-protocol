@@ -45,7 +45,7 @@ contract Deploy is Script {
     address public rpRegistryImplAddress;
     address public worldIDVerifierImplAddress;
 
-    WorldIDDeployer internal _deployer;
+    WorldIDDeployer internal _deployer = WorldIDDeployer(0x7f170d4E2EB55F170fd67d247e03B2973Bf34085);
 
     /// @notice Deploy all contracts for the given environment.
     /// @dev Usage: forge script script/Deploy.s.sol --sig "run(string)" "staging" --broadcast --private-key $PK
@@ -54,9 +54,6 @@ contract Deploy is Script {
         string memory config = _loadConfig(env);
 
         vm.startBroadcast();
-
-        // Deploy the CREATE2 deployer helper first
-        _deployer = new WorldIDDeployer();
 
         _run(config);
 
@@ -98,7 +95,7 @@ contract Deploy is Script {
         bytes32 salt = vm.parseJsonBytes32(config, ".salts.worldIDRegistry");
 
         // Deploy implementation
-        WorldIDRegistry implementation = new WorldIDRegistry{salt: bytes32(uint256(2))}();
+        WorldIDRegistry implementation = new WorldIDRegistry{salt: bytes32(uint256(3))}();
         worldIDRegistryImplAddress = address(implementation);
 
         // Encode initializer call
@@ -108,7 +105,14 @@ contract Deploy is Script {
 
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
 
+        bytes32 initCodeHash = keccak256(initCode);
+
+        console2.log("Init code hash:");
+        console2.logBytes32(initCodeHash);
+
         worldIDRegistryAddress = deploy(salt, initCode);
+
+        console2.log("Deployed WorldIDRegistry proxy at:", worldIDRegistryAddress);
     }
 
     function deployCredentialSchemaIssuerRegistry(string memory config) public {
@@ -126,7 +130,7 @@ contract Deploy is Script {
         console2.log("Salt:");
         console2.logBytes32(salt);
         // Deploy implementation
-        CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry{salt: bytes32(uint256(0))}();
+        CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry{salt: bytes32(uint256(1))}();
         credentialSchemaIssuerRegistryImplAddress = address(implementation);
 
         // Encode initializer call
@@ -151,7 +155,7 @@ contract Deploy is Script {
         bytes32 salt = vm.parseJsonBytes32(config, ".salts.rpRegistry");
 
         // Deploy implementation
-        RpRegistry implementation = new RpRegistry();
+        RpRegistry implementation = new RpRegistry{salt: bytes32(uint256(1))}();
         rpRegistryImplAddress = address(implementation);
 
         // Encode initializer call
@@ -169,7 +173,7 @@ contract Deploy is Script {
 
         bytes32 salt = vm.parseJsonBytes32(config, ".salts.worldIDVerifier");
 
-        WorldIDVerifier implementation = new WorldIDVerifier();
+        WorldIDVerifier implementation = new WorldIDVerifier{salt: bytes32(uint256(1))}();
         worldIDVerifierImplAddress = address(implementation);
 
         // Encode initializer call
@@ -183,8 +187,12 @@ contract Deploy is Script {
         );
 
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
-
+        bytes32 initCodeHash = keccak256(initCode);
+        console2.log("Init code hash:");
+        console2.logBytes32(initCodeHash);
         worldIDVerifierAddress = deploy(salt, initCode);
+
+        console2.log("Deployed WorldIDVerifier proxy at:", worldIDVerifierAddress);
     }
 
     /// @notice Loads a JSON config file for the given environment.

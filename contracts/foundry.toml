@@ -2,13 +2,18 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
-# Enable optimizer
-optimizer = true
-# How aggressively to optimize (higher = more runtime-opt, bigger bytecode)
-optimizer_runs = 10000
-via_ir = true
+
+# Do _not_ change any of these fields
+solc = "0.8.28"
+auto_detect_solc = false
 evm_version = "cancun"
+bytecode_hash = "none"
+cbor_metadata = false
+optimizer = true
+optimizer_runs = 10000
+
+# ---           ---
+via_ir = true
 memory_limit = 1073741824
 gas_limit = "18446744073709551615"
 ffi = true
