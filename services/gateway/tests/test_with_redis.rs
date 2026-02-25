@@ -58,6 +58,9 @@ async fn redis_integration() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(5),
         rate_limit_max_requests: Some(10),
+        orphan_sweeper_interval_secs: 30,
+        stale_queued_threshold_secs: 60,
+        stale_submitted_threshold_secs: 600,
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -92,6 +95,10 @@ async fn redis_integration() {
 
     assert_eq!(stored_data["kind"], "create_account");
     assert_eq!(stored_data["status"]["state"], "queued");
+    assert!(
+        stored_data["updated_at"].is_number(),
+        "updated_at should be present and numeric"
+    );
 
     // Check that TTL is set (should be ~86400 seconds)
     match redis.ttl(&redis_key).await.unwrap() {
@@ -111,6 +118,18 @@ async fn redis_integration() {
 
     assert_eq!(updated_data["status"]["state"], "finalized");
     assert!(updated_data["status"]["tx_hash"].is_string());
+    assert!(
+        updated_data["updated_at"].is_number(),
+        "updated_at should still be present after finalization"
+    );
+
+    // Verify the request was removed from the pending set after finalization
+    let pending_members: std::collections::HashSet<String> =
+        redis.smembers("gateway:pending_requests").await.unwrap();
+    assert!(
+        !pending_members.contains(&request_id),
+        "finalized request should have been removed from the pending set"
+    );
 
     // Cleanup
     let _ = gw.shutdown().await;
