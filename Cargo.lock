@@ -3487,7 +3487,7 @@ checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "alloy",
  "eyre",
@@ -8773,7 +8773,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "alloy",
  "anyhow",
@@ -8802,7 +8802,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "alloy",
  "backon",
@@ -8926,7 +8926,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -8943,7 +8943,9 @@ name = "world-id-oprf-dev-client"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
  "backon",
  "clap",
  "eyre",
@@ -8962,6 +8964,7 @@ dependencies = [
  "webpki-roots 1.0.6",
  "world-id-core",
  "world-id-primitives",
+ "world-id-proof",
  "world-id-test-utils",
 ]
 
@@ -9004,7 +9007,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -9041,7 +9044,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
