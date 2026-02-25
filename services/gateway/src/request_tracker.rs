@@ -97,6 +97,7 @@ impl RequestTracker {
             return redis.status_reply('OK')
         "#;
 
+
         redis::Script::new(script)
             .key(&key)
             .key(PENDING_SET_KEY)
@@ -109,11 +110,6 @@ impl RequestTracker {
                 tracing::error!("Error creating request {id}: {e}");
                 GatewayErrorResponse::internal_server_error()
             })?;
-
-        manager
-            .sadd(PENDING_SET_KEY, &id)
-            .await
-            .map_err(handle_redis_error)?;
 
         Ok(())
     }
