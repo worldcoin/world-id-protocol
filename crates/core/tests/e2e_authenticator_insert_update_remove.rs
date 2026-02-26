@@ -132,7 +132,10 @@ async fn e2e_authenticator_insert_update_remove() {
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
-        sweeper: OrphanSweeperConfig::default(),
+        sweeper_interval_secs: OrphanSweeperConfig::default().interval_secs,
+        stale_queued_threshold_secs: OrphanSweeperConfig::default().stale_queued_threshold_secs,
+        stale_submitted_threshold_secs: OrphanSweeperConfig::default()
+            .stale_submitted_threshold_secs,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
