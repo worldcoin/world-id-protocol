@@ -341,4 +341,27 @@ mod tests {
             vec![Some(U256::from(42)), None, Some(U256::from(42))]
         );
     }
+
+    #[test]
+    fn test_hex_signature_roundtrip() {
+        use alloy_primitives::Signature;
+
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct S {
+            #[serde(with = "hex_signature")]
+            sig: Signature,
+        }
+
+        let sig = Signature::new(U256::from(1), U256::from(2), false);
+        let s = S { sig };
+
+        let json = serde_json::to_string(&s).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let hex_str = value["sig"].as_str().expect("signature should be a string");
+        assert!(hex_str.starts_with("0x"), "should be 0x-prefixed");
+        assert_eq!(hex_str.len(), 132, "0x + 130 hex chars (65 bytes)");
+
+        let parsed: S = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, s);
+    }
 }

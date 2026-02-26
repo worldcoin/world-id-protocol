@@ -834,6 +834,41 @@ mod tests {
     }
 
     #[test]
+    fn proof_request_signature_serializes_as_hex_string() {
+        let request = ProofRequest {
+            id: "test".into(),
+            version: RequestVersion::V1,
+            created_at: 1_700_000_000,
+            expires_at: 1_700_100_000,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: None,
+            action: None,
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        let json = request.to_json().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let sig = value["signature"]
+            .as_str()
+            .expect("signature should be a string");
+        assert!(sig.starts_with("0x"));
+        assert_eq!(sig.len(), 132);
+
+        let roundtripped = ProofRequest::from_json(&json).unwrap();
+        assert_eq!(roundtripped.signature, request.signature);
+    }
+
+    #[test]
     fn request_validate_response_none_constraints_means_all() {
         let request = ProofRequest {
             id: "req_1".into(),
