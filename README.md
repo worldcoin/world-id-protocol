@@ -1,7 +1,7 @@
-# 🚧 WIP: world-id-protocol
+# world-id-protocol
 
-> [!CAUTION]
-> This project is work in progress and unaudited. DO NOT USE IN PRODUCTION. Releases may contain breaking changes at any time.
+> [!WARNING]
+> This project is unaudited. Releases may contain breaking changes at any time.
 
 ## Prerequisites
 
@@ -11,21 +11,34 @@
 
 ## 🗃️ Deployments
 
-> [!WARNING]
-> These deployments are the current most up-to-date version, but this project is still WIP and deployments may change at any time.
-
 Deployments are tracked in [`contracts/deployments/`](contracts/deployments/)
+
+### Core Contracts
 
 | Environment | Chain              | Config                                                          |
 | ----------- | ------------------ | --------------------------------------------------------------- |
+| Production  | World Chain (`480`) | [`contracts/deployments/core/production.json`](contracts/deployments/core/production.json) |
 | Staging     | World Chain (`480`) | [`contracts/deployments/core/staging.json`](contracts/deployments/core/staging.json) |
+
+### OPRF Key Registry
+
+| Environment | Chain              | Config                                                          |
+| ----------- | ------------------ | --------------------------------------------------------------- |
+| Production  | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/prod.json`](contracts/deployments/oprf-key-registry/prod.json) |
+| Staging     | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/staging.json`](contracts/deployments/oprf-key-registry/staging.json) |
+
+### Crosschain Contracts
+
+| Environment | Chains             | Config                                                          |
+| ----------- | ------------------ | --------------------------------------------------------------- |
+| Staging     | World Chain (`480`), Ethereum (`1`), Base (`8453`) | [`contracts/deployments/crosschain/staging.json`](contracts/deployments/crosschain/staging.json) |
 
 ### Services
 
-| Service            | URL                                                   |
-| ------------------ | ----------------------------------------------------- |
-| `world-id-indexer` | `https://indexer.us.id-infra.worldcoin.dev`<br />`https://indexer.eu.id-infra.worldcoin.dev`<br />`https://indexer.ap.id-infra.worldcoin.dev` |
-| `world-id-gateway` | `https://world-id-gateway.stage-crypto.worldcoin.org` |
+| Service            | Environment | URL                                                   |
+| ------------------ | ----------- | ----------------------------------------------------- |
+| `world-id-indexer` | Production  | `https://indexer.us.id-infra.worldcoin.dev`<br />`https://indexer.eu.id-infra.worldcoin.dev`<br />`https://indexer.ap.id-infra.worldcoin.dev` |
+| `world-id-gateway` | Staging     | `https://world-id-gateway.stage-crypto.worldcoin.org` |
 
 ## 🏗️ Project Structure
 
