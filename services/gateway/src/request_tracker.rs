@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use world_id_core::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
-use crate::config::RateLimitConfig;
-use crate::error::{GatewayErrorResponse, GatewayResult};
+use crate::{
+    config::RateLimitConfig,
+    error::{GatewayErrorResponse, GatewayResult},
+};
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
     pub kind: GatewayRequestKind,
