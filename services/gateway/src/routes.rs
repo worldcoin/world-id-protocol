@@ -4,7 +4,6 @@ use crate::{
     AppState,
     batcher::BatcherHandle,
     config::{BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
-
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::{GatewayErrorBody, GatewayResult},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},

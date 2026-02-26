@@ -98,11 +98,19 @@ pub struct GatewayConfig {
     pub redis_url: String,
 
     /// Rate limit window in seconds (sliding window). Requires --rate-limit-max-requests.
-    #[arg(long = "rate-limit-window-secs", env = "RATE_LIMIT_WINDOW_SECS", requires = "rate_limit_max_requests")]
+    #[arg(
+        long = "rate-limit-window-secs",
+        env = "RATE_LIMIT_WINDOW_SECS",
+        requires = "rate_limit_max_requests"
+    )]
     pub rate_limit_window_secs: Option<u64>,
 
     /// Maximum requests per leaf_index within the rate limit window. Requires --rate-limit-window-secs.
-    #[arg(long = "rate-limit-max-requests", env = "RATE_LIMIT_MAX_REQUESTS", requires = "rate_limit_window_secs")]
+    #[arg(
+        long = "rate-limit-max-requests",
+        env = "RATE_LIMIT_MAX_REQUESTS",
+        requires = "rate_limit_window_secs"
+    )]
     pub rate_limit_max_requests: Option<u64>,
 
     /// How often the orphan sweeper runs, in seconds.
@@ -152,9 +160,10 @@ impl GatewayConfig {
 
     pub fn rate_limit(&self) -> Option<RateLimitConfig> {
         match (self.rate_limit_window_secs, self.rate_limit_max_requests) {
-            (Some(window_secs), Some(max_requests)) => {
-                Some(RateLimitConfig { window_secs, max_requests })
-            }
+            (Some(window_secs), Some(max_requests)) => Some(RateLimitConfig {
+                window_secs,
+                max_requests,
+            }),
             _ => None,
         }
     }
