@@ -5,10 +5,7 @@ use helpers::{
     db_helpers::*,
     mock_blockchain::{mock_account_created_event, mock_root_recorded_event},
 };
-use world_id_indexer::{
-    blockchain::RegistryEvent,
-    db::{IsolationLevel, WorldIdRegistryEventId},
-};
+use world_id_indexer::db::{IsolationLevel, WorldIdRegistryEventId};
 
 /// Test inserting an account
 #[tokio::test]
@@ -809,12 +806,7 @@ async fn test_get_latest_root_recorded() {
     assert_eq!(latest_event.block_number, 102);
     assert_eq!(latest_event.log_index, 1);
 
-    match latest_event.details {
-        RegistryEvent::RootRecorded(root) => {
-            assert_eq!(root.root, U256::from(3000));
-        }
-        _ => panic!("Expected RootRecorded event"),
-    }
+    assert_eq!(latest_event.details.root, U256::from(3000));
 }
 
 #[tokio::test]
@@ -856,12 +848,7 @@ async fn test_get_root_recorded_before() {
     assert_eq!(event.block_number, 101);
     assert_eq!(event.log_index, 1);
 
-    match event.details {
-        RegistryEvent::RootRecorded(root) => {
-            assert_eq!(root.root, U256::from(2000));
-        }
-        _ => panic!("Expected RootRecorded event"),
-    }
+    assert_eq!(event.details.root, U256::from(2000));
 }
 
 #[tokio::test]
@@ -902,12 +889,7 @@ async fn test_get_root_recorded_before_same_block() {
     assert_eq!(event.block_number, 100);
     assert_eq!(event.log_index, 1);
 
-    match event.details {
-        RegistryEvent::RootRecorded(root) => {
-            assert_eq!(root.root, U256::from(1000));
-        }
-        _ => panic!("Expected RootRecorded event"),
-    }
+    assert_eq!(event.details.root, U256::from(1000));
 }
 
 #[tokio::test]

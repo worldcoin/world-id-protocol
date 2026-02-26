@@ -7,8 +7,10 @@ use thiserror::Error;
 
 pub mod cached_tree;
 pub mod state;
+pub mod versioned;
 
 pub use state::TreeState;
+pub use versioned::VersionedTreeState;
 
 pub type TreeResult<T> = Result<T, TreeError>;
 
@@ -33,6 +35,8 @@ pub enum TreeError {
     RootMismatch { actual: String, expected: String },
     #[error("restored root not found in DB: {root}")]
     StaleCache { root: String },
+    #[error("simulate_root computation did not produce a root — this is a bug")]
+    SimulationMissingRoot,
     #[error(transparent)]
     Db(#[from] crate::db::DBError),
 }

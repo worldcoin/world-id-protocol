@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Event identifier for World ID Registry events
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct WorldIdRegistryEventId {
     pub block_number: u64,
     pub log_index: u64,

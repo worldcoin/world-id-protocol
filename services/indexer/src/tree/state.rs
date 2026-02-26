@@ -97,6 +97,11 @@ impl TreeState {
         )
     }
 
+    /// Get the value at the given leaf index.
+    pub async fn get_leaf(&self, leaf_index: usize) -> U256 {
+        self.read().await.get_leaf(leaf_index)
+    }
+
     /// Set a leaf value at the given index.
     ///
     /// Returns an error if the index is out of range.
