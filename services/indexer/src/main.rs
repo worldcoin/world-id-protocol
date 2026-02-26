@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::path::Path;
 use world_id_indexer::GlobalConfig;
 

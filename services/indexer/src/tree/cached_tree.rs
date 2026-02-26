@@ -7,9 +7,31 @@ use tracing::{info, instrument};
 
 use super::{TreeError, TreeResult, TreeState};
 use crate::{
-    db::{DB, WorldTreeEventId},
+    blockchain::RegistryEvent,
+    db::{DB, WorldIdRegistryEventId},
     tree::MerkleTree,
 };
+
+/// Extract leaf_index and offchain_signer_commitment from a RegistryEvent
+/// Returns None for RootRecorded events which don't have a leaf_index
+fn extract_leaf_commitment(event: &RegistryEvent) -> Option<(u64, U256)> {
+    match event {
+        RegistryEvent::AccountCreated(ev) => Some((ev.leaf_index, ev.offchain_signer_commitment)),
+        RegistryEvent::AccountUpdated(ev) => {
+            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
+        }
+        RegistryEvent::AuthenticatorInserted(ev) => {
+            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
+        }
+        RegistryEvent::AuthenticatorRemoved(ev) => {
+            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
+        }
+        RegistryEvent::AccountRecovered(ev) => {
+            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
+        }
+        RegistryEvent::RootRecorded(_) => None,
+    }
+}
 
 // =============================================================================
 // Public API
@@ -38,8 +60,11 @@ pub async unsafe fn init_tree(
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
             Err(e) => {
-                tracing::warn!(?e, "restore failed, falling back to full rebuild");
-                build_from_db_with_cache(db, cache_path, tree_depth).await?
+                tracing::error!(?e, "restore failed, deleting cache file");
+                if let Err(remove_err) = std::fs::remove_file(cache_path) {
+                    tracing::error!(?remove_err, "failed to delete cache file");
+                }
+                return Err(e);
             }
         }
     } else {
@@ -65,14 +90,20 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     let mut cursor = from;
 
     loop {
-        let batch = db.world_tree_events().get_after(cursor, BATCH_SIZE).await?;
+        let batch = db
+            .world_id_registry_events()
+            .get_after(cursor, BATCH_SIZE)
+            .await?;
 
         if batch.is_empty() {
             break;
         }
 
         let last = batch.last().expect("batch is non-empty");
-        cursor = last.id;
+        cursor = WorldIdRegistryEventId {
+            block_number: last.block_number,
+            log_index: last.log_index,
+        };
 
         let at_end = (batch.len() as u64) < BATCH_SIZE;
         all_events.extend(batch);
@@ -91,7 +122,10 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     // Deduplicate: keep only the final state per leaf
     let mut leaf_final_states: HashMap<u64, U256> = HashMap::new();
     for event in &all_events {
-        leaf_final_states.insert(event.leaf_index, event.offchain_signer_commitment);
+        // Extract leaf_index and offchain_signer_commitment from event details
+        if let Some((leaf_index, commitment)) = extract_leaf_commitment(&event.details) {
+            leaf_final_states.insert(leaf_index, commitment);
+        }
     }
 
     info!(
@@ -132,7 +166,7 @@ async fn try_restore(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
-) -> eyre::Result<(MerkleTree, WorldTreeEventId)> {
+) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
     // 1. Load mmap
     let tree = restore_from_cache(cache_path, tree_depth)?;
     let restored_root = tree.root();
@@ -142,27 +176,29 @@ async fn try_restore(
         "loaded mmap"
     );
 
-    // 2. Validate root exists in world_tree_roots
-    let root_entry = db
-        .world_tree_roots()
-        .get_root_by_value(&restored_root)
-        .await?
-        .ok_or_else(|| TreeError::StaleCache {
+    // 2. Validate that the restored root exists in world_id_registry_events
+    let root_exists = db
+        .world_id_registry_events()
+        .root_exists(&restored_root)
+        .await?;
+
+    if !root_exists {
+        return Err(TreeError::StaleCache {
             root: format!("0x{:x}", restored_root),
-        })?;
+        }
+        .into());
+    }
 
-    info!(
-        block_number = root_entry.id.block_number,
-        log_index = root_entry.id.log_index,
-        "root found in DB"
-    );
+    info!("Root validated successfully in DB");
 
-    // 3. Replay events after that root's position
-    let replay_cursor = WorldTreeEventId {
-        block_number: root_entry.id.block_number,
-        log_index: root_entry.id.log_index,
+    // 3. For now, replay all events from genesis since we don't track which event produced which root
+    // TODO: Store root->event_id mapping to optimize replay
+    let replay_cursor = WorldIdRegistryEventId {
+        block_number: 0,
+        log_index: 0,
     };
 
+    // 4. Replay events after that root's position
     let (tree, last_event_id) = replay_events(tree, db, replay_cursor).await?;
 
     info!(
@@ -177,7 +213,7 @@ async fn try_restore(
 /// Restore tree from mmap file (no validation).
 fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<MerkleTree> {
     let storage = unsafe { MmapVec::<U256>::restore_from_path(cache_path)? };
-    let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
+    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO)?;
     info!(
         cache_file = %cache_path.display(),
         root = %format!("0x{:x}", tree.root()),
@@ -193,7 +229,7 @@ async fn build_from_db_with_cache(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
-) -> eyre::Result<(MerkleTree, WorldTreeEventId)> {
+) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
     info!("Building tree from database with mmap cache (chunk-based processing)");
 
     let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
@@ -227,7 +263,7 @@ async fn build_from_db_with_cache(
     );
 
     let last_event_id = db
-        .world_tree_events()
+        .world_id_registry_events()
         .get_latest_id()
         .await?
         .unwrap_or_default();
@@ -241,8 +277,8 @@ async fn build_from_db_with_cache(
 async fn replay_events(
     mut tree: MerkleTree,
     db: &DB,
-    from_event_id: WorldTreeEventId,
-) -> TreeResult<(MerkleTree, WorldTreeEventId)> {
+    from_event_id: WorldIdRegistryEventId,
+) -> TreeResult<(MerkleTree, WorldIdRegistryEventId)> {
     const BATCH_SIZE: u64 = 10_000;
 
     let mut last_event_id = from_event_id;
@@ -258,7 +294,7 @@ async fn replay_events(
 
     loop {
         let events = db
-            .world_tree_events()
+            .world_id_registry_events()
             .get_after(last_event_id, BATCH_SIZE)
             .await?;
 
@@ -270,11 +306,17 @@ async fn replay_events(
         total_events += batch_count;
 
         for event in &events {
-            leaf_final_states.insert(event.leaf_index, event.offchain_signer_commitment);
+            // Extract leaf_index and offchain_signer_commitment from event details
+            if let Some((leaf_index, commitment)) = extract_leaf_commitment(&event.details) {
+                leaf_final_states.insert(leaf_index, commitment);
+            }
         }
 
         let last = events.last().expect("last item to exist");
-        last_event_id = last.id;
+        last_event_id = WorldIdRegistryEventId {
+            block_number: last.block_number,
+            log_index: last.log_index,
+        };
 
         info!(
             batch_events = batch_count,

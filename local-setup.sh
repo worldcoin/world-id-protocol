@@ -36,7 +36,7 @@ wait_for_health() {
 
 deploy_contracts() {
     # deploy ERC20Mock as fee token
-    (cd contracts && forge script script/ERC20Mock.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
+    (cd contracts && forge script script/core/ERC20Mock.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
     erc20_mock=$(jq -r '.transactions[] | select(.contractName == "ERC20Mock") | .contractAddress' ./contracts/broadcast/ERC20Mock.s.sol/31337/run-latest.json)
     echo "ERC20Mock: $erc20_mock"
 
@@ -48,12 +48,12 @@ deploy_contracts() {
     echo "OprfKeyRegistry: $oprf_key_registry"
 
     # deploy all other contracts
-    (cd contracts && forge script script/Deploy.s.sol --tc Deploy --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
-    world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
+    (cd contracts && forge script script/core/Deploy.s.sol --tc Deploy --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
+    world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/core/local.json)
     echo "WorldIDRegistry: $world_id_registry"
-    rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
+    rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/core/local.json)
     echo "RpRegistry: $rp_registry"
-    credential_schema_issuer_registry=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/local.json)
+    credential_schema_issuer_registry=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
     echo "CredentialSchemaIssuerRegistry: $credential_schema_issuer_registry"
 
     # register RpRegistry and CredentialSchemaIssuerRegistry as OPRF key-gen admins
@@ -88,7 +88,7 @@ run_indexer_and_gateway() {
     echo "started indexer with PID $indexer_pid"
     wait_for_health 8080 "world-id-indexer" 300
 
-    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
+    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK REDIS_URL=redis://localhost:6379 cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
     gateway_pid=$!
     echo "started gateway with PID $gateway_pid"
     wait_for_health 8081 "world-id-gateway" 300
@@ -110,7 +110,7 @@ setup() {
 
     anvil &
 
-    docker compose up -d localstack postgres oprf-node-db0 oprf-node-db1 oprf-node-db2
+    docker compose up -d localstack postgres redis oprf-node-db0 oprf-node-db1 oprf-node-db2
 
     echo -e "${GREEN}deploying contracts..${NOCOLOR}"
     deploy_contracts
@@ -122,7 +122,7 @@ setup() {
     docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n0 --secret-string 0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
     docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n1 --secret-string 0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
     docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n2 --secret-string 0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
-    OPRF_NODE_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
+    OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     wait_for_health 20000 "oprf-key-gen0" 300
     wait_for_health 20001 "oprf-key-gen1" 300
     wait_for_health 20002 "oprf-key-gen2" 300
@@ -143,16 +143,20 @@ client() {
         export OPRF_DEV_CLIENT_OPRF_KEY_REGISTRY_CONTRACT=$(jq -r '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./contracts/broadcast/OprfKeyRegistryWithDeps.s.sol/31337/run-latest.json)
     fi
     if [ -z "${OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT+x}" ]; then
-        export OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/local.json)
+        export OPRF_DEV_CLIENT_WORLD_ID_REGISTRY_CONTRACT=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/core/local.json)
     fi
     if [ -z "${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT+x}" ]; then
-        export OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/local.json)
+        export OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/core/local.json)
     fi
-    if [ -z "${OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT+x}" ]; then
-        export OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/local.json)
+    if [ -z "${OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
+    fi
+    if [ -z "${RUST_LOG+x}" ]; then
+        export RUST_LOG="world_id_dev_client_rp=trace,world_id_dev_client_issuer_blinding=trace,world_id_oprf_dev_client=trace,taceo_oprf_dev_client=trace,taceo_oprf_client=trace,warn"
     fi
 
-    cargo run --release --bin world-id-oprf-dev-client -- "$@"
+    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- "$@"
+    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
 }
 
 main() {

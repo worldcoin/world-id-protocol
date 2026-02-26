@@ -10,6 +10,7 @@ rust-version.workspace = true
 
 [dependencies]
 tower-http = { workspace = true }
+http = { workspace = true }
 
 alloy = { workspace = true, features = [
     "json-rpc",
@@ -17,6 +18,7 @@ alloy = { workspace = true, features = [
     "node-bindings",
     "providers",
     "provider-ws",
+    "reqwest",
     "rpc-client",
     "rpc-types-debug",
     "rpc-types-trace",
@@ -29,12 +31,16 @@ thiserror = { workspace = true }
 url = { workspace = true }
 tracing = { workspace = true }
 
+backon = { workspace = true }
 config = { workspace = true }
 aws-sdk-kms = { workspace = true }
 aws-config = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 tower = { workspace = true }
 governor = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
+axum = { workspace = true }
 tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }

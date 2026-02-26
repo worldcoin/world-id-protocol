@@ -1,14 +1,19 @@
 #![cfg(feature = "integration-tests")]
 mod helpers;
-use helpers::common::{TestSetup, query_count};
+use helpers::{
+    common::{TestSetup, query_count},
+    db_helpers::insert_test_account,
+};
 use serial_test::serial;
 
 use std::{fs, path::PathBuf, time::Duration};
 
-use alloy::primitives::{U256, address};
-use world_id_indexer::config::{
-    Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
+use alloy::primitives::{Address, U256, address};
+use world_id_indexer::{
+    blockchain::{AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent},
+    config::{Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig},
 };
+use world_id_services_common::ProviderArgs;
 
 /// Helper to create tree cache config with a unique temporary path
 fn create_temp_cache_config() -> (TreeCacheConfig, PathBuf) {
@@ -63,12 +68,13 @@ async fn test_cache_creation_and_restoration() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8090".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -103,7 +109,8 @@ async fn test_cache_creation_and_restoration() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_incremental_replay() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create initial accounts and build cache
@@ -134,12 +141,13 @@ async fn test_incremental_replay() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8091".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -190,12 +198,13 @@ async fn test_incremental_replay() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8092".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -261,12 +270,13 @@ async fn test_missing_cache_creates_new() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8093".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -301,7 +311,8 @@ async fn test_missing_cache_creates_new() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_http_only_cache_refresh() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create initial account and build cache with Both mode
@@ -323,12 +334,13 @@ async fn test_http_only_cache_refresh() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8094".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -359,12 +371,13 @@ async fn test_http_only_cache_refresh() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8095".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -422,7 +435,8 @@ async fn test_http_only_cache_refresh() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_authenticator_removed_replay() {
-    let setup = TestSetup::new().await;
+    // Use tree_depth=6 to match create_temp_cache_config()
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
     let (tree_cache_config_fresh, cache_path_fresh) = create_temp_cache_config();
 
@@ -441,12 +455,13 @@ async fn test_authenticator_removed_replay() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8098".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -471,9 +486,9 @@ async fn test_authenticator_removed_replay() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     indexer_task.abort();
 
-    // Get the last block from world_tree_roots
+    // Get the last block from world_id_registry_events
     let last_block: (i64,) =
-        sqlx::query_as("SELECT COALESCE(MAX(block_number), 0) FROM world_tree_roots")
+        sqlx::query_as("SELECT COALESCE(MAX(block_number), 0) FROM world_id_registry_events")
             .fetch_one(&setup.pool)
             .await
             .expect("Failed to query last block");
@@ -483,20 +498,29 @@ async fn test_authenticator_removed_replay() {
     // This simulates what happens when an authenticator is removed but account has other authenticators
     let new_commitment_after_removal = U256::from(999);
 
-    sqlx::query(
-        r#"INSERT INTO world_tree_events
-        (leaf_index, event_type, offchain_signer_commitment, block_number, tx_hash, log_index)
-        VALUES ($1, $2, $3, $4, $5, $6)"#,
-    )
-    .bind(1i64)
-    .bind("removed")
-    .bind(new_commitment_after_removal)
-    .bind((last_block + 1) as i64)
-    .bind(U256::from(1234))
-    .bind(0i64)
-    .execute(&setup.pool)
-    .await
-    .expect("Failed to insert removed event");
+    // Use the proper API instead of raw SQL
+    let removed_event = BlockchainEvent {
+        block_number: last_block + 1,
+        block_hash: U256::from(11234),
+        tx_hash: U256::from(1234),
+        log_index: 0,
+        details: RegistryEvent::AuthenticatorRemoved(AuthenticatorRemovedEvent {
+            leaf_index: 1,
+            pubkey_id: 0,
+            authenticator_address: Address::ZERO,
+            authenticator_pubkey: U256::ZERO,
+            old_offchain_signer_commitment: U256::ZERO,
+            new_offchain_signer_commitment: new_commitment_after_removal,
+        }),
+    };
+
+    world_id_indexer::db::PostgresDB::new(&setup.db_url, None)
+        .await
+        .unwrap()
+        .world_id_registry_events()
+        .insert_event(&removed_event)
+        .await
+        .expect("Failed to insert removed event");
 
     // Update the account table to reflect the removal
     sqlx::query(
@@ -526,12 +550,13 @@ async fn test_authenticator_removed_replay() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8096".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: db_url.clone(),
-        http_rpc_url: rpc_url.clone(),
+        provider: ProviderArgs::new().with_http_urls([rpc_url.clone()]),
         ws_rpc_url: ws_url.clone(),
         registry_address,
     };
@@ -555,12 +580,13 @@ async fn test_authenticator_removed_replay() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8097".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config_fresh.clone(),
             },
         },
         db_url: db_url.clone(),
-        http_rpc_url: rpc_url.clone(),
+        provider: ProviderArgs::new().with_http_urls([rpc_url.clone()]),
         ws_rpc_url: ws_url.clone(),
         registry_address,
     };
@@ -623,12 +649,13 @@ async fn test_init_root_matches_contract() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8100".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -654,8 +681,13 @@ async fn test_init_root_matches_contract() {
     indexer_task.abort();
 
     // Verify the on-chain root was recorded in the DB
+    // Extract root from JSONB and convert hex string to bytea
     let db_root: (alloy::primitives::U256,) = sqlx::query_as(
-        "SELECT root FROM world_tree_roots ORDER BY block_number DESC, log_index DESC LIMIT 1",
+        r#"SELECT decode(substring(event_data->>'root' from 3), 'hex') AS root
+           FROM world_id_registry_events
+           WHERE event_type = 'root_recorded'
+           ORDER BY block_number DESC, log_index DESC
+           LIMIT 1"#,
     )
     .fetch_one(&setup.pool)
     .await
@@ -700,12 +732,13 @@ async fn test_replay_root_matches_contract() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8101".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -761,12 +794,13 @@ async fn test_replay_root_matches_contract() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8102".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -792,8 +826,13 @@ async fn test_replay_root_matches_contract() {
     indexer_task2.abort();
 
     // Verify the latest on-chain root was recorded in the DB
+    // Extract root from JSONB and convert hex string to bytea
     let db_root: (alloy::primitives::U256,) = sqlx::query_as(
-        "SELECT root FROM world_tree_roots ORDER BY block_number DESC, log_index DESC LIMIT 1",
+        r#"SELECT decode(substring(event_data->>'root' from 3), 'hex') AS root
+           FROM world_id_registry_events
+           WHERE event_type = 'root_recorded'
+           ORDER BY block_number DESC, log_index DESC
+           LIMIT 1"#,
     )
     .fetch_one(&setup.pool)
     .await
@@ -810,7 +849,7 @@ async fn test_replay_root_matches_contract() {
 /// Test that corrupted cache triggers full rebuild instead of failing
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn test_corrupted_cache_triggers_rebuild() {
+async fn test_corrupted_cache_returns_error() {
     // Use tree_depth=6 to match create_temp_cache_config()
     let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -846,12 +885,13 @@ async fn test_corrupted_cache_triggers_rebuild() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8103".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -881,36 +921,95 @@ async fn test_corrupted_cache_triggers_rebuild() {
     // CORRUPT THE CACHE - truncate the mmap file to simulate corruption
     fs::write(&cache_path, b"corrupted data").expect("Should write corrupted cache");
 
-    // Start indexer in HttpOnly mode - should detect corruption and rebuild from DB
+    // Start indexer in HttpOnly mode - should fail due to corrupted cache
     let cfg2 = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8104".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
 
-    let indexer_task2 = tokio::spawn(async move {
-        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
-    });
+    let result = unsafe { world_id_indexer::run_indexer(cfg2).await };
+    assert!(
+        result.is_err(),
+        "Corrupted cache should cause run_indexer to fail"
+    );
 
-    // Wait for HttpOnly to start (proves rebuild succeeded)
-    TestSetup::wait_for_health("http://127.0.0.1:8104").await;
+    // Cache file should have been deleted so next restart can do a clean rebuild
+    assert!(
+        !cache_path.exists(),
+        "Cache file should be deleted on corruption"
+    );
 
-    // Stop indexer
-    indexer_task2.abort();
+    cleanup_cache_files(&cache_path);
+}
 
-    // Verify accounts in the database are still intact
-    let final_count = query_count(&setup.pool).await;
-    assert_eq!(final_count, 2, "Should have 2 accounts indexed");
+/// Test that the sanity check detects a root mismatch and causes run_indexer
+/// to exit with an error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_sanity_check_exits_on_root_mismatch() {
+    let setup = TestSetup::new_with_tree_depth(6).await;
+    let (tree_cache_config, cache_path) = create_temp_cache_config();
+    cleanup_cache_files(&cache_path);
+
+    // Insert a fake account into the DB so the tree builds with a root
+    // that was never recorded on-chain. The on-chain contract has no accounts,
+    // so isValidRoot will return false for this fabricated root.
+    let db = world_id_indexer::db::DB::new(&setup.db_url, Some(1))
+        .await
+        .unwrap();
+    insert_test_account(
+        &db,
+        1,
+        address!("0x0000000000000000000000000000000000000001"),
+        U256::from(999),
+    )
+    .await
+    .unwrap();
+
+    // Start HttpOnly with sanity check enabled — tree will have a root
+    // that doesn't exist on-chain
+    let config = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::HttpOnly {
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8099".parse().unwrap(),
+                db_poll_interval_secs: 60,
+                request_timeout_secs: 10,
+                sanity_check_interval_secs: Some(1),
+                tree_cache: tree_cache_config.clone(),
+            },
+        },
+        db_url: setup.db_url.clone(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
+        ws_rpc_url: setup.ws_url(),
+        registry_address: setup.registry_address,
+    };
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::spawn(async move { unsafe { world_id_indexer::run_indexer(config).await } }),
+    )
+    .await;
+
+    // Should complete (not timeout) with an error (not Ok, not panic)
+    let join_result = result.expect("should not timeout — sanity check should catch mismatch");
+    let indexer_result = join_result.expect("task should not panic");
+    assert!(
+        indexer_result.is_err(),
+        "run_indexer should return error on root mismatch"
+    );
 
     cleanup_cache_files(&cache_path);
 }

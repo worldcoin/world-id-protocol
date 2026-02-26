@@ -2,6 +2,7 @@
 
 use std::{
     path::PathBuf,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -12,11 +13,13 @@ use alloy::{
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::health_checks;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
-use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
 use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -29,35 +32,32 @@ use world_id_test_utils::{
 
 const GW_PORT: u16 = 4104;
 
+fn init_test_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+}
+
+fn load_embedded_materials() -> (
+    Arc<world_id_core::proof::CircomGroth16Material>,
+    Arc<world_id_core::proof::CircomGroth16Material>,
+) {
+    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
+    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
+    (Arc::new(query_material), Arc::new(nullifier_material))
+}
+
 /// Generates an entire end-to-end Uniqueness Proof Generator
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
+    init_test_tracing();
+    info!("starting e2e_authenticator_generate_proof");
+
     let mut rng = rand::thread_rng();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
-
-    let containers = tokio::join!(
-        taceo_oprf_test_utils::localstack_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-        taceo_oprf_test_utils::postgres_testcontainer(),
-    );
-    let (_localstack_container, localstack_url) = containers.0?;
-    let (_postgres_container_0, postgres_url_0) = containers.1?;
-    let (_postgres_container_1, postgres_url_1) = containers.2?;
-    let (_postgres_container_2, postgres_url_2) = containers.3?;
-    let (_postgres_container_3, postgres_url_3) = containers.4?;
-    let (_postgres_container_4, postgres_url_4) = containers.5?;
-    let postgres_urls = [
-        postgres_url_0,
-        postgres_url_1,
-        postgres_url_2,
-        postgres_url_3,
-        postgres_url_4,
-    ];
 
     let RegistryTestContext {
         anvil,
@@ -67,6 +67,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         world_id_verifier,
         credential_registry,
     } = RegistryTestContext::new().await?;
+    info!(
+        ?world_id_registry,
+        ?rp_registry,
+        ?oprf_key_registry,
+        ?credential_registry,
+        "registry test context initialized"
+    );
 
     let deployer = anvil
         .signer(0)
@@ -85,11 +92,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: None,
+        redis_url: std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        request_timeout_secs: 10,
+        rate_limit_max_requests: None,
+        rate_limit_window_secs: None,
+        sweeper: OrphanSweeperConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
         .map_err(|e| eyre!("failed to spawn gateway for tests: {e}"))?;
+    info!(port = GW_PORT, "gateway started");
 
     // Build Config and ensure Authenticator account creation works.
     let seed = [7u8; 32];
@@ -108,9 +121,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         3,
     )
     .unwrap();
+    let (query_material, nullifier_material) = load_embedded_materials();
 
     // World ID should not yet exist.
-    let init_result = Authenticator::init(&seed, creation_config.clone()).await;
+    let init_result = Authenticator::init(
+        &seed,
+        creation_config.clone(),
+        query_material,
+        nullifier_material,
+    )
+    .await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -118,22 +138,30 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
-    println!(
-        "Authentication creation took: {}ms",
-        SystemTime::now().duration_since(start).unwrap().as_millis(),
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone(),
+        query_material,
+        nullifier_material,
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
+    info!(
+        elapsed_ms = SystemTime::now().duration_since(start).unwrap().as_millis(),
+        "authenticator account creation finished"
     );
 
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let authenticator = Authenticator::init(&seed, creation_config)
-        .await
-        .wrap_err("expected authenticator to initialize after account creation")?;
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
+            .await
+            .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     // Local indexer stub serving inclusion proof.
@@ -156,11 +184,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
+    let (key_gen_secret_managers, node_secret_managers) =
+        world_id_test_utils::stubs::init_test_secret_managers();
+
     // OPRF key-gen instances
     let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
         anvil.ws_endpoint(),
-        &localstack_url,
-        &postgres_urls,
+        key_gen_secret_managers,
         oprf_key_registry,
     )
     .await;
@@ -168,7 +198,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // OPRF nodes
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         anvil.ws_endpoint(),
-        &postgres_urls,
+        node_secret_managers,
         oprf_key_registry,
         world_id_registry,
         rp_registry,
@@ -178,6 +208,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
     health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+    info!("oprf nodes and key-gen services passed health checks");
 
     // Register an issuer which also triggers a OPRF key-gen.
     let issuer_schema_id = 1u64;
@@ -191,6 +222,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             issuer_pk.clone(),
         )
         .await?;
+    info!(issuer_schema_id, "issuer registered");
 
     // Register the RP which also triggers a OPRF key-gen.
     let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -204,6 +236,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             "taceo.oprf".to_string(),
         )
         .await?;
+    info!(rp_id = ?rp_fixture.world_rp_id, "rp registered");
 
     // Wait for RP OPRF key-gen and until the public key is available from the nodes.
     let _oprf_public_key = health_checks::oprf_public_key_from_services(
@@ -222,6 +255,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         Duration::from_secs(120),
     )
     .await?;
+    info!("oprf public keys became available for rp and issuer");
 
     // Config for proof generation uses the indexer + OPRF stubs.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -239,9 +273,11 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
 
-    let authenticator = Authenticator::init(&seed, proof_config)
-        .await
-        .wrap_err("failed to reinitialize authenticator with proof config")?;
+    let (query_material, nullifier_material) = load_embedded_materials();
+    let authenticator =
+        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
+            .await
+            .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     let leaf_index = authenticator.leaf_index();
@@ -292,7 +328,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
-    let nullifier = authenticator.generate_nullifier(&proof_request).await?;
+    let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
+    let nullifier = authenticator
+        .generate_nullifier(&proof_request, inclusion_proof, key_set)
+        .await?;
     let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
     assert_ne!(raw_nullifier, FieldElement::ZERO);
 
@@ -310,6 +349,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         proof_request.session_id,
         proof_request.created_at,
     )?;
+    info!("generated uniqueness proof");
 
     assert_eq!(response_item.nullifier, Some(raw_nullifier));
 
@@ -337,7 +377,12 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         )
         .call()
         .await?;
+    info!("on-chain proof verification succeeded");
 
     indexer_handle.abort();
+    info!("e2e_authenticator_generate_proof finished successfully");
     Ok(())
 }
+
+// Solidity fixture generation has been moved to a standalone binary.
+// Run with: cargo run -p generate-solidity-fixtures

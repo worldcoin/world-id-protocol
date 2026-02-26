@@ -1,0 +1,23 @@
+{
+  "chainId": 480,
+  "commitSha": "b5fafb6719d7cba692fb947c9d697300bfb66f69",
+  "credentialSchemaIssuerRegistry": {
+    "implementation": "0xCBF2050ffB5d034A5e8D12334EF955c4827cD4fC",
+    "proxy": "0x941239840F4d9668da8be76b568e836b50685d2c"
+  },
+  "deployer": "0xe72f711EAe8296d9C495D7Cd2f5e422f46715eca",
+  "rpRegistry": {
+    "implementation": "0x51B7d8E1154740132A5009225Ae11B210e633012",
+    "proxy": "0xD9A213A92Bca460D56cDbBF4d775b48fB5925BbC"
+  },
+  "timestamp": 1771989213,
+  "verifier": "0x00000000003f3659fA84731896ba1C417b8F8A25",
+  "worldIDRegistry": {
+    "implementation": "0xb516AF777A24cbCE73a4b296B33ce4B815B9D162",
+    "proxy": "0x0000000000aE079eB8a274cD51c0f44a9E4d67d4"
+  },
+  "worldIDVerifier": {
+    "implementation": "0x396Ef898C605fB15166BF7ffF9c917bA7072e3c4",
+    "proxy": "0x00000000009E00F9FE82CfeeBB4556686da094d7"
+  }
+}

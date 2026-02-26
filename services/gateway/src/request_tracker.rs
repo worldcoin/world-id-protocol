@@ -1,114 +1,62 @@
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::primitives::Address;
-use moka::{
-    Expiry,
-    future::Cache,
-    ops::compute::{CompResult, Op},
-};
-use redis::{AsyncTypedCommands, Client, SetExpiry, SetOptions, aio::ConnectionManager};
+use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use world_id_core::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
-use crate::error::{GatewayError, GatewayErrorResponse, GatewayResult};
+use crate::error::{GatewayErrorResponse, GatewayResult};
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
     pub kind: GatewayRequestKind,
     pub status: GatewayRequestState,
+    pub updated_at: u64,
 }
 
 const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
-const CACHE_MAX_CAPACITY: u64 = 100_000;
 /// TTL for in-flight authenticator addresses (5 minutes safety fallback).
 const INFLIGHT_TTL: Duration = Duration::from_secs(300);
+const PENDING_SET_KEY: &str = "gateway:pending_requests";
 
-/// Custom expiry policy that preserves TTL on updates (like Redis KEEPTTL).
-struct RequestExpiry;
-
-impl Expiry<String, RequestRecord> for RequestExpiry {
-    fn expire_after_create(
-        &self,
-        _key: &String,
-        _value: &RequestRecord,
-        _created_at: Instant,
-    ) -> Option<Duration> {
-        Some(REQUESTS_TTL)
-    }
-
-    fn expire_after_read(
-        &self,
-        _key: &String,
-        _value: &RequestRecord,
-        _read_at: Instant,
-        duration_until_expiry: Option<Duration>,
-        _last_modified_at: Instant,
-    ) -> Option<Duration> {
-        // Preserve original TTL on read
-        duration_until_expiry
-    }
-
-    fn expire_after_update(
-        &self,
-        _key: &String,
-        _value: &RequestRecord,
-        _updated_at: Instant,
-        duration_until_expiry: Option<Duration>,
-    ) -> Option<Duration> {
-        // Preserve original TTL on update (like Redis KEEPTTL)
-        duration_until_expiry
-    }
+pub fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs()
 }
 
 /// Global request tracker instance.
 ///
 /// Tracks all requests made to the gateway by ID for async querying.
 /// Also tracks in-flight authenticator addresses to prevent duplicate requests.
+/// Includes rate limiting for leaf_index-based requests.
 ///
-/// Using Redis is strongly recommended for production environments, and especially multi-node setups.
+/// Uses Redis for persistent, multi-node request storage.
 #[derive(Clone)]
 pub struct RequestTracker {
-    /// The lru cache with TTL-based expiration for request records.
-    cache: Cache<String, RequestRecord>,
-    /// Local cache for in-flight authenticator addresses (single-instance fallback).
-    inflight_cache: Cache<Address, ()>,
-    /// The db (redis) connection.
-    redis_manager: Option<ConnectionManager>,
+    /// The Redis connection manager.
+    redis_manager: ConnectionManager,
+    /// Rate limiting configuration (window in seconds, max requests).
+    rate_limit_config: Option<(u64, u64)>,
 }
 
 impl RequestTracker {
     /// Initializes the request tracker instance.
     ///
     /// # Panics
-    /// If a Redis URL is provided but the connection to Redis fails.
-    pub async fn new(redis_url: Option<String>) -> Self {
-        let redis_manager = if let Some(url) = redis_url {
-            let client = Client::open(url.as_str()).expect("Unable to connect to Redis");
-            let manager = ConnectionManager::new(client)
-                .await
-                .expect("Unable to create Redis connection manager");
+    /// If the connection to Redis fails.
+    pub async fn new(redis_url: String, rate_limit_config: Option<(u64, u64)>) -> Self {
+        let client = Client::open(redis_url.as_str()).expect("Unable to connect to Redis");
+        let redis_manager = ConnectionManager::new(client)
+            .await
+            .expect("Unable to create Redis connection manager");
 
-            tracing::info!("Connection to Redis established");
-
-            Some(manager)
-        } else {
-            tracing::info!("No Redis URL provided, using in-memory request storage only");
-            None
-        };
-
-        // Build moka cache with custom expiry that preserves TTL on updates
-        let cache = Cache::builder()
-            .max_capacity(CACHE_MAX_CAPACITY)
-            .expire_after(RequestExpiry)
-            .build();
-
-        // Build moka cache for in-flight authenticator addresses
-        let inflight_cache = Cache::builder().time_to_live(INFLIGHT_TTL).build();
+        tracing::info!("Connection to Redis established");
 
         Self {
-            cache,
-            inflight_cache,
             redis_manager,
+            rate_limit_config,
         }
     }
 
@@ -118,6 +66,8 @@ impl RequestTracker {
     }
 
     /// Creates a new request with a specific ID.
+    ///
+    /// Expects the request ID to be unique, returns an error if it already exists.
     pub async fn new_request_with_id(
         &self,
         id: String,
@@ -126,28 +76,39 @@ impl RequestTracker {
         let record = RequestRecord {
             kind,
             status: GatewayRequestState::Queued,
+            updated_at: now_unix_secs(),
         };
 
-        if let Some(mut manager) = self.redis_manager.clone() {
-            // Persist to redis if configured
-            let key = Self::request_key(&id);
-            let json_str = serde_json::to_string(&record).map_err(|e| {
-                tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
+        let mut manager = self.redis_manager.clone();
+        let key = Self::request_key(&id);
+        let json_str = serde_json::to_string(&record).map_err(|e| {
+            tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
+            GatewayErrorResponse::internal_server_error()
+        })?;
+
+        let script = r#"
+            local ok = redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2])
+            if not ok then
+                return redis.error_reply('request already exists')
+            end
+
+            -- Add the request ID to the pending set
+            redis.call('SADD', KEYS[2], ARGV[3])
+            return redis.status_reply('OK')
+        "#;
+
+        redis::Script::new(script)
+            .key(&key)
+            .key(PENDING_SET_KEY)
+            .arg(&json_str)
+            .arg(REQUESTS_TTL.as_secs())
+            .arg(&id)
+            .invoke_async::<()>(&mut manager)
+            .await
+            .map_err(|e| {
+                tracing::error!("Error creating request {id}: {e}");
                 GatewayErrorResponse::internal_server_error()
             })?;
-
-            let opts = SetOptions::default()
-                .conditional_set(redis::ExistenceCheck::NX)
-                .with_expiration(SetExpiry::EX(REQUESTS_TTL.as_secs()));
-
-            manager
-                .set_options(&key, json_str, opts)
-                .await
-                .map_err(handle_redis_error)?;
-        } else {
-            // No Redis, use local cache as storage
-            self.cache.insert(id, record).await;
-        }
 
         Ok(())
     }
@@ -155,26 +116,8 @@ impl RequestTracker {
     /// Updates the status of multiple requests in a batch.
     pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
         for id in ids {
-            if self.redis_manager.is_some() {
-                // Update redis if configured
-                if let Err(e) = self.set_status_on_redis(id, &status).await {
-                    tracing::error!("Error updating status for request {id}: {e}");
-                }
-            } else {
-                // No Redis, update local cache
-                self.cache
-                    .entry_by_ref(id)
-                    .and_compute_with(|entry| async {
-                        match entry {
-                            Some(entry) => {
-                                let mut record = entry.into_value();
-                                record.status = status.clone();
-                                Op::Put(record)
-                            }
-                            None => Op::Nop,
-                        }
-                    })
-                    .await;
+            if let Err(e) = self.set_status_on_redis(id, &status).await {
+                tracing::error!("Error updating status for request {id}: {e}");
             }
         }
     }
@@ -184,69 +127,152 @@ impl RequestTracker {
         self.set_status_batch(&[id.to_string()], status).await;
     }
 
-    /// Returns a snapshot of the current state of a request, if it exists.
-    pub async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
-        if let Some(mut manager) = self.redis_manager.clone() {
-            // Read from redis if configured
-            let key = Self::request_key(id);
-            let result: Result<Option<String>, redis::RedisError> = manager.get(&key).await;
-
-            match result {
-                Ok(Some(json_str)) => match serde_json::from_str::<RequestRecord>(&json_str) {
-                    Ok(record) => Some(record),
-                    Err(e) => {
-                        tracing::error!("Failed to deserialize request from Redis: {}", e);
-                        None
-                    }
-                },
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::error!("Failed to get request from Redis: {}", e);
-                    None
-                }
+    /// Resolves a batch of requests based on a transaction receipt outcome.
+    ///
+    /// If the receipt indicates success, marks all requests as `Finalized`.
+    /// If the receipt indicates a revert, marks all requests as `Failed`.
+    pub async fn finalize_from_receipt(
+        &self,
+        ids: &[String],
+        receipt_succeeded: bool,
+        tx_hash: &str,
+    ) {
+        let status = if receipt_succeeded {
+            GatewayRequestState::Finalized {
+                tx_hash: tx_hash.to_string(),
             }
         } else {
-            // No Redis, read from local cache
-            self.cache.get(id).await
+            GatewayRequestState::failed(
+                format!("transaction reverted on-chain (tx: {tx_hash})"),
+                Some(GatewayErrorCode::TransactionReverted),
+            )
+        };
+        self.set_status_batch(ids, status).await;
+    }
+
+    /// Returns a snapshot of the current state of a request, if it exists.
+    pub async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
+        let mut manager = self.redis_manager.clone();
+        let key = Self::request_key(id);
+        let result: Result<Option<String>, redis::RedisError> = manager.get(&key).await;
+
+        match result {
+            Ok(Some(json_str)) => match serde_json::from_str::<RequestRecord>(&json_str) {
+                Ok(record) => Some(record),
+                Err(e) => {
+                    tracing::error!("Failed to deserialize request from Redis: {}", e);
+                    None
+                }
+            },
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!("Failed to get request from Redis: {}", e);
+                None
+            }
         }
     }
 
     /// Sets the status of a specific request in Redis.
+    ///
+    /// Atomically updates the status and `updated_at` timestamp. When the new
+    /// status is terminal (`finalized` or `failed`), the request ID is also
+    /// removed from the pending set in the same Lua script invocation.
     async fn set_status_on_redis(
         &self,
         id: &str,
         status: &GatewayRequestState,
     ) -> GatewayResult<()> {
-        if let Some(mut manager) = self.redis_manager.clone() {
-            let key = Self::request_key(id);
-            let status_json = serde_json::to_string(status)?;
+        let mut manager = self.redis_manager.clone();
+        let key = Self::request_key(id);
+        let status_json = serde_json::to_string(status)?;
+        let now = now_unix_secs();
 
-            // Use Lua script for atomic read-modify-write to prevent race conditions
-            let script = r#"
-                local record = redis.call('GET', KEYS[1])
-                if not record then
-                    return redis.error_reply('attempted to update inexistent request')
-                end
+        let script = r#"
+            local record = redis.call('GET', KEYS[1])
+            if not record then
+                return redis.error_reply('attempted to update inexistent request')
+            end
 
-                local decoded = cjson.decode(record)
-                decoded.status = cjson.decode(ARGV[1])
-                local updated = cjson.encode(decoded)
+            local decoded = cjson.decode(record)
+            decoded.status = cjson.decode(ARGV[1])
+            decoded.updated_at = tonumber(ARGV[2])
+            local updated = cjson.encode(decoded)
 
-                redis.call('SET', KEYS[1], updated, 'KEEPTTL')
-                return redis.status_reply('OK')
-            "#;
+            redis.call('SET', KEYS[1], updated, 'KEEPTTL')
 
-            let result: Result<(), redis::RedisError> = redis::Script::new(script)
-                .key(&key)
-                .arg(&status_json)
-                .invoke_async(&mut manager)
-                .await;
+            -- If the request is finalized or failed, remove it from the pending set
+            local state = decoded.status.state
+            if state == 'finalized' or state == 'failed' then
+                redis.call('SREM', KEYS[2], ARGV[3])
+            end
 
-            result?;
-            return Ok(());
+            return redis.status_reply('OK')
+        "#;
+
+        let result: Result<(), redis::RedisError> = redis::Script::new(script)
+            .key(&key)
+            .key(PENDING_SET_KEY)
+            .arg(&status_json)
+            .arg(now)
+            .arg(id)
+            .invoke_async(&mut manager)
+            .await;
+
+        result?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Pending-set helpers (used by orphan_sweeper)
+    // =========================================================================
+
+    /// Returns all request IDs currently in the pending set.
+    pub async fn get_pending_requests(&self) -> GatewayResult<Vec<String>> {
+        let mut manager = self.redis_manager.clone();
+        let ids: std::collections::HashSet<String> = manager.smembers(PENDING_SET_KEY).await?;
+        Ok(ids.into_iter().collect())
+    }
+
+    /// Fetches multiple request records in a single `MGET` round-trip.
+    pub async fn snapshot_batch(
+        &self,
+        ids: &[String],
+    ) -> GatewayResult<Vec<(String, Option<RequestRecord>)>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
         }
 
-        Err(GatewayError::RedisNotConfigured)
+        let keys: Vec<String> = ids.iter().map(|id| Self::request_key(id)).collect();
+        let mut manager = self.redis_manager.clone();
+
+        let values: Vec<Option<String>> = redis::cmd("MGET")
+            .arg(&keys)
+            .query_async(&mut manager)
+            .await?;
+
+        Ok(ids
+            .iter()
+            .zip(values)
+            .map(|(id, maybe_json)| {
+                let record = maybe_json.and_then(|json_str| {
+                    serde_json::from_str::<RequestRecord>(&json_str)
+                        .map_err(|e| {
+                            tracing::error!("Failed to deserialize request {id} from Redis: {e}");
+                        })
+                        .ok()
+                });
+                (id.clone(), record)
+            })
+            .collect())
+    }
+
+    /// Removes a request ID from the pending set (safety-net cleanup).
+    pub async fn remove_from_pending_set(&self, id: &str) {
+        let mut manager = self.redis_manager.clone();
+        let result: Result<usize, redis::RedisError> = manager.srem(PENDING_SET_KEY, id).await;
+        if let Err(e) = result {
+            tracing::error!("Failed to SREM {id} from pending set: {e}");
+        }
     }
 
     // =========================================================================
@@ -271,36 +297,6 @@ impl RequestTracker {
         &self,
         addresses: &[Address],
     ) -> Result<(), GatewayErrorResponse> {
-        if let Some(manager) = &self.redis_manager {
-            self.try_insert_inflight_redis(manager.clone(), addresses)
-                .await
-        } else {
-            self.try_insert_inflight_local(addresses).await
-        }
-    }
-
-    /// Remove all addresses from the in-flight tracker.
-    pub async fn remove_inflight(&self, addresses: &[Address]) {
-        if let Some(manager) = &self.redis_manager {
-            self.remove_inflight_redis(manager.clone(), addresses).await;
-        } else {
-            self.remove_inflight_local(addresses).await;
-        }
-    }
-
-    /// Attempts to atomically insert all addresses into Redis.
-    ///
-    /// Uses a Lua script to check if any keys exist and insert all keys in a single atomic
-    /// operation. This avoids race conditions that would occur with separate SET NX calls.
-    ///
-    /// Returns `Err(GatewayErrorResponse)` with `DuplicateRequestInFlight` code if any address
-    /// already exists.
-    /// Returns `Err(GatewayErrorResponse)` with internal server error if a Redis error occurs.
-    async fn try_insert_inflight_redis(
-        &self,
-        mut manager: ConnectionManager,
-        addresses: &[Address],
-    ) -> Result<(), GatewayErrorResponse> {
         // Lua script that atomically:
         // 1. Checks if any key already exists
         // 2. If none exist, sets all keys with TTL
@@ -321,6 +317,7 @@ impl RequestTracker {
         );
 
         let keys: Vec<String> = addresses.iter().map(Self::inflight_key).collect();
+        let mut manager = self.redis_manager.clone();
 
         let mut invocation = script.prepare_invoke();
         for key in &keys {
@@ -349,8 +346,9 @@ impl RequestTracker {
         }
     }
 
-    /// Removes in-flight addresses from Redis.
-    async fn remove_inflight_redis(&self, mut manager: ConnectionManager, addresses: &[Address]) {
+    /// Remove all addresses from the in-flight tracker.
+    pub async fn remove_inflight(&self, addresses: &[Address]) {
+        let mut manager = self.redis_manager.clone();
         for addr in addresses {
             let key = Self::inflight_key(addr);
             let result: Result<usize, redis::RedisError> = manager.del(&key).await;
@@ -360,61 +358,102 @@ impl RequestTracker {
         }
     }
 
-    /// Attempts to insert all addresses into the local cache using atomic compute operations.
+    // =========================================================================
+    // Rate limiting
+    // =========================================================================
+
+    /// Returns the Redis key for a rate limit entry.
+    fn rate_limit_key(leaf_index: u64) -> String {
+        format!("gateway:ratelimit:leaf:{}", leaf_index)
+    }
+
+    /// Checks if a request for the given leaf_index should be allowed.
     ///
-    /// Returns `Err(GatewayErrorResponse)` with `DuplicateRequestInFlight` code if any address
-    /// already exists, rolling back prior insertions.
-    async fn try_insert_inflight_local(
+    /// Returns `Ok(())` if the request is allowed.
+    /// Returns `Err(GatewayErrorResponse)` with rate limit error if exceeded.
+    ///
+    /// If rate limiting is not configured, always returns `Ok(())`.
+    pub async fn check_rate_limit(
         &self,
-        addresses: &[Address],
+        leaf_index: u64,
+        request_id: &str,
     ) -> Result<(), GatewayErrorResponse> {
-        let mut inserted_addresses: Vec<Address> = Vec::new();
+        let Some((window_secs, max_requests)) = self.rate_limit_config else {
+            return Ok(());
+        };
 
-        for addr in addresses {
-            let result = self
-                .inflight_cache
-                .entry_by_ref(addr)
-                .and_compute_with(|entry| async move {
-                    if entry.is_some() {
-                        Op::Nop
-                    } else {
-                        Op::Put(())
-                    }
-                })
-                .await;
+        let key = Self::rate_limit_key(leaf_index);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
 
-            match result {
-                CompResult::Inserted(_) => {
-                    inserted_addresses.push(*addr);
-                }
-                CompResult::Unchanged(_) => {
-                    // Already exists - rollback and return duplicate error
-                    tracing::warn!(
-                        authenticator_address = %addr,
-                        "Duplicate in-flight request detected"
-                    );
-                    self.remove_inflight_local(&inserted_addresses).await;
-                    return Err(GatewayErrorResponse::bad_request(
-                        GatewayErrorCode::DuplicateRequestInFlight,
-                    ));
-                }
-                _ => unreachable!("Unexpected CompResult variant"),
+        let mut manager = self.redis_manager.clone();
+
+        let script = redis::Script::new(
+            r#"
+            local key = KEYS[1]
+            local now = tonumber(ARGV[1])
+            local window = tonumber(ARGV[2])
+            local limit = tonumber(ARGV[3])
+            local request_id = ARGV[4]
+
+            -- Remove old entries outside the window
+            local min_timestamp = now - window
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', min_timestamp)
+
+            -- Count current entries in the window
+            local current = redis.call('ZCARD', key)
+
+            -- Check if we're under the limit
+            if current < limit then
+                -- Add the new request with current timestamp as score
+                redis.call('ZADD', key, now, request_id)
+                -- Set expiration on the key to cleanup old keys
+                redis.call('EXPIRE', key, window)
+                return current + 1
+            else
+                -- Rate limit exceeded
+                return -1
+            end
+            "#,
+        );
+        let result: Result<i64, redis::RedisError> = script
+            .key(&key)
+            .arg(now)
+            .arg(window_secs)
+            .arg(max_requests)
+            .arg(request_id)
+            .invoke_async(&mut manager)
+            .await;
+
+        match result {
+            Ok(-1) => {
+                tracing::warn!(
+                    leaf_index = leaf_index,
+                    request_id = request_id,
+                    "Rate limit exceeded"
+                );
+                Err(GatewayErrorResponse::rate_limit_exceeded(
+                    window_secs,
+                    max_requests,
+                ))
+            }
+            Ok(count) => {
+                tracing::debug!(
+                    leaf_index = leaf_index,
+                    request_id = request_id,
+                    count = count,
+                    max = max_requests,
+                    "Rate limit check passed"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!("Redis error during rate limit check: {}", e);
+                tracing::warn!("Rate limit check failed due to Redis error, allowing request");
+                Ok(())
             }
         }
-
-        Ok(())
     }
-
-    /// Removes in-flight addresses from the local cache.
-    async fn remove_inflight_local(&self, addresses: &[Address]) {
-        for addr in addresses {
-            self.inflight_cache.invalidate(addr).await;
-        }
-    }
-}
-
-/// Converts a Redis error into a gateway error response.
-fn handle_redis_error(e: redis::RedisError) -> GatewayErrorResponse {
-    tracing::error!("Unhandled Redis error: {}", e);
-    GatewayErrorResponse::internal_server_error()
 }

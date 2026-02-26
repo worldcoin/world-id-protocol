@@ -2,19 +2,56 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
-# Enable optimizer
+
+# Do _not_ change any of these fields
+solc = "0.8.28"
+auto_detect_solc = false
+evm_version = "cancun"
+bytecode_hash = "none"
+cbor_metadata = false
 optimizer = true
-# How aggressively to optimize (higher = more runtime-opt, bigger bytecode)
 optimizer_runs = 10000
+
+# ---           ---
 via_ir = true
 memory_limit = 1073741824
 gas_limit = "18446744073709551615"
+ffi = true
+
+# Suppress compiler warnings from vendored submodules
+ignored_warnings_from = ["lib/"]
+
+remappings = [
+    # World ID Protocol
+    "@world-id-core/=src/core/",
+    "@world-id-bridge/=src/crosschain/",
+
+    # OpenZeppelin
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+
+    # Optimism contracts-bedrock
+    "@optimism-bedrock/=lib/optimism/packages/contracts-bedrock/",
+    # Optimism interfaces (used by bridge adapters)
+    "interfaces/=lib/optimism/packages/contracts-bedrock/interfaces/",
+    # Optimism transitive deps — scoped to lib/optimism/ to avoid collisions with our src/libraries/
+    "lib/optimism/:src/libraries/=lib/optimism/packages/contracts-bedrock/src/libraries/",
+    "lib/optimism/:src/dispute/=lib/optimism/packages/contracts-bedrock/src/dispute/",
+    "lib/optimism/:src/L2/=lib/optimism/packages/contracts-bedrock/src/L2/",
+    "lib/optimism/:src/universal/=lib/optimism/packages/contracts-bedrock/src/universal/",
+    "lib/optimism/:scripts/libraries/=lib/optimism/packages/contracts-bedrock/scripts/libraries/",
+]
 
 fs_permissions = [
-    { access = "read", path = "script/config/" },
-    { access = "read-write", path = "deployments/" }
+    { access = "read", path = "script/core/config/" },
+    { access = "read-write", path = "deployments/" },
+    { access = "read-write", path = "test/crosschain/fixtures" },
+    { access = "read-write", path = "test/crosschain/fixtures/e2e_mpt" },
+    { access = "read", path = "script/crosschain/config" },
 ]
 
 [lint]
 exclude_lints = ["screaming-snake-case-const"]
+
+[fmt]
+ignore = ["lib"]

@@ -52,12 +52,18 @@ pub enum GatewayError {
         source: redis::RedisError,
         backtrace: String,
     },
-    #[error("redis not configured")]
-    RedisNotConfigured,
     #[error("join error: {source}")]
     Join {
         #[source]
         source: tokio::task::JoinError,
+        backtrace: String,
+    },
+    #[error("config error: {0}")]
+    Config(String),
+    #[error("redis nonce manager error: {source}")]
+    RedisNonceManager {
+        #[source]
+        source: redis::RedisError,
         backtrace: String,
     },
 }
@@ -157,6 +163,18 @@ impl GatewayErrorResponse {
             GatewayErrorCode::BatcherUnavailable,
             "Batcher service is unavailable. Please try again.".to_string(),
             StatusCode::SERVICE_UNAVAILABLE,
+        )
+    }
+
+    #[must_use]
+    pub fn rate_limit_exceeded(window_secs: u64, max_requests: u64) -> Self {
+        Self::new(
+            GatewayErrorCode::RateLimitExceeded,
+            format!(
+                "Rate limit exceeded: maximum {} requests per {} seconds for this leaf_index",
+                max_requests, window_secs
+            ),
+            StatusCode::TOO_MANY_REQUESTS,
         )
     }
 

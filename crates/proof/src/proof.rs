@@ -29,10 +29,10 @@ pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
 pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "292483d5631c28f15613b26bee6cf62a8cc9bbd74a97f375aea89e4dfbf7a10f";
+    "616c98c6ba024b5a4015d3ebfd20f6cab12e1e33486080c5167a4bcfac111798";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
-    "14bd468c7fc6e91e48fa776995c267493845d93648a4c1ee24c2567b18b1795a";
+    "4247e6bfe1af211e72d3657346802e1af00e6071fb32429a200f9fc0a25a36f9";
 
 /// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
 pub const QUERY_GRAPH_FINGERPRINT: &str =
@@ -57,15 +57,21 @@ const CIRCUIT_ARCHIVE: &[u8] = {
 const CIRCUIT_ARCHIVE: &[u8] = &[];
 
 #[cfg(feature = "embed-zkeys")]
-struct CircuitFiles {
-    query_graph: Vec<u8>,
-    nullifier_graph: Vec<u8>,
-    query_zkey: Vec<u8>,
-    nullifier_zkey: Vec<u8>,
+#[derive(Clone, Debug)]
+pub struct EmbeddedCircuitFiles {
+    /// Embedded query witness graph bytes.
+    pub query_graph: Vec<u8>,
+    /// Embedded nullifier witness graph bytes.
+    pub nullifier_graph: Vec<u8>,
+    /// Embedded query zkey bytes (decompressed if `compress-zkeys` is enabled).
+    pub query_zkey: Vec<u8>,
+    /// Embedded nullifier zkey bytes (decompressed if `compress-zkeys` is enabled).
+    pub nullifier_zkey: Vec<u8>,
 }
 
 #[cfg(feature = "embed-zkeys")]
-static CIRCUIT_FILES: std::sync::OnceLock<CircuitFiles> = std::sync::OnceLock::new();
+static CIRCUIT_FILES: std::sync::OnceLock<Result<EmbeddedCircuitFiles, String>> =
+    std::sync::OnceLock::new();
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
@@ -94,13 +100,11 @@ pub enum ProofError {
 /// # Errors
 /// Will return an error if the zkey file cannot be loaded.
 #[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_nullifier_material(
-    cache_dir: Option<impl AsRef<Path>>,
-) -> eyre::Result<CircomGroth16Material> {
-    let files = get_circuit_files(cache_dir.as_ref().map(|p| p.as_ref()));
-    Ok(
-        build_nullifier_builder()
-            .build_from_bytes(&files.nullifier_zkey, &files.nullifier_graph)?,
+pub fn load_embedded_nullifier_material() -> eyre::Result<CircomGroth16Material> {
+    let files = load_embedded_circuit_files()?;
+    load_nullifier_material_from_reader(
+        files.nullifier_zkey.as_slice(),
+        files.nullifier_graph.as_slice(),
     )
 }
 
@@ -113,11 +117,9 @@ pub fn load_embedded_nullifier_material(
 /// # Errors
 /// Will return an error if the zkey file cannot be loaded.
 #[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_query_material(
-    cache_dir: Option<impl AsRef<Path>>,
-) -> eyre::Result<CircomGroth16Material> {
-    let files = get_circuit_files(cache_dir.as_ref().map(|p| p.as_ref()));
-    Ok(build_query_builder().build_from_bytes(&files.query_zkey, &files.query_graph)?)
+pub fn load_embedded_query_material() -> eyre::Result<CircomGroth16Material> {
+    let files = load_embedded_circuit_files()?;
+    load_query_material_from_reader(files.query_zkey.as_slice(), files.query_graph.as_slice())
 }
 
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided reader.
@@ -167,14 +169,22 @@ pub fn load_query_material_from_paths(
 }
 
 #[cfg(feature = "embed-zkeys")]
-fn get_circuit_files(cache_dir: Option<&Path>) -> &'static CircuitFiles {
-    CIRCUIT_FILES.get_or_init(|| {
-        init_circuit_files(cache_dir).expect("failed to initialize embedded circuit files")
-    })
+pub fn load_embedded_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
+    let files = get_circuit_files()?;
+    Ok(files.clone())
 }
 
 #[cfg(feature = "embed-zkeys")]
-fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
+fn get_circuit_files() -> eyre::Result<&'static EmbeddedCircuitFiles> {
+    let files = CIRCUIT_FILES.get_or_init(|| init_circuit_files().map_err(|e| e.to_string()));
+    match files {
+        Ok(files) => Ok(files),
+        Err(err) => Err(eyre::eyre!(err.clone())),
+    }
+}
+
+#[cfg(feature = "embed-zkeys")]
+fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
     use std::io::Read as _;
 
     use eyre::ContextCompat;
@@ -212,8 +222,8 @@ fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
         match name {
             "OPRFQueryGraph.bin" => query_graph = Some(buf),
             "OPRFNullifierGraph.bin" => nullifier_graph = Some(buf),
-            n if n.starts_with("OPRFQuery.arks.zkey") => query_zkey = Some(buf),
-            n if n.starts_with("OPRFNullifier.arks.zkey") => nullifier_zkey = Some(buf),
+            "OPRFQuery.arks.zkey" => query_zkey = Some(buf),
+            "OPRFNullifier.arks.zkey" => nullifier_zkey = Some(buf),
             _ => {}
         }
     }
@@ -225,18 +235,18 @@ fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
     #[allow(unused_mut)]
     let mut nullifier_zkey = nullifier_zkey.context("OPRFNullifier zkey not found in archive")?;
 
-    // Step 3: ARK decompress zkeys if compress-zkeys is active (with disk caching)
+    // Step 3: ARK decompress zkeys if compress-zkeys is active
     #[cfg(feature = "compress-zkeys")]
     {
-        query_zkey = ark_decompress_zkey(cache_dir, "OPRFQuery.arks.zkey", &query_zkey)?;
-        nullifier_zkey =
-            ark_decompress_zkey(cache_dir, "OPRFNullifier.arks.zkey", &nullifier_zkey)?;
+        if let Ok(decompressed) = ark_decompress_zkey(&query_zkey) {
+            query_zkey = decompressed;
+        }
+        if let Ok(decompressed) = ark_decompress_zkey(&nullifier_zkey) {
+            nullifier_zkey = decompressed;
+        }
     }
 
-    #[cfg(not(feature = "compress-zkeys"))]
-    let _ = cache_dir;
-
-    Ok(CircuitFiles {
+    Ok(EmbeddedCircuitFiles {
         query_graph,
         nullifier_graph,
         query_zkey,
@@ -244,38 +254,14 @@ fn init_circuit_files(cache_dir: Option<&Path>) -> eyre::Result<CircuitFiles> {
     })
 }
 
-/// ARK-decompresses a zkey, with disk caching.
+/// ARK-decompresses a zkey.
 #[cfg(feature = "compress-zkeys")]
-fn ark_decompress_zkey(
-    cache_dir: Option<&Path>,
-    file_name: &str,
-    compressed: &[u8],
-) -> eyre::Result<Vec<u8>> {
-    let cache_dir = match cache_dir {
-        Some(dir) => dir.to_path_buf(),
-        None => {
-            tracing::warn!(
-                "No cache directory provided for uncompressed zkey, using system temp directory"
-            );
-            let mut dir = std::env::temp_dir();
-            dir.push("world-id-zkey-cache");
-            dir
-        }
-    };
-    let path = cache_dir.join(file_name);
-
-    // Check disk cache first
-    if let Ok(bytes) = std::fs::read(&path) {
-        return Ok(bytes);
-    }
-
-    // Decompress and cache
-    let zkey =
-        <circom_types::groth16::ArkZkey<Bn254> as ark_serialize::CanonicalDeserialize>::deserialize_with_mode(
-            compressed,
-            ark_serialize::Compress::Yes,
-            ark_serialize::Validate::Yes,
-        )?;
+pub fn ark_decompress_zkey(compressed: &[u8]) -> eyre::Result<Vec<u8>> {
+    let zkey = <circom_types::groth16::ArkZkey<Bn254> as ark_serialize::CanonicalDeserialize>::deserialize_with_mode(
+        compressed,
+        ark_serialize::Compress::Yes,
+        ark_serialize::Validate::Yes,
+    )?;
 
     let mut uncompressed = Vec::new();
     ark_serialize::CanonicalSerialize::serialize_with_mode(
@@ -283,8 +269,6 @@ fn ark_decompress_zkey(
         &mut uncompressed,
         ark_serialize::Compress::No,
     )?;
-    std::fs::create_dir_all(&cache_dir)?;
-    std::fs::write(&path, &uncompressed)?;
     Ok(uncompressed)
 }
 
@@ -387,4 +371,57 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     }
 
     Ok((proof, public, nullifier))
+}
+
+#[cfg(all(test, feature = "embed-zkeys"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loads_embedded_circuit_files() {
+        let files = load_embedded_circuit_files().unwrap();
+        assert!(!files.query_graph.is_empty());
+        assert!(!files.nullifier_graph.is_empty());
+        assert!(!files.query_zkey.is_empty());
+        assert!(!files.nullifier_zkey.is_empty());
+    }
+
+    #[test]
+    fn builds_materials_from_embedded_readers() {
+        let files = load_embedded_circuit_files().unwrap();
+        load_query_material_from_reader(files.query_zkey.as_slice(), files.query_graph.as_slice())
+            .unwrap();
+        load_nullifier_material_from_reader(
+            files.nullifier_zkey.as_slice(),
+            files.nullifier_graph.as_slice(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn convenience_embedded_material_loaders_work() {
+        load_embedded_query_material().unwrap();
+        load_embedded_nullifier_material().unwrap();
+    }
+
+    #[cfg(feature = "compress-zkeys")]
+    #[test]
+    fn ark_decompress_zkey_roundtrip() {
+        use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
+        use circom_types::{ark_bn254::Bn254, groth16::ArkZkey};
+
+        let files = load_embedded_circuit_files().unwrap();
+        let zkey = ArkZkey::<Bn254>::deserialize_with_mode(
+            files.query_zkey.as_slice(),
+            Compress::No,
+            Validate::Yes,
+        )
+        .unwrap();
+        let mut compressed = Vec::new();
+        zkey.serialize_with_mode(&mut compressed, Compress::Yes)
+            .unwrap();
+
+        let decompressed = ark_decompress_zkey(&compressed).unwrap();
+        assert_eq!(decompressed, files.query_zkey);
+    }
 }

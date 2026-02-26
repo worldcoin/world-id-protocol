@@ -1,0 +1,2 @@
+import 'script/crosschain/it.just'
+import 'script/core/deploy.just'

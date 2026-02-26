@@ -1,25 +1,16 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 use alloy::{
     primitives::{Address, FixedBytes},
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     pubsub::Subscription,
-    rpc::{
-        client::RpcClient,
-        types::{Filter, Log},
-    },
-    transports::layers::RetryBackoffLayer,
+    rpc::types::{Filter, Log},
 };
 use futures_util::{Stream, StreamExt, TryStreamExt, stream};
 use thiserror::Error;
-
-use url::Url;
 
 pub use crate::blockchain::events::{
     AccountCreatedEvent, AccountRecoveredEvent, AccountUpdatedEvent, AuthenticatorInsertedEvent,
@@ -30,18 +21,10 @@ mod events;
 
 static WS_BUFFER_SIZE: usize = 1024;
 
-static DEFAULT_MAX_RPC_RETRIES: u32 = 30;
-// 1 second
-static RPC_RETRY_MIN_DELAY: Duration = Duration::from_secs(1);
-// Not really relevant for sequential workloads
-static RPC_COMPUTE_UNITS_PER_SECOND: u64 = 10_000;
-
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 
 #[derive(Debug, Error)]
 pub enum BlockchainError {
-    #[error("invalid http rpc url: {0}")]
-    InvalidHttpRpcUrl(#[from] url::ParseError),
     #[error("failed to connect ws provider: {0}")]
     WsProvider(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("rpc error: {0}")]
@@ -54,6 +37,8 @@ pub enum BlockchainError {
     EmptyTopics,
     #[error("missing block number in log topics")]
     MissingBlockNumber,
+    #[error("missing block hash in log topics")]
+    MissingBlockHash,
     #[error("missing transaction hash in log topics")]
     MissingTxHash,
     #[error("missing log index in log topics")]
@@ -65,19 +50,18 @@ pub enum BlockchainError {
 }
 
 pub struct Blockchain {
-    http_rpc_url: Url,
     http_provider: DynProvider,
     ws_provider: DynProvider,
     world_id_registry: Address,
 }
 
 impl Blockchain {
-    /// Creates a new [`Blockchain`] instance is used to stream events from the blockchain.
+    /// Creates a new [`Blockchain`] instance used to stream events from the blockchain.
     /// Note: We consider any errors as fatal and stop the stream.
     ///
     /// # Arguments
     ///
-    /// * `http_rpc_url` - The HTTP RPC URL to use for the blockchain.
+    /// * `http_provider` - A pre-built HTTP provider (e.g. from [`ProviderArgs::http()`]).
     /// * `ws_rpc_url` - The WebSocket RPC URL to use for the blockchain.
     /// * `world_id_registry` - The address of the World ID registry.
     ///
@@ -85,13 +69,10 @@ impl Blockchain {
     ///
     /// A new [`Blockchain`] instance.
     pub async fn new(
-        http_rpc_url: &str,
+        http_provider: DynProvider,
         ws_rpc_url: &str,
         world_id_registry: Address,
     ) -> BlockchainResult<Self> {
-        let http_url = Url::parse(http_rpc_url)?;
-        let http_provider = Self::build_http_provider(http_url.clone(), DEFAULT_MAX_RPC_RETRIES);
-
         // Disable internal WS reconnect so drops surface immediately as errors.
         let ws_connect = WsConnect::new(ws_rpc_url).with_max_retries(0);
         let ws_provider = DynProvider::new(
@@ -110,27 +91,10 @@ impl Blockchain {
             .set_channel_size(WS_BUFFER_SIZE); // Increase buffer size to avoid losing events
 
         Ok(Self {
-            http_rpc_url: http_url,
             http_provider,
             ws_provider,
             world_id_registry,
         })
-    }
-
-    /// Override the maximum number of RPC retries for rate-limit errors.
-    pub fn with_max_rpc_retries(mut self, max_retries: u32) -> Self {
-        self.http_provider = Self::build_http_provider(self.http_rpc_url.clone(), max_retries);
-        self
-    }
-
-    fn build_http_provider(url: Url, max_retries: u32) -> DynProvider {
-        let retry_layer = RetryBackoffLayer::new(
-            max_retries,
-            RPC_RETRY_MIN_DELAY.as_millis() as u64, // Convert to milliseconds
-            RPC_COMPUTE_UNITS_PER_SECOND,
-        );
-        let client = RpcClient::builder().layer(retry_layer).http(url);
-        DynProvider::new(ProviderBuilder::new().connect_client(client))
     }
 
     /// Streams World Tree events from the blockchain.

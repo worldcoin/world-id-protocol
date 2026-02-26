@@ -1,5 +1,4 @@
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
-use ruint::aliases::U256;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -73,7 +72,7 @@ struct AppState {
 
 #[derive(Debug, Deserialize)]
 struct IssueCredentialRequest {
-    sub: U256,
+    sub: FieldElement,
     #[serde(default)]
     expires_at: Option<u64>,
 }
@@ -94,15 +93,6 @@ async fn issue_credential(
 ) -> Result<Json<IssueCredentialResponse>, (StatusCode, Json<ErrorResponse>)> {
     tracing::info!("Issuing credential...");
 
-    let sub = FieldElement::try_from(req.sub).map_err(|_| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "invalid_field_element".to_string(),
-            }),
-        )
-    })?;
-
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards")
@@ -112,7 +102,7 @@ async fn issue_credential(
     let credential = Credential::new()
         .issuer_schema_id(state.issuer_schema_id)
         .genesis_issued_at(now)
-        .subject(sub)
+        .subject(req.sub)
         .expires_at(expires_at);
 
     let signed_credential = credential

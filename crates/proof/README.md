@@ -17,8 +17,7 @@ Download from github is done as a workaround to circumvent the max crates.io hos
 ##### `compress-zkeys` (implies `embed-zkeys`)
 
 build.rs will download and compress zkey files from github and include them into the binary.
-
-Because decompression of the zkey files is very cpu intensive, we cache the decompress files to disk for subsequent reuse.
+At runtime, zkeys are decompressed in memory during initialization.
 
 ##### neither `compress-zkeys` or `embed-zkeys`
 

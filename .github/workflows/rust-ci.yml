@@ -80,7 +80,7 @@ jobs:
   feature:
     name: Feature Resolution (cargo-hack)
     runs-on:
-      group: arc-public-large-amd64-runner
+      group: arc-public-xlarge-amd64-runner
     permissions:
       contents: read
     steps:
@@ -307,10 +307,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Check primitives compiles for WASM
-        run: |
-          # Test WASM compilation without the 'circuits' feature (which has C++ deps)
-          # This ensures primitives can be used in WASM environments like browsers
-          cargo check -p world-id-primitives --target wasm32-unknown-unknown --no-default-features
+        run: cargo check -p world-id-primitives --target wasm32-unknown-unknown
 
   docs:
     name: Check docs

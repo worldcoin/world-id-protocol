@@ -11,6 +11,7 @@ use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
+use world_id_services_common::ProviderArgs;
 
 /// Tests the packed_account endpoint that maps authenticator addresses to account indices
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -37,6 +38,7 @@ async fn test_packed_account_endpoint() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8083".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
@@ -46,7 +48,7 @@ async fn test_packed_account_endpoint() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -57,19 +59,19 @@ async fn test_packed_account_endpoint() {
 
     // Add a small delay to let initialization start
     tokio::time::sleep(Duration::from_millis(500)).await;
-    println!("Indexer task spawned, waiting for backfill...");
+    tracing::info!("Indexer task spawned, waiting for backfill...");
 
     // Wait for account to be indexed
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         let c = query_count(&setup.pool).await;
-        println!(
+        tracing::info!(
             "Current account count: {} (elapsed: {:?})",
             c,
             deadline.saturating_duration_since(std::time::Instant::now())
         );
         if c >= 1 {
-            println!("Account found! Backfill complete.");
+            tracing::info!("Account found! Backfill complete.");
             break;
         }
         if std::time::Instant::now() > deadline {

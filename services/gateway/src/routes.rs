@@ -3,9 +3,11 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     AppState,
     batcher::BatcherHandle,
+    config::OrphanSweeperConfig,
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::{GatewayErrorBody, GatewayResult},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
+    orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
@@ -54,14 +56,19 @@ pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 
+// TODO: Refactor config into structs to reduce number of arguments
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batch_ms: u64,
     max_create_batch_size: usize,
     max_ops_batch_size: usize,
-    redis_url: Option<String>,
+    redis_url: String,
+    rate_limit_config: Option<(u64, u64)>,
+    request_timeout_secs: u64,
+    orphan_sweeper_config: OrphanSweeperConfig,
 ) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(redis_url).await;
+    let tracker = RequestTracker::new(redis_url, rate_limit_config).await;
 
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
@@ -87,6 +94,15 @@ pub(crate) async fn build_app(
     tokio::spawn(ops_runner.run());
 
     tracing::info!("Ops batcher initialized");
+
+    let sweeper_tracker = tracker.clone();
+    let sweeper_provider = registry.provider().clone();
+    tokio::spawn(run_orphan_sweeper(
+        sweeper_tracker,
+        sweeper_provider,
+        orphan_sweeper_config,
+    ));
+    tracing::info!("Orphan sweeper initialized");
 
     let root_cache = Cache::builder()
         .max_capacity(ROOT_CACHE_SIZE)
@@ -120,9 +136,9 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
-        .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
-            30,
-        )))
+        .layer(world_id_services_common::timeout_layer(
+            request_timeout_secs,
+        ))
         .layer(world_id_services_common::trace_layer()))
 }
 

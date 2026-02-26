@@ -1,4 +1,4 @@
-use eyre::{OptionExt, bail};
+use eyre::OptionExt;
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -11,7 +11,7 @@ use std::{fs::File, io};
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 
 #[cfg(feature = "embed-zkeys")]
-const CIRCUIT_COMMIT: &str = "cebbe92ba48fac9dd5f60c3f9272a2b82f075ecc"; // TODO: Figure out a better way for static commits
+const CIRCUIT_COMMIT: &str = "aaf8f2650b003a8bb06feb26bed6277629d4c0bf"; // TODO: Figure out a better way for static commits
 
 const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFQueryGraph.bin",
@@ -186,24 +186,26 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     let circom_dir = workspace_root.join("circom");
 
     if !circom_dir.is_dir() {
-        bail!("circom directory not found at {}", circom_dir.display());
+        fs::create_dir_all(&circom_dir)?;
     }
 
     // Watch the directory itself for new/removed files
     println!("cargo:rerun-if-changed={}", circom_dir.display());
 
-    // Collect all zkey files first
+    // Process directory entries in parallel while propagating any IO errors.
     fs::read_dir(out_dir)?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| is_arks_zkey(path))
         .par_bridge()
-        .try_for_each(|path| {
+        .try_for_each(|entry| -> eyre::Result<()> {
+            let path = entry?.path();
+            if !is_arks_zkey(&path) {
+                return Ok(());
+            }
+
             let file_name = path
                 .file_name()
                 .ok_or_eyre("missing filename")?
                 .to_str()
-                .unwrap();
+                .ok_or_eyre("non-utf8 filename")?;
             let output_path = out_dir.join(format!("{file_name}.compressed"));
 
             // Skip if output exists and is newer than input
