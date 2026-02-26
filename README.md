@@ -27,11 +27,16 @@ Deployments are tracked in [`contracts/deployments/`](contracts/deployments/)
 | Production  | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/prod.json`](contracts/deployments/oprf-key-registry/prod.json) |
 | Staging     | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/staging.json`](contracts/deployments/oprf-key-registry/staging.json) |
 
-### Crosschain Contracts
+### Reserved Credential Issuer IDs
 
-| Environment | Chains             | Config                                                          |
-| ----------- | ------------------ | --------------------------------------------------------------- |
-| Staging     | World Chain (`480`), Ethereum (`1`), Base (`8453`) | [`contracts/deployments/crosschain/staging.json`](contracts/deployments/crosschain/staging.json) |
+The following issuer schema IDs are reserved in the `CredentialSchemaIssuerRegistry` on production (World Chain, chain ID 480).
+
+| ID   | Name        |
+| ---- | ----------- |
+| 1    | PoH Issuer  |
+| 11   | Face Issuer |
+| 9303 | NFC Issuer  |
+| 9310 | MNC Issuer  |
 
 ### Services
 
