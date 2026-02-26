@@ -2,7 +2,7 @@ mod helpers;
 
 use alloy::primitives::{Address, U256};
 use helpers::{db_helpers::*, mock_blockchain::*};
-use world_id_indexer::events_committer::EventsCommitter;
+use world_id_indexer::{db::DBError, IndexerError, events_committer::EventsCommitter};
 
 /// Test that events are properly buffered and committed
 #[tokio::test]
@@ -329,6 +329,68 @@ async fn test_transaction_rollback_on_error() {
     // Original account should still exist
     let exists = account_exists(db.pool(), 1).await.unwrap();
     assert!(exists, "Account should still exist after rollback");
+}
+
+/// A second committer that encounters a conflicting block_hash for an already-committed
+/// event returns ReorgDetected and does not commit any new data.
+#[tokio::test]
+async fn test_reorg_detected_on_conflicting_block_hash() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    // First committer commits block 100 with block_hash = 1.
+    let mut committer = EventsCommitter::new(db);
+    committer
+        .handle_event(mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(1)))
+        .await
+        .unwrap();
+    committer
+        .handle_event(mock_root_recorded_event(100, 1, U256::from(999), U256::from(1000)))
+        .await
+        .unwrap();
+
+    assert_account_count(db.pool(), 1).await;
+    assert_root_count(db.pool(), 1).await;
+
+    // Second committer sends the same events but with a different block_hash (simulates a reorg).
+    let mut committer2 = EventsCommitter::new(db);
+    committer2
+        .handle_event(mock_account_created_event_with_hash(
+            100,
+            0,
+            U256::from(0xbadc0de_u64), // conflicting hash
+            1,
+            Address::ZERO,
+            U256::from(1),
+        ))
+        .await
+        .unwrap();
+    let result = committer2
+        .handle_event(mock_root_recorded_event_with_hash(
+            100,
+            1,
+            U256::from(0xbadc0de_u64),
+            U256::from(999),
+            U256::from(1000),
+        ))
+        .await;
+
+    assert!(result.is_err(), "expected ReorgDetected error");
+    let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            IndexerError::Db {
+                source: DBError::ReorgDetected { .. },
+                ..
+            }
+        ),
+        "expected ReorgDetected, got: {err:?}"
+    );
+
+    // Original data must be intact.
+    assert_account_count(db.pool(), 1).await;
+    assert_root_count(db.pool(), 1).await;
 }
 
 /// Test buffer clearing after commit

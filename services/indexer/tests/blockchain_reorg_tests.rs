@@ -272,95 +272,6 @@ async fn test_reorg_within_max_blocks_range() {
     // and the binary search would find block 140 as the divergence point
 }
 
-/// Test: Deep reorg beyond max_reorg_blocks returns error
-///
-/// This test verifies that when a reorg extends beyond the configured max_reorg_blocks,
-/// the system properly detects it and would return a ReorgBeyondMaxReorgBlocks error.
-#[tokio::test]
-async fn test_deep_reorg_beyond_max_blocks() {
-    init_test_tracing();
-    let test_db = create_unique_test_db().await;
-    let db = &test_db.db;
-
-    // Insert events across 150 blocks
-    let mut committer = world_id_indexer::events_committer::EventsCommitter::new(db);
-    for block in 100..250 {
-        let event =
-            mock_account_created_event(block, 0, block - 99, Address::ZERO, U256::from(block));
-        let root = mock_root_recorded_event(block, 1, U256::from(block * 10), U256::from(block));
-        committer.handle_event(event).await.unwrap();
-        committer.handle_event(root).await.unwrap();
-
-        sqlx::query("UPDATE world_id_registry_events SET block_hash = $1 WHERE block_number = $2")
-            .bind(U256::from(block))
-            .bind(block as i64)
-            .execute(db.pool())
-            .await
-            .unwrap();
-    }
-
-    let latest_block = 249_u64;
-    let max_reorg_blocks = 100_u64;
-    let earliest_checkable = latest_block.saturating_sub(max_reorg_blocks);
-
-    assert_eq!(earliest_checkable, 149, "Should check back to block 149");
-
-    // Simulate reorg at the earliest checkable block (149)
-    // Change the hash at block 149 to simulate a deep reorg
-    sqlx::query("UPDATE world_id_registry_events SET block_hash = $1 WHERE block_number = $2")
-        .bind(U256::from(99999))
-        .bind(149_i64)
-        .execute(db.pool())
-        .await
-        .unwrap();
-
-    // Now simulate a reorg by creating a NEW blockchain
-    // The new blockchain will have completely different block hashes
-    // Drop the committer to free resources
-    drop(committer);
-
-    // Create a new Anvil instance - it will generate different block hashes
-    let anvil2 =
-        world_id_test_utils::anvil::TestAnvil::spawn().expect("failed to spawn second anvil");
-    let deployer2 = anvil2.signer(0).expect("failed to get deployer");
-    let registry_address2 = anvil2
-        .deploy_world_id_registry_with_depth(deployer2, 8)
-        .await
-        .expect("failed to deploy registry on second chain");
-
-    let blockchain2 = world_id_indexer::blockchain::Blockchain::new(
-        anvil2.endpoint(),
-        anvil2.ws_endpoint(),
-        registry_address2,
-    )
-    .await
-    .expect("failed to create second blockchain");
-
-    // Run the actual blockchain_reorg_check_loop
-    // Since the second blockchain has completely different block hashes,
-    // it should detect a reorg beyond max_reorg_blocks and return an error
-    let result = world_id_indexer::blockchain_sync_check::blockchain_sync_check_loop(
-        1, // interval_secs - doesn't matter since it will fail on first check
-        db,
-        &blockchain2,
-        max_reorg_blocks,
-    )
-    .await;
-
-    // Verify that blockchain_reorg_check_loop returns ReorgBeyondMaxReorgBlocks error
-    assert!(
-        result.is_err(),
-        "blockchain_reorg_check_loop should return an error for deep reorg"
-    );
-
-    let err = result.unwrap_err();
-    let err_string = err.to_string();
-    assert!(
-        err_string.contains("reorg beyond") || err_string.contains("ReorgBeyondMaxReorgBlocks"),
-        "Error should be ReorgBeyondMaxReorgBlocks, got: {}",
-        err_string
-    );
-}
 
 /// Test: Binary search correctly identifies reorg point
 #[tokio::test]
@@ -451,8 +362,7 @@ async fn test_rollback_after_reorg_preserves_valid_data() {
     };
 
     let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
-    let mut executor = world_id_indexer::rollback_executor::RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    world_id_indexer::rollback_executor::rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Verify valid data is preserved

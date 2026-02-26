@@ -100,12 +100,6 @@ pub struct HttpConfig {
     ///
     /// The sanity check calls the `isValidRoot` function on the `WorldIDRegistry` contract to ensure the local Merkle root is valid.
     pub sanity_check_interval_secs: Option<u64>,
-    /// Optional blockchain reorg check interval in seconds. If not set, the reorg check will not be run.
-    ///
-    /// The reorg check compares block hashes in the database with the blockchain to detect reorganizations.
-    pub reorg_check_interval_secs: Option<u64>,
-    /// Maximum number of blocks to check back during reorg detection (default: 100)
-    pub max_sync_backward_check_blocks: u64,
     pub tree_cache: TreeCacheConfig,
 }
 
@@ -134,16 +128,6 @@ impl HttpConfig {
                     if val == 0 { None } else { Some(val) }
                 },
             ),
-            reorg_check_interval_secs: std::env::var("REORG_CHECK_INTERVAL_SECS").ok().and_then(
-                |s| {
-                    let val = s.parse::<u64>().ok().unwrap_or(0);
-                    if val == 0 { None } else { Some(val) }
-                },
-            ),
-            max_sync_backward_check_blocks: std::env::var("MAX_SYNC_BACKWARD_CHECK_BLOCKS")
-                .ok()
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(100),
             tree_cache,
         };
 

@@ -3,6 +3,7 @@ use crate::{
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::{DB, DBError},
     events_committer::EventsCommitter,
+    rollback_executor::rollback_to_last_valid_root,
 };
 use alloy::{
     primitives::Address,
@@ -23,7 +24,6 @@ pub use config::GlobalConfig;
 pub use error::{IndexerError, IndexerResult};
 
 pub mod blockchain;
-pub mod blockchain_sync_check;
 pub mod config;
 pub mod db;
 mod error;
@@ -148,7 +148,6 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             run_http_only(
                 db,
                 &cfg.http_rpc_url,
-                &cfg.ws_rpc_url,
                 cfg.registry_address,
                 http_config,
                 tree_state,
@@ -201,7 +200,6 @@ async fn run_indexer_only(
 async fn run_http_only(
     db: DB,
     http_rpc_url: &str,
-    ws_rpc_url: &str,
     registry_address: Address,
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
@@ -232,25 +230,6 @@ async fn run_http_only(
         None
     };
 
-    // Start blockchain reorg checker in the background
-    let blockchain_sync_check_handle =
-        if let Some(reorg_interval) = http_cfg.reorg_check_interval_secs {
-            let reorg_db = db.clone();
-            let blockchain = Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await?;
-            let max_sync_backward_check_blocks = http_cfg.max_sync_backward_check_blocks;
-            Some(tokio::spawn(async move {
-                blockchain_sync_check::blockchain_sync_check_loop(
-                    reorg_interval,
-                    &reorg_db,
-                    &blockchain,
-                    max_sync_backward_check_blocks,
-                )
-                .await
-            }))
-        } else {
-            None
-        };
-
     // Start HTTP server
     let rpc_url = http_rpc_url.to_string();
     let http_addr = http_cfg.http_addr;
@@ -271,10 +250,6 @@ async fn run_http_only(
         result = async { sanity_handle.unwrap().await }, if sanity_handle.is_some() => {
             result??;
             eyre::bail!("sanity check loop exited unexpectedly");
-        }
-        result = async { blockchain_sync_check_handle.unwrap().await }, if blockchain_sync_check_handle.is_some() => {
-            result??;
-            eyre::bail!("blockchain sync check loop exited unexpectedly");
         }
     }
 }
@@ -367,24 +342,6 @@ async unsafe fn run_both(
         None
     };
 
-    let reorg_handle = if let Some(reorg_interval) = http_cfg.reorg_check_interval_secs {
-        let reorg_db = db.clone();
-        // Note: reorg check only needs HTTP RPC, but Blockchain requires both URLs
-        let reorg_blockchain = Blockchain::new(http_rpc_url, ws_rpc_url, registry_address).await?;
-        let max_sync_backward_check_blocks = http_cfg.max_sync_backward_check_blocks;
-        Some(tokio::spawn(async move {
-            blockchain_sync_check::blockchain_sync_check_loop(
-                reorg_interval,
-                &reorg_db,
-                &reorg_blockchain,
-                max_sync_backward_check_blocks,
-            )
-            .await
-        }))
-    } else {
-        None
-    };
-
     // --- Phase 4: Stream live events, updating tree after each batch ---
     // Wait for the first task to complete — any failure is fatal.
     tokio::select! {
@@ -406,10 +363,6 @@ async unsafe fn run_both(
         result = async { sanity_handle.unwrap().await }, if sanity_handle.is_some() => {
             result??;
             eyre::bail!("sanity check loop exited unexpectedly");
-        }
-        result = async { reorg_handle.unwrap().await }, if reorg_handle.is_some() => {
-            result??;
-            eyre::bail!("reorg check loop exited unexpectedly");
         }
     }
 }
@@ -506,13 +459,19 @@ pub async fn process_registry_events(
                     {
                         Ok(()) => {}
                         Err(IndexerError::Db {
-                            source: DBError::ReorgDetected { reason, .. },
+                            source: DBError::ReorgDetected { block_number, reason },
                             ..
                         }) => {
                             tracing::warn!(
+                                block_number,
                                 reason,
-                                "Reorg detected during event commit, restarting stream"
+                                "Reorg detected during event commit, rolling back"
                             );
+                            match rollback_to_last_valid_root(db, &blockchain.world_id_registry()).await {
+                                Ok(Some(target)) => tracing::info!(?target, "rolled back successfully"),
+                                Ok(None) => tracing::warn!("no valid root found, nothing rolled back"),
+                                Err(e) => tracing::error!(?e, "rollback failed"),
+                            }
                             break;
                         }
                         Err(e) => return Err(e),

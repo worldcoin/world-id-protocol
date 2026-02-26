@@ -68,8 +68,7 @@ async fn test_cache_creation_and_restoration() {
                 http_addr: "0.0.0.0:8090".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -142,8 +141,7 @@ async fn test_incremental_replay() {
                 http_addr: "0.0.0.0:8091".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -200,8 +198,7 @@ async fn test_incremental_replay() {
                 http_addr: "0.0.0.0:8092".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -273,8 +270,7 @@ async fn test_missing_cache_creates_new() {
                 http_addr: "0.0.0.0:8093".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -338,8 +334,7 @@ async fn test_http_only_cache_refresh() {
                 http_addr: "0.0.0.0:8094".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -376,8 +371,7 @@ async fn test_http_only_cache_refresh() {
                 http_addr: "0.0.0.0:8095".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -461,8 +455,7 @@ async fn test_authenticator_removed_replay() {
                 http_addr: "0.0.0.0:8098".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -557,8 +550,7 @@ async fn test_authenticator_removed_replay() {
                 http_addr: "0.0.0.0:8096".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -588,8 +580,7 @@ async fn test_authenticator_removed_replay() {
                 http_addr: "0.0.0.0:8097".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config_fresh.clone(),
             },
         },
@@ -658,8 +649,7 @@ async fn test_init_root_matches_contract() {
                 http_addr: "0.0.0.0:8100".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -742,8 +732,7 @@ async fn test_replay_root_matches_contract() {
                 http_addr: "0.0.0.0:8101".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -805,8 +794,7 @@ async fn test_replay_root_matches_contract() {
                 http_addr: "0.0.0.0:8102".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -897,8 +885,7 @@ async fn test_corrupted_cache_returns_error() {
                 http_addr: "0.0.0.0:8103".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -941,8 +928,7 @@ async fn test_corrupted_cache_returns_error() {
                 http_addr: "0.0.0.0:8104".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 sanity_check_interval_secs: None,
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },
@@ -1000,8 +986,7 @@ async fn test_sanity_check_exits_on_root_mismatch() {
                 http_addr: "0.0.0.0:8099".parse().unwrap(),
                 db_poll_interval_secs: 60,
                 sanity_check_interval_secs: Some(1),
-                reorg_check_interval_secs: None,
-                max_sync_backward_check_blocks: 100,
+
                 tree_cache: tree_cache_config.clone(),
             },
         },

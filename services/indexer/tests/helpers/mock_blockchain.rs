@@ -163,6 +163,50 @@ pub fn mock_account_recovered_event(
     }
 }
 
+/// Create a mock RootRecorded event with a specific block_hash
+pub fn mock_root_recorded_event_with_hash(
+    block_number: u64,
+    log_index: u64,
+    block_hash: U256,
+    root: U256,
+    timestamp: U256,
+) -> BlockchainEvent<RegistryEvent> {
+    BlockchainEvent {
+        block_number,
+        block_hash,
+        tx_hash: U256::from(1),
+        log_index,
+        details: RegistryEvent::RootRecorded(world_id_indexer::blockchain::RootRecordedEvent {
+            root,
+            timestamp,
+        }),
+    }
+}
+
+/// Create a mock AccountCreated event with a specific block_hash
+pub fn mock_account_created_event_with_hash(
+    block_number: u64,
+    log_index: u64,
+    block_hash: U256,
+    leaf_index: u64,
+    recovery_address: Address,
+    commitment: U256,
+) -> BlockchainEvent<RegistryEvent> {
+    BlockchainEvent {
+        block_number,
+        block_hash,
+        tx_hash: U256::from(1),
+        log_index,
+        details: RegistryEvent::AccountCreated(world_id_indexer::blockchain::AccountCreatedEvent {
+            leaf_index,
+            recovery_address,
+            authenticator_addresses: vec![],
+            authenticator_pubkeys: vec![],
+            offchain_signer_commitment: commitment,
+        }),
+    }
+}
+
 /// Create a mock RootRecorded event for testing
 pub fn mock_root_recorded_event(
     block_number: u64,

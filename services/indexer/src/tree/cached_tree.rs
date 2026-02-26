@@ -5,33 +5,11 @@ use futures_util::TryStreamExt as _;
 use semaphore_rs_storage::MmapVec;
 use tracing::{info, instrument};
 
-use super::{TreeError, TreeResult, TreeState};
+use super::{TreeError, TreeResult, TreeState, extract_leaf_commitment};
 use crate::{
-    blockchain::RegistryEvent,
     db::{DB, WorldIdRegistryEventId},
     tree::MerkleTree,
 };
-
-/// Extract leaf_index and offchain_signer_commitment from a RegistryEvent
-/// Returns None for RootRecorded events which don't have a leaf_index
-fn extract_leaf_commitment(event: &RegistryEvent) -> Option<(u64, U256)> {
-    match event {
-        RegistryEvent::AccountCreated(ev) => Some((ev.leaf_index, ev.offchain_signer_commitment)),
-        RegistryEvent::AccountUpdated(ev) => {
-            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
-        }
-        RegistryEvent::AuthenticatorInserted(ev) => {
-            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
-        }
-        RegistryEvent::AuthenticatorRemoved(ev) => {
-            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
-        }
-        RegistryEvent::AccountRecovered(ev) => {
-            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
-        }
-        RegistryEvent::RootRecorded(_) => None,
-    }
-}
 
 // =============================================================================
 // Public API

@@ -1,6 +1,5 @@
 use crate::{
-    blockchain::BlockchainError, blockchain_sync_check::BlockchainSyncCheckError,
-    config::ConfigError, db::DBError, tree::TreeError,
+    blockchain::BlockchainError, config::ConfigError, db::DBError, tree::TreeError,
 };
 use axum::response::IntoResponse;
 use http::StatusCode;
@@ -48,12 +47,6 @@ pub enum IndexerError {
         source: std::io::Error,
         backtrace: String,
     },
-    #[error("reorg handling error: {source}")]
-    BlockchainSyncCheck {
-        #[source]
-        source: BlockchainSyncCheckError,
-        backtrace: String,
-    },
 }
 
 impl From<BlockchainError> for IndexerError {
@@ -92,14 +85,6 @@ impl From<TreeError> for IndexerError {
     }
 }
 
-impl From<BlockchainSyncCheckError> for IndexerError {
-    fn from(source: BlockchainSyncCheckError) -> Self {
-        Self::BlockchainSyncCheck {
-            source,
-            backtrace: Backtrace::capture().to_string(),
-        }
-    }
-}
 
 /// Error response body used by the indexer APIs.
 pub type IndexerErrorBody = ServiceApiError<IndexerErrorCode>;

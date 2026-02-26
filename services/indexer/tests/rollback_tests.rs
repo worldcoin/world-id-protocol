@@ -1,6 +1,6 @@
 //! Integration tests for the rollback feature
 //!
-//! These tests verify the functionality of RollbackExecutor which allows
+//! These tests verify the functionality of `rollback_to_event` which allows
 //! reverting the database state to a specific event point.
 //!
 //! # Running these tests
@@ -20,7 +20,7 @@ use alloy::primitives::{Address, U256};
 use helpers::{common::init_test_tracing, db_helpers::*, mock_blockchain::*};
 use world_id_indexer::{
     db::WorldIdRegistryEventId, events_committer::EventsCommitter,
-    rollback_executor::RollbackExecutor,
+    rollback_executor::rollback_to_event,
 };
 
 /// Test basic rollback: delete events after a specific point
@@ -65,8 +65,7 @@ async fn test_basic_rollback_deletes_events_after_point() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Verify data after rollback
@@ -114,8 +113,7 @@ async fn test_rollback_within_same_block() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Verify data after rollback
@@ -159,8 +157,7 @@ async fn test_rollback_to_genesis() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Verify all data is removed
@@ -230,8 +227,7 @@ async fn test_rollback_with_account_updates() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // After rollback:
@@ -298,8 +294,7 @@ async fn test_rollback_preserves_old_accounts() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Verify accounts 1 and 2 are preserved, account 3 is removed
@@ -383,8 +378,7 @@ async fn test_rollback_with_mixed_event_types() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Account should EXIST with state after authenticator insertion (at block 101)
@@ -456,8 +450,7 @@ async fn test_rollback_to_current_state_no_op() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Verify data unchanged
@@ -487,8 +480,7 @@ async fn test_rollback_empty_database() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Verify database still empty
@@ -547,8 +539,7 @@ async fn test_rollback_identifies_affected_leaves() {
         .transaction(world_id_indexer::db::IsolationLevel::Serializable)
         .await
         .unwrap();
-    let mut executor = RollbackExecutor::new(&mut tx);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
     // Verify correct accounts remain

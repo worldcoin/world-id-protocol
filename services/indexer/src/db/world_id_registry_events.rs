@@ -797,6 +797,47 @@ where
             .collect()
     }
 
+    /// Get a batch of RootRecorded events in reverse chronological order, starting
+    /// strictly before `before` (exclusive). Returns at most `limit` events.
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_root_recorded_events_desc_before(
+        self,
+        before: WorldIdRegistryEventId,
+        limit: u64,
+    ) -> DBResult<Vec<BlockchainEvent<RootRecordedEvent>>> {
+        let rows = sqlx::query(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    block_hash,
+                    tx_hash,
+                    event_type,
+                    leaf_index,
+                    event_data
+                FROM world_id_registry_events
+                WHERE event_type = 'root_recorded'
+                  AND (
+                      block_number < $1
+                      OR (block_number = $1 AND log_index < $2)
+                  )
+                ORDER BY
+                    block_number DESC,
+                    log_index DESC
+                LIMIT $3
+            "#,
+        )
+        .bind(before.block_number as i64)
+        .bind(before.log_index as i64)
+        .bind(limit as i64)
+        .fetch_all(self.executor)
+        .await?;
+
+        rows.iter()
+            .map(|row| Self::map_root_recorded_event(row))
+            .collect()
+    }
+
     /// Get the latest RootRecorded event strictly before the given event_id
     #[instrument(level = "info", skip(self))]
     pub async fn get_root_recorded_before(
