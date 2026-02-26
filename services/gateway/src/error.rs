@@ -60,6 +60,12 @@ pub enum GatewayError {
     },
     #[error("config error: {0}")]
     Config(String),
+    #[error("redis nonce manager error: {source}")]
+    RedisNonceManager {
+        #[source]
+        source: redis::RedisError,
+        backtrace: String,
+    },
 }
 
 impl From<ProviderError> for GatewayError {

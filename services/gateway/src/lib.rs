@@ -115,11 +115,18 @@ pub async fn run() -> GatewayResult<()> {
     // Use Redis-backed nonce manager so multiple replicas sharing the same
     // signer key never collide on nonces.  The existing REDIS_URL config
     // value is reused — no new configuration required.
-    let redis_client = redis::Client::open(cfg.redis_url.as_str())
-        .map_err(|e| GatewayError::Config(format!("invalid REDIS_URL for nonce manager: {e}")))?;
-    let redis_conn = ConnectionManager::new(redis_client).await.map_err(|e| {
-        GatewayError::Config(format!("Redis connection for nonce manager failed: {e}"))
+    let redis_client = redis::Client::open(cfg.redis_url.as_str()).map_err(|source| {
+        GatewayError::RedisNonceManager {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        }
     })?;
+    let redis_conn = ConnectionManager::new(redis_client)
+        .await
+        .map_err(|source| GatewayError::RedisNonceManager {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        })?;
     let nonce_mgr = RedisNonceManager::new(redis_conn);
     tracing::info!("Redis-backed nonce manager initialised");
 
