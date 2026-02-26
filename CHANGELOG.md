@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.3...world-id-primitives-v0.4.4) - 2026-02-24
+
+### Other
+
+- update Cargo.toml dependencies
+- Finalize World ID 4 trusted setup docs, artifacts, and explainer video ([#468](https://github.com/worldcoin/world-id-protocol/pull/468))
+
+## [0.4.3](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.2...world-id-primitives-v0.4.3) - 2026-02-23
+
+### Added
+
+- *(rp)* include version byte in rp signature message
+
+### Other
+
+- expose eddsa keys & sig ([#467](https://github.com/worldcoin/world-id-protocol/pull/467))
+
+## [0.4.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-proof-v0.4.1...world-id-proof-v0.4.2) - 2026-02-20
+
+### Fixed
+
+- bump circuit commit ([#463](https://github.com/worldcoin/world-id-protocol/pull/463))
+
+## [0.4.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.0...world-id-primitives-v0.4.1) - 2026-02-20
+
+### Added
+
+- Compute random action for session proofs ([#377](https://github.com/worldcoin/world-id-protocol/pull/377))
+- *(gateway)* Add rate limitting. ([#424](https://github.com/worldcoin/world-id-protocol/pull/424))
+- remove circuits feature flags on primitives crate ([#425](https://github.com/worldcoin/world-id-protocol/pull/425))
+- *(contract)* full tree in storage ([#402](https://github.com/worldcoin/world-id-protocol/pull/402))
+- *(indexer)* add deserialization from 0x hex or decimal ([#419](https://github.com/worldcoin/world-id-protocol/pull/419))
+- *(request)* add enumerate constraint ([#388](https://github.com/worldcoin/world-id-protocol/pull/388))
+
+### Fixed
+
+- field element encoding ([#461](https://github.com/worldcoin/world-id-protocol/pull/461))
+- *(primitives)* reject unknown and duplicate response credentials ([#458](https://github.com/worldcoin/world-id-protocol/pull/458))
+- *(authenticator)* normalize sparse indexer pubkey slots before key set validation ([#447](https://github.com/worldcoin/world-id-protocol/pull/447))
+- Temporarily remove decompressed zkey disk caching ([#431](https://github.com/worldcoin/world-id-protocol/pull/431))
+- filter credentials_to_prove by issuer_schema_id ([#410](https://github.com/worldcoin/world-id-protocol/pull/410))
+
+### Other
+
+- use default to create empty AuthenticatorPublicKeySet ([#460](https://github.com/worldcoin/world-id-protocol/pull/460))
+- bump deps ([#435](https://github.com/worldcoin/world-id-protocol/pull/435))
+- *(deps)* update taceo crates and replace testcontainers with OPRF test secret_managers ([#407](https://github.com/worldcoin/world-id-protocol/pull/407))
+
 ## [0.4.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.3.0...world-id-primitives-v0.4.0) - 2026-02-10
 
 ### Added

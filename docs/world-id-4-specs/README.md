@@ -195,12 +195,24 @@ RP ->> RP: Verify nullifier uniqueness
         - An off-chain key which is an elliptic curve key on the `BabyJubJub` curve is used to sign requests for zero-knowledge proofs. The public key (represented as a curve point) is emitted on-chain and committed to in the contract.
 - **Relying Party Registry**
     - Each RP needs to commit to their authorized public key on the public registry, such that this can be verified in the request proof $\pi_1$ by each queried OPRF node.
-    - Registering an RP is a public action that anyone can take, but this requires paying a one-time fee. The fee covers the cost of the OPRF nodes generating and maintaining a publicly committed key for the generation of nullifiers.
+    - Registering an RP is a public action that anyone can take, but this requires paying a one-time registration fee (see *Registration Fees* below).
     - In order to allow for decentralized application creation and registration, the RP Registry will be extended and restrictions further lifted in the future, but for this initial version the following applies:
         - At launch, only one authorized key is allowed per RP. This will be extended in the future.
 - **Credential Schema Issuer Registry**
-    - It’s a simple registry where Issuers register for each of their credential types a schema and an authorized signatory and get issued an `issuerSchemaId`. This ID represents the combination of an (issuer, schema). For example: (Tools For Humanity, Orb credential).
+    - It's a simple registry where Issuers register for each of their credential types a schema and an authorized signatory and get issued an `issuerSchemaId`. This ID represents the combination of an (issuer, schema). For example: (Tools For Humanity, Orb credential).
     - The `issuerSchemaId` is included in the credential and is verified as part of all Proofs. When generating and verifying proofs, the signature of a credential is verified against the public key registered in the contract.
+    - Registering an Issuer Schema also requires paying a one-time registration fee (see *Registration Fees* below).
+
+### Registration Fees
+
+Both the Relying Party Registry and the Credential Schema Issuer Registry charge a one-time registration fee. The fee infrastructure serves as a **permissionless rate-limiting mechanism** — an alternative to restricting registration to authorized callers — ensuring that registration remains open to anyone while preventing abuse.
+
+**Why the fee exists.** Registering an RP or an Issuer Schema triggers the initialization of an OPRF key via a multi-round distributed key generation ceremony across the OPRF Nodes. This is a computationally expensive operation with real infrastructure cost. The registration fee is sized to cover the cost of OPRF key generation and storage for at least approximately one year.
+
+**How it works.**
+- The fee is paid in a configurable ERC-20 token via `safeTransferFrom` at the time of registration, before OPRF key generation begins.
+
+**Future: per-request fees.** The registration fee described here covers only the one-time cost of onboarding. A separate per-request fee — enforced by OPRF Nodes as a proof-of-payment requirement during nullifier generation — may be introduced in a future Protocol release (4.1 or 4.2). See *Future Proofing Notes* for details.
 
 ### Recovery
 
@@ -316,5 +328,5 @@ This is not a comprehensive list, but it outlines general topics that may be the
 - World ID as signer (or biometric recovery). Similar to how recovering a World ID is possible because PoH AMPC allows for the addition of a new authenticator, it’ll be conceptually possible that a World ID could be a recovery signer for other accounts.
 - Man-in-the-middle (MITM) proof phishing protection. While the attack vector of proof phishing is reduced with the introduction of the RP registry, it may still be possible to MITM proofs. Further protection mechanisms are required to mitigate this.
 - In the future, credentials could be authenticator-specific, where issuers sign them for use with a specific authenticator only.
-- Fee gates may be introduced in the future such that the OPRF Nodes receive a proof of payment as part of the proof they need to be able to generate a nullifier.
+- Per-request fee gates may be introduced in the future (targeting 4.1 or 4.2) such that the OPRF Nodes receive a proof of payment as part of the request to generate a nullifier. This is distinct from the one-time registration fee already in place (see *Registration Fees*).
 - Supporting cryptographic operations that enables secrets that can live in secure hardware and never be exported.

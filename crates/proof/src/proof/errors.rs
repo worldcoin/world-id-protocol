@@ -2,8 +2,9 @@
 //!
 //! These are intended to assist in producing more helpful error messages for a given proof.
 //! If the circuits change in any way, these checks may also need to be updated to match the new logic.
+use ark_bn254::Fr;
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::Zero;
+use ark_ff::{PrimeField, Zero};
 use eddsa_babyjubjub::EdDSAPublicKey;
 use taceo_oprf::core::{dlog_equality::DLogEqualityProof, oprf::BlindingFactor};
 use world_id_primitives::{
@@ -128,13 +129,13 @@ pub fn check_query_input_validity<const TREE_DEPTH: usize>(
     }
 
     // Build the leaf from the PKs.
-    let pk_set = AuthenticatorPublicKeySet::new(Some(
+    let pk_set = AuthenticatorPublicKeySet::new(
         inputs
             .pk
             .iter()
             .map(|&x| EdDSAPublicKey { pk: x })
             .collect(),
-    ))
+    )
     .map_err(|_| ProofInputError::InvalidAuthenticatorPublicKeySet)?;
     let pk_set_hash = pk_set.leaf_hash();
     let merkle_tree_inclusion_proof = MerkleInclusionProof::new(
@@ -374,23 +375,23 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
 
 // Recompute the blinded subject, copied from credential
 fn sub(leaf_index: FieldElement, blinding_factor: FieldElement) -> FieldElement {
-    let sub_ds = FieldElement::from_be_bytes_mod_order(b"H_CS(id, r)");
-    let mut input = [*sub_ds, *leaf_index, *blinding_factor];
+    let sub_ds = Fr::from_be_bytes_mod_order(b"H_CS(id, r)");
+    let mut input = [sub_ds, *leaf_index, *blinding_factor];
     poseidon2::bn254::t3::permutation_in_place(&mut input);
     input[1].into()
 }
 // Recompute the OPRF finalization hash
 fn oprf_finalize_hash(query: BaseField, oprf_response: Affine) -> FieldElement {
-    let finalize_ds = FieldElement::from_be_bytes_mod_order(super::OPRF_PROOF_DS);
-    let mut input = [*finalize_ds, query, oprf_response.x, oprf_response.y];
+    let finalize_ds = Fr::from_be_bytes_mod_order(super::OPRF_PROOF_DS);
+    let mut input = [finalize_ds, query, oprf_response.x, oprf_response.y];
     poseidon2::bn254::t4::permutation_in_place(&mut input);
     input[1].into()
 }
 
 // Recompute the session_id_commitment
 fn session_id_commitment(user_id: FieldElement, commitment_rand: FieldElement) -> FieldElement {
-    let sub_ds = FieldElement::from_be_bytes_mod_order(b"H(id, r)");
-    let mut input = [*sub_ds, *user_id, *commitment_rand];
+    let sub_ds = Fr::from_be_bytes_mod_order(b"H(id, r)");
+    let mut input = [sub_ds, *user_id, *commitment_rand];
     poseidon2::bn254::t3::permutation_in_place(&mut input);
     input[1].into()
 }
@@ -405,9 +406,9 @@ fn hash_credential(
     associated_data_hash: FieldElement,
     id: FieldElement,
 ) -> FieldElement {
-    let cred_ds = FieldElement::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ");
+    let cred_ds = Fr::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ");
     let mut input = [
-        *cred_ds,
+        cred_ds,
         *issuer_schema_id,
         *sub,
         *genesis_issued_at,
@@ -569,13 +570,13 @@ mod tests {
             };
 
             // Recompute the merkle root so the proof is valid
-            let pk_set = world_id_primitives::authenticator::AuthenticatorPublicKeySet::new(Some(
+            let pk_set = world_id_primitives::authenticator::AuthenticatorPublicKeySet::new(
                 inputs
                     .pk
                     .iter()
                     .map(|&x| eddsa_babyjubjub::EdDSAPublicKey { pk: x })
                     .collect(),
-            ))
+            )
             .unwrap();
             let mut current = pk_set.leaf_hash();
             let idx =

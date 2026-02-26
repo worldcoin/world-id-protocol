@@ -13,7 +13,7 @@ use world_id_core::{
     Authenticator, AuthenticatorError,
     api_types::{GatewayRequestState, GatewayStatusResponse},
 };
-use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
 use world_id_primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::{TestAnvil, WorldIDRegistry},
@@ -127,9 +127,12 @@ async fn e2e_authenticator_insert_update_remove() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: None,
+        redis_url: std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
+        sweeper: OrphanSweeperConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await

@@ -11,6 +11,7 @@ use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
+use world_id_services_common::ProviderArgs;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
@@ -51,6 +52,7 @@ async fn test_backfill_and_live_sync() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8080".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
@@ -60,7 +62,7 @@ async fn test_backfill_and_live_sync() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };
@@ -179,6 +181,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8082".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
                 tree_cache: TreeCacheConfig {
                     cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
@@ -188,7 +191,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
     };

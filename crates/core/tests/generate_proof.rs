@@ -13,11 +13,13 @@ use alloy::{
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::health_checks;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
-use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
 use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -29,6 +31,13 @@ use world_id_test_utils::{
 };
 
 const GW_PORT: u16 = 4104;
+
+fn init_test_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+}
 
 fn load_embedded_materials() -> (
     Arc<world_id_core::proof::CircomGroth16Material>,
@@ -42,6 +51,9 @@ fn load_embedded_materials() -> (
 /// Generates an entire end-to-end Uniqueness Proof Generator
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_generate_proof() -> Result<()> {
+    init_test_tracing();
+    info!("starting e2e_authenticator_generate_proof");
+
     let mut rng = rand::thread_rng();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -55,6 +67,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         world_id_verifier,
         credential_registry,
     } = RegistryTestContext::new().await?;
+    info!(
+        ?world_id_registry,
+        ?rp_registry,
+        ?oprf_key_registry,
+        ?credential_registry,
+        "registry test context initialized"
+    );
 
     let deployer = anvil
         .signer(0)
@@ -73,13 +92,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: None,
+        redis_url: std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
+        sweeper: OrphanSweeperConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
         .map_err(|e| eyre!("failed to spawn gateway for tests: {e}"))?;
+    info!(port = GW_PORT, "gateway started");
 
     // Build Config and ensure Authenticator account creation works.
     let seed = [7u8; 32];
@@ -125,9 +148,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .await
     .unwrap();
-    println!(
-        "Authentication creation took: {}ms",
-        SystemTime::now().duration_since(start).unwrap().as_millis(),
+    info!(
+        elapsed_ms = SystemTime::now().duration_since(start).unwrap().as_millis(),
+        "authenticator account creation finished"
     );
 
     assert_eq!(authenticator.leaf_index(), 1);
@@ -185,6 +208,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
     health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+    info!("oprf nodes and key-gen services passed health checks");
 
     // Register an issuer which also triggers a OPRF key-gen.
     let issuer_schema_id = 1u64;
@@ -198,6 +222,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             issuer_pk.clone(),
         )
         .await?;
+    info!(issuer_schema_id, "issuer registered");
 
     // Register the RP which also triggers a OPRF key-gen.
     let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -211,6 +236,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             "taceo.oprf".to_string(),
         )
         .await?;
+    info!(rp_id = ?rp_fixture.world_rp_id, "rp registered");
 
     // Wait for RP OPRF key-gen and until the public key is available from the nodes.
     let _oprf_public_key = health_checks::oprf_public_key_from_services(
@@ -229,6 +255,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         Duration::from_secs(120),
     )
     .await?;
+    info!("oprf public keys became available for rp and issuer");
 
     // Config for proof generation uses the indexer + OPRF stubs.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -322,6 +349,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         proof_request.session_id,
         proof_request.created_at,
     )?;
+    info!("generated uniqueness proof");
 
     assert_eq!(response_item.nullifier, Some(raw_nullifier));
 
@@ -349,7 +377,12 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         )
         .call()
         .await?;
+    info!("on-chain proof verification succeeded");
 
     indexer_handle.abort();
+    info!("e2e_authenticator_generate_proof finished successfully");
     Ok(())
 }
+
+// Solidity fixture generation has been moved to a standalone binary.
+// Run with: cargo run -p generate-solidity-fixtures

@@ -32,11 +32,13 @@ fn proof_pubkeys_response(
         .iter()
         .map(|pubkey| {
             let mut compressed = Vec::new();
-            pubkey
-                .pk
-                .serialize_compressed(&mut compressed)
-                .expect("failed to serialize compressed authenticator pubkey");
-            U256::from_le_slice(&compressed)
+            pubkey.as_ref().map(|pubkey| {
+                pubkey
+                    .pk
+                    .serialize_compressed(&mut compressed)
+                    .expect("failed to serialize compressed authenticator pubkey");
+                U256::from_le_slice(&compressed)
+            })
         })
         .collect();
 
@@ -213,6 +215,7 @@ async fn spawn_orpf_node(
             db_connection_string: "not-used".into(),
             db_max_connections: 1.try_into().unwrap(), // not used
             db_schema: "not-used".into(),
+            i_am_alive_interval: Duration::from_secs(60),
             reload_key_material_interval: Duration::from_secs(3600),
             db_acquire_timeout: Duration::from_secs(0), // not used
             db_retry_delay: Duration::from_secs(0),     // not used
@@ -233,7 +236,7 @@ async fn spawn_orpf_node(
         let res = axum::serve(listener, router)
             .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
             .await;
-        eprintln!("service failed to start: {res:?}");
+        tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
     tokio::time::timeout(Duration::from_secs(60), async {
@@ -330,6 +333,7 @@ async fn spawn_key_gen(
         zkey_path: dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
         witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
         max_wait_time_shutdown: Duration::from_secs(10),
+        i_am_alive_interval: Duration::from_secs(60),
         start_block: Some(0),
         max_transaction_attempts: 3,
         max_wait_time_transaction_confirmation: Duration::from_secs(60),
@@ -359,7 +363,7 @@ async fn spawn_key_gen(
         let res = axum::serve(listener, router)
             .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
             .await;
-        eprintln!("service failed to start: {res:?}");
+        tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
     tokio::time::timeout(Duration::from_secs(60), async {

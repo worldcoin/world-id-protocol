@@ -17,6 +17,9 @@ contracts/script/crosschain/config/local.json
 # Node (if used later)
 node_modules/
 
+# Scripts
+contracts/deploy.sh
+
 # Misc
 .env
 .DS_Store
@@ -32,3 +35,6 @@ logs/
 crates/core/contracts/out/*.sol/*.json
 !crates/core/contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json
 !crates/core/contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
+
+# Trusted setup generated media
+docs/world-id-4-trusted-setup/manim/media/

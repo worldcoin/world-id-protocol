@@ -9,15 +9,12 @@
 
 use alloy_primitives::Keccak256;
 
-pub mod serde_utils;
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ruint::aliases::{U160, U256};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::{
     fmt,
-    io::{Cursor, Read, Write},
     ops::{Deref, DerefMut},
     str::FromStr,
 };
@@ -61,6 +58,8 @@ pub use proof::ZeroKnowledgeProof;
 /// Contains types specifically related to relying parties.
 pub mod rp;
 
+pub mod serde_utils;
+
 /// Contains signer primitives for on-chain and off-chain signatures.
 mod signer;
 pub use signer::Signer;
@@ -71,6 +70,8 @@ pub use request::{
     ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
     ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
+
+pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 /// The scalar field used in the World ID Protocol.
 ///
@@ -96,36 +97,35 @@ impl FieldElement {
     /// The multiplicative identity of the field.
     pub const ONE: Self = Self(Fq::ONE);
 
-    /// Serializes the field element into a byte vector.
-    ///
-    /// # Errors
-    /// Will return an error if the serialization unexpectedly fails.
-    pub fn serialize_as_bytes<W: Write>(&self, writer: &mut W) -> Result<(), PrimitiveError> {
-        self.0
-            .serialize_compressed(writer)
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))
+    /// Returns the 32-byte big-endian representation of this field element.
+    #[must_use]
+    pub fn to_be_bytes(&self) -> [u8; 32] {
+        let as_num: U256 = self.0.into();
+        as_num.to_be_bytes()
     }
 
-    /// Deserializes a field element from a byte vector.
+    /// Constructs a field element from a 32-byte big-endian representation.
+    ///
+    /// Unlike `from_be_bytes_mod_order`, this rejects values >= the field modulus.
     ///
     /// # Errors
-    /// Will return an error if the provided input is not a valid field element (e.g. not on the curve).
-    pub fn deserialize_from_bytes<R: Read>(bytes: &mut R) -> Result<Self, PrimitiveError> {
-        let field_element = Fq::deserialize_compressed(bytes)
-            .map_err(|e| PrimitiveError::Deserialization(e.to_string()))?;
-        Ok(Self(field_element))
+    /// Returns [`PrimitiveError::NotInField`] if the value is >= the field modulus.
+    pub fn from_be_bytes(be_bytes: &[u8; 32]) -> Result<Self, PrimitiveError> {
+        U256::from_be_bytes(*be_bytes).try_into()
     }
 
     /// Deserializes a field element from a big-endian byte slice.
+    ///
+    /// # Warning
+    /// Use this function carefully. This function will perform modulo reduction on the input, which may lead to unexpected results if the input should not be reduced.
     #[must_use]
-    pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
+    pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
     }
 
     /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
     /// and reduces it to a field element.
-    ///
     #[must_use]
     pub fn from_arbitrary_raw_bytes(bytes: &[u8]) -> Self {
         let mut hasher = Keccak256::new();
@@ -172,19 +172,25 @@ impl DerefMut for FieldElement {
 impl FromStr for FieldElement {
     type Err = PrimitiveError;
 
+    /// Parses a field element from a hex string (with optional "0x" prefix).
+    ///
+    /// The value must be lower than the modulus and specifically for string encoding, proper padding is enforced (strictly 32 bytes). This
+    /// is because some values in the Protocol are meant to be enforced uniqueness with, and this reduces the possibility of accidental
+    /// string non-collisions.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim_start_matches("0x");
-        let u256 = U256::from_str_radix(s, 16).map_err(|_| {
-            PrimitiveError::Deserialization("not a valid hex-encoded number".to_string())
-        })?;
-        u256.try_into()
+        let bytes = hex::decode(s)
+            .map_err(|e| PrimitiveError::Deserialization(format!("Invalid hex encoding: {e}")))?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| PrimitiveError::Deserialization("expected 32 bytes".to_string()))?;
+        Self::from_be_bytes(&bytes)
     }
 }
 
 impl fmt::Display for FieldElement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let u256: U256 = (*self).into();
-        write!(f, "{u256:#066x}")
+        write!(f, "0x{}", hex::encode(self.to_be_bytes()))
     }
 }
 
@@ -255,10 +261,7 @@ impl Serialize for FieldElement {
         if serializer.is_human_readable() {
             serializer.serialize_str(&self.to_string())
         } else {
-            let mut writer = Vec::new();
-            self.serialize_compressed(&mut writer)
-                .map_err(S::Error::custom)?;
-            serializer.serialize_bytes(&writer)
+            serializer.serialize_bytes(&self.to_be_bytes())
         }
     }
 }
@@ -273,7 +276,10 @@ impl<'de> Deserialize<'de> for FieldElement {
             Self::from_str(&s).map_err(D::Error::custom)
         } else {
             let bytes = Vec::<u8>::deserialize(deserializer)?;
-            Self::deserialize_from_bytes(&mut Cursor::new(bytes)).map_err(D::Error::custom)
+            let bytes: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| D::Error::custom("expected 32 bytes"))?;
+            Self::from_be_bytes(&bytes).map_err(D::Error::custom)
         }
     }
 }
@@ -365,7 +371,19 @@ mod tests {
     }
 
     #[test]
-    fn test_field_element_binary_encoding_roundtrip() {
+    fn test_simple_bytes_encoding() {
+        let fe = FieldElement::ONE;
+        let bytes = fe.to_be_bytes();
+        let mut expected = [0u8; 32];
+        expected[31] = 1;
+        assert_eq!(bytes, expected);
+
+        let reversed = FieldElement::from_be_bytes(&bytes).unwrap();
+        assert_eq!(reversed, fe);
+    }
+
+    #[test]
+    fn test_field_element_cbor_encoding_roundtrip() {
         let root = FieldElement::try_from(uint!(
             0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
         ))
@@ -397,9 +415,110 @@ mod tests {
         let field_bytes = &buffer[2..];
         assert_eq!(field_bytes.len(), 32);
 
-        let expected_le_bytes =
-            hex::decode("c224d31e05d194f1b7ac32eaa4dbfce39a43a3f050cf422f21ac917bce23d211")
+        let expected_be_bytes =
+            hex::decode("11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2")
                 .unwrap();
-        assert_eq!(field_bytes, expected_le_bytes.as_slice());
+        assert_eq!(field_bytes, expected_be_bytes.as_slice());
+    }
+
+    #[test]
+    fn test_to_be_bytes_from_be_bytes_roundtrip() {
+        let values = [
+            FieldElement::ZERO,
+            FieldElement::ONE,
+            FieldElement::from(255u64),
+            FieldElement::from(u64::MAX),
+            FieldElement::from(u128::MAX),
+            FieldElement::try_from(uint!(
+                0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+            ))
+            .unwrap(),
+        ];
+        for fe in values {
+            let bytes = fe.to_be_bytes();
+            let recovered = FieldElement::from_be_bytes(&bytes).unwrap();
+            assert_eq!(fe, recovered);
+        }
+    }
+
+    #[test]
+    fn test_from_be_bytes_rejects_value_above_modulus() {
+        // The BN254 field is 254 bits
+        let bytes = [0xFF; 32];
+        assert_eq!(
+            FieldElement::from_be_bytes(&bytes),
+            Err(PrimitiveError::NotInField)
+        );
+    }
+
+    #[test]
+    fn test_from_str_rejects_wrong_length() {
+        // Too short (< 64 hex chars)
+        assert!(FieldElement::from_str("0x01").is_err());
+        // Too long (> 64 hex chars)
+        assert!(
+            FieldElement::from_str(
+                "0x000000000000000000000000000000000000000000000000000000000000000001"
+            )
+            .is_err()
+        );
+        // Not hex
+        assert!(
+            FieldElement::from_str(
+                "0xGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_display_from_str_roundtrip() {
+        let fe = FieldElement::try_from(uint!(
+            0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+        ))
+        .unwrap();
+        let s = fe.to_string();
+        assert_eq!(FieldElement::from_str(&s).unwrap(), fe);
+    }
+
+    #[test]
+    fn test_json_cbor_consistency() {
+        // The same value serialized through JSON and CBOR should
+        // produce the same FieldElement when deserialized back.
+        let fe = FieldElement::try_from(uint!(
+            0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256
+        ))
+        .unwrap();
+
+        let json_str = serde_json::to_string(&fe).unwrap();
+        let from_json: FieldElement = serde_json::from_str(&json_str).unwrap();
+
+        let mut cbor_buf = Vec::new();
+        ciborium::into_writer(&fe, &mut cbor_buf).unwrap();
+        let from_cbor: FieldElement = ciborium::from_reader(&cbor_buf[..]).unwrap();
+
+        assert_eq!(from_json, from_cbor);
+    }
+
+    #[test]
+    fn test_to_be_bytes_is_big_endian() {
+        let fe = FieldElement::from(1u64);
+        let bytes = fe.to_be_bytes();
+        assert_eq!(bytes[31], 1); // 1 is in LSB
+        assert_eq!(bytes[..31], [0u8; 31]);
+
+        let fe256 = FieldElement::from(256u64);
+        let bytes = fe256.to_be_bytes();
+        assert_eq!(bytes[30], 1);
+        assert_eq!(bytes[31], 0);
+    }
+
+    #[test]
+    fn test_u256_roundtrip() {
+        let original =
+            uint!(0x11d223ce7b91ac212f42cf50f0a3439ae3fcdba4ea32acb7f194d1051ed324c2_U256);
+        let fe = FieldElement::try_from(original).unwrap();
+        let back: U256 = fe.into();
+        assert_eq!(original, back);
     }
 }
