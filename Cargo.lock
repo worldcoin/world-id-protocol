@@ -8853,6 +8853,7 @@ name = "world-id-gateway"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "async-trait",
  "aws-config",
  "aws-sdk-kms",
  "axum",
@@ -9115,6 +9116,7 @@ dependencies = [
  "taceo-poseidon2",
  "tokio",
  "tokio-util",
+ "tracing",
  "world-id-oprf-node",
  "world-id-primitives",
 ]

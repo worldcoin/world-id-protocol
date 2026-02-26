@@ -107,7 +107,7 @@ async fn test_authenticator_registration() {
             .await
             .unwrap();
     let elapsed = start.elapsed();
-    println!("Account creation successful in {elapsed:?}");
+    tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 

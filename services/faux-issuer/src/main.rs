@@ -39,7 +39,7 @@ async fn main() -> eyre::Result<()> {
     })
     .await?;
 
-    println!("Faux Issuer running on http://{}", handle.listen_addr);
+    tracing::info!("Faux Issuer running on http://{}", handle.listen_addr);
 
     handle.join().await?;
 

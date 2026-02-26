@@ -343,10 +343,10 @@ async fn test_rollback_with_mixed_event_types() {
     assert_event_count(db.pool(), 3).await;
     assert_root_count(db.pool(), 3).await;
 
-    eprintln!("Before rollback:");
-    eprintln!("  Accounts: 1");
-    eprintln!("  Events: 3");
-    eprintln!("  Roots: 3");
+    tracing::info!("Before rollback:");
+    tracing::info!("  Accounts: 1");
+    tracing::info!("  Events: 3");
+    tracing::info!("  Roots: 3");
 
     // Rollback to block 101, log_index 1 (before recovery)
     let rollback_point = WorldIdRegistryEventId {
@@ -372,11 +372,11 @@ async fn test_rollback_with_mixed_event_types() {
         .unwrap()
         .expect("Account 1 should exist");
 
-    eprintln!(
+    tracing::info!(
         "Account authenticator_addresses: {:?}",
         account.authenticator_addresses
     );
-    eprintln!(
+    tracing::info!(
         "Account authenticator_pubkeys: {:?}",
         account.authenticator_pubkeys
     );

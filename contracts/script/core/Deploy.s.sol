@@ -45,7 +45,7 @@ contract Deploy is Script {
     address public rpRegistryImplAddress;
     address public worldIDVerifierImplAddress;
 
-    WorldIDDeployer internal _deployer;
+    WorldIDDeployer internal _deployer = WorldIDDeployer(0x7f170d4E2EB55F170fd67d247e03B2973Bf34085);
 
     /// @notice Deploy all contracts for the given environment.
     /// @dev Usage: forge script script/Deploy.s.sol --sig "run(string)" "staging" --broadcast --private-key $PK
@@ -55,8 +55,12 @@ contract Deploy is Script {
 
         vm.startBroadcast();
 
-        // Deploy the CREATE2 deployer helper first
-        _deployer = new WorldIDDeployer();
+        if (address(_deployer).code.length == 0) {
+            _deployer = new WorldIDDeployer{salt: bytes32(0)}();
+            console2.log("Deployed WorldIDDeployer at:", address(_deployer));
+        } else {
+            console2.log("WorldIDDeployer found at:", address(_deployer));
+        }
 
         _run(config);
 
@@ -84,31 +88,42 @@ contract Deploy is Script {
         Ownable2StepUpgradeable(worldIDVerifierAddress).acceptOwnership();
     }
 
+    /// @notice Returns a salt, preferring the environment variable if set over the JSON config value.
+    /// @param config The raw JSON config string.
+    /// @param key    The key under `.salts` in the config (e.g. "worldIDRegistry").
+    /// @param envVar The env var name to check first (e.g. "SALT_WORLD_ID_REGISTRY").
+    function _getSalt(string memory config, string memory key, string memory envVar) internal view returns (bytes32) {
+        return vm.envOr(envVar, vm.parseJsonBytes32(config, string.concat(".salts.", key)));
+    }
+
     function deployWorldIdRegistry(string memory config) public {
         uint256 treeDepth = vm.parseJsonUint(config, ".worldIDRegistry.treeDepth");
         address feeRecipient = vm.parseJsonAddress(config, ".worldIDRegistry.feeRecipient");
         address feeToken = vm.parseJsonAddress(config, ".worldIDRegistry.feeToken");
         uint256 registrationFee = vm.parseJsonUint(config, ".worldIDRegistry.registrationFee");
-        console2.log("--- Deploying WorldIDRegistry ---");
-        console2.log("Deploying WorldIDRegistry with tree depth:", treeDepth);
-        console2.log("Fee recipient:", feeRecipient);
-        console2.log("Fee token:", feeToken);
-        console2.log("Registration fee:", registrationFee);
+        bytes32 salt = _getSalt(config, "worldIDRegistry", "SALT_WORLD_ID_REGISTRY");
 
-        bytes32 salt = vm.parseJsonBytes32(config, ".salts.worldIDRegistry");
+        console2.log("--- WorldIDRegistry ---");
+        console2.log("  tree depth:       ", treeDepth);
+        console2.log("  fee recipient:    ", feeRecipient);
+        console2.log("  fee token:        ", feeToken);
+        console2.log("  registration fee: ", registrationFee);
+        console2.log("  proxy salt:       ");
+        console2.logBytes32(salt);
 
-        // Deploy implementation
-        WorldIDRegistry implementation = new WorldIDRegistry{salt: bytes32(uint256(2))}();
+        WorldIDRegistry implementation = new WorldIDRegistry{salt: bytes32(uint256(3))}();
         worldIDRegistryImplAddress = address(implementation);
+        console2.log("  implementation:   ", worldIDRegistryImplAddress);
 
-        // Encode initializer call
         bytes memory initData = abi.encodeWithSelector(
             WorldIDRegistry.initialize.selector, treeDepth, feeRecipient, feeToken, registrationFee
         );
-
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
+        console2.log("  proxy init code hash:");
+        console2.logBytes32(keccak256(initCode));
 
         worldIDRegistryAddress = deploy(salt, initCode);
+        console2.log("  proxy:            ", worldIDRegistryAddress);
     }
 
     function deployCredentialSchemaIssuerRegistry(string memory config) public {
@@ -116,20 +131,20 @@ contract Deploy is Script {
         address feeToken = vm.parseJsonAddress(config, ".credentialSchemaIssuerRegistry.feeToken");
         uint256 registrationFee = vm.parseJsonUint(config, ".credentialSchemaIssuerRegistry.registrationFee");
         address oprfKeyRegistryAddress = vm.parseJsonAddress(config, ".externalDependencies.oprfKeyRegistry");
-        bytes32 salt = vm.parseJsonBytes32(config, ".salts.credentialSchemaIssuerRegistry");
+        bytes32 salt = _getSalt(config, "credentialSchemaIssuerRegistry", "SALT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY");
 
-        console2.log("--- Deploying CredentialSchemaIssuerRegistry ---");
-        console2.log("Fee recipient:", feeRecipient);
-        console2.log("Fee token:", feeToken);
-        console2.log("Registration fee:", registrationFee);
-        console2.log("OPRF Key Registry address:", oprfKeyRegistryAddress);
-        console2.log("Salt:");
+        console2.log("--- CredentialSchemaIssuerRegistry ---");
+        console2.log("  fee recipient:    ", feeRecipient);
+        console2.log("  fee token:        ", feeToken);
+        console2.log("  registration fee: ", registrationFee);
+        console2.log("  oprf key registry:", oprfKeyRegistryAddress);
+        console2.log("  proxy salt:       ");
         console2.logBytes32(salt);
-        // Deploy implementation
-        CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry{salt: bytes32(uint256(0))}();
-        credentialSchemaIssuerRegistryImplAddress = address(implementation);
 
-        // Encode initializer call
+        CredentialSchemaIssuerRegistry implementation = new CredentialSchemaIssuerRegistry{salt: bytes32(uint256(1))}();
+        credentialSchemaIssuerRegistryImplAddress = address(implementation);
+        console2.log("  implementation:   ", credentialSchemaIssuerRegistryImplAddress);
+
         bytes memory initData = abi.encodeWithSelector(
             CredentialSchemaIssuerRegistry.initialize.selector,
             feeRecipient,
@@ -137,10 +152,12 @@ contract Deploy is Script {
             registrationFee,
             oprfKeyRegistryAddress
         );
-
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
+        console2.log("  proxy init code hash:");
+        console2.logBytes32(keccak256(initCode));
 
         credentialSchemaIssuerRegistryAddress = deploy(salt, initCode);
+        console2.log("  proxy:            ", credentialSchemaIssuerRegistryAddress);
     }
 
     function deployRpRegistry(string memory config) public {
@@ -148,43 +165,70 @@ contract Deploy is Script {
         address feeToken = vm.parseJsonAddress(config, ".rpRegistry.feeToken");
         uint256 registrationFee = vm.parseJsonUint(config, ".rpRegistry.registrationFee");
         address oprfKeyRegistryAddress = vm.parseJsonAddress(config, ".externalDependencies.oprfKeyRegistry");
-        bytes32 salt = vm.parseJsonBytes32(config, ".salts.rpRegistry");
+        bytes32 salt = _getSalt(config, "rpRegistry", "SALT_RP_REGISTRY");
 
-        // Deploy implementation
-        RpRegistry implementation = new RpRegistry();
+        console2.log("--- RpRegistry ---");
+        console2.log("  fee recipient:    ", feeRecipient);
+        console2.log("  fee token:        ", feeToken);
+        console2.log("  registration fee: ", registrationFee);
+        console2.log("  oprf key registry:", oprfKeyRegistryAddress);
+        console2.log("  proxy salt:       ");
+        console2.logBytes32(salt);
+
+        RpRegistry implementation = new RpRegistry{salt: bytes32(uint256(1))}();
         rpRegistryImplAddress = address(implementation);
+        console2.log("  implementation:   ", rpRegistryImplAddress);
 
-        // Encode initializer call
         bytes memory initData = abi.encodeWithSelector(
             RpRegistry.initialize.selector, feeRecipient, feeToken, registrationFee, oprfKeyRegistryAddress
         );
-
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
+        console2.log("  proxy init code hash:");
+        console2.logBytes32(keccak256(initCode));
 
         rpRegistryAddress = deploy(salt, initCode);
+        console2.log("  proxy:            ", rpRegistryAddress);
     }
 
     function deployWorldIdVerifier(string memory config) public {
-        verifierAddress = address(new Verifier());
+        address oprfKeyRegistryAddress = vm.parseJsonAddress(config, ".externalDependencies.oprfKeyRegistry");
+        uint64 minExpirationThreshold = uint64(vm.parseJsonUint(config, ".worldIDVerifier.minExpirationThreshold"));
+        bytes32 verifierSalt = _getSalt(config, "verifier", "SALT_VERIFIER");
+        bytes32 salt = _getSalt(config, "worldIDVerifier", "SALT_WORLD_ID_VERIFIER");
 
-        bytes32 salt = vm.parseJsonBytes32(config, ".salts.worldIDVerifier");
+        console2.log("--- Verifier ---");
+        console2.log("  salt:             ");
+        console2.logBytes32(verifierSalt);
+        verifierAddress = address(new Verifier{salt: verifierSalt}());
+        console2.log("  address:          ", verifierAddress);
 
-        WorldIDVerifier implementation = new WorldIDVerifier();
+        console2.log("--- WorldIDVerifier ---");
+        console2.log("  credential schema issuer registry:", credentialSchemaIssuerRegistryAddress);
+        console2.log("  world id registry:", worldIDRegistryAddress);
+        console2.log("  oprf key registry:", oprfKeyRegistryAddress);
+        console2.log("  verifier:         ", verifierAddress);
+        console2.log("  min expiration threshold:", minExpirationThreshold);
+        console2.log("  proxy salt:       ");
+        console2.logBytes32(salt);
+
+        WorldIDVerifier implementation = new WorldIDVerifier{salt: bytes32(uint256(1))}();
         worldIDVerifierImplAddress = address(implementation);
+        console2.log("  implementation:   ", worldIDVerifierImplAddress);
 
-        // Encode initializer call
         bytes memory initData = abi.encodeWithSelector(
             WorldIDVerifier.initialize.selector,
             credentialSchemaIssuerRegistryAddress,
             worldIDRegistryAddress,
-            vm.parseJsonAddress(config, ".externalDependencies.oprfKeyRegistry"),
+            oprfKeyRegistryAddress,
             verifierAddress,
-            uint64(vm.parseJsonUint(config, ".worldIDVerifier.minExpirationThreshold"))
+            minExpirationThreshold
         );
-
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData));
+        console2.log("  proxy init code hash:");
+        console2.logBytes32(keccak256(initCode));
 
         worldIDVerifierAddress = deploy(salt, initCode);
+        console2.log("  proxy:            ", worldIDVerifierAddress);
     }
 
     /// @notice Loads a JSON config file for the given environment.
@@ -221,6 +265,7 @@ contract Deploy is Script {
         vm.serializeUint(root, "chainId", block.chainid);
         vm.serializeAddress(root, "deployer", msg.sender);
         vm.serializeUint(root, "timestamp", block.timestamp);
+        vm.serializeString(root, "commitSha", vm.envOr("GIT_COMMIT", string("")));
         vm.serializeAddress(root, "verifier", verifierAddress);
         vm.serializeString(root, "worldIDRegistry", worldIdRegJson);
         vm.serializeString(root, "credentialSchemaIssuerRegistry", csirJson);
