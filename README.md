@@ -43,7 +43,7 @@ The following issuer schema IDs are reserved in the `CredentialSchemaIssuerRegis
 | Service            | Environment | URL                                                   |
 | ------------------ | ----------- | ----------------------------------------------------- |
 | `world-id-indexer` | Production  | `https://indexer.us.id-infra.worldcoin.dev`<br />`https://indexer.eu.id-infra.worldcoin.dev`<br />`https://indexer.ap.id-infra.worldcoin.dev` |
-| `world-id-gateway` | Staging     | `https://world-id-gateway.stage-crypto.worldcoin.org` |
+| `world-id-gateway` | Staging     | `https://gateway.id-infra.worldcoin.dev` |
 
 ## 🏗️ Project Structure
 
