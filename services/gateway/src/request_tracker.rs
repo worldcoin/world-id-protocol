@@ -22,6 +22,17 @@ const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
 const INFLIGHT_TTL: Duration = Duration::from_secs(300);
 const PENDING_SET_KEY: &str = "gateway:pending_requests";
 
+/// Scope used to compute queued backlog stats for a specific batcher.
+#[derive(Clone, Copy, Debug)]
+pub enum BacklogScope {
+    /// Include all request kinds.
+    All,
+    /// Include only create-account requests.
+    Create,
+    /// Include only ops requests (insert/update/remove/recover).
+    Ops,
+}
+
 pub fn now_unix_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -269,6 +280,54 @@ impl RequestTracker {
             .collect())
     }
 
+    /// Computes queued-backlog urgency statistics from pending requests.
+    ///
+    /// The stats are based only on requests currently in `Queued` state.
+    pub async fn queued_backlog_stats(&self) -> GatewayResult<BacklogUrgencyStats> {
+        self.queued_backlog_stats_for_scope(BacklogScope::All).await
+    }
+
+    /// Computes queued-backlog urgency statistics from pending requests in a given scope.
+    ///
+    /// The stats are based only on requests currently in `Queued` state and whose
+    /// [`GatewayRequestKind`] belongs to `scope`.
+    pub async fn queued_backlog_stats_for_scope(
+        &self,
+        scope: BacklogScope,
+    ) -> GatewayResult<BacklogUrgencyStats> {
+        let ids = self.get_pending_requests().await?;
+        if ids.is_empty() {
+            return Ok(BacklogUrgencyStats::default());
+        }
+
+        let records = self.snapshot_batch(&ids).await?;
+        let now = now_unix_secs();
+        let mut queued_count = 0usize;
+        let mut oldest_age_secs = 0u64;
+        for (_, maybe_record) in records {
+            let Some(record) = maybe_record else {
+                continue;
+            };
+            if !matches_scope(record.kind, scope) {
+                continue;
+            }
+            if matches!(record.status, GatewayRequestState::Queued) {
+                let age = now.saturating_sub(record.updated_at);
+                queued_count += 1;
+                oldest_age_secs = oldest_age_secs.max(age);
+            }
+        }
+
+        if queued_count == 0 {
+            return Ok(BacklogUrgencyStats::default());
+        }
+
+        Ok(BacklogUrgencyStats {
+            queued_count,
+            oldest_age_secs,
+        })
+    }
+
     /// Removes a request ID from the pending set (safety-net cleanup).
     pub async fn remove_from_pending_set(&self, id: &str) {
         let mut manager = self.redis_manager.clone();
@@ -459,5 +518,19 @@ impl RequestTracker {
                 Ok(())
             }
         }
+    }
+}
+
+fn matches_scope(kind: GatewayRequestKind, scope: BacklogScope) -> bool {
+    match scope {
+        BacklogScope::All => true,
+        BacklogScope::Create => matches!(kind, GatewayRequestKind::CreateAccount),
+        BacklogScope::Ops => matches!(
+            kind,
+            GatewayRequestKind::InsertAuthenticator
+                | GatewayRequestKind::UpdateAuthenticator
+                | GatewayRequestKind::RemoveAuthenticator
+                | GatewayRequestKind::RecoverAccount
+        ),
     }
 }

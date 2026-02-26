@@ -8,7 +8,6 @@ use redis::{AsyncTypedCommands, IntegerReplyOrNoOp, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_core::api_types::GatewayStatusResponse;
 use world_id_gateway::{GatewayConfig, defaults, spawn_gateway_for_tests};
-
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -51,7 +50,6 @@ async fn redis_integration() {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
@@ -62,6 +60,7 @@ async fn redis_integration() {
         sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        batch_policy: BatchPolicyConfig::default(),
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
