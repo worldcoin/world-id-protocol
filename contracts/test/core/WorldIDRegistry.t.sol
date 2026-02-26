@@ -5,7 +5,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {WorldIDRegistry} from "../../src/core/WorldIDRegistry.sol";
 import {IWorldIDRegistry} from "../../src/core/interfaces/IWorldIDRegistry.sol";
 import {WorldIDBase} from "../../src/core/abstract/WorldIDBase.sol";
-import {FullStorageBinaryIMT, FullBinaryIMTData} from "../../src/core/libraries/FullStorageBinaryIMT.sol";
+import {LeafDoesNotExist} from "../../src/core/libraries/FullStorageBinaryIMT.sol";
 import {PackedAccountData} from "../../src/core/libraries/PackedAccountData.sol";
 import {Poseidon2T2} from "../../src/core/hash/Poseidon2.sol";
 
@@ -626,6 +626,46 @@ contract WorldIDRegistryTest is Test {
         worldIDRegistry.executeRecoveryAgentUpdate(1);
 
         assertEq(worldIDRegistry.getRecoveryAgent(1), alternateRecoveryAddress);
+    }
+
+    /**
+     * @dev the offchain signer commitment is used to find the existing leaf. this ensures that if the wrong leaf
+     * value is passed, the update gets rejected.
+     */
+    function test_RecoverAccountRevertsWithIncorrectOffchainSignerCommitment() public {
+        uint256 recoveryPrivateKey = RECOVERY_PRIVATE_KEY;
+        address recoverySigner = vm.addr(recoveryPrivateKey);
+
+        address[] memory authenticatorAddresses = new address[](1);
+        authenticatorAddresses[0] = authenticatorAddress1;
+        uint256[] memory authenticatorPubkeys = new uint256[](1);
+        authenticatorPubkeys[0] = 0;
+        worldIDRegistry.createAccount(
+            recoverySigner, authenticatorAddresses, authenticatorPubkeys, OFFCHAIN_SIGNER_COMMITMENT
+        );
+
+        uint64 leafIndex = 1;
+        uint256 nonce = 0;
+        address newAuthenticatorAddress = address(0xBEEF);
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+        uint256 wrongOldOffchainSignerCommitment = OFFCHAIN_SIGNER_COMMITMENT + 999;
+
+        bytes memory signature = eip712Sign(
+            worldIDRegistry.RECOVER_ACCOUNT_TYPEHASH(),
+            abi.encode(leafIndex, newAuthenticatorAddress, newCommitment, newCommitment, nonce),
+            recoveryPrivateKey
+        );
+
+        vm.expectRevert(LeafDoesNotExist.selector);
+        worldIDRegistry.recoverAccount(
+            leafIndex,
+            newAuthenticatorAddress,
+            newCommitment,
+            wrongOldOffchainSignerCommitment,
+            newCommitment,
+            signature,
+            nonce
+        );
     }
 
     function test_CannotRecoverAccountWhichHasNoRecoveryAgent() public {
