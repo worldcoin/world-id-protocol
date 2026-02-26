@@ -71,6 +71,7 @@ pub struct ProofRequest {
     /// hash with a byte-friendly hash function like keccak256 or SHA256 and reduce to the field.
     pub action: Option<FieldElement>,
     /// The RP's ECDSA signature over the request.
+    #[serde(with = "crate::serde_utils::hex_signature")]
     pub signature: alloy::signers::Signature,
     /// Unique nonce for this request provided by the RP.
     pub nonce: FieldElement,

@@ -244,6 +244,30 @@ pub mod hex_u32_opt {
     }
 }
 
+/// Serialize an `alloy_primitives::Signature` as a `0x`-prefixed hex string (65 bytes: `r || s || v`).
+pub mod hex_signature {
+    use alloy_primitives::Signature;
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+    use std::str::FromStr;
+
+    /// Serialize a `Signature` as a `0x`-prefixed hex string.
+    pub fn serialize<S>(sig: &Signature, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&sig.to_string())
+    }
+
+    /// Deserialize a `Signature` from a `0x`-prefixed hex string.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Signature, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Signature::from_str(&s).map_err(D::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
