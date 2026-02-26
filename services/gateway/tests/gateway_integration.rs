@@ -16,7 +16,7 @@ use world_id_core::{
         sign_remove_authenticator, sign_update_authenticator,
     },
 };
-use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests};
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -67,10 +67,9 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
         request_timeout_secs: 10,
         rate_limit_window_secs: None,
         rate_limit_max_requests: None,
-        sweeper_interval_secs: OrphanSweeperConfig::default().interval_secs,
-        stale_queued_threshold_secs: OrphanSweeperConfig::default().stale_queued_threshold_secs,
-        stale_submitted_threshold_secs: OrphanSweeperConfig::default()
-            .stale_submitted_threshold_secs,
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
     let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 

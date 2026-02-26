@@ -11,7 +11,7 @@ use world_id_core::{
     api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest},
     world_id_registry::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData},
 };
-use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, defaults, spawn_gateway_for_tests};
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -80,7 +80,6 @@ async fn test_rate_limit_basic() {
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-    let sweeper_defaults = OrphanSweeperConfig::default();
     let cfg = GatewayConfig {
         registry_addr,
         provider: ProviderArgs {
@@ -96,9 +95,9 @@ async fn test_rate_limit_basic() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
         rate_limit_max_requests: Some(3),
-        sweeper_interval_secs: sweeper_defaults.interval_secs,
-        stale_queued_threshold_secs: sweeper_defaults.stale_queued_threshold_secs,
-        stale_submitted_threshold_secs: sweeper_defaults.stale_submitted_threshold_secs,
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -290,7 +289,6 @@ async fn test_rate_limit_different_leaf_indexes() {
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-    let sweeper_defaults = OrphanSweeperConfig::default();
     let cfg = GatewayConfig {
         registry_addr,
         provider: ProviderArgs {
@@ -306,9 +304,9 @@ async fn test_rate_limit_different_leaf_indexes() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
         rate_limit_max_requests: Some(2),
-        sweeper_interval_secs: sweeper_defaults.interval_secs,
-        stale_queued_threshold_secs: sweeper_defaults.stale_queued_threshold_secs,
-        stale_submitted_threshold_secs: sweeper_defaults.stale_submitted_threshold_secs,
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -449,7 +447,6 @@ async fn test_rate_limit_sliding_window() {
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-    let sweeper_defaults = OrphanSweeperConfig::default();
     let cfg = GatewayConfig {
         registry_addr,
         provider: ProviderArgs {
@@ -465,9 +462,9 @@ async fn test_rate_limit_sliding_window() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(3),
         rate_limit_max_requests: Some(2),
-        sweeper_interval_secs: sweeper_defaults.interval_secs,
-        stale_queued_threshold_secs: sweeper_defaults.stale_queued_threshold_secs,
-        stale_submitted_threshold_secs: sweeper_defaults.stale_submitted_threshold_secs,
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -605,7 +602,6 @@ async fn test_rate_limit_multiple_endpoints() {
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-    let sweeper_defaults = OrphanSweeperConfig::default();
     let cfg = GatewayConfig {
         registry_addr,
         provider: ProviderArgs {
@@ -621,9 +617,9 @@ async fn test_rate_limit_multiple_endpoints() {
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
         rate_limit_max_requests: Some(3),
-        sweeper_interval_secs: sweeper_defaults.interval_secs,
-        stale_queued_threshold_secs: sweeper_defaults.stale_queued_threshold_secs,
-        stale_submitted_threshold_secs: sweeper_defaults.stale_submitted_threshold_secs,
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");

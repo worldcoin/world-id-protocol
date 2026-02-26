@@ -6,11 +6,12 @@ use world_id_services_common::ProviderArgs;
 
 use crate::error::{GatewayError, GatewayResult};
 
-mod defaults {
+pub mod defaults {
     pub const BATCH_MS: u64 = 1000;
     pub const MAX_CREATE_BATCH_SIZE: usize = 100;
     pub const MAX_OPS_BATCH_SIZE: usize = 10;
     pub const REQUEST_TIMEOUT_SECS: u64 = 10;
+    pub const LISTEN_ADDR: &str = "0.0.0.0:8081";
     pub const SWEEPER_INTERVAL_SECS: u64 = 30;
     pub const STALE_QUEUED_THRESHOLD_SECS: u64 = 60;
     pub const STALE_SUBMITTED_THRESHOLD_SECS: u64 = 600;
@@ -90,7 +91,7 @@ pub struct GatewayConfig {
     pub request_timeout_secs: u64,
 
     /// The address and port to listen for HTTP requests
-    #[arg(long, env = "LISTEN_ADDR", default_value = "0.0.0.0:8081")]
+    #[arg(long, env = "LISTEN_ADDR", default_value = defaults::LISTEN_ADDR)]
     pub listen_addr: SocketAddr,
 
     /// Redis URL for request storage (e.g. redis://localhost:6379)

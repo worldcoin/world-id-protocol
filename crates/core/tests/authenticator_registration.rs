@@ -5,7 +5,7 @@ use std::sync::Arc;
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
-use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests};
 use world_id_primitives::Config;
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -52,10 +52,9 @@ async fn test_authenticator_registration() {
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
-        sweeper_interval_secs: OrphanSweeperConfig::default().interval_secs,
-        stale_queued_threshold_secs: OrphanSweeperConfig::default().stale_queued_threshold_secs,
-        stale_submitted_threshold_secs: OrphanSweeperConfig::default()
-            .stale_submitted_threshold_secs,
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await

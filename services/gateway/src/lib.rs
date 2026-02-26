@@ -1,5 +1,5 @@
 pub use crate::{
-    config::{BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig},
+    config::{BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig, defaults},
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
