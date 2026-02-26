@@ -192,14 +192,18 @@ mod tests {
         "redis://localhost:6379",
     ];
 
-    fn parse_with_extra_args(extra: &[&str]) -> Result<GatewayConfig, clap::Error> {
-        let args: Vec<&str> = BASE_ARGS.iter().chain(extra.iter()).copied().collect();
+    fn parse_with_signer_args(signer_args: &[&str]) -> Result<GatewayConfig, clap::Error> {
+        let args: Vec<&str> = BASE_ARGS
+            .iter()
+            .chain(signer_args.iter())
+            .copied()
+            .collect();
         GatewayConfig::try_parse_from(args)
     }
 
     #[test]
     fn test_both_options_fails() {
-        let result = parse_with_extra_args(&[
+        let result = parse_with_signer_args(&[
             "--wallet-private-key",
             "0xdeadbeef",
             "--aws-kms-key-id",
@@ -213,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_neither_option_fails_validation() {
-        let config = parse_with_extra_args(&[]).expect("clap parsing should succeed");
+        let config = parse_with_signer_args(&[]).expect("clap parsing should succeed");
         let result = config.validate();
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -222,13 +226,13 @@ mod tests {
 
     #[test]
     fn rate_limit_disabled_when_omitted() {
-        let config = parse_with_extra_args(&[]).expect("clap parsing should succeed");
+        let config = parse_with_signer_args(&[]).expect("clap parsing should succeed");
         assert!(config.rate_limit().is_none());
     }
 
     #[test]
     fn rate_limit_enabled_when_both_provided() {
-        let config = parse_with_extra_args(&[
+        let config = parse_with_signer_args(&[
             "--rate-limit-window-secs",
             "60",
             "--rate-limit-max-requests",
@@ -242,13 +246,13 @@ mod tests {
 
     #[test]
     fn rate_limit_rejects_only_window() {
-        let result = parse_with_extra_args(&["--rate-limit-window-secs", "60"]);
+        let result = parse_with_signer_args(&["--rate-limit-window-secs", "60"]);
         assert!(result.is_err(), "providing only window_secs should fail");
     }
 
     #[test]
     fn rate_limit_rejects_only_max_requests() {
-        let result = parse_with_extra_args(&["--rate-limit-max-requests", "100"]);
+        let result = parse_with_signer_args(&["--rate-limit-max-requests", "100"]);
         assert!(result.is_err(), "providing only max_requests should fail");
     }
 }
