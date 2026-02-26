@@ -397,7 +397,7 @@ jobs:
           PY
 
       - name: Write runtime iOS config
-        working-directory: world-id-protocol/bench-mobile
+        working-directory: world-id-protocol/crates/zk-mobile-bench
         env:
           IOS_DEVICE_NAME: ${{ steps.resolve_ios.outputs.device_name }}
           IOS_OS_VERSION: ${{ steps.resolve_ios.outputs.os_version }}
@@ -428,7 +428,7 @@ jobs:
 
           with open("bench-config.ios.runtime.toml", "w", encoding="utf-8") as fh:
               fh.write('target = "ios"\n')
-              fh.write('function = "bench_mobile::bench_nullifier_proving_only"\n')
+              fh.write('function = "zk_mobile_bench::bench_nullifier_proving_only"\n')
               fh.write(f"iterations = {iterations}\n")
               fh.write(f"warmup = {warmup}\n")
               fh.write('device_matrix = "device-matrix.ios.runtime.yaml"\n')
@@ -453,7 +453,7 @@ jobs:
           test -f target/mobench/ios/BenchRunnerUITests.zip
 
       - name: Run iOS benchmark matrix
-        working-directory: world-id-protocol/bench-mobile
+        working-directory: world-id-protocol/crates/zk-mobile-bench
         env:
           PROOF_SCOPE: ${{ inputs.proof_scope }}
           BENCH_MODES: ${{ inputs.modes }}
@@ -518,12 +518,12 @@ jobs:
           mkdir -p target/mobench/ci/ios
 
           benches=(
-            "pi2 witness bench_mobile::bench_nullifier_witness_generation_only nullifier-witness"
-            "pi2 proving bench_mobile::bench_nullifier_proving_only nullifier-proving"
-            "pi2 full bench_mobile::bench_nullifier_proof_generation nullifier-full"
-            "pi1 witness bench_mobile::bench_query_witness_generation_only query-witness"
-            "pi1 proving bench_mobile::bench_query_proving_only query-proving"
-            "pi1 full bench_mobile::bench_query_proof_generation query-full"
+            "pi2 witness zk_mobile_bench::bench_nullifier_witness_generation_only nullifier-witness"
+            "pi2 proving zk_mobile_bench::bench_nullifier_proving_only nullifier-proving"
+            "pi2 full zk_mobile_bench::bench_nullifier_proof_generation nullifier-full"
+            "pi1 witness zk_mobile_bench::bench_query_witness_generation_only query-witness"
+            "pi1 proving zk_mobile_bench::bench_query_proving_only query-proving"
+            "pi1 full zk_mobile_bench::bench_query_proof_generation query-full"
           )
 
           selected=0
@@ -577,7 +577,7 @@ jobs:
             world-id-protocol/target/mobench/ci/ios/*.json
             world-id-protocol/target/mobench/ci/ios/*.csv
             world-id-protocol/target/browserstack/**
-            world-id-protocol/bench-mobile/bench-config.ios.runtime*.toml
+            world-id-protocol/crates/zk-mobile-bench/bench-config.ios.runtime*.toml
 
   android-browserstack:
     name: Android BrowserStack benchmark
@@ -787,7 +787,7 @@ jobs:
           PY
 
       - name: Write runtime Android config
-        working-directory: world-id-protocol/bench-mobile
+        working-directory: world-id-protocol/crates/zk-mobile-bench
         env:
           ANDROID_DEVICE_NAME: ${{ steps.resolve_android.outputs.device_name }}
           ANDROID_OS_VERSION: ${{ steps.resolve_android.outputs.os_version }}
@@ -818,7 +818,7 @@ jobs:
 
           with open("bench-config.android.runtime.toml", "w", encoding="utf-8") as fh:
               fh.write('target = "android"\n')
-              fh.write('function = "bench_mobile::bench_nullifier_proving_only"\n')
+              fh.write('function = "zk_mobile_bench::bench_nullifier_proving_only"\n')
               fh.write(f"iterations = {iterations}\n")
               fh.write(f"warmup = {warmup}\n")
               fh.write('device_matrix = "device-matrix.android.runtime.yaml"\n')
@@ -830,7 +830,7 @@ jobs:
           PY
 
       - name: Run Android benchmark matrix
-        working-directory: world-id-protocol/bench-mobile
+        working-directory: world-id-protocol/crates/zk-mobile-bench
         env:
           PROOF_SCOPE: ${{ inputs.proof_scope }}
           BENCH_MODES: ${{ inputs.modes }}
@@ -897,12 +897,12 @@ jobs:
           mkdir -p target/mobench/ci/android
 
           benches=(
-            "pi2 witness bench_mobile::bench_nullifier_witness_generation_only nullifier-witness"
-            "pi2 proving bench_mobile::bench_nullifier_proving_only nullifier-proving"
-            "pi2 full bench_mobile::bench_nullifier_proof_generation nullifier-full"
-            "pi1 witness bench_mobile::bench_query_witness_generation_only query-witness"
-            "pi1 proving bench_mobile::bench_query_proving_only query-proving"
-            "pi1 full bench_mobile::bench_query_proof_generation query-full"
+            "pi2 witness zk_mobile_bench::bench_nullifier_witness_generation_only nullifier-witness"
+            "pi2 proving zk_mobile_bench::bench_nullifier_proving_only nullifier-proving"
+            "pi2 full zk_mobile_bench::bench_nullifier_proof_generation nullifier-full"
+            "pi1 witness zk_mobile_bench::bench_query_witness_generation_only query-witness"
+            "pi1 proving zk_mobile_bench::bench_query_proving_only query-proving"
+            "pi1 full zk_mobile_bench::bench_query_proof_generation query-full"
           )
 
           selected=0
@@ -956,7 +956,7 @@ jobs:
             world-id-protocol/target/mobench/ci/android/*.json
             world-id-protocol/target/mobench/ci/android/*.csv
             world-id-protocol/target/browserstack/**
-            world-id-protocol/bench-mobile/bench-config.android.runtime*.toml
+            world-id-protocol/crates/zk-mobile-bench/bench-config.android.runtime*.toml
 
   summarize:
     name: Summarize mobench results
@@ -997,7 +997,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          python3 world-id-protocol/bench-mobile/scripts/summarize_mobench_ci.py \
+          python3 world-id-protocol/crates/zk-mobile-bench/scripts/summarize_mobench_ci.py \
             --ios-dir artifacts/ios \
             --android-dir artifacts/android \
             --ios-result "${IOS_RESULT}" \

@@ -1,8 +1,8 @@
 target = "android"
-function = "bench_mobile::bench_nullifier_proving_only"
+function = "zk_mobile_bench::bench_nullifier_proving_only"
 iterations = 30
 warmup = 5
-device_matrix = "bench-mobile/device-matrix.android.low-spec.yaml"
+device_matrix = "crates/zk-mobile-bench/device-matrix.android.low-spec.yaml"
 device_tags = ["low-spec"]
 
 [browserstack]

@@ -20,7 +20,7 @@ Primary workflow files:
 - `.github/workflows/mobile-bench-pr-label.yml` (legacy, intentionally disabled)
 
 Helper script:
-- `bench-mobile/scripts/summarize_mobench_ci.py`
+- `crates/zk-mobile-bench/scripts/summarize_mobench_ci.py`
 
 Main data flow:
 1. User comments `/mobench ...` on a PR.
@@ -133,7 +133,7 @@ High-level steps:
 4. Setup Rust + iOS targets.
 5. Install XcodeGen and local `cargo-mobench`.
 6. Resolve iOS device from BrowserStack device list (profile/custom logic).
-7. Write runtime iOS config (`bench-mobile/bench-config.ios.runtime*.toml`).
+7. Write runtime iOS config (`crates/zk-mobile-bench/bench-config.ios.runtime*.toml`).
 8. Build iOS BrowserStack artifacts:
 - `target/mobench/ios/BenchRunner.ipa`
 - `target/mobench/ios/BenchRunnerUITests.zip`
@@ -142,7 +142,7 @@ High-level steps:
 - `target/mobench/ci/ios/*.json`
 - `target/mobench/ci/ios/*.csv`
 - `target/browserstack/**`
-- `bench-mobile/bench-config.ios.runtime*.toml`
+- `crates/zk-mobile-bench/bench-config.ios.runtime*.toml`
 
 ## 5.2 Android job (`android-browserstack`)
 
@@ -153,13 +153,13 @@ High-level steps:
 4. Setup Rust + Android SDK/NDK and required targets.
 5. Install local `cargo-mobench`.
 6. Resolve Android device from BrowserStack device list (profile/custom logic).
-7. Write runtime Android config (`bench-mobile/bench-config.android.runtime*.toml`).
+7. Write runtime Android config (`crates/zk-mobile-bench/bench-config.android.runtime*.toml`).
 8. Run selected benchmarks (`proof_scope` + `modes` selection).
 9. Upload Android artifacts:
 - `target/mobench/ci/android/*.json`
 - `target/mobench/ci/android/*.csv`
 - `target/browserstack/**`
-- `bench-mobile/bench-config.android.runtime*.toml`
+- `crates/zk-mobile-bench/bench-config.android.runtime*.toml`
 
 ## 5.3 Benchmark selection mechanics
 
@@ -181,7 +181,7 @@ Steps:
 1. Checkout repo (for summary script).
 2. Download iOS artifact (`if-no-artifact-found: ignore`).
 3. Download Android artifact (`if-no-artifact-found: ignore`).
-4. Run `bench-mobile/scripts/summarize_mobench_ci.py`.
+4. Run `crates/zk-mobile-bench/scripts/summarize_mobench_ci.py`.
 5. Append generated markdown to `GITHUB_STEP_SUMMARY`.
 6. If `pr_number` is set, upsert sticky PR comment with marker:
 - `<!-- mobench-summary -->`
@@ -264,8 +264,8 @@ Typical failure surfaces:
 When updating pipeline behavior, keep these aligned:
 - `.github/workflows/mobile-bench-pr-command.yml` (input schema + validation)
 - `.github/workflows/mobile-bench-ios.yml` (actual input declarations + job logic)
-- `bench-mobile/scripts/summarize_mobench_ci.py` (reporting format and parser logic)
-- `bench-mobile/docs/ci-browserstack.md` and this document
+- `crates/zk-mobile-bench/scripts/summarize_mobench_ci.py` (reporting format and parser logic)
+- `crates/zk-mobile-bench/docs/ci-browserstack.md` and this document
 
 If new benchmark outputs change CSV schema:
 - update parser metric candidate mapping in `summarize_mobench_ci.py`

@@ -1,8 +1,8 @@
 //! Local benchmark runner for testing without mobile devices.
 //!
-//! Run with: cargo run -p bench-mobile --example run_local --release
+//! Run with: cargo run -p zk-mobile-bench --example run_local --release
 
-use bench_mobile::{run_benchmark, BenchSpec};
+use zk_mobile_bench::{run_benchmark, BenchSpec};
 
 fn main() {
     println!("World ID Mobile Benchmarks - Local Runner");
@@ -14,7 +14,7 @@ fn main() {
     println!("  Measured: 3 iterations");
 
     let spec = BenchSpec {
-        name: "bench_mobile::bench_query_proof_generation".to_string(),
+        name: "zk_mobile_bench::bench_query_proof_generation".to_string(),
         iterations: 3,
         warmup: 1,
     };
@@ -50,7 +50,7 @@ fn main() {
     println!("  Measured: 3 iterations");
 
     let spec = BenchSpec {
-        name: "bench_mobile::bench_nullifier_proof_generation".to_string(),
+        name: "zk_mobile_bench::bench_nullifier_proof_generation".to_string(),
         iterations: 3,
         warmup: 1,
     };

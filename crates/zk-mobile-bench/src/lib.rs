@@ -50,11 +50,11 @@ fn generate_query_input() -> (
 
     // Load embedded proving material
     let query_material =
-        proof::load_embedded_query_material(None::<&str>).expect("failed to load query material");
+        proof::load_embedded_query_material().expect("failed to load query material");
 
     // Create user keys
     let user_sk = EdDSAPrivateKey::random(&mut rng);
-    let key_set = AuthenticatorPublicKeySet::new(Some(vec![user_sk.public().clone()]))
+    let key_set = AuthenticatorPublicKeySet::new(vec![user_sk.public().clone()])
         .expect("valid key set");
 
     // Create merkle proof
@@ -106,13 +106,13 @@ fn generate_nullifier_input() -> (
 
     // Load embedded proving materials
     let query_material =
-        proof::load_embedded_query_material(None::<&str>).expect("failed to load query material");
-    let nullifier_material = proof::load_embedded_nullifier_material(None::<&str>)
+        proof::load_embedded_query_material().expect("failed to load query material");
+    let nullifier_material = proof::load_embedded_nullifier_material()
         .expect("failed to load nullifier material");
 
     // Create user keys
     let user_sk = EdDSAPrivateKey::random(&mut rng);
-    let key_set = AuthenticatorPublicKeySet::new(Some(vec![user_sk.public().clone()]))
+    let key_set = AuthenticatorPublicKeySet::new(vec![user_sk.public().clone()])
         .expect("valid key set");
 
     // Create merkle proof
@@ -523,7 +523,7 @@ mod tests {
         assert!(benchmarks.len() >= 3, "Should find at least 3 benchmarks");
 
         let spec = BenchSpec {
-            name: "bench_mobile::bench_query_proof_generation".to_string(),
+            name: "zk_mobile_bench::bench_query_proof_generation".to_string(),
             iterations: 1,
             warmup: 0,
         };

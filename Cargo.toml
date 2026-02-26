@@ -6,6 +6,7 @@ members = [
   "crates/proof",
   "crates/primitives",
   "crates/test-utils",
+  "crates/zk-mobile-bench",
   "services/indexer",
   "services/gateway",
   "services/oprf-node",
@@ -121,6 +122,7 @@ taceo-nodes-observability = "0.1"
 tempfile = "3"
 tokio-util = "0.7"
 tower = "0.5.3"
+uniffi = "0.28"
 
 # Internal
 world-id-core = { version = "0.4.4", default-features = false, path = "crates/core" }
