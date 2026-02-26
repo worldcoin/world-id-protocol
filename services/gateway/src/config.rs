@@ -6,10 +6,55 @@ use world_id_services_common::ProviderArgs;
 
 use crate::error::{GatewayError, GatewayResult};
 
+mod defaults {
+    pub const BATCH_MS: u64 = 1000;
+    pub const MAX_CREATE_BATCH_SIZE: usize = 100;
+    pub const MAX_OPS_BATCH_SIZE: usize = 10;
+    pub const REQUEST_TIMEOUT_SECS: u64 = 10;
+    pub const SWEEPER_INTERVAL_SECS: u64 = 30;
+    pub const STALE_QUEUED_THRESHOLD_SECS: u64 = 60;
+    pub const STALE_SUBMITTED_THRESHOLD_SECS: u64 = 600;
+}
+
+/// Batching configuration for transaction submission.
+#[derive(Clone, Debug, clap::Args)]
+pub struct BatcherConfig {
+    /// Batch window in milliseconds (i.e. how long to wait before submitting a batch of transactions)
+    #[arg(long, env = "BATCH_MS", default_value_t = defaults::BATCH_MS)]
+    pub batch_ms: u64,
+
+    /// Maximum batch size for create account requests
+    #[arg(long, env = "MAX_CREATE_BATCH_SIZE", default_value_t = defaults::MAX_CREATE_BATCH_SIZE)]
+    pub max_create_batch_size: usize,
+
+    /// Maximum batch size for ops (insert/update/remove/recover) requests
+    #[arg(long, env = "MAX_OPS_BATCH_SIZE", default_value_t = defaults::MAX_OPS_BATCH_SIZE)]
+    pub max_ops_batch_size: usize,
+}
+
+impl Default for BatcherConfig {
+    fn default() -> Self {
+        Self {
+            batch_ms: defaults::BATCH_MS,
+            max_create_batch_size: defaults::MAX_CREATE_BATCH_SIZE,
+            max_ops_batch_size: defaults::MAX_OPS_BATCH_SIZE,
+        }
+    }
+}
+
 /// Rate limiting configuration for leaf_index-based requests.
-#[derive(Clone, Debug)]
+///
+/// Both fields are required. When flattened as `Option<RateLimitConfig>` in a
+/// parent clap struct, providing either flag requires the other; omitting both
+/// disables rate limiting.
+#[derive(Clone, Debug, clap::Args)]
 pub struct RateLimitConfig {
+    /// Rate limit window in seconds for leaf_index-based requests (sliding window).
+    #[arg(long = "rate-limit-window-secs", env = "RATE_LIMIT_WINDOW_SECS")]
     pub window_secs: u64,
+
+    /// Maximum number of requests per leaf_index within the rate limit window.
+    #[arg(long = "rate-limit-max-requests", env = "RATE_LIMIT_MAX_REQUESTS")]
     pub max_requests: u64,
 }
 
@@ -17,24 +62,24 @@ pub struct RateLimitConfig {
 #[derive(Clone, Debug, clap::Args)]
 pub struct OrphanSweeperConfig {
     /// How often the orphan sweeper runs, in seconds.
-    #[arg(long, env = "ORPHAN_SWEEPER_INTERVAL_SECS", default_value = "30")]
+    #[arg(long, env = "ORPHAN_SWEEPER_INTERVAL_SECS", default_value_t = defaults::SWEEPER_INTERVAL_SECS)]
     pub interval_secs: u64,
 
     /// Staleness threshold for Queued/Batching requests (seconds).
-    #[arg(long, env = "STALE_QUEUED_THRESHOLD_SECS", default_value = "60")]
+    #[arg(long, env = "STALE_QUEUED_THRESHOLD_SECS", default_value_t = defaults::STALE_QUEUED_THRESHOLD_SECS)]
     pub stale_queued_threshold_secs: u64,
 
     /// Staleness threshold for Submitted requests with no receipt (seconds).
-    #[arg(long, env = "STALE_SUBMITTED_THRESHOLD_SECS", default_value = "600")]
+    #[arg(long, env = "STALE_SUBMITTED_THRESHOLD_SECS", default_value_t = defaults::STALE_SUBMITTED_THRESHOLD_SECS)]
     pub stale_submitted_threshold_secs: u64,
 }
 
 impl Default for OrphanSweeperConfig {
     fn default() -> Self {
         Self {
-            interval_secs: 30,
-            stale_queued_threshold_secs: 60,
-            stale_submitted_threshold_secs: 600,
+            interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+            stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+            stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         }
     }
 }
@@ -50,20 +95,11 @@ pub struct GatewayConfig {
     #[command(flatten)]
     pub provider: ProviderArgs,
 
-    /// Batch window in milliseconds (i.e. how long to wait before submitting a batch of transactions)
-    #[arg(long, env = "BATCH_MS", default_value = "1000")]
-    pub batch_ms: u64,
-
-    /// Maximum batch size for create account requests
-    #[arg(long, env = "MAX_CREATE_BATCH_SIZE", default_value = "100")]
-    pub max_create_batch_size: usize,
-
-    /// Maximum batch size for ops (insert/update/remove/recover) requests
-    #[arg(long, env = "MAX_OPS_BATCH_SIZE", default_value = "10")]
-    pub max_ops_batch_size: usize,
+    #[command(flatten)]
+    pub batcher: BatcherConfig,
 
     /// HTTP request timeout in seconds
-    #[arg(long, env = "REQUEST_TIMEOUT_SECS", default_value = "10")]
+    #[arg(long, env = "REQUEST_TIMEOUT_SECS", default_value_t = defaults::REQUEST_TIMEOUT_SECS)]
     pub request_timeout_secs: u64,
 
     /// The address and port to listen for HTTP requests
@@ -74,39 +110,11 @@ pub struct GatewayConfig {
     #[arg(long, env = "REDIS_URL")]
     pub redis_url: String,
 
-    /// Rate limit window in seconds for leaf_index-based requests (sliding window).
-    /// Both this and --rate-limit-max-requests must be provided to enable rate limiting.
-    #[arg(
-        long,
-        env = "RATE_LIMIT_WINDOW_SECS",
-        requires = "rate_limit_max_requests"
-    )]
-    pub rate_limit_window_secs: Option<u64>,
-
-    /// Maximum number of requests per leaf_index within the rate limit window.
-    /// Both this and --rate-limit-window-secs must be provided to enable rate limiting.
-    #[arg(
-        long,
-        env = "RATE_LIMIT_MAX_REQUESTS",
-        requires = "rate_limit_window_secs"
-    )]
-    pub rate_limit_max_requests: Option<u64>,
+    #[command(flatten)]
+    pub rate_limit: Option<RateLimitConfig>,
 
     #[command(flatten)]
     pub sweeper: OrphanSweeperConfig,
-}
-
-impl GatewayConfig {
-    /// Returns the rate limit configuration if both parameters are provided.
-    pub fn rate_limit(&self) -> Option<RateLimitConfig> {
-        match (self.rate_limit_window_secs, self.rate_limit_max_requests) {
-            (Some(window_secs), Some(max_requests)) => Some(RateLimitConfig {
-                window_secs,
-                max_requests,
-            }),
-            _ => None,
-        }
-    }
 }
 
 impl GatewayConfig {
@@ -149,18 +157,14 @@ mod tests {
         "redis://localhost:6379",
     ];
 
-    fn parse_with_signer_args(signer_args: &[&str]) -> Result<GatewayConfig, clap::Error> {
-        let args: Vec<&str> = BASE_ARGS
-            .iter()
-            .chain(signer_args.iter())
-            .copied()
-            .collect();
+    fn parse_with_extra_args(extra: &[&str]) -> Result<GatewayConfig, clap::Error> {
+        let args: Vec<&str> = BASE_ARGS.iter().chain(extra.iter()).copied().collect();
         GatewayConfig::try_parse_from(args)
     }
 
     #[test]
     fn test_both_options_fails() {
-        let result = parse_with_signer_args(&[
+        let result = parse_with_extra_args(&[
             "--wallet-private-key",
             "0xdeadbeef",
             "--aws-kms-key-id",
@@ -174,10 +178,42 @@ mod tests {
 
     #[test]
     fn test_neither_option_fails_validation() {
-        let config = parse_with_signer_args(&[]).expect("clap parsing should succeed");
+        let config = parse_with_extra_args(&[]).expect("clap parsing should succeed");
         let result = config.validate();
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("wallet-private-key"));
+    }
+
+    #[test]
+    fn rate_limit_none_when_omitted() {
+        let config = parse_with_extra_args(&[]).expect("clap parsing should succeed");
+        assert!(config.rate_limit.is_none());
+    }
+
+    #[test]
+    fn rate_limit_some_when_both_provided() {
+        let config = parse_with_extra_args(&[
+            "--rate-limit-window-secs",
+            "60",
+            "--rate-limit-max-requests",
+            "100",
+        ])
+        .expect("clap parsing should succeed");
+        let rl = config.rate_limit.expect("rate_limit should be Some");
+        assert_eq!(rl.window_secs, 60);
+        assert_eq!(rl.max_requests, 100);
+    }
+
+    #[test]
+    fn rate_limit_error_when_only_window_provided() {
+        let result = parse_with_extra_args(&["--rate-limit-window-secs", "60"]);
+        assert!(result.is_err(), "providing only window_secs should fail");
+    }
+
+    #[test]
+    fn rate_limit_error_when_only_max_requests_provided() {
+        let result = parse_with_extra_args(&["--rate-limit-max-requests", "100"]);
+        assert!(result.is_err(), "providing only max_requests should fail");
     }
 }

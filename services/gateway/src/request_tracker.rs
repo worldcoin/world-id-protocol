@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use world_id_core::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
+use crate::config::RateLimitConfig;
 use crate::error::{GatewayErrorResponse, GatewayResult};
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
@@ -37,8 +38,8 @@ pub fn now_unix_secs() -> u64 {
 pub struct RequestTracker {
     /// The Redis connection manager.
     redis_manager: ConnectionManager,
-    /// Rate limiting configuration (window in seconds, max requests).
-    rate_limit_config: Option<(u64, u64)>,
+    /// Rate limiting configuration, if enabled.
+    rate_limit_config: Option<RateLimitConfig>,
 }
 
 impl RequestTracker {
@@ -46,7 +47,7 @@ impl RequestTracker {
     ///
     /// # Panics
     /// If the connection to Redis fails.
-    pub async fn new(redis_url: String, rate_limit_config: Option<(u64, u64)>) -> Self {
+    pub async fn new(redis_url: String, rate_limit: Option<RateLimitConfig>) -> Self {
         let client = Client::open(redis_url.as_str()).expect("Unable to connect to Redis");
         let redis_manager = ConnectionManager::new(client)
             .await
@@ -378,9 +379,10 @@ impl RequestTracker {
         leaf_index: u64,
         request_id: &str,
     ) -> Result<(), GatewayErrorResponse> {
-        let Some((window_secs, max_requests)) = self.rate_limit_config else {
+        let Some(ref rate_limit) = self.rate_limit else {
             return Ok(());
         };
+        let (window_secs, max_requests) = (rate_limit.window_secs, rate_limit.max_requests);
 
         let key = Self::rate_limit_key(leaf_index);
         let now = SystemTime::now()

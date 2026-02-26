@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     AppState,
     batcher::BatcherHandle,
-    config::OrphanSweeperConfig,
+    config::{BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::{GatewayErrorBody, GatewayResult},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
@@ -56,26 +56,22 @@ pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 
-// TODO: Refactor config into structs to reduce number of arguments
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    batch_ms: u64,
-    max_create_batch_size: usize,
-    max_ops_batch_size: usize,
+    batcher_config: BatcherConfig,
     redis_url: String,
-    rate_limit_config: Option<(u64, u64)>,
+    rate_limit: Option<RateLimitConfig>,
     request_timeout_secs: u64,
     orphan_sweeper_config: OrphanSweeperConfig,
 ) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(redis_url, rate_limit_config).await;
+    let tracker = RequestTracker::new(redis_url, rate_limit).await;
 
     let (tx, rx) = mpsc::channel(1024);
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
         registry.clone(),
-        Duration::from_millis(batch_ms),
-        max_create_batch_size,
+        Duration::from_millis(batcher_config.batch_ms),
+        batcher_config.max_create_batch_size,
         rx,
         tracker.clone(),
     );
@@ -86,8 +82,8 @@ pub(crate) async fn build_app(
     let ops_batcher = OpsBatcherHandle { tx: otx };
     let ops_runner = OpsBatcherRunner::new(
         registry.clone(),
-        Duration::from_millis(batch_ms),
-        max_ops_batch_size,
+        Duration::from_millis(batcher_config.batch_ms),
+        batcher_config.max_ops_batch_size,
         orx,
         tracker.clone(),
     );

@@ -1,5 +1,5 @@
 pub use crate::{
-    config::{GatewayConfig, OrphanSweeperConfig, RateLimitConfig},
+    config::{BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig},
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
@@ -46,8 +46,6 @@ impl GatewayHandle {
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
-    let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
-
     // Each test gateway gets a unique Redis key prefix so that concurrent
     // tests (each backed by a separate Anvil chain) do not share nonce state.
     let redis_client = redis::Client::open(cfg.redis_url.as_str()).expect("invalid REDIS_URL");
@@ -67,11 +65,9 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     ));
     let app = build_app(
         registry,
-        cfg.batch_ms,
-        cfg.max_create_batch_size,
-        cfg.max_ops_batch_size,
+        cfg.batcher,
         cfg.redis_url,
-        rate_limit_config,
+        cfg.rate_limit,
         cfg.request_timeout_secs,
         cfg.sweeper,
     )
@@ -110,7 +106,6 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env()?;
-    let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
 
     // Use Redis-backed nonce manager so multiple replicas sharing the same
     // signer key never collide on nonces.  The existing REDIS_URL config
@@ -136,11 +131,9 @@ pub async fn run() -> GatewayResult<()> {
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
         registry,
-        cfg.batch_ms,
-        cfg.max_create_batch_size,
-        cfg.max_ops_batch_size,
+        cfg.batcher,
         cfg.redis_url,
-        rate_limit_config,
+        cfg.rate_limit,
         cfg.request_timeout_secs,
         cfg.sweeper,
     )
