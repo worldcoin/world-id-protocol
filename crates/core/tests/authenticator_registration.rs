@@ -5,7 +5,7 @@ use std::sync::Arc;
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
-use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
 use world_id_primitives::Config;
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -52,6 +52,7 @@ async fn test_authenticator_registration() {
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
+        sweeper: OrphanSweeperConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -106,7 +107,7 @@ async fn test_authenticator_registration() {
             .await
             .unwrap();
     let elapsed = start.elapsed();
-    println!("Account creation successful in {elapsed:?}");
+    tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 

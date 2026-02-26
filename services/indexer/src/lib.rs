@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, BlockchainResult, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
