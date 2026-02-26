@@ -20,12 +20,6 @@ impl From<(u64, u64)> for AccountLatestEventId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct AccountLatestEventId {
-    pub latest_block_number: u64,
-    pub latest_log_index: u64,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
     pub leaf_index: u64,
