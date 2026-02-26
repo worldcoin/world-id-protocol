@@ -16,7 +16,9 @@ use world_id_core::{
         sign_remove_authenticator, sign_update_authenticator,
     },
 };
-use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatcherConfig, GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests,
+};
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -58,15 +60,16 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
+        batcher: BatcherConfig {
+            batch_ms: 200,
+            max_create_batch_size: 10,
+            max_ops_batch_size: 10,
+        },
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
-        max_create_batch_size: 10,
-        max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
             .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
         request_timeout_secs: 10,
-        rate_limit_window_secs: None,
-        rate_limit_max_requests: None,
+        rate_limit: None,
         sweeper: OrphanSweeperConfig::default(),
     };
     let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");

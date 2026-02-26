@@ -7,7 +7,10 @@ use alloy::{
 use redis::{AsyncTypedCommands, IntegerReplyOrNoOp, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_core::api_types::GatewayStatusResponse;
-use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig, spawn_gateway_for_tests,
+};
+
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -50,14 +53,18 @@ async fn redis_integration() {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
+        batcher: BatcherConfig {
+            batch_ms: 200,
+            max_create_batch_size: 10,
+            max_ops_batch_size: 10,
+        },
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
-        max_create_batch_size: 10,
-        max_ops_batch_size: 10,
         redis_url,
         request_timeout_secs: 10,
-        rate_limit_window_secs: Some(5),
-        rate_limit_max_requests: Some(10),
+        rate_limit: Some(RateLimitConfig {
+            window_secs: 5,
+            max_requests: 10,
+        }),
         sweeper: OrphanSweeperConfig::default(),
     };
 

@@ -11,8 +11,8 @@ use redis::{AsyncCommands, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_core::api_types::{GatewayRequestKind, GatewayRequestState, GatewayStatusResponse};
 use world_id_gateway::{
-    GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker, now_unix_secs,
-    spawn_gateway_for_tests, sweep_once,
+    BatcherConfig, GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker,
+    now_unix_secs, spawn_gateway_for_tests, sweep_once,
 };
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
@@ -495,14 +495,15 @@ async fn sweep_submitted_with_real_receipt() {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
+        batcher: BatcherConfig {
+            batch_ms: 200,
+            max_create_batch_size: 10,
+            max_ops_batch_size: 10,
+        },
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4200).into(),
-        max_create_batch_size: 10,
-        max_ops_batch_size: 10,
         redis_url: url.clone(),
         request_timeout_secs: 10,
-        rate_limit_window_secs: None,
-        rate_limit_max_requests: None,
+        rate_limit: None,
         sweeper: OrphanSweeperConfig {
             interval_secs: 9999, // don't auto-sweep during this test
             ..Default::default()
