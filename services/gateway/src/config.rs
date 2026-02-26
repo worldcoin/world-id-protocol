@@ -17,18 +17,10 @@ mod defaults {
 }
 
 /// Batching configuration for transaction submission.
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug)]
 pub struct BatcherConfig {
-    /// Batch window in milliseconds (i.e. how long to wait before submitting a batch of transactions)
-    #[arg(long, env = "BATCH_MS", default_value_t = defaults::BATCH_MS)]
     pub batch_ms: u64,
-
-    /// Maximum batch size for create account requests
-    #[arg(long, env = "MAX_CREATE_BATCH_SIZE", default_value_t = defaults::MAX_CREATE_BATCH_SIZE)]
     pub max_create_batch_size: usize,
-
-    /// Maximum batch size for ops (insert/update/remove/recover) requests
-    #[arg(long, env = "MAX_OPS_BATCH_SIZE", default_value_t = defaults::MAX_OPS_BATCH_SIZE)]
     pub max_ops_batch_size: usize,
 }
 
@@ -44,33 +36,19 @@ impl Default for BatcherConfig {
 
 /// Rate limiting configuration for leaf_index-based requests.
 ///
-/// Both fields are required. When flattened as `Option<RateLimitConfig>` in a
-/// parent clap struct, providing either flag requires the other; omitting both
-/// disables rate limiting.
-#[derive(Clone, Debug, clap::Args)]
+/// Both fields are always present — the optionality is expressed at the
+/// call-site via `Option<RateLimitConfig>`.
+#[derive(Clone, Debug)]
 pub struct RateLimitConfig {
-    /// Rate limit window in seconds for leaf_index-based requests (sliding window).
-    #[arg(long = "rate-limit-window-secs", env = "RATE_LIMIT_WINDOW_SECS")]
     pub window_secs: u64,
-
-    /// Maximum number of requests per leaf_index within the rate limit window.
-    #[arg(long = "rate-limit-max-requests", env = "RATE_LIMIT_MAX_REQUESTS")]
     pub max_requests: u64,
 }
 
 /// Configuration for the orphan sweeper background task.
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug)]
 pub struct OrphanSweeperConfig {
-    /// How often the orphan sweeper runs, in seconds.
-    #[arg(long, env = "ORPHAN_SWEEPER_INTERVAL_SECS", default_value_t = defaults::SWEEPER_INTERVAL_SECS)]
     pub interval_secs: u64,
-
-    /// Staleness threshold for Queued/Batching requests (seconds).
-    #[arg(long, env = "STALE_QUEUED_THRESHOLD_SECS", default_value_t = defaults::STALE_QUEUED_THRESHOLD_SECS)]
     pub stale_queued_threshold_secs: u64,
-
-    /// Staleness threshold for Submitted requests with no receipt (seconds).
-    #[arg(long, env = "STALE_SUBMITTED_THRESHOLD_SECS", default_value_t = defaults::STALE_SUBMITTED_THRESHOLD_SECS)]
     pub stale_submitted_threshold_secs: u64,
 }
 
@@ -95,8 +73,17 @@ pub struct GatewayConfig {
     #[command(flatten)]
     pub provider: ProviderArgs,
 
-    #[command(flatten)]
-    pub batcher: BatcherConfig,
+    /// Batch window in milliseconds
+    #[arg(long, env = "BATCH_MS", default_value_t = defaults::BATCH_MS)]
+    pub batch_ms: u64,
+
+    /// Maximum batch size for create account requests
+    #[arg(long, env = "MAX_CREATE_BATCH_SIZE", default_value_t = defaults::MAX_CREATE_BATCH_SIZE)]
+    pub max_create_batch_size: usize,
+
+    /// Maximum batch size for ops (insert/update/remove/recover) requests
+    #[arg(long, env = "MAX_OPS_BATCH_SIZE", default_value_t = defaults::MAX_OPS_BATCH_SIZE)]
+    pub max_ops_batch_size: usize,
 
     /// HTTP request timeout in seconds
     #[arg(long, env = "REQUEST_TIMEOUT_SECS", default_value_t = defaults::REQUEST_TIMEOUT_SECS)]
@@ -110,11 +97,25 @@ pub struct GatewayConfig {
     #[arg(long, env = "REDIS_URL")]
     pub redis_url: String,
 
-    #[command(flatten)]
-    pub rate_limit: Option<RateLimitConfig>,
+    /// Rate limit window in seconds (sliding window). Requires --rate-limit-max-requests.
+    #[arg(long = "rate-limit-window-secs", env = "RATE_LIMIT_WINDOW_SECS", requires = "rate_limit_max_requests")]
+    pub rate_limit_window_secs: Option<u64>,
 
-    #[command(flatten)]
-    pub sweeper: OrphanSweeperConfig,
+    /// Maximum requests per leaf_index within the rate limit window. Requires --rate-limit-window-secs.
+    #[arg(long = "rate-limit-max-requests", env = "RATE_LIMIT_MAX_REQUESTS", requires = "rate_limit_window_secs")]
+    pub rate_limit_max_requests: Option<u64>,
+
+    /// How often the orphan sweeper runs, in seconds.
+    #[arg(long, env = "ORPHAN_SWEEPER_INTERVAL_SECS", default_value_t = defaults::SWEEPER_INTERVAL_SECS)]
+    pub sweeper_interval_secs: u64,
+
+    /// Staleness threshold for Queued/Batching requests (seconds).
+    #[arg(long, env = "STALE_QUEUED_THRESHOLD_SECS", default_value_t = defaults::STALE_QUEUED_THRESHOLD_SECS)]
+    pub stale_queued_threshold_secs: u64,
+
+    /// Staleness threshold for Submitted requests with no receipt (seconds).
+    #[arg(long, env = "STALE_SUBMITTED_THRESHOLD_SECS", default_value_t = defaults::STALE_SUBMITTED_THRESHOLD_SECS)]
+    pub stale_submitted_threshold_secs: u64,
 }
 
 impl GatewayConfig {
@@ -139,6 +140,31 @@ impl GatewayConfig {
         }
 
         Ok(())
+    }
+
+    pub fn batcher(&self) -> BatcherConfig {
+        BatcherConfig {
+            batch_ms: self.batch_ms,
+            max_create_batch_size: self.max_create_batch_size,
+            max_ops_batch_size: self.max_ops_batch_size,
+        }
+    }
+
+    pub fn rate_limit(&self) -> Option<RateLimitConfig> {
+        match (self.rate_limit_window_secs, self.rate_limit_max_requests) {
+            (Some(window_secs), Some(max_requests)) => {
+                Some(RateLimitConfig { window_secs, max_requests })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn sweeper(&self) -> OrphanSweeperConfig {
+        OrphanSweeperConfig {
+            interval_secs: self.sweeper_interval_secs,
+            stale_queued_threshold_secs: self.stale_queued_threshold_secs,
+            stale_submitted_threshold_secs: self.stale_submitted_threshold_secs,
+        }
     }
 }
 
@@ -186,13 +212,13 @@ mod tests {
     }
 
     #[test]
-    fn rate_limit_none_when_omitted() {
+    fn rate_limit_disabled_when_omitted() {
         let config = parse_with_extra_args(&[]).expect("clap parsing should succeed");
-        assert!(config.rate_limit.is_none());
+        assert!(config.rate_limit().is_none());
     }
 
     #[test]
-    fn rate_limit_some_when_both_provided() {
+    fn rate_limit_enabled_when_both_provided() {
         let config = parse_with_extra_args(&[
             "--rate-limit-window-secs",
             "60",
@@ -200,19 +226,19 @@ mod tests {
             "100",
         ])
         .expect("clap parsing should succeed");
-        let rl = config.rate_limit.expect("rate_limit should be Some");
+        let rl = config.rate_limit().expect("rate_limit should be Some");
         assert_eq!(rl.window_secs, 60);
         assert_eq!(rl.max_requests, 100);
     }
 
     #[test]
-    fn rate_limit_error_when_only_window_provided() {
+    fn rate_limit_rejects_only_window() {
         let result = parse_with_extra_args(&["--rate-limit-window-secs", "60"]);
         assert!(result.is_err(), "providing only window_secs should fail");
     }
 
     #[test]
-    fn rate_limit_error_when_only_max_requests_provided() {
+    fn rate_limit_rejects_only_max_requests() {
         let result = parse_with_extra_args(&["--rate-limit-max-requests", "100"]);
         assert!(result.is_err(), "providing only max_requests should fail");
     }

@@ -46,6 +46,10 @@ impl GatewayHandle {
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
+    let batcher_config = cfg.batcher();
+    let rate_limit = cfg.rate_limit();
+    let sweeper_config = cfg.sweeper();
+
     // Each test gateway gets a unique Redis key prefix so that concurrent
     // tests (each backed by a separate Anvil chain) do not share nonce state.
     let redis_client = redis::Client::open(cfg.redis_url.as_str()).expect("invalid REDIS_URL");
@@ -65,11 +69,11 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     ));
     let app = build_app(
         registry,
-        cfg.batcher,
+        batcher_config,
         cfg.redis_url,
-        cfg.rate_limit,
+        rate_limit,
         cfg.request_timeout_secs,
-        cfg.sweeper,
+        sweeper_config,
     )
     .await?;
 
@@ -125,17 +129,21 @@ pub async fn run() -> GatewayResult<()> {
     let nonce_mgr = RedisNonceManager::new(redis_conn);
     tracing::info!("Redis-backed nonce manager initialised");
 
+    let batcher_config = cfg.batcher();
+    let rate_limit = cfg.rate_limit();
+    let sweeper_config = cfg.sweeper();
+
     let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
         registry,
-        cfg.batcher,
+        batcher_config,
         cfg.redis_url,
-        cfg.rate_limit,
+        rate_limit,
         cfg.request_timeout_secs,
-        cfg.sweeper,
+        sweeper_config,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

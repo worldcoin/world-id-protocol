@@ -41,7 +41,7 @@ pub struct RequestTracker {
     /// The Redis connection manager.
     redis_manager: ConnectionManager,
     /// Rate limiting configuration, if enabled.
-    rate_limit_config: Option<RateLimitConfig>,
+    rate_limit: Option<RateLimitConfig>,
 }
 
 impl RequestTracker {
@@ -59,7 +59,7 @@ impl RequestTracker {
 
         Self {
             redis_manager,
-            rate_limit_config,
+            rate_limit,
         }
     }
 
@@ -381,10 +381,10 @@ impl RequestTracker {
         leaf_index: u64,
         request_id: &str,
     ) -> Result<(), GatewayErrorResponse> {
-        let Some(ref rate_limit) = self.rate_limit else {
+        let Some(ref rl) = self.rate_limit else {
             return Ok(());
         };
-        let (window_secs, max_requests) = (rate_limit.window_secs, rate_limit.max_requests);
+        let (window_secs, max_requests) = (rl.window_secs, rl.max_requests);
 
         let key = Self::rate_limit_key(leaf_index);
         let now = SystemTime::now()
