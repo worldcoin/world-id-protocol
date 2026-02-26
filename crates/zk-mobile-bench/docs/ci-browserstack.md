@@ -1,74 +1,67 @@
 # CI / BrowserStack
 
-The benchmark workflow is:
+## Architecture
 
-- `.github/workflows/mobile-bench-ios.yml`
+The benchmark CI uses a thin caller workflow in this repository that delegates to a
+reusable workflow from `worldcoin/mobile-bench-rs`:
 
-It supports iOS and Android and can be triggered:
+- `.github/workflows/mobile-bench.yml` (~67 lines) -- caller workflow
+- `.github/workflows/mobile-bench-pr-command.yml` -- PR comment trigger
 
-- manually (`workflow_dispatch`)
-- from PR comments via `/mobench ...` (see `.github/workflows/mobile-bench-pr-command.yml`)
-- not from automatic per-commit label/synchronize triggers (legacy label workflow is disabled)
+The caller workflow invokes:
+```
+worldcoin/mobile-bench-rs/.github/workflows/reusable-bench.yml@v0.1.15
+```
 
-## Default mobench source
+All build, run, summarization, and reporting logic lives in the reusable workflow.
 
-`mobench_ref` defaults to:
+## Triggers
 
-- `codex/ci-devex` from `worldcoin/mobile-bench-rs`
+- **Manual**: `workflow_dispatch` on `mobile-bench.yml`
+- **PR comment**: `/mobench ...` via `mobile-bench-pr-command.yml`
 
-## Main parameters
+## Parameters
 
-- `platforms`: `both` | `ios` | `android`
-- `proof_scope`: `both` | `pi2` | `pi1`
-- `modes`: `all` or comma list from `witness,proving,full`
+- `platform`: `both` | `ios` | `android`
 - `iterations`: measured iteration count
 - `warmup`: warmup iteration count
-- `fetch_timeout_secs`
-- `device_profile`: `low-spec` | `mid-spec` | `high-spec` | `auto-low-spec` | `custom`
+- `device_profile`: `low-spec` | `mid-spec` | `high-spec` | `custom`
 - custom overrides:
   - `ios_device`, `ios_os_version`
   - `android_device`, `android_os_version`
 
 ## PR command examples
 
-Run both platforms with low-spec auto selection:
+Run both platforms with low-spec profile:
 
 ```text
-/mobench platforms=both iterations=30 warmup=5 proof_scope=both modes=all device_profile=auto-low-spec
+/mobench platform=both iterations=30 warmup=5 device_profile=low-spec
 ```
 
-Run only `π2` proving on iOS:
+Run only iOS:
 
 ```text
-/mobench platforms=ios proof_scope=pi2 modes=proving iterations=20 warmup=3 device_profile=low-spec
+/mobench platform=ios iterations=20 warmup=3 device_profile=low-spec
 ```
 
 Use explicit devices:
 
 ```text
-/mobench platforms=both device_profile=custom ios_device="iPhone 11" ios_os_version="13" android_device="Google Pixel 6" android_os_version="12"
+/mobench platform=both device_profile=custom ios_device="iPhone 11" ios_os_version="13" android_device="Google Pixel 6" android_os_version="12"
 ```
 
 ## Required repository secrets
 
 - `BROWSERSTACK_USERNAME`
 - `BROWSERSTACK_ACCESS_KEY`
-- optional: `MOBENCH_REPO_TOKEN`
 
-## Trigger and reporting UX
+## Result reporting
 
-Recommended PR flow:
+The reusable workflow handles summarization via `mobench ci summarize`, which:
+- Parses benchmark JSON/CSV artifacts
+- Renders a markdown summary table
+- Publishes to `GITHUB_STEP_SUMMARY`
+- Posts/updates a sticky PR comment (`<!-- mobench-summary -->`) when `pr_number` is set
 
-1. Comment on the PR with `/mobench ...` command parameters.
-2. Workflow dispatches against that PR head branch.
-3. Results are interpreted in natural language and published in:
-- GitHub Actions job summary (`GITHUB_STEP_SUMMARY`)
-- a sticky PR comment (`<!-- mobench-summary -->`) that is updated in-place
-
-The benchmark workflow accepts optional metadata inputs used for reporting:
-
-- `pr_number`
-- `requested_by`
-- `request_command`
-
-These are populated automatically by `.github/workflows/mobile-bench-pr-command.yml`.
+When a GitHub App is configured, `mobench ci check-run` can also publish results as
+GitHub Check Runs on the commit.

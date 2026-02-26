@@ -6,6 +6,7 @@
 
 - `benchmark-functions.md`: What each benchmark measures.
 - `ci-browserstack.md`: How CI/PR-triggered BrowserStack runs are configured.
+- `ci-pipeline-detailed.md`: Detailed pipeline architecture and flow.
 
 ## Quick Start
 
@@ -18,7 +19,7 @@ cargo run -p zk-mobile-bench --example run_local --release
 Direct mobench run (example):
 
 ```bash
-cargo-mobench run \
+mobench run \
   --target ios \
   --function zk_mobile_bench::bench_nullifier_proving_only \
   --iterations 30 \
