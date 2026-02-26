@@ -1,7 +1,7 @@
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, BlockchainResult, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
-    db::DB,
+    db::{DB, DBError},
     events_committer::EventsCommitter,
 };
 use alloy::{
@@ -502,7 +502,21 @@ pub async fn process_registry_events(
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
-                    handle_registry_event(db, &mut events_committer, &event, tree_state).await?;
+                    match handle_registry_event(db, &mut events_committer, &event, tree_state).await
+                    {
+                        Ok(()) => {}
+                        Err(IndexerError::Db {
+                            source: DBError::ReorgDetected { reason, .. },
+                            ..
+                        }) => {
+                            tracing::warn!(
+                                reason,
+                                "Reorg detected during event commit, restarting stream"
+                            );
+                            break;
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
                 Err(e) => {
                     tracing::error!(?e, "blockchain event stream error");

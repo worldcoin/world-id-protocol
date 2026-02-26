@@ -131,6 +131,23 @@ pub fn serialize_event_data(event: &RegistryEvent) -> serde_json::Value {
     }
 }
 
+/// Deserialize event data from JSON back to RootRecordedEvent
+pub fn deserialize_root_recorded(event_data: &serde_json::Value) -> DBResult<RootRecordedEvent> {
+    let root = event_data["root"]
+        .as_str()
+        .ok_or_else(|| missing_field!("root"))?
+        .parse()
+        .map_err(|_| invalid_field!("root", "failed to parse U256"))?;
+
+    let timestamp = event_data["timestamp"]
+        .as_str()
+        .ok_or_else(|| missing_field!("timestamp"))?
+        .parse()
+        .map_err(|_| invalid_field!("timestamp", "failed to parse U256"))?;
+
+    Ok(RootRecordedEvent { root, timestamp })
+}
+
 /// Deserialize event data from JSON back to RegistryEvent
 pub fn deserialize_registry_event(
     event_type: WorldIdRegistryEventType,
@@ -715,7 +732,7 @@ where
     #[instrument(level = "info", skip(self))]
     pub async fn get_latest_root_recorded(
         self,
-    ) -> DBResult<Option<BlockchainEvent<RegistryEvent>>> {
+    ) -> DBResult<Option<BlockchainEvent<RootRecordedEvent>>> {
         let row = sqlx::query(
             r#"
                 SELECT
@@ -738,7 +755,7 @@ where
         .await?;
 
         if let Some(row) = row {
-            Ok(Some(Self::map_event_to_blockchain_event(&row)?))
+            Ok(Some(Self::map_root_recorded_event(&row)?))
         } else {
             Ok(None)
         }
@@ -749,7 +766,7 @@ where
     pub async fn get_roots_recorded_after_block_number_inclusively(
         self,
         block_number: u64,
-    ) -> DBResult<Vec<BlockchainEvent<RegistryEvent>>> {
+    ) -> DBResult<Vec<BlockchainEvent<RootRecordedEvent>>> {
         let rows = sqlx::query(
             r#"
                 SELECT
@@ -776,7 +793,7 @@ where
         .await?;
 
         rows.iter()
-            .map(|row| Self::map_event_to_blockchain_event(row))
+            .map(|row| Self::map_root_recorded_event(row))
             .collect()
     }
 
@@ -785,7 +802,7 @@ where
     pub async fn get_root_recorded_before(
         self,
         event_id: WorldIdRegistryEventId,
-    ) -> DBResult<Option<BlockchainEvent<RegistryEvent>>> {
+    ) -> DBResult<Option<BlockchainEvent<RootRecordedEvent>>> {
         let row = sqlx::query(
             r#"
                 SELECT
@@ -814,7 +831,7 @@ where
         .await?;
 
         if let Some(row) = row {
-            Ok(Some(Self::map_event_to_blockchain_event(&row)?))
+            Ok(Some(Self::map_root_recorded_event(&row)?))
         } else {
             Ok(None)
         }
@@ -822,7 +839,9 @@ where
 
     /// Get block numbers that have more than one distinct block_hash, along with those hashes
     #[instrument(level = "info", skip(self))]
-    pub async fn get_reorged_block_hashes(self) -> DBResult<Vec<BlockWithConflictingHashes>> {
+    pub async fn get_blocks_with_conflicting_hashes(
+        self,
+    ) -> DBResult<Vec<BlockWithConflictingHashes>> {
         let rows = sqlx::query(
             r#"
                 SELECT block_number, block_hash
@@ -872,6 +891,18 @@ where
             event_type,
             leaf_index: row.get::<Option<i64>, _>("leaf_index").map(|i| i as u64),
             event_data: row.get::<serde_json::Value, _>("event_data"),
+        })
+    }
+
+    fn map_root_recorded_event(row: &PgRow) -> DBResult<BlockchainEvent<RootRecordedEvent>> {
+        let event = Self::map_event(row)?;
+        let details = deserialize_root_recorded(&event.event_data)?;
+        Ok(BlockchainEvent {
+            block_number: event.id.block_number,
+            block_hash: event.block_hash,
+            tx_hash: event.tx_hash,
+            log_index: event.id.log_index,
+            details,
         })
     }
 

@@ -7,8 +7,8 @@ use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
-    blockchain::{Blockchain, BlockchainError, BlockchainEvent, RegistryEvent},
-    db::{DB, IsolationLevel, PostgresDBTransaction},
+    blockchain::{Blockchain, BlockchainError, BlockchainEvent, RootRecordedEvent},
+    db::{DB, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
     error::IndexerResult,
     rollback_executor::RollbackExecutor,
 };
@@ -82,22 +82,42 @@ async fn check_blocks_reorg(db: &DB) -> IndexerResult<()> {
     let reorg_block_hashes = tx
         .world_id_registry_events()
         .await?
-        .get_reorged_block_hashes()
+        .get_blocks_with_conflicting_hashes()
         .await?;
 
-    if reorg_block_hashes.len() > 0 {
+    if !reorg_block_hashes.is_empty() {
+        let conflicting_block_number = reorg_block_hashes[0].block_number;
         tracing::warn!(
             ?reorg_block_hashes,
-            "Found reorged blocks. Will remove events back to proper block."
+            conflicting_block_number,
+            "Found reorged blocks. Rolling back to last good root before conflicting block."
         );
 
-        let block_number = reorg_block_hashes[0].block_number;
-
-        tx.world_id_registry_events()
+        // Find the last RootRecorded event strictly before the conflicting block.
+        // Use log_index=0 so the query returns any root at block < conflicting_block_number.
+        let rollback_target = tx
+            .world_id_registry_events()
             .await?
-            .delete_from_block_number_inclusively(block_number)
+            .get_root_recorded_before(WorldIdRegistryEventId {
+                block_number: conflicting_block_number,
+                log_index: 0,
+            })
+            .await?;
+
+        let Some(target) = rollback_target else {
+            return Err(BlockchainSyncCheckError::ShouldNotHappen(format!(
+                "no RootRecorded event found before conflicting block {conflicting_block_number}"
+            ))
+            .into());
+        };
+
+        let mut rollback_executor = RollbackExecutor::new(&mut tx);
+        rollback_executor
+            .rollback_to_event((target.block_number, target.log_index))
             .await?;
     }
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -140,7 +160,7 @@ async fn check_latest_root(
 async fn is_valid_root_and_block_hash(
     blockchain: &Blockchain,
     registry: &WorldIdRegistryInstance<DynProvider>,
-    event: &BlockchainEvent<RegistryEvent>,
+    event: &BlockchainEvent<RootRecordedEvent>,
 ) -> Result<bool, BlockchainSyncCheckError> {
     let Some(block_on_chain) = blockchain.get_block_by_number(event.block_number).await? else {
         tracing::warn!(
@@ -161,18 +181,7 @@ async fn is_valid_root_and_block_hash(
         return Ok(false);
     }
 
-    let root = match &event.details {
-        RegistryEvent::AccountCreated(_)
-        | RegistryEvent::AccountUpdated(_)
-        | RegistryEvent::AuthenticatorInserted(_)
-        | RegistryEvent::AuthenticatorRemoved(_)
-        | RegistryEvent::AccountRecovered(_) => {
-            return Err(BlockchainSyncCheckError::ShouldNotHappen(
-                "invalid registry event passed".to_string(),
-            ));
-        }
-        RegistryEvent::RootRecorded(root_recorded_event) => root_recorded_event.root,
-    };
+    let root = event.details.root;
 
     if !registry.isValidRoot(root).call().await? {
         tracing::warn!(
@@ -186,11 +195,11 @@ async fn is_valid_root_and_block_hash(
     Ok(true)
 }
 
-async fn handle_reorg<'a>(
-    tx: &'a mut PostgresDBTransaction<'_>,
+async fn handle_reorg(
+    tx: &mut PostgresDBTransaction<'_>,
     blockchain: &Blockchain,
     registry: &WorldIdRegistryInstance<DynProvider>,
-    latest_event: &BlockchainEvent<RegistryEvent>,
+    latest_event: &BlockchainEvent<RootRecordedEvent>,
     max_sync_backward_check_blocks: u64,
 ) -> IndexerResult<()> {
     let earliest_valid_block = latest_event.block_number - max_sync_backward_check_blocks;
@@ -212,7 +221,7 @@ async fn handle_reorg<'a>(
     let mut q = events.len() - 1;
     // Binary search for the latest valid root
     while p < q {
-        let mid = (p + q + 1) / 2; // ceiling to avoid infinite loop when q == p + 1
+        let mid = (p + q).div_ceil(2);
 
         if is_valid_root_and_block_hash(blockchain, registry, &events[mid]).await? {
             p = mid;
@@ -227,5 +236,5 @@ async fn handle_reorg<'a>(
         .rollback_to_event((events[p].block_number, events[p].log_index))
         .await?;
 
-    return Ok(());
+    Ok(())
 }

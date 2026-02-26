@@ -39,11 +39,11 @@ impl<'a> EventsCommitter<'a> {
     async fn commit_events(&mut self) -> DBResult<()> {
         tracing::info!("committing events to DB");
 
-        let mut transaction = self.db.transaction(IsolationLevel::Serializable).await?;
+        let mut tx = self.db.transaction(IsolationLevel::Serializable).await?;
 
         for event in self.buffered_events.iter() {
             // First, store the full event in world_id_registry_events with idempotency check
-            let db_event = transaction
+            let db_event = tx
                 .world_id_registry_events()
                 .await?
                 .get_event((event.block_number, event.log_index))
@@ -51,17 +51,26 @@ impl<'a> EventsCommitter<'a> {
 
             if let Some(db_event) = db_event {
                 if db_event.block_hash != event.block_hash {
-                    return Err(crate::db::DBError::ReorgDetected(format!(
-                        "Event at block {} log_index {} exists with different block_hash (db: {}, event: {})",
-                        event.block_number, event.log_index, db_event.block_hash, event.block_hash,
-                    )));
+                    return Err(crate::db::DBError::ReorgDetected {
+                        block_number: event.block_number,
+                        reason: format!(
+                            "Event at block {} log_index {} exists with different block_hash (db: {}, event: {})",
+                            event.block_number,
+                            event.log_index,
+                            db_event.block_hash,
+                            event.block_hash,
+                        ),
+                    });
                 }
 
                 if db_event.tx_hash != event.tx_hash {
-                    return Err(crate::db::DBError::ReorgDetected(format!(
-                        "Event at block {} log_index {} exists with different tx_hash (db: {}, event: {})",
-                        event.block_number, event.log_index, db_event.tx_hash, event.tx_hash,
-                    )));
+                    return Err(crate::db::DBError::ReorgDetected {
+                        block_number: event.block_number,
+                        reason: format!(
+                            "Event at block {} log_index {} exists with different tx_hash (db: {}, event: {})",
+                            event.block_number, event.log_index, db_event.tx_hash, event.tx_hash,
+                        ),
+                    });
                 }
 
                 // Event already processed with matching tx_hash - skip it (idempotent)
@@ -73,18 +82,33 @@ impl<'a> EventsCommitter<'a> {
                 continue;
             } else {
                 // Event doesn't exist - insert it
-                transaction
-                    .world_id_registry_events()
+                tx.world_id_registry_events()
                     .await?
                     .insert_event(event)
                     .await?;
             }
 
             // Apply the event to update account state
-            EventsProcessor::process_event(&mut transaction, event).await?;
+            EventsProcessor::process_event(&mut tx, event).await?;
         }
 
-        transaction.commit().await?;
+        let blocks = tx
+            .world_id_registry_events()
+            .await?
+            .get_blocks_with_conflicting_hashes()
+            .await?;
+
+        if !blocks.is_empty() {
+            return Err(crate::db::DBError::ReorgDetected {
+                block_number: blocks[0].block_number,
+                reason: format!(
+                    "After processing events detected blocks with mismatch on block hashes: {:?}",
+                    blocks,
+                ),
+            });
+        }
+
+        tx.commit().await?;
 
         self.buffered_events.clear();
 
