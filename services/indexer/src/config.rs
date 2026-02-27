@@ -380,6 +380,7 @@ mod tests {
 
         set_env("RUN_MODE", "indexer");
         set_env("START_BLOCK", "100");
+        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
         let mode = RunMode::from_env().expect("Should load RunMode from env.");
         assert!(matches!(mode, RunMode::IndexerOnly { .. }));
