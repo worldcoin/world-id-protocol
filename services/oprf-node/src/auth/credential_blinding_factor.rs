@@ -14,7 +14,9 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use uuid::Uuid;
-use world_id_primitives::oprf::{CredentialBlindingFactorOprfRequestAuthV1, OprfRequestErrorResponse};
+use world_id_primitives::oprf::{
+    CredentialBlindingFactorOprfRequestAuthV1, OprfRequestErrorResponse,
+};
 
 /// Errors returned by the [`CredentialBlindingFactorOprfRequestAuthenticator`].
 #[derive(Debug)]

@@ -141,10 +141,8 @@ impl From<taceo_oprf::client::Error> for ProofError {
                     let Round1Error::RequestError(first_resp) = first else {
                         return None;
                     };
-                    vals.all(|v| {
-                        matches!(v, Round1Error::RequestError(r) if r == first_resp)
-                    })
-                    .then_some(first_resp.clone())
+                    vals.all(|v| matches!(v, Round1Error::RequestError(r) if r == first_resp))
+                        .then_some(first_resp.clone())
                 });
 
                 match unanimous {
@@ -495,7 +493,10 @@ mod from_oprf_error_tests {
         match proof_err {
             ProofError::OprfRound1Error(map) => {
                 assert_eq!(map.len(), 2);
-                assert!(map.values().all(|r| matches!(r, Round1Error::RequestError(_))));
+                assert!(
+                    map.values()
+                        .all(|r| matches!(r, Round1Error::RequestError(_)))
+                );
             }
             other => panic!("expected OprfRound1Error, got {other:?}"),
         }
@@ -620,7 +621,10 @@ mod from_oprf_error_tests {
     fn disagreeing_request_errors_become_round1() {
         let err = not_enough_responses(vec![
             ("node1", server_error(r#"{"type":"invalid_proof"}"#)),
-            ("node2", server_error(r#"{"type":"unknown_rp","rp_id":"1"}"#)),
+            (
+                "node2",
+                server_error(r#"{"type":"unknown_rp","rp_id":"1"}"#),
+            ),
         ]);
         let proof_err = ProofError::from(err);
         assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));

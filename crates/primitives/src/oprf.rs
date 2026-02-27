@@ -208,7 +208,9 @@ mod tests {
         assert!(OprfRequestErrorResponse::from_json("not json").is_none());
         assert!(OprfRequestErrorResponse::from_json("").is_none());
         assert!(OprfRequestErrorResponse::from_json("{}").is_none());
-        assert!(OprfRequestErrorResponse::from_json(r#"{"type":"totally_unknown_code"}"#).is_none());
+        assert!(
+            OprfRequestErrorResponse::from_json(r#"{"type":"totally_unknown_code"}"#).is_none()
+        );
     }
 
     #[test]
