@@ -17,7 +17,7 @@ use rand::{CryptoRng, Rng};
 use std::{collections::HashMap, io::Read, path::Path};
 use world_id_primitives::{
     Credential, FieldElement, RequestItem, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
-    oprf::OprfAuthErrorResponse,
+    oprf::OprfRequestErrorResponse,
 };
 
 pub use groth16_material::circom::{
@@ -80,7 +80,7 @@ static CIRCUIT_FILES: std::sync::OnceLock<Result<EmbeddedCircuitFiles, String>> 
 #[derive(Debug)]
 pub enum Round1Error {
     /// Structured auth rejection parsed from the WebSocket close frame JSON.
-    AuthError(OprfAuthErrorResponse),
+    RequestError(OprfRequestErrorResponse),
     /// Anything else: connectivity, protocol mismatch, unparseable close reason, etc.
     Other(taceo_oprf::client::Error),
 }
@@ -111,6 +111,30 @@ pub enum ProofError {
     InternalError(#[from] eyre::Report),
 }
 
+impl ProofError {
+    /// If this is an `OprfRound1Error` where every node reported the same
+    /// structured auth error, returns that single consensus response.
+    ///
+    /// Returns `None` when the error is not an `OprfRound1Error`, the map is
+    /// empty, any node produced a non-auth error, or the auth errors disagree.
+    pub fn unanimous_request_error(&self) -> Option<&OprfRequestErrorResponse> {
+        let ProofError::OprfRound1Error(map) = self else {
+            return None;
+        };
+        let mut iter = map.values();
+        let Round1Error::RequestError(first) = iter.next()? else {
+            return None;
+        };
+        for entry in iter {
+            match entry {
+                Round1Error::RequestError(r) if r == first => continue,
+                _ => return None,
+            }
+        }
+        Some(first)
+    }
+}
+
 impl From<taceo_oprf::client::Error> for ProofError {
     fn from(err: taceo_oprf::client::Error) -> Self {
         match err {
@@ -121,8 +145,8 @@ impl From<taceo_oprf::client::Error> for ProofError {
                         let round1 = if let taceo_oprf::client::Error::ServerError(ref s) = node_err
                         {
                             let json = s.find(": ").map(|i| &s[i + 2..]).unwrap_or(s);
-                            match OprfAuthErrorResponse::from_json(json) {
-                                Some(resp) => Round1Error::AuthError(resp),
+                            match OprfRequestErrorResponse::from_json(json) {
+                                Some(resp) => Round1Error::RequestError(resp),
                                 None => Round1Error::Other(node_err),
                             }
                         } else {
@@ -450,7 +474,7 @@ mod from_oprf_error_tests {
     }
 
     #[test]
-    fn unanimous_server_errors_become_round1_auth_errors() {
+    fn unanimous_server_errors_become_round1_request_errors() {
         let json = r#"{"type":"invalid_proof"}"#;
         let err = not_enough_responses(vec![
             ("node1", server_error(json)),
@@ -462,7 +486,7 @@ mod from_oprf_error_tests {
                 assert_eq!(map.len(), 2);
                 assert!(map.values().all(|r| matches!(
                     r,
-                    Round1Error::AuthError(OprfAuthErrorResponse::InvalidProof)
+                    Round1Error::RequestError(OprfRequestErrorResponse::InvalidProof)
                 )));
             }
             other => panic!("expected OprfRound1Error, got {other:?}"),
@@ -470,7 +494,7 @@ mod from_oprf_error_tests {
     }
 
     #[test]
-    fn disagreeing_server_errors_become_round1_mixed_auth_errors() {
+    fn disagreeing_server_errors_become_round1_mixed_request_errors() {
         let err = not_enough_responses(vec![
             ("node1", server_error(r#"{"type":"invalid_proof"}"#)),
             (
@@ -482,7 +506,7 @@ mod from_oprf_error_tests {
         match proof_err {
             ProofError::OprfRound1Error(map) => {
                 assert_eq!(map.len(), 2);
-                assert!(map.values().all(|r| matches!(r, Round1Error::AuthError(_))));
+                assert!(map.values().all(|r| matches!(r, Round1Error::RequestError(_))));
             }
             other => panic!("expected OprfRound1Error, got {other:?}"),
         }
@@ -517,7 +541,7 @@ mod from_oprf_error_tests {
                 assert_eq!(map.len(), 3);
                 let auth_count = map
                     .values()
-                    .filter(|r| matches!(r, Round1Error::AuthError(_)))
+                    .filter(|r| matches!(r, Round1Error::RequestError(_)))
                     .count();
                 let other_count = map
                     .values()
@@ -546,13 +570,13 @@ mod from_oprf_error_tests {
             ProofError::OprfRound1Error(map) => {
                 let round1 = map.values().next().unwrap();
                 match round1 {
-                    Round1Error::AuthError(resp) => {
+                    Round1Error::RequestError(resp) => {
                         assert_eq!(
                             *resp,
-                            OprfAuthErrorResponse::UnknownRp { rp_id: "42".into() }
+                            OprfRequestErrorResponse::UnknownRp { rp_id: "42".into() }
                         );
                     }
-                    other => panic!("expected AuthError, got {other:?}"),
+                    other => panic!("expected RequestError, got {other:?}"),
                 }
             }
             other => panic!("expected OprfRound1Error, got {other:?}"),
@@ -575,6 +599,68 @@ mod from_oprf_error_tests {
         )]);
         let proof_err = ProofError::from(err);
         assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));
+    }
+
+    #[test]
+    fn unanimous_request_error_all_agree() {
+        let json = r#"{"type":"invalid_proof"}"#;
+        let err = not_enough_responses(vec![
+            ("node1", server_error(json)),
+            ("node2", server_error(json)),
+            ("node3", server_error(json)),
+        ]);
+        let proof_err = ProofError::from(err);
+        assert_eq!(
+            proof_err.unanimous_request_error(),
+            Some(&OprfRequestErrorResponse::InvalidProof),
+        );
+    }
+
+    #[test]
+    fn unanimous_request_error_single_node() {
+        let json = r#"{"type":"invalid_proof"}"#;
+        let err = not_enough_responses(vec![("node1", server_error(json))]);
+        let proof_err = ProofError::from(err);
+        assert_eq!(
+            proof_err.unanimous_request_error(),
+            Some(&OprfRequestErrorResponse::InvalidProof),
+        );
+    }
+
+    #[test]
+    fn unanimous_request_error_disagreeing_nodes() {
+        let err = not_enough_responses(vec![
+            ("node1", server_error(r#"{"type":"invalid_proof"}"#)),
+            ("node2", server_error(r#"{"type":"unknown_rp","rp_id":"1"}"#)),
+        ]);
+        let proof_err = ProofError::from(err);
+        assert!(proof_err.unanimous_request_error().is_none());
+    }
+
+    #[test]
+    fn unanimous_request_error_mixed_auth_and_other() {
+        let err = not_enough_responses(vec![
+            ("node1", server_error(r#"{"type":"invalid_proof"}"#)),
+            ("node2", server_error("not json")),
+        ]);
+        let proof_err = ProofError::from(err);
+        assert!(proof_err.unanimous_request_error().is_none());
+    }
+
+    #[test]
+    fn unanimous_request_error_all_other() {
+        let err = not_enough_responses(vec![
+            ("node1", server_error("not json")),
+            ("node2", server_error("also not json")),
+        ]);
+        let proof_err = ProofError::from(err);
+        assert!(proof_err.unanimous_request_error().is_none());
+    }
+
+    #[test]
+    fn unanimous_request_error_non_round1_variant() {
+        let proof_err = ProofError::OprfInvariantError(taceo_oprf::client::Error::InvalidDLogProof);
+        assert!(proof_err.unanimous_request_error().is_none());
     }
 }
 

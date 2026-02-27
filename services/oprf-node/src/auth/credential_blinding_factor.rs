@@ -14,7 +14,7 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use uuid::Uuid;
-use world_id_primitives::oprf::{CredentialBlindingFactorOprfRequestAuthV1, OprfAuthErrorResponse};
+use world_id_primitives::oprf::{CredentialBlindingFactorOprfRequestAuthV1, OprfRequestErrorResponse};
 
 /// Errors returned by the [`CredentialBlindingFactorOprfRequestAuthenticator`].
 #[derive(Debug)]
@@ -52,22 +52,22 @@ impl CredentialBlindingFactorOprfRequestAuthError {
     ///
     /// Internal details (e.g. alloy RPC errors, eyre chains) are
     /// intentionally dropped — only a client-safe error code survives.
-    pub(crate) fn to_oprf_response(&self) -> OprfAuthErrorResponse {
+    pub(crate) fn to_oprf_response(&self) -> OprfRequestErrorResponse {
         match self {
             Self::SchemaIssuerRegistryWatcherError(
                 SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(id),
-            ) => OprfAuthErrorResponse::UnknownSchemaIssuer {
+            ) => OprfRequestErrorResponse::UnknownSchemaIssuer {
                 issuer_schema_id: format!("{id}"),
             },
             Self::SchemaIssuerRegistryWatcherError(
                 SchemaIssuerRegistryWatcherError::AlloyError(_),
-            ) => OprfAuthErrorResponse::ServiceUnavailable,
-            Self::InvalidAction => OprfAuthErrorResponse::InvalidAction,
+            ) => OprfRequestErrorResponse::ServiceUnavailable,
+            Self::InvalidAction => OprfRequestErrorResponse::InvalidAction,
             Self::Common(err) => err.to_oprf_response(),
             Self::InternalServerError(_) => {
                 let error_id = Uuid::new_v4();
                 tracing::error!("{error_id} - {:?}", self);
-                OprfAuthErrorResponse::InternalServerError {
+                OprfRequestErrorResponse::InternalServerError {
                     error_id: error_id.to_string(),
                 }
             }
@@ -77,7 +77,7 @@ impl CredentialBlindingFactorOprfRequestAuthError {
 
 /// `taceo-oprf-service` calls `.to_string()` on auth errors to build the
 /// WebSocket close frame reason, so `Display` must emit the structured JSON
-/// that clients parse back into [`OprfAuthErrorResponse`].
+/// that clients parse back into [`OprfRequestErrorResponse`].
 impl std::fmt::Display for CredentialBlindingFactorOprfRequestAuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.to_oprf_response().to_json())
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn credential_auth_error_display_is_valid_json_within_budget() {
-        use world_id_primitives::oprf::{MAX_CLOSE_REASON_BYTES, OprfAuthErrorResponse};
+        use world_id_primitives::oprf::{MAX_CLOSE_REASON_BYTES, OprfRequestErrorResponse};
 
         let errors: Vec<CredentialBlindingFactorOprfRequestAuthError> = vec![
             CredentialBlindingFactorOprfRequestAuthError::InvalidAction,
@@ -456,7 +456,7 @@ mod tests {
 
         for err in errors {
             let display = format!("{err}");
-            let parsed: OprfAuthErrorResponse =
+            let parsed: OprfRequestErrorResponse =
                 serde_json::from_str(&display).unwrap_or_else(|e| {
                     panic!("Display for {err:?} is not valid JSON: {display} ({e})")
                 });

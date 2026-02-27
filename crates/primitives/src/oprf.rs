@@ -22,7 +22,7 @@ pub const MAX_CLOSE_REASON_BYTES: usize = 123;
 /// - `{"type":"internal_server_error","error_id":"<uuid>"}`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum OprfAuthErrorResponse {
+pub enum OprfRequestErrorResponse {
     /// The zero-knowledge proof failed verification.
     InvalidProof,
     /// The provided Merkle root is not valid.
@@ -61,19 +61,19 @@ pub enum OprfAuthErrorResponse {
     },
 }
 
-impl OprfAuthErrorResponse {
+impl OprfRequestErrorResponse {
     /// Serializes this response to a JSON string.
     pub fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("OprfAuthErrorResponse is always serializable")
+        serde_json::to_string(self).expect("OprfRequestErrorResponse is always serializable")
     }
 
-    /// Attempts to deserialize an `OprfAuthErrorResponse` from a JSON string.
+    /// Attempts to deserialize an `OprfRequestErrorResponse` from a JSON string.
     pub fn from_json(s: &str) -> Option<Self> {
         serde_json::from_str(s).ok()
     }
 }
 
-impl fmt::Display for OprfAuthErrorResponse {
+impl fmt::Display for OprfRequestErrorResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidSignature { detail } => write!(f, "invalid_signature: {detail}"),
@@ -165,63 +165,63 @@ mod tests {
     #[test]
     fn serde_roundtrip_all_variants() {
         let variants = [
-            OprfAuthErrorResponse::InvalidProof,
-            OprfAuthErrorResponse::InvalidMerkleRoot,
-            OprfAuthErrorResponse::TimestampTooLarge,
-            OprfAuthErrorResponse::InvalidSignature {
+            OprfRequestErrorResponse::InvalidProof,
+            OprfRequestErrorResponse::InvalidMerkleRoot,
+            OprfRequestErrorResponse::TimestampTooLarge,
+            OprfRequestErrorResponse::InvalidSignature {
                 detail: "invalid parity: 5".into(),
             },
-            OprfAuthErrorResponse::InvalidSigner,
-            OprfAuthErrorResponse::DuplicateSignature,
-            OprfAuthErrorResponse::UnknownRp { rp_id: "42".into() },
-            OprfAuthErrorResponse::RpInactive,
-            OprfAuthErrorResponse::InvalidAction,
-            OprfAuthErrorResponse::UnknownSchemaIssuer {
+            OprfRequestErrorResponse::InvalidSigner,
+            OprfRequestErrorResponse::DuplicateSignature,
+            OprfRequestErrorResponse::UnknownRp { rp_id: "42".into() },
+            OprfRequestErrorResponse::RpInactive,
+            OprfRequestErrorResponse::InvalidAction,
+            OprfRequestErrorResponse::UnknownSchemaIssuer {
                 issuer_schema_id: "99".into(),
             },
-            OprfAuthErrorResponse::ServiceUnavailable,
-            OprfAuthErrorResponse::InternalServerError {
+            OprfRequestErrorResponse::ServiceUnavailable,
+            OprfRequestErrorResponse::InternalServerError {
                 error_id: "00000000-0000-0000-0000-000000000000".into(),
             },
         ];
         for variant in &variants {
             let json = variant.to_json();
-            let parsed = OprfAuthErrorResponse::from_json(&json).unwrap();
+            let parsed = OprfRequestErrorResponse::from_json(&json).unwrap();
             assert_eq!(&parsed, variant, "roundtrip failed for {json}");
         }
     }
 
     #[test]
     fn unit_variant_wire_format() {
-        let resp = OprfAuthErrorResponse::InvalidProof;
+        let resp = OprfRequestErrorResponse::InvalidProof;
         assert_eq!(resp.to_json(), r#"{"type":"invalid_proof"}"#);
     }
 
     #[test]
     fn data_variant_wire_format() {
-        let resp = OprfAuthErrorResponse::UnknownRp { rp_id: "42".into() };
+        let resp = OprfRequestErrorResponse::UnknownRp { rp_id: "42".into() };
         assert_eq!(resp.to_json(), r#"{"type":"unknown_rp","rp_id":"42"}"#);
     }
 
     #[test]
     fn from_json_invalid_input() {
-        assert!(OprfAuthErrorResponse::from_json("not json").is_none());
-        assert!(OprfAuthErrorResponse::from_json("").is_none());
-        assert!(OprfAuthErrorResponse::from_json("{}").is_none());
-        assert!(OprfAuthErrorResponse::from_json(r#"{"type":"totally_unknown_code"}"#).is_none());
+        assert!(OprfRequestErrorResponse::from_json("not json").is_none());
+        assert!(OprfRequestErrorResponse::from_json("").is_none());
+        assert!(OprfRequestErrorResponse::from_json("{}").is_none());
+        assert!(OprfRequestErrorResponse::from_json(r#"{"type":"totally_unknown_code"}"#).is_none());
     }
 
     #[test]
     fn all_unit_responses_fit_close_frame() {
         let variants = [
-            OprfAuthErrorResponse::InvalidProof,
-            OprfAuthErrorResponse::InvalidMerkleRoot,
-            OprfAuthErrorResponse::TimestampTooLarge,
-            OprfAuthErrorResponse::InvalidSigner,
-            OprfAuthErrorResponse::DuplicateSignature,
-            OprfAuthErrorResponse::RpInactive,
-            OprfAuthErrorResponse::InvalidAction,
-            OprfAuthErrorResponse::ServiceUnavailable,
+            OprfRequestErrorResponse::InvalidProof,
+            OprfRequestErrorResponse::InvalidMerkleRoot,
+            OprfRequestErrorResponse::TimestampTooLarge,
+            OprfRequestErrorResponse::InvalidSigner,
+            OprfRequestErrorResponse::DuplicateSignature,
+            OprfRequestErrorResponse::RpInactive,
+            OprfRequestErrorResponse::InvalidAction,
+            OprfRequestErrorResponse::ServiceUnavailable,
         ];
         for variant in &variants {
             let json = variant.to_json();
@@ -236,17 +236,26 @@ mod tests {
     #[test]
     fn worst_case_responses_fit_close_frame() {
         let cases = [
-            OprfAuthErrorResponse::UnknownRp {
+            OprfRequestErrorResponse::UnknownRp {
                 rp_id: u64::MAX.to_string(),
             },
-            OprfAuthErrorResponse::UnknownSchemaIssuer {
+            OprfRequestErrorResponse::UnknownSchemaIssuer {
                 issuer_schema_id: u64::MAX.to_string(),
             },
-            OprfAuthErrorResponse::InvalidSignature {
-                detail: "x".repeat(40),
+            // `alloy_primitives::SignatureError::InvalidParity(u64::MAX)`
+            OprfRequestErrorResponse::InvalidSignature {
+                detail: format!("invalid parity: {}", u64::MAX),
             },
-            OprfAuthErrorResponse::InternalServerError {
-                error_id: "00000000-0000-0000-0000-000000000000".into(),
+            // `hex::FromHexError::InvalidHexCharacter` at the last position
+            // of a 65-byte signature (130 hex chars)
+            OprfRequestErrorResponse::InvalidSignature {
+                detail: format!(
+                    "{}",
+                    hex::FromHexError::InvalidHexCharacter { c: 'g', index: 129 }
+                ),
+            },
+            OprfRequestErrorResponse::InternalServerError {
+                error_id: uuid::Uuid::max().to_string(),
             },
         ];
         for resp in &cases {

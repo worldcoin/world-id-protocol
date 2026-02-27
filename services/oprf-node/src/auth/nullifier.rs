@@ -15,7 +15,7 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use uuid::Uuid;
-use world_id_primitives::oprf::{NullifierOprfRequestAuthV1, OprfAuthErrorResponse};
+use world_id_primitives::oprf::{NullifierOprfRequestAuthV1, OprfRequestErrorResponse};
 
 /// Errors returned by the [`NullifierOprfRequestAuthenticator`].
 #[derive(Debug)]
@@ -71,37 +71,37 @@ impl NullifierOprfRequestAuthError {
     ///
     /// Internal details (e.g. alloy RPC errors, eyre chains) are
     /// intentionally dropped — only a client-safe error code survives.
-    pub(crate) fn to_oprf_response(&self) -> OprfAuthErrorResponse {
+    pub(crate) fn to_oprf_response(&self) -> OprfRequestErrorResponse {
         match self {
             Self::RpRegistryWatcherError(RpRegistryWatcherError::UnknownRp(id)) => {
-                OprfAuthErrorResponse::UnknownRp {
+                OprfRequestErrorResponse::UnknownRp {
                     rp_id: format!("{id}"),
                 }
             }
             Self::RpRegistryWatcherError(RpRegistryWatcherError::AlloyError(e)) => {
                 match e.as_decoded_interface_error::<RpRegistryErrors>() {
                     Some(RpRegistryErrors::RpIdDoesNotExist(RpIdDoesNotExist { .. })) => {
-                        OprfAuthErrorResponse::UnknownRp {
+                        OprfRequestErrorResponse::UnknownRp {
                             rp_id: String::new(),
                         }
                     }
                     Some(RpRegistryErrors::RpIdInactive(RpIdInactive { .. })) => {
-                        OprfAuthErrorResponse::RpInactive
+                        OprfRequestErrorResponse::RpInactive
                     }
-                    _ => OprfAuthErrorResponse::ServiceUnavailable,
+                    _ => OprfRequestErrorResponse::ServiceUnavailable,
                 }
             }
-            Self::TimeStampDifference => OprfAuthErrorResponse::TimestampTooLarge,
-            Self::InvalidSignature(err) => OprfAuthErrorResponse::InvalidSignature {
+            Self::TimeStampDifference => OprfRequestErrorResponse::TimestampTooLarge,
+            Self::InvalidSignature(err) => OprfRequestErrorResponse::InvalidSignature {
                 detail: err.to_string(),
             },
-            Self::InvalidSigner => OprfAuthErrorResponse::InvalidSigner,
-            Self::DuplicateSignatureError(_) => OprfAuthErrorResponse::DuplicateSignature,
+            Self::InvalidSigner => OprfRequestErrorResponse::InvalidSigner,
+            Self::DuplicateSignatureError(_) => OprfRequestErrorResponse::DuplicateSignature,
             Self::Common(err) => err.to_oprf_response(),
             Self::InternalServerError(_) => {
                 let error_id = Uuid::new_v4();
                 tracing::error!("{error_id} - {:?}", self);
-                OprfAuthErrorResponse::InternalServerError {
+                OprfRequestErrorResponse::InternalServerError {
                     error_id: error_id.to_string(),
                 }
             }
@@ -111,7 +111,7 @@ impl NullifierOprfRequestAuthError {
 
 /// `taceo-oprf-service` calls `.to_string()` on auth errors to build the
 /// WebSocket close frame reason, so `Display` must emit the structured JSON
-/// that clients parse back into [`OprfAuthErrorResponse`].
+/// that clients parse back into [`OprfRequestErrorResponse`].
 impl std::fmt::Display for NullifierOprfRequestAuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.to_oprf_response().to_json())
@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn nullifier_auth_error_display_is_valid_json_within_budget() {
         use world_id_primitives::{
-            oprf::{MAX_CLOSE_REASON_BYTES, OprfAuthErrorResponse},
+            oprf::{MAX_CLOSE_REASON_BYTES, OprfRequestErrorResponse},
             rp::RpId,
         };
 
@@ -567,7 +567,7 @@ mod tests {
 
         for err in errors {
             let display = format!("{err}");
-            let parsed: OprfAuthErrorResponse =
+            let parsed: OprfRequestErrorResponse =
                 serde_json::from_str(&display).unwrap_or_else(|e| {
                     panic!("Display for {err:?} is not valid JSON: {display} ({e})")
                 });
