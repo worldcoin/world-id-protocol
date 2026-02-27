@@ -77,6 +77,9 @@ impl<'a> EventsCommitter<'a> {
                 .expect("just pushed")
                 .block_number;
             self.commit_events(&root_recorded, block_number).await?;
+            if let Some(tree) = &self.versioned_tree {
+                tree.prune(block_number).await;
+            }
             return Ok(true);
         }
 
