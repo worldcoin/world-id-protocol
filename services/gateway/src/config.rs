@@ -7,7 +7,6 @@ use world_id_services_common::ProviderArgs;
 use crate::error::{GatewayError, GatewayResult};
 
 pub mod defaults {
-    pub const BATCH_MS: u64 = 1000;
     pub const MAX_CREATE_BATCH_SIZE: usize = 100;
     pub const MAX_OPS_BATCH_SIZE: usize = 10;
     pub const REQUEST_TIMEOUT_SECS: u64 = 10;
@@ -20,7 +19,6 @@ pub mod defaults {
 /// Batching configuration for transaction submission.
 #[derive(Clone, Debug)]
 pub struct BatcherConfig {
-    pub batch_ms: u64,
     pub max_create_batch_size: usize,
     pub max_ops_batch_size: usize,
 }
@@ -28,7 +26,6 @@ pub struct BatcherConfig {
 impl Default for BatcherConfig {
     fn default() -> Self {
         Self {
-            batch_ms: defaults::BATCH_MS,
             max_create_batch_size: defaults::MAX_CREATE_BATCH_SIZE,
             max_ops_batch_size: defaults::MAX_OPS_BATCH_SIZE,
         }
@@ -246,7 +243,6 @@ impl GatewayConfig {
 
     pub fn batcher(&self) -> BatcherConfig {
         BatcherConfig {
-            batch_ms: self.batch_policy.reeval_ms,
             max_create_batch_size: self.max_create_batch_size,
             max_ops_batch_size: self.max_ops_batch_size,
         }
