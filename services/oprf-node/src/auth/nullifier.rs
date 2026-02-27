@@ -1,6 +1,9 @@
 use crate::auth::{
     merkle_watcher::MerkleWatcher,
-    rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+    rp_registry_watcher::{
+        RpRegistry::{RpIdDoesNotExist, RpIdInactive, RpRegistryErrors},
+        RpRegistryWatcher, RpRegistryWatcherError,
+    },
     signature_history::{DuplicateSignatureError, SignatureHistory},
 };
 use async_trait::async_trait;
@@ -12,32 +15,120 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use uuid::Uuid;
-use world_id_primitives::oprf::NullifierOprfRequestAuthV1;
+use world_id_primitives::oprf::{NullifierOprfRequestAuthV1, OprfAuthErrorResponse};
 
-/// Errors returned by the [`NullifierOprfReqAuthenticator`].
-#[derive(Debug, thiserror::Error)]
+/// Errors returned by the [`NullifierOprfRequestAuthenticator`].
+#[derive(Debug)]
 pub(crate) enum NullifierOprfRequestAuthError {
-    /// An error returned from the RpRegistry watcher service during merkle look-up.
-    #[error(transparent)]
-    RpRegistryWatcherError(#[from] RpRegistryWatcherError),
+    /// An error returned from the RpRegistry watcher service.
+    RpRegistryWatcherError(RpRegistryWatcherError),
     /// The current time stamp difference between client and service is larger than allowed.
-    #[error("the time stamp difference is too large")]
     TimeStampDifference,
-    /// A nonce signature was uses more than once
-    #[error(transparent)]
-    DuplicateSignatureError(#[from] DuplicateSignatureError),
-    /// The signature over the nonce and time stamp is invalid
-    #[error(transparent)]
-    InvalidSignature(#[from] alloy::primitives::SignatureError),
-    /// Rp signature signer is invalid
-    #[error("the rp signer is not the same as in the signature")]
+    /// A nonce signature was used more than once.
+    DuplicateSignatureError(DuplicateSignatureError),
+    /// The signature over the nonce and time stamp is invalid.
+    InvalidSignature(alloy::primitives::SignatureError),
+    /// RP signature signer is invalid.
     InvalidSigner,
-    /// Common OPRF request auth error
-    #[error(transparent)]
-    Common(#[from] crate::auth::OprfRequestAuthError),
-    /// Internal server error
-    #[error(transparent)]
-    InternalServerError(#[from] eyre::Report),
+    /// Common OPRF request auth error.
+    Common(crate::auth::OprfRequestAuthError),
+    /// Internal server error.
+    InternalServerError(eyre::Report),
+}
+
+impl From<RpRegistryWatcherError> for NullifierOprfRequestAuthError {
+    fn from(err: RpRegistryWatcherError) -> Self {
+        Self::RpRegistryWatcherError(err)
+    }
+}
+
+impl From<DuplicateSignatureError> for NullifierOprfRequestAuthError {
+    fn from(err: DuplicateSignatureError) -> Self {
+        Self::DuplicateSignatureError(err)
+    }
+}
+
+impl From<alloy::primitives::SignatureError> for NullifierOprfRequestAuthError {
+    fn from(err: alloy::primitives::SignatureError) -> Self {
+        Self::InvalidSignature(err)
+    }
+}
+
+impl From<crate::auth::OprfRequestAuthError> for NullifierOprfRequestAuthError {
+    fn from(err: crate::auth::OprfRequestAuthError) -> Self {
+        Self::Common(err)
+    }
+}
+
+impl From<eyre::Report> for NullifierOprfRequestAuthError {
+    fn from(err: eyre::Report) -> Self {
+        Self::InternalServerError(err)
+    }
+}
+
+impl NullifierOprfRequestAuthError {
+    /// Lossy conversion to the compact wire-format error response.
+    ///
+    /// Internal details (e.g. alloy RPC errors, eyre chains) are
+    /// intentionally dropped — only a client-safe error code survives.
+    pub(crate) fn to_oprf_response(&self) -> OprfAuthErrorResponse {
+        match self {
+            Self::RpRegistryWatcherError(RpRegistryWatcherError::UnknownRp(id)) => {
+                OprfAuthErrorResponse::UnknownRp {
+                    rp_id: format!("{id}"),
+                }
+            }
+            Self::RpRegistryWatcherError(RpRegistryWatcherError::AlloyError(e)) => {
+                match e.as_decoded_interface_error::<RpRegistryErrors>() {
+                    Some(RpRegistryErrors::RpIdDoesNotExist(RpIdDoesNotExist { .. })) => {
+                        OprfAuthErrorResponse::UnknownRp {
+                            rp_id: String::new(),
+                        }
+                    }
+                    Some(RpRegistryErrors::RpIdInactive(RpIdInactive { .. })) => {
+                        OprfAuthErrorResponse::RpInactive
+                    }
+                    _ => OprfAuthErrorResponse::ServiceUnavailable,
+                }
+            }
+            Self::TimeStampDifference => OprfAuthErrorResponse::TimestampTooLarge,
+            Self::InvalidSignature(err) => OprfAuthErrorResponse::InvalidSignature {
+                detail: err.to_string(),
+            },
+            Self::InvalidSigner => OprfAuthErrorResponse::InvalidSigner,
+            Self::DuplicateSignatureError(_) => OprfAuthErrorResponse::DuplicateSignature,
+            Self::Common(err) => err.to_oprf_response(),
+            Self::InternalServerError(_) => {
+                let error_id = Uuid::new_v4();
+                tracing::error!("{error_id} - {:?}", self);
+                OprfAuthErrorResponse::InternalServerError {
+                    error_id: error_id.to_string(),
+                }
+            }
+        }
+    }
+}
+
+/// `taceo-oprf-service` calls `.to_string()` on auth errors to build the
+/// WebSocket close frame reason, so `Display` must emit the structured JSON
+/// that clients parse back into [`OprfAuthErrorResponse`].
+impl std::fmt::Display for NullifierOprfRequestAuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.to_oprf_response().to_json())
+    }
+}
+
+impl std::error::Error for NullifierOprfRequestAuthError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RpRegistryWatcherError(e) => Some(e),
+            Self::DuplicateSignatureError(e) => Some(e),
+            Self::InvalidSignature(e) => Some(e),
+            Self::Common(e) => Some(e),
+            Self::InternalServerError(e) => Some(e.as_ref()),
+            _ => None,
+        }
+    }
 }
 
 impl IntoResponse for NullifierOprfRequestAuthError {
@@ -448,5 +539,41 @@ mod tests {
             ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().unwrap(), RpRegistryErrors::RpIdInactive(RpIdInactive))
         ));
         Ok(())
+    }
+
+    #[test]
+    fn nullifier_auth_error_display_is_valid_json_within_budget() {
+        use world_id_primitives::oprf::{MAX_CLOSE_REASON_BYTES, OprfAuthErrorResponse};
+        use world_id_primitives::rp::RpId;
+
+        let errors: Vec<NullifierOprfRequestAuthError> = vec![
+            NullifierOprfRequestAuthError::TimeStampDifference,
+            NullifierOprfRequestAuthError::InvalidSigner,
+            NullifierOprfRequestAuthError::DuplicateSignatureError(DuplicateSignatureError),
+            NullifierOprfRequestAuthError::RpRegistryWatcherError(
+                RpRegistryWatcherError::UnknownRp(RpId::from(u64::MAX)),
+            ),
+            NullifierOprfRequestAuthError::RpRegistryWatcherError(
+                RpRegistryWatcherError::AlloyError(alloy::contract::Error::UnknownFunction(
+                    "test".to_string(),
+                )),
+            ),
+            NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidProof),
+            NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidMerkleRoot),
+            NullifierOprfRequestAuthError::InternalServerError(eyre::eyre!("something broke")),
+        ];
+
+        for err in errors {
+            let display = format!("{err}");
+            let parsed: OprfAuthErrorResponse =
+                serde_json::from_str(&display).unwrap_or_else(|e| {
+                    panic!("Display for {err:?} is not valid JSON: {display} ({e})")
+                });
+            assert!(
+                display.len() <= MAX_CLOSE_REASON_BYTES,
+                "{parsed:?} Display is {} bytes, exceeds {MAX_CLOSE_REASON_BYTES}: {display}",
+                display.len()
+            );
+        }
     }
 }

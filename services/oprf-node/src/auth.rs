@@ -18,6 +18,7 @@ use axum::{http::StatusCode, response::IntoResponse};
 use circom_types::groth16::VerificationKey;
 use taceo_oprf::types::OprfKeyId;
 use world_id_primitives::TREE_DEPTH;
+use world_id_primitives::oprf::OprfAuthErrorResponse;
 
 use crate::auth::merkle_watcher::{MerkleWatcher, MerkleWatcherError};
 
@@ -31,18 +32,53 @@ pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
 pub(crate) mod signature_history;
 
-/// Common errors returned by the [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
-#[derive(Debug, thiserror::Error)]
+/// Common errors returned by the shared [`OprfRequestAuthenticator::verify`] method.
+#[derive(Debug)]
 pub(crate) enum OprfRequestAuthError {
     /// The client Groth16 proof did not verify.
-    #[error("client proof did not verify")]
     InvalidProof,
-    /// The provided merkle root is not valid
-    #[error("invalid merkle root")]
+    /// The provided merkle root is not valid.
     InvalidMerkleRoot,
     /// An error returned from the merkle watcher service during merkle look-up.
-    #[error(transparent)]
-    MerkleWatcherError(#[from] MerkleWatcherError),
+    MerkleWatcherError(MerkleWatcherError),
+}
+
+impl OprfRequestAuthError {
+    /// Lossy conversion to the compact wire-format error response.
+    ///
+    /// Internal details (e.g. the underlying [`MerkleWatcherError`]) are
+    /// intentionally dropped — only a client-safe error code survives.
+    pub(crate) fn to_oprf_response(&self) -> OprfAuthErrorResponse {
+        match self {
+            Self::InvalidProof => OprfAuthErrorResponse::InvalidProof,
+            Self::InvalidMerkleRoot => OprfAuthErrorResponse::InvalidMerkleRoot,
+            Self::MerkleWatcherError(_) => OprfAuthErrorResponse::ServiceUnavailable,
+        }
+    }
+}
+
+impl From<MerkleWatcherError> for OprfRequestAuthError {
+    fn from(err: MerkleWatcherError) -> Self {
+        Self::MerkleWatcherError(err)
+    }
+}
+
+/// `taceo-oprf-service` calls `.to_string()` on auth errors to build the
+/// WebSocket close frame reason, so `Display` must emit the structured JSON
+/// that clients parse back into [`OprfAuthErrorResponse`].
+impl std::fmt::Display for OprfRequestAuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.to_oprf_response().to_json())
+    }
+}
+
+impl std::error::Error for OprfRequestAuthError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MerkleWatcherError(e) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 impl IntoResponse for OprfRequestAuthError {
@@ -94,7 +130,7 @@ impl OprfRequestAuthenticator {
             .await?;
         if !valid {
             tracing::trace!("merkle root INVALID");
-            return Err(OprfRequestAuthError::InvalidMerkleRoot)?;
+            return Err(OprfRequestAuthError::InvalidMerkleRoot);
         }
 
         tracing::trace!("verifying user proof...");
@@ -241,6 +277,30 @@ mod tests {
                 key_set,
                 signer,
             })
+        }
+    }
+
+    #[test]
+    fn common_auth_error_display_is_valid_json_within_budget() {
+        use super::OprfRequestAuthError;
+        use world_id_primitives::oprf::{MAX_CLOSE_REASON_BYTES, OprfAuthErrorResponse};
+
+        let errors: Vec<OprfRequestAuthError> = vec![
+            OprfRequestAuthError::InvalidProof,
+            OprfRequestAuthError::InvalidMerkleRoot,
+        ];
+
+        for err in errors {
+            let display = format!("{err}");
+            let parsed: OprfAuthErrorResponse =
+                serde_json::from_str(&display).unwrap_or_else(|e| {
+                    panic!("Display for {err:?} is not valid JSON: {display} ({e})")
+                });
+            assert!(
+                display.len() <= MAX_CLOSE_REASON_BYTES,
+                "{parsed:?} Display is {} bytes, exceeds {MAX_CLOSE_REASON_BYTES}: {display}",
+                display.len()
+            );
         }
     }
 }
