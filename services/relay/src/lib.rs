@@ -1,8 +1,10 @@
-mod bindings;
+pub mod bindings;
 mod cli;
-mod primitives;
+pub mod engine;
+pub mod primitives;
 pub mod proof;
-mod relay;
+pub mod propagate;
+pub mod relay;
+pub mod satellite;
+pub mod source_reader;
 pub mod stream;
-mod traits;
-mod engine;

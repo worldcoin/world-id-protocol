@@ -1,4 +1,4 @@
-use alloy_primitives::{B256, Bytes};
+use alloy_primitives::{Bytes, B256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct KeccakChain {
@@ -9,7 +9,7 @@ pub struct KeccakChain {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Commitment {
     pub block_hash: B256,
-    pub data: Bytes
+    pub data: Bytes,
 }
 
 impl KeccakChain {
@@ -20,7 +20,14 @@ impl KeccakChain {
     /// Updates the chain head by applying the given commitments in order.
     pub fn commit_chained(&mut self, commitments: &[Commitment]) {
         for commitment in commitments {
-            self.head = alloy_primitives::keccak256([self.head, commitment.block_hash, commitment.data.as_ref()]);
+            self.head = alloy_primitives::keccak256(
+                [
+                    self.head.as_slice(),
+                    commitment.block_hash.as_slice(),
+                    commitment.data.as_ref(),
+                ]
+                .concat(),
+            );
             self.length += 1;
         }
     }
@@ -29,7 +36,14 @@ impl KeccakChain {
     pub fn hash_chained(&self, commitments: &[Commitment]) -> B256 {
         let mut hash = self.head;
         for commitment in commitments {
-            hash = alloy_primitives::keccak256([hash, commitment.block_hash, commitment.data.as_ref()]);
+            hash = alloy_primitives::keccak256(
+                [
+                    hash.as_slice(),
+                    commitment.block_hash.as_slice(),
+                    commitment.data.as_ref(),
+                ]
+                .concat(),
+            );
         }
         hash
     }
