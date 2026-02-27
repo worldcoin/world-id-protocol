@@ -3,8 +3,8 @@ use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
-    db::{DB, DBResult, IsolationLevel},
-    error::IndexerResult,
+    db::{DB, IsolationLevel},
+    error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
     tree::{VersionedTreeState, apply_event_to_tree},
 };
@@ -79,17 +79,16 @@ impl<'a> EventsCommitter<'a> {
                 .isValidRoot(root)
                 .call()
                 .await
-                .map_err(|e| crate::db::DBError::ContractCall(e.to_string()))?;
+                .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
 
             if !valid {
-                return Err(crate::db::DBError::ReorgDetected {
+                return Err(IndexerError::ReorgDetected {
                     block_number,
                     reason: format!(
                         "root 0x{:x} from block {} is not valid on-chain",
                         root, block_number
                     ),
-                }
-                .into());
+                });
             }
 
             tracing::info!(
@@ -104,7 +103,7 @@ impl<'a> EventsCommitter<'a> {
         Ok(())
     }
 
-    async fn commit_to_db(&mut self) -> DBResult<()> {
+    async fn commit_to_db(&mut self) -> IndexerResult<()> {
         let mut tx = self.db.transaction(IsolationLevel::Serializable).await?;
 
         for event in self.buffered_events.iter() {
@@ -116,7 +115,7 @@ impl<'a> EventsCommitter<'a> {
 
             if let Some(db_event) = db_event {
                 if db_event.block_hash != event.block_hash {
-                    return Err(crate::db::DBError::ReorgDetected {
+                    return Err(IndexerError::ReorgDetected {
                         block_number: event.block_number,
                         reason: format!(
                             "Event at block {} log_index {} exists with different block_hash (db: {}, event: {})",
@@ -129,7 +128,7 @@ impl<'a> EventsCommitter<'a> {
                 }
 
                 if db_event.tx_hash != event.tx_hash {
-                    return Err(crate::db::DBError::ReorgDetected {
+                    return Err(IndexerError::ReorgDetected {
                         block_number: event.block_number,
                         reason: format!(
                             "Event at block {} log_index {} exists with different tx_hash (db: {}, event: {})",
@@ -161,7 +160,7 @@ impl<'a> EventsCommitter<'a> {
             .await?;
 
         if !blocks.is_empty() {
-            return Err(crate::db::DBError::ReorgDetected {
+            return Err(IndexerError::ReorgDetected {
                 block_number: blocks[0].block_number,
                 reason: format!(
                     "After processing events detected blocks with mismatch on block hashes: {:?}",
