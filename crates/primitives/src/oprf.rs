@@ -2,8 +2,96 @@ use ark_bn254::Bn254;
 use ark_serde_compat::babyjubjub;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::rp::RpId;
+
+/// Maximum size of a WebSocket close frame reason in bytes (RFC 6455).
+pub const MAX_CLOSE_REASON_BYTES: usize = 123;
+
+/// Structured OPRF authentication error, serialized as JSON inside WebSocket
+/// close frame reason fields.
+///
+/// Each variant maps to a `"code"` tag in the JSON representation. Variants
+/// that carry client-safe detail include typed fields rather than a generic
+/// message string.
+///
+/// # Wire format examples
+///
+/// - `{"code":"invalid_proof"}`
+/// - `{"code":"unknown_rp","rp_id":"42"}`
+/// - `{"code":"internal_server_error","error_id":"<uuid>"}`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum OprfAuthErrorResponse {
+    /// The zero-knowledge proof failed verification.
+    InvalidProof,
+    /// The provided Merkle root is not valid.
+    InvalidMerkleRoot,
+    /// The request timestamp is too far from the current time.
+    TimestampTooLarge,
+    /// The RP signature on the request could not be recovered.
+    InvalidSignature {
+        /// Human-readable description of the signature failure.
+        detail: String,
+    },
+    /// The recovered signer is not an authorized signer for this RP.
+    InvalidSigner,
+    /// The same signature was already used in a previous request.
+    DuplicateSignature,
+    /// The specified RP ID does not exist in the registry.
+    UnknownRp {
+        /// The RP ID that was not found.
+        rp_id: String,
+    },
+    /// The RP exists but has been deactivated.
+    RpInactive,
+    /// The provided action value is not valid.
+    InvalidAction,
+    /// The specified schema issuer ID does not exist in the registry.
+    UnknownSchemaIssuer {
+        /// The schema issuer ID that was not found.
+        issuer_schema_id: String,
+    },
+    /// A backend dependency (blockchain RPC, cache) is temporarily unavailable.
+    ServiceUnavailable,
+    /// An unexpected internal error occurred. Check server logs using the correlation ID.
+    InternalServerError {
+        /// Correlation UUID for looking up details in server logs.
+        error_id: String,
+    },
+}
+
+impl OprfAuthErrorResponse {
+    /// Serializes this response to a JSON string.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("OprfAuthErrorResponse is always serializable")
+    }
+
+    /// Attempts to deserialize an `OprfAuthErrorResponse` from a JSON string.
+    pub fn from_json(s: &str) -> Option<Self> {
+        serde_json::from_str(s).ok()
+    }
+}
+
+impl fmt::Display for OprfAuthErrorResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidSignature { detail } => write!(f, "invalid_signature: {detail}"),
+            Self::UnknownRp { rp_id } => write!(f, "unknown_rp: {rp_id}"),
+            Self::UnknownSchemaIssuer { issuer_schema_id } => {
+                write!(f, "unknown_schema_issuer: {issuer_schema_id}")
+            }
+            Self::InternalServerError { error_id } => {
+                write!(f, "internal_server_error: {error_id}")
+            }
+            other => {
+                let json = serde_json::to_value(other).expect("always serializable");
+                f.write_str(json["code"].as_str().unwrap_or("unknown"))
+            }
+        }
+    }
+}
 
 /// A module identifier for OPRF evaluations.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -69,4 +157,110 @@ pub struct CredentialBlindingFactorOprfRequestAuthV1 {
     pub merkle_root: ark_babyjubjub::Fq,
     /// The `issuer_schema_id` in the `CredentialSchemaIssuerRegistry` contract
     pub issuer_schema_id: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serde_roundtrip_all_variants() {
+        let variants = [
+            OprfAuthErrorResponse::InvalidProof,
+            OprfAuthErrorResponse::InvalidMerkleRoot,
+            OprfAuthErrorResponse::TimestampTooLarge,
+            OprfAuthErrorResponse::InvalidSignature {
+                detail: "invalid parity: 5".into(),
+            },
+            OprfAuthErrorResponse::InvalidSigner,
+            OprfAuthErrorResponse::DuplicateSignature,
+            OprfAuthErrorResponse::UnknownRp {
+                rp_id: "42".into(),
+            },
+            OprfAuthErrorResponse::RpInactive,
+            OprfAuthErrorResponse::InvalidAction,
+            OprfAuthErrorResponse::UnknownSchemaIssuer {
+                issuer_schema_id: "99".into(),
+            },
+            OprfAuthErrorResponse::ServiceUnavailable,
+            OprfAuthErrorResponse::InternalServerError {
+                error_id: "00000000-0000-0000-0000-000000000000".into(),
+            },
+        ];
+        for variant in &variants {
+            let json = variant.to_json();
+            let parsed = OprfAuthErrorResponse::from_json(&json).unwrap();
+            assert_eq!(&parsed, variant, "roundtrip failed for {json}");
+        }
+    }
+
+    #[test]
+    fn unit_variant_wire_format() {
+        let resp = OprfAuthErrorResponse::InvalidProof;
+        assert_eq!(resp.to_json(), r#"{"code":"invalid_proof"}"#);
+    }
+
+    #[test]
+    fn data_variant_wire_format() {
+        let resp = OprfAuthErrorResponse::UnknownRp {
+            rp_id: "42".into(),
+        };
+        assert_eq!(resp.to_json(), r#"{"code":"unknown_rp","rp_id":"42"}"#);
+    }
+
+    #[test]
+    fn from_json_invalid_input() {
+        assert!(OprfAuthErrorResponse::from_json("not json").is_none());
+        assert!(OprfAuthErrorResponse::from_json("").is_none());
+        assert!(OprfAuthErrorResponse::from_json("{}").is_none());
+        assert!(OprfAuthErrorResponse::from_json(r#"{"code":"totally_unknown_code"}"#).is_none());
+    }
+
+    #[test]
+    fn all_unit_responses_fit_close_frame() {
+        let variants = [
+            OprfAuthErrorResponse::InvalidProof,
+            OprfAuthErrorResponse::InvalidMerkleRoot,
+            OprfAuthErrorResponse::TimestampTooLarge,
+            OprfAuthErrorResponse::InvalidSigner,
+            OprfAuthErrorResponse::DuplicateSignature,
+            OprfAuthErrorResponse::RpInactive,
+            OprfAuthErrorResponse::InvalidAction,
+            OprfAuthErrorResponse::ServiceUnavailable,
+        ];
+        for variant in &variants {
+            let json = variant.to_json();
+            assert!(
+                json.len() <= MAX_CLOSE_REASON_BYTES,
+                "{variant:?} is {} bytes, exceeds {MAX_CLOSE_REASON_BYTES}: {json}",
+                json.len()
+            );
+        }
+    }
+
+    #[test]
+    fn worst_case_responses_fit_close_frame() {
+        let cases = [
+            OprfAuthErrorResponse::UnknownRp {
+                rp_id: u64::MAX.to_string(),
+            },
+            OprfAuthErrorResponse::UnknownSchemaIssuer {
+                issuer_schema_id: u64::MAX.to_string(),
+            },
+            OprfAuthErrorResponse::InvalidSignature {
+                detail: "x".repeat(40),
+            },
+            OprfAuthErrorResponse::InternalServerError {
+                error_id: "00000000-0000-0000-0000-000000000000".into(),
+            },
+        ];
+        for resp in &cases {
+            let json = resp.to_json();
+            assert!(
+                json.len() <= MAX_CLOSE_REASON_BYTES,
+                "{resp:?} is {} bytes ({json}), exceeds {MAX_CLOSE_REASON_BYTES}",
+                json.len(),
+            );
+        }
+    }
 }
