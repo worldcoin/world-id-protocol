@@ -2,7 +2,8 @@ use alloy::providers::DynProvider;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
-    db::{DB, DBError, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
+    db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
+    error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
 };
 
@@ -15,7 +16,7 @@ use crate::{
 pub async fn rollback_to_last_valid_root(
     db: &DB,
     registry: &WorldIdRegistryInstance<DynProvider>,
-) -> DBResult<Option<WorldIdRegistryEventId>> {
+) -> IndexerResult<Option<WorldIdRegistryEventId>> {
     let Some(target_id) = find_last_valid_root(db, registry).await? else {
         tracing::warn!("no valid root found on-chain, nothing to roll back to");
         return Ok(None);
@@ -31,7 +32,7 @@ pub async fn rollback_to_last_valid_root(
 async fn find_last_valid_root(
     db: &DB,
     registry: &WorldIdRegistryInstance<DynProvider>,
-) -> DBResult<Option<WorldIdRegistryEventId>> {
+) -> IndexerResult<Option<WorldIdRegistryEventId>> {
     const BATCH_SIZE: u64 = 100;
 
     // Sentinel: starts "after everything" so the first batch includes the latest events.
@@ -57,7 +58,7 @@ async fn find_last_valid_root(
                 .isValidRoot(event.details.root)
                 .call()
                 .await
-                .map_err(|e| DBError::ContractCall(e.to_string()))?;
+                .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
 
             if valid {
                 return Ok(Some(WorldIdRegistryEventId {

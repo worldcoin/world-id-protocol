@@ -45,6 +45,10 @@ pub enum IndexerError {
         source: std::io::Error,
         backtrace: String,
     },
+    #[error("blockchain reorg detected at block {block_number}: {reason}")]
+    ReorgDetected { block_number: u64, reason: String },
+    #[error("contract call failed: {0}")]
+    ContractCall(String),
 }
 
 impl From<BlockchainError> for IndexerError {

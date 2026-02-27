@@ -3,7 +3,7 @@
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, BlockchainResult, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
-    db::{DB, DBError},
+    db::DB,
     events_committer::EventsCommitter,
     rollback_executor::rollback_to_last_valid_root,
 };
@@ -485,10 +485,7 @@ pub async fn process_registry_events(
                         Ok(()) => {
                             crate::metrics::set_chain_processed_block(event.block_number);
                         }
-                        Err(IndexerError::Db {
-                            source: DBError::ReorgDetected { block_number, reason },
-                            ..
-                        }) => {
+                        Err(IndexerError::ReorgDetected { block_number, reason }) => {
                             tracing::warn!(
                                 block_number,
                                 reason,
