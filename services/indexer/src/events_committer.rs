@@ -61,10 +61,6 @@ impl<'a> EventsCommitter<'a> {
         &mut self,
         event: BlockchainEvent<RegistryEvent>,
     ) -> IndexerResult<bool> {
-        if let Some(tree) = &self.versioned_tree {
-            apply_event_to_tree(tree, &event).await?;
-        }
-
         self.buffer_event(event);
 
         if let RegistryEvent::RootRecorded(ref root_recorded) =
@@ -196,6 +192,12 @@ impl<'a> EventsCommitter<'a> {
         }
 
         tx.commit().await?;
+
+        if let Some(tree) = &self.versioned_tree {
+            for event in self.buffered_events.iter() {
+                apply_event_to_tree(tree, event).await?;
+            }
+        }
 
         self.buffered_events.clear();
 
