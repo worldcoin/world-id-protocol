@@ -12,17 +12,16 @@ pub const MAX_CLOSE_REASON_BYTES: usize = 123;
 /// Structured OPRF authentication error, serialized as JSON inside WebSocket
 /// close frame reason fields.
 ///
-/// Each variant maps to a `"code"` tag in the JSON representation. Variants
-/// that carry client-safe detail include typed fields rather than a generic
-/// message string.
+/// Each variant maps to a `"type"` tag in the JSON representation. Variants
+/// that carry client-safe detail include typed fields.
 ///
 /// # Wire format examples
 ///
-/// - `{"code":"invalid_proof"}`
-/// - `{"code":"unknown_rp","rp_id":"42"}`
-/// - `{"code":"internal_server_error","error_id":"<uuid>"}`
+/// - `{"type":"invalid_proof"}`
+/// - `{"type":"unknown_rp","rp_id":"42"}`
+/// - `{"type":"internal_server_error","error_id":"<uuid>"}`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "code", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum OprfAuthErrorResponse {
     /// The zero-knowledge proof failed verification.
     InvalidProof,
@@ -87,7 +86,7 @@ impl fmt::Display for OprfAuthErrorResponse {
             }
             other => {
                 let json = serde_json::to_value(other).expect("always serializable");
-                f.write_str(json["code"].as_str().unwrap_or("unknown"))
+                f.write_str(json["type"].as_str().unwrap_or("unknown"))
             }
         }
     }
@@ -195,13 +194,13 @@ mod tests {
     #[test]
     fn unit_variant_wire_format() {
         let resp = OprfAuthErrorResponse::InvalidProof;
-        assert_eq!(resp.to_json(), r#"{"code":"invalid_proof"}"#);
+        assert_eq!(resp.to_json(), r#"{"type":"invalid_proof"}"#);
     }
 
     #[test]
     fn data_variant_wire_format() {
         let resp = OprfAuthErrorResponse::UnknownRp { rp_id: "42".into() };
-        assert_eq!(resp.to_json(), r#"{"code":"unknown_rp","rp_id":"42"}"#);
+        assert_eq!(resp.to_json(), r#"{"type":"unknown_rp","rp_id":"42"}"#);
     }
 
     #[test]
@@ -209,7 +208,7 @@ mod tests {
         assert!(OprfAuthErrorResponse::from_json("not json").is_none());
         assert!(OprfAuthErrorResponse::from_json("").is_none());
         assert!(OprfAuthErrorResponse::from_json("{}").is_none());
-        assert!(OprfAuthErrorResponse::from_json(r#"{"code":"totally_unknown_code"}"#).is_none());
+        assert!(OprfAuthErrorResponse::from_json(r#"{"type":"totally_unknown_code"}"#).is_none());
     }
 
     #[test]

@@ -451,7 +451,7 @@ mod from_oprf_error_tests {
 
     #[test]
     fn unanimous_server_errors_become_round1_auth_errors() {
-        let json = r#"{"code":"invalid_proof"}"#;
+        let json = r#"{"type":"invalid_proof"}"#;
         let err = not_enough_responses(vec![
             ("node1", server_error(json)),
             ("node2", server_error(json)),
@@ -472,10 +472,10 @@ mod from_oprf_error_tests {
     #[test]
     fn disagreeing_server_errors_become_round1_mixed_auth_errors() {
         let err = not_enough_responses(vec![
-            ("node1", server_error(r#"{"code":"invalid_proof"}"#)),
+            ("node1", server_error(r#"{"type":"invalid_proof"}"#)),
             (
                 "node2",
-                server_error(r#"{"code":"unknown_rp","rp_id":"1"}"#),
+                server_error(r#"{"type":"unknown_rp","rp_id":"1"}"#),
             ),
         ]);
         let proof_err = ProofError::from(err);
@@ -507,9 +507,9 @@ mod from_oprf_error_tests {
     #[test]
     fn mixed_parseable_and_unparseable_errors() {
         let err = not_enough_responses(vec![
-            ("node1", server_error(r#"{"code":"invalid_proof"}"#)),
+            ("node1", server_error(r#"{"type":"invalid_proof"}"#)),
             ("node2", server_error("not json")),
-            ("node3", server_error(r#"{"code":"invalid_proof"}"#)),
+            ("node3", server_error(r#"{"type":"invalid_proof"}"#)),
         ]);
         let proof_err = ProofError::from(err);
         match proof_err {
@@ -539,7 +539,7 @@ mod from_oprf_error_tests {
 
     #[test]
     fn server_error_with_data_preserved() {
-        let json = r#"{"code":"unknown_rp","rp_id":"42"}"#;
+        let json = r#"{"type":"unknown_rp","rp_id":"42"}"#;
         let err = not_enough_responses(vec![("node1", server_error(json))]);
         let proof_err = ProofError::from(err);
         match proof_err {
@@ -561,7 +561,7 @@ mod from_oprf_error_tests {
 
     #[test]
     fn prefix_stripping_works_with_various_formats() {
-        let json = r#"{"code":"invalid_proof"}"#;
+        let json = r#"{"type":"invalid_proof"}"#;
         let err = not_enough_responses(vec![(
             "node1",
             taceo_oprf::client::Error::ServerError(format!("1008: {json}")),
