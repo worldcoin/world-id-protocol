@@ -212,8 +212,8 @@ mod tests {
     }
 
     #[test]
-    fn all_unit_responses_fit_close_frame() {
-        let variants = [
+    fn all_responses_fit_close_frame() {
+        let cases = [
             OprfRequestErrorResponse::InvalidProof,
             OprfRequestErrorResponse::InvalidMerkleRoot,
             OprfRequestErrorResponse::TimestampTooLarge,
@@ -222,32 +222,15 @@ mod tests {
             OprfRequestErrorResponse::RpInactive,
             OprfRequestErrorResponse::InvalidAction,
             OprfRequestErrorResponse::ServiceUnavailable,
-        ];
-        for variant in &variants {
-            let json = variant.to_json();
-            assert!(
-                json.len() <= MAX_CLOSE_REASON_BYTES,
-                "{variant:?} is {} bytes, exceeds {MAX_CLOSE_REASON_BYTES}: {json}",
-                json.len()
-            );
-        }
-    }
-
-    #[test]
-    fn worst_case_responses_fit_close_frame() {
-        let cases = [
             OprfRequestErrorResponse::UnknownRp {
                 rp_id: u64::MAX.to_string(),
             },
             OprfRequestErrorResponse::UnknownSchemaIssuer {
                 issuer_schema_id: u64::MAX.to_string(),
             },
-            // `alloy_primitives::SignatureError::InvalidParity(u64::MAX)`
             OprfRequestErrorResponse::InvalidSignature {
                 detail: format!("invalid parity: {}", u64::MAX),
             },
-            // `hex::FromHexError::InvalidHexCharacter` at the last position
-            // of a 65-byte signature (130 hex chars)
             OprfRequestErrorResponse::InvalidSignature {
                 detail: format!(
                     "{}",
