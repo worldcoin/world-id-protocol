@@ -12,9 +12,21 @@ mod helpers;
 use alloy::primitives::{Address, U256};
 use helpers::{db_helpers::*, mock_blockchain::*};
 use world_id_indexer::{
-    db::WorldIdRegistryEventId, events_committer::EventsCommitter,
+    db::WorldIdRegistryEventId,
+    events_committer::EventsCommitter,
     rollback_executor::rollback_to_last_valid_root,
+    tree::{TreeState, VersionedTreeState},
 };
+
+fn make_versioned_tree() -> VersionedTreeState {
+    let path = {
+        let mut p = std::env::temp_dir();
+        p.push(format!("rollback_test_{}.tmp", uuid::Uuid::new_v4()));
+        p
+    };
+    let state = unsafe { TreeState::new_empty(30, path).expect("failed to create tree") };
+    VersionedTreeState::new(state, 1000)
+}
 
 use alloy::providers::{Provider, ProviderBuilder};
 use world_id_core::world_id_registry::WorldIdRegistry;
@@ -50,7 +62,7 @@ async fn test_empty_db_returns_none() {
     let (_anvil, registry, test_db) = setup().await;
     let db = &test_db.db;
 
-    let result = rollback_to_last_valid_root(db, &registry)
+    let result = rollback_to_last_valid_root(db, &registry, &make_versioned_tree())
         .await
         .expect("rollback_to_last_valid_root should not error on empty DB");
 
@@ -89,7 +101,7 @@ async fn test_all_invalid_roots_returns_none() {
     assert_account_count(db.pool(), 1).await;
     assert_root_count(db.pool(), 1).await;
 
-    let result = rollback_to_last_valid_root(db, &registry)
+    let result = rollback_to_last_valid_root(db, &registry, &make_versioned_tree())
         .await
         .expect("should not error");
 
@@ -185,7 +197,7 @@ async fn test_rolls_back_to_last_valid_root() {
     assert_account_count(db.pool(), 2).await;
     assert_root_count(db.pool(), 2).await;
 
-    let result = rollback_to_last_valid_root(db, &registry)
+    let result = rollback_to_last_valid_root(db, &registry, &make_versioned_tree())
         .await
         .expect("rollback_to_last_valid_root failed");
 
@@ -255,7 +267,7 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
 
     assert_account_count(db.pool(), 1).await;
 
-    let result = rollback_to_last_valid_root(db, &registry)
+    let result = rollback_to_last_valid_root(db, &registry, &make_versioned_tree())
         .await
         .expect("should not fail");
 
