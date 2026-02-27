@@ -487,14 +487,17 @@ pub async fn process_registry_events(
                                 .await
                             {
                                 Ok(Some(target)) => {
-                                    tracing::info!(?target, "rolled back successfully")
+                                    tracing::info!(?target, "rolled back successfully");
+                                    break;
                                 }
                                 Ok(None) => {
-                                    tracing::warn!("no valid root found, nothing rolled back")
+                                    return Err(IndexerError::ReorgDetected {
+                                        block_number,
+                                        reason: "no valid root found during rollback".to_string(),
+                                    });
                                 }
-                                Err(e) => tracing::error!(?e, "rollback failed"),
+                                Err(e) => return Err(e),
                             }
-                            break;
                         }
                         Err(e) => return Err(e),
                     }
