@@ -582,10 +582,16 @@ where
             .collect()
     }
 
-    /// Find blocks where multiple distinct block_hashes have been recorded.
+    /// Find blocks where multiple distinct block_hashes have been recorded,
+    /// restricted to the given set of block numbers.
     pub async fn get_blocks_with_conflicting_hashes(
         self,
+        block_numbers: &[i64],
     ) -> DBResult<Vec<BlockWithConflictingHashes>> {
+        if block_numbers.is_empty() {
+            return Ok(vec![]);
+        }
+
         let rows = sqlx::query(
             r#"
                 SELECT block_number, block_hash
@@ -593,6 +599,7 @@ where
                 WHERE block_number IN (
                     SELECT block_number
                     FROM world_id_registry_events
+                    WHERE block_number = ANY($1)
                     GROUP BY block_number
                     HAVING COUNT(DISTINCT block_hash) > 1
                 )
@@ -600,6 +607,7 @@ where
                 ORDER BY block_number ASC
             "#,
         )
+        .bind(block_numbers)
         .fetch_all(self.executor)
         .await?;
 

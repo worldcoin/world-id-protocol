@@ -48,10 +48,10 @@ impl<'a> EventsCommitter<'a> {
     pub fn with_versioned_tree(
         mut self,
         tree: VersionedTreeState,
-        registry: WorldIdRegistryInstance<DynProvider>,
+        registry: Option<WorldIdRegistryInstance<DynProvider>>,
     ) -> Self {
         self.versioned_tree = Some(tree);
-        self.registry = Some(registry);
+        self.registry = registry;
         self
     }
 
@@ -175,10 +175,16 @@ impl<'a> EventsCommitter<'a> {
             EventsProcessor::process_event(&mut tx, event).await?;
         }
 
+        let batch_block_numbers: Vec<i64> = self
+            .buffered_events
+            .iter()
+            .map(|e| e.block_number as i64)
+            .collect();
+
         let blocks = tx
             .world_id_registry_events()
             .await?
-            .get_blocks_with_conflicting_hashes()
+            .get_blocks_with_conflicting_hashes(&batch_block_numbers)
             .await?;
 
         if !blocks.is_empty() {
@@ -196,6 +202,28 @@ impl<'a> EventsCommitter<'a> {
         if let Some(tree) = &self.versioned_tree {
             for event in self.buffered_events.iter() {
                 apply_event_to_tree(tree, event).await?;
+            }
+
+            if let Some(BlockchainEvent {
+                block_number,
+                details:
+                    RegistryEvent::RootRecorded(RootRecordedEvent {
+                        root: expected_root,
+                        ..
+                    }),
+                ..
+            }) = self.buffered_events.last()
+            {
+                let actual_root = tree.root().await;
+                if actual_root != *expected_root {
+                    return Err(IndexerError::ReorgDetected {
+                        block_number: *block_number,
+                        reason: format!(
+                            "tree root after applying batch (0x{:x}) does not match RootRecorded root (0x{:x})",
+                            actual_root, expected_root,
+                        ),
+                    });
+                }
             }
         }
 

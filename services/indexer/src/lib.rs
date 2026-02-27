@@ -454,7 +454,7 @@ pub async fn process_registry_events(
 
         let versioned_tree = tree::VersionedTreeState::new(tree_state.clone(), 1000);
         let mut events_committer = EventsCommitter::new(db)
-            .with_versioned_tree(versioned_tree.clone(), blockchain.world_id_registry());
+            .with_versioned_tree(versioned_tree.clone(), Some(blockchain.world_id_registry()));
 
         while let Some(event) = stream.next().await {
             match event {
