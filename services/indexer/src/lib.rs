@@ -3,8 +3,9 @@
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, BlockchainResult, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
-    db::DB,
+    db::{DB, DBError},
     events_committer::EventsCommitter,
+    rollback_executor::rollback_to_last_valid_root,
 };
 use alloy::{primitives::Address, providers::DynProvider};
 use futures_util::{Stream, StreamExt};
@@ -470,7 +471,34 @@ pub async fn process_registry_events(
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
-                    handle_registry_event(db, &mut events_committer, &event, tree_state).await?;
+                    match handle_registry_event(db, &mut events_committer, &event, tree_state)
+                        .await
+                    {
+                        Ok(()) => {}
+                        Err(IndexerError::Db {
+                            source: DBError::ReorgDetected { block_number, reason },
+                            ..
+                        }) => {
+                            tracing::warn!(
+                                block_number,
+                                reason,
+                                "Reorg detected during event commit, rolling back"
+                            );
+                            match rollback_to_last_valid_root(db, &blockchain.world_id_registry())
+                                .await
+                            {
+                                Ok(Some(target)) => {
+                                    tracing::info!(?target, "rolled back successfully")
+                                }
+                                Ok(None) => {
+                                    tracing::warn!("no valid root found, nothing rolled back")
+                                }
+                                Err(e) => tracing::error!(?e, "rollback failed"),
+                            }
+                            break;
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
                 Err(e) => {
                     tracing::error!(?e, "blockchain event stream error");
