@@ -488,8 +488,7 @@ pub async fn process_registry_events(
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
-                    match handle_registry_event(db, &mut events_committer, &event, tree_state)
-                        .await
+                    match handle_registry_event(db, &mut events_committer, &event, tree_state).await
                     {
                         Ok(()) => {
                             crate::metrics::set_chain_processed_block(event.block_number);
