@@ -3496,7 +3496,7 @@ dependencies = [
  "rustls 0.23.36",
  "taceo-ark-babyjubjub",
  "taceo-oprf",
- "taceo-oprf-test-utils",
+ "taceo-oprf-test-utils 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "taceo-poseidon2",
  "tokio",
  "tracing",
@@ -3591,6 +3591,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "gloo-net"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c06f627b1a58ca3d42b45d6104bf1e1a03799df472df00988b6ba21accc10580"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-sink",
+ "gloo-utils",
+ "http 1.4.0",
+ "js-sys",
+ "pin-project",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "gloo-timers"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3600,6 +3619,17 @@ dependencies = [
  "futures-core",
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "gloo-utils"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5555354113b18c547c1d3a98fbf7fb32a9ff4f6fa112ce823a21641a0ba3aa"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -7097,8 +7127,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "535638271502744c1f8355141b6aa43ca8793fe852a3e7c4d77aaa2260936680"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -7110,12 +7138,12 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-client"
 version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cc445a30d59e9eb34a03d36dc2b14d2c7b342c9d4eb5e2a4c6eedc4368b45ee"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
  "futures",
+ "getrandom 0.2.17",
+ "gloo-net",
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-oprf-core",
@@ -7131,8 +7159,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-core"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8105a6fa70adb6872ea2eef5ad21bfc5c943d90dc43332347ec021cd44987cb"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7153,8 +7179,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-dev-client"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "206a346602d17219e0e32a39996bb328fec9e002669a63101c8b798fab83730f"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7169,7 +7193,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-oprf-client",
  "taceo-oprf-core",
- "taceo-oprf-test-utils",
+ "taceo-oprf-test-utils 0.7.0",
  "taceo-oprf-types",
  "tokio",
  "tracing",
@@ -7223,8 +7247,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-service"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a49b55a012ba1d974caafae3cf34c743881f097f6a8902334a27fc6820e89085"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -7265,6 +7287,28 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-test-utils"
 version = "0.7.0"
+dependencies = [
+ "alloy",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "async-trait",
+ "eyre",
+ "futures",
+ "itertools 0.14.0",
+ "parking_lot",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "reqwest",
+ "taceo-ark-babyjubjub",
+ "taceo-oprf-core",
+ "taceo-oprf-types",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "taceo-oprf-test-utils"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c624d1e13b5b865294cad7d64d7e2e4adb42b15a44a66efbb0d67d0706b6359"
 dependencies = [
@@ -7291,8 +7335,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-types"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "278668dc50fdfb2ec5e9391031b8b98690d1b230da483e4ce15bdb52ede4acca"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -8816,7 +8858,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-oprf",
- "taceo-oprf-test-utils",
+ "taceo-oprf-test-utils 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "taceo-poseidon2",
  "tokio",
  "tracing",
@@ -8958,7 +9000,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-nodes-observability",
  "taceo-oprf",
- "taceo-oprf-test-utils",
+ "taceo-oprf-test-utils 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
  "tracing",
  "uuid",
@@ -9114,7 +9156,7 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-oprf",
  "taceo-oprf-key-gen",
- "taceo-oprf-test-utils",
+ "taceo-oprf-test-utils 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "taceo-poseidon2",
  "tokio",
  "tokio-util",

@@ -3,10 +3,8 @@
 use ark_ff::PrimeField;
 use groth16_material::circom::CircomGroth16Material;
 
-use taceo_oprf::{
-    client::{Connector, VerifiableOprfOutput},
-    core::oprf::BlindingFactor,
-};
+use taceo_oprf::client::{Connector, VerifiableOprfOutput};
+use taceo_oprf::core::oprf::BlindingFactor;
 
 use world_id_primitives::{
     FieldElement, TREE_DEPTH,
