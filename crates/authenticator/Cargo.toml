@@ -22,10 +22,9 @@ default = ["embed-zkeys"]
 embed-zkeys = ["world-id-proof/embed-zkeys"]
 
 [dependencies]
+# Use WASM-safe base features only
 alloy = { workspace = true, features = [
   "sol-types",
-  "reqwest",
-  "reqwest-rustls-tls",
   "json",
   "network",
   "providers",
@@ -35,7 +34,8 @@ anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
 groth16-material = { workspace = true }
-reqwest = { workspace = true }
+# Use version directly (not workspace) to avoid inheriting rustls-tls on WASM
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 poseidon2 = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
@@ -43,18 +43,23 @@ world-id-primitives = { workspace = true }
 secrecy = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client"] }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio = { workspace = true, features = ["macros"] }
 rand = { workspace = true }
 backon = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
-rustls = { workspace = true }
-webpki-roots = { workspace = true }
-
 # Internal
 world-id-proof = { workspace = true }
+
+# Native-only dependencies (not available on wasm32)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+alloy = { workspace = true, features = ["reqwest", "reqwest-rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
 
 [dev-dependencies]
 backon = { workspace = true }
