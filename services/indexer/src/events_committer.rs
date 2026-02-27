@@ -9,6 +9,25 @@ use crate::{
     tree::{VersionedTreeState, apply_event_to_tree},
 };
 
+/// Buffers blockchain events and commits them to the database in batches,
+/// one batch per `RootRecorded` event.
+///
+/// # DB invariants enforced
+///
+/// 1. **No hash conflicts**: If an event already exists in the DB with a different
+///    `block_hash` or `tx_hash` for the same `(block_number, log_index)`, the
+///    transaction is aborted and `ReorgDetected` is returned. A final post-write
+///    check catches any cross-event conflicts within the same batch.
+///
+/// 2. **No invalid roots at write time**: When a `registry` is configured, the
+///    root from each `RootRecorded` event is validated on-chain via `isValidRoot`
+///    *before* the DB transaction begins. A root that fails this check returns
+///    `ReorgDetected` without touching the DB.
+///
+/// 3. **Reorg suffix is contiguous**: Because commits are rejected the moment a
+///    bad root or conflicting hash is detected, any invalid state that does reach
+///    the DB (from a post-commit reorg) forms a single contiguous suffix of
+///    events — there is no interleaving of valid and invalid batches.
 pub struct EventsCommitter<'a> {
     db: &'a DB,
     buffered_events: Vec<BlockchainEvent<RegistryEvent>>,
