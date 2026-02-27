@@ -502,6 +502,7 @@ pub async fn process_registry_events(
             }
         }
 
+        events_committer.rollback_uncommitted_tree_changes().await?;
         tracing::warn!("restarting blockchain connection");
     }
 }

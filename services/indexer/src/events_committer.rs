@@ -86,6 +86,28 @@ impl<'a> EventsCommitter<'a> {
         Ok(false)
     }
 
+    /// Roll back in-memory tree changes for events buffered but not committed to DB.
+    pub async fn rollback_uncommitted_tree_changes(&self) -> IndexerResult<()> {
+        if self.buffered_events.is_empty() {
+            return Ok(());
+        }
+
+        let Some(tree) = &self.versioned_tree else {
+            return Ok(());
+        };
+
+        let latest_committed = self
+            .db
+            .world_id_registry_events()
+            .get_latest_id()
+            .await?
+            .unwrap_or_default();
+
+        tree.rollback_to(latest_committed).await?;
+
+        Ok(())
+    }
+
     fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) {
         tracing::info!(?event, "buffering event");
         self.buffered_events.push(event);
