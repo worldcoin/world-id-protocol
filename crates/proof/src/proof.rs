@@ -92,6 +92,10 @@ pub enum ProofError {
     /// `InconsistentOprfPublicKeys`, `InvalidDLogProof`).
     #[error(transparent)]
     OprfInvariantError(taceo_oprf::client::Error),
+    /// All OPRF nodes unanimously rejected the request with the same
+    /// structured error.
+    #[error("OPRF request rejected: {0}")]
+    OprfRequestRejected(OprfRequestErrorResponse),
     /// Round 1 (`init_sessions`) failed to reach the required threshold.
     /// Keys are OPRF node URLs; values are per-node categorized errors.
     #[error("OPRF round 1 failed across {} node(s)", .0.len())]
@@ -111,35 +115,11 @@ pub enum ProofError {
     InternalError(#[from] eyre::Report),
 }
 
-impl ProofError {
-    /// If this is an `OprfRound1Error` where every node reported the same
-    /// structured auth error, returns that single consensus response.
-    ///
-    /// Returns `None` when the error is not an `OprfRound1Error`, the map is
-    /// empty, any node produced a non-auth error, or the auth errors disagree.
-    pub fn unanimous_request_error(&self) -> Option<&OprfRequestErrorResponse> {
-        let ProofError::OprfRound1Error(map) = self else {
-            return None;
-        };
-        let mut iter = map.values();
-        let Round1Error::RequestError(first) = iter.next()? else {
-            return None;
-        };
-        for entry in iter {
-            match entry {
-                Round1Error::RequestError(r) if r == first => continue,
-                _ => return None,
-            }
-        }
-        Some(first)
-    }
-}
-
 impl From<taceo_oprf::client::Error> for ProofError {
     fn from(err: taceo_oprf::client::Error) -> Self {
         match err {
             taceo_oprf::client::Error::NotEnoughOprfResponses(_, node_errors) => {
-                let categorized = node_errors
+                let categorized: HashMap<String, Round1Error> = node_errors
                     .into_iter()
                     .map(|(url, node_err)| {
                         let round1 = if let taceo_oprf::client::Error::ServerError(ref s) = node_err
@@ -155,7 +135,22 @@ impl From<taceo_oprf::client::Error> for ProofError {
                         (url, round1)
                     })
                     .collect();
-                ProofError::OprfRound1Error(categorized)
+
+                let mut vals = categorized.values();
+                let unanimous = vals.next().and_then(|first| {
+                    let Round1Error::RequestError(first_resp) = first else {
+                        return None;
+                    };
+                    vals.all(|v| {
+                        matches!(v, Round1Error::RequestError(r) if r == first_resp)
+                    })
+                    .then_some(first_resp.clone())
+                });
+
+                match unanimous {
+                    Some(resp) => ProofError::OprfRequestRejected(resp),
+                    None => ProofError::OprfRound1Error(categorized),
+                }
             }
             taceo_oprf::client::Error::NonUniqueServices
             | taceo_oprf::client::Error::InvalidDLogProof
@@ -474,23 +469,17 @@ mod from_oprf_error_tests {
     }
 
     #[test]
-    fn unanimous_server_errors_become_round1_request_errors() {
+    fn unanimous_request_errors_become_request_rejected() {
         let json = r#"{"type":"invalid_proof"}"#;
         let err = not_enough_responses(vec![
             ("node1", server_error(json)),
             ("node2", server_error(json)),
         ]);
         let proof_err = ProofError::from(err);
-        match proof_err {
-            ProofError::OprfRound1Error(map) => {
-                assert_eq!(map.len(), 2);
-                assert!(map.values().all(|r| matches!(
-                    r,
-                    Round1Error::RequestError(OprfRequestErrorResponse::InvalidProof)
-                )));
-            }
-            other => panic!("expected OprfRound1Error, got {other:?}"),
-        }
+        assert!(matches!(
+            proof_err,
+            ProofError::OprfRequestRejected(OprfRequestErrorResponse::InvalidProof)
+        ));
     }
 
     #[test]
@@ -566,21 +555,15 @@ mod from_oprf_error_tests {
         let json = r#"{"type":"unknown_rp","rp_id":"42"}"#;
         let err = not_enough_responses(vec![("node1", server_error(json))]);
         let proof_err = ProofError::from(err);
-        match proof_err {
-            ProofError::OprfRound1Error(map) => {
-                let round1 = map.values().next().unwrap();
-                match round1 {
-                    Round1Error::RequestError(resp) => {
-                        assert_eq!(
-                            *resp,
-                            OprfRequestErrorResponse::UnknownRp { rp_id: "42".into() }
-                        );
-                    }
-                    other => panic!("expected RequestError, got {other:?}"),
-                }
-            }
-            other => panic!("expected OprfRound1Error, got {other:?}"),
-        }
+        assert_eq!(
+            matches!(
+                proof_err,
+                ProofError::OprfRequestRejected(OprfRequestErrorResponse::UnknownRp { ref rp_id })
+                if rp_id == "42"
+            ),
+            true,
+            "expected OprfRequestRejected(UnknownRp), got {proof_err:?}"
+        );
     }
 
     #[test]
@@ -591,18 +574,24 @@ mod from_oprf_error_tests {
             taceo_oprf::client::Error::ServerError(format!("1008: {json}")),
         )]);
         let proof_err = ProofError::from(err);
-        assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));
+        assert!(matches!(
+            proof_err,
+            ProofError::OprfRequestRejected(OprfRequestErrorResponse::InvalidProof)
+        ));
 
         let err = not_enough_responses(vec![(
             "node1",
             taceo_oprf::client::Error::ServerError(json.to_string()),
         )]);
         let proof_err = ProofError::from(err);
-        assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));
+        assert!(matches!(
+            proof_err,
+            ProofError::OprfRequestRejected(OprfRequestErrorResponse::InvalidProof)
+        ));
     }
 
     #[test]
-    fn unanimous_request_error_all_agree() {
+    fn unanimous_three_nodes_become_request_rejected() {
         let json = r#"{"type":"invalid_proof"}"#;
         let err = not_enough_responses(vec![
             ("node1", server_error(json)),
@@ -610,57 +599,51 @@ mod from_oprf_error_tests {
             ("node3", server_error(json)),
         ]);
         let proof_err = ProofError::from(err);
-        assert_eq!(
-            proof_err.unanimous_request_error(),
-            Some(&OprfRequestErrorResponse::InvalidProof),
-        );
+        assert!(matches!(
+            proof_err,
+            ProofError::OprfRequestRejected(OprfRequestErrorResponse::InvalidProof)
+        ));
     }
 
     #[test]
-    fn unanimous_request_error_single_node() {
+    fn single_node_becomes_request_rejected() {
         let json = r#"{"type":"invalid_proof"}"#;
         let err = not_enough_responses(vec![("node1", server_error(json))]);
         let proof_err = ProofError::from(err);
-        assert_eq!(
-            proof_err.unanimous_request_error(),
-            Some(&OprfRequestErrorResponse::InvalidProof),
-        );
+        assert!(matches!(
+            proof_err,
+            ProofError::OprfRequestRejected(OprfRequestErrorResponse::InvalidProof)
+        ));
     }
 
     #[test]
-    fn unanimous_request_error_disagreeing_nodes() {
+    fn disagreeing_request_errors_become_round1() {
         let err = not_enough_responses(vec![
             ("node1", server_error(r#"{"type":"invalid_proof"}"#)),
             ("node2", server_error(r#"{"type":"unknown_rp","rp_id":"1"}"#)),
         ]);
         let proof_err = ProofError::from(err);
-        assert!(proof_err.unanimous_request_error().is_none());
+        assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));
     }
 
     #[test]
-    fn unanimous_request_error_mixed_auth_and_other() {
+    fn mixed_request_and_other_errors_become_round1() {
         let err = not_enough_responses(vec![
             ("node1", server_error(r#"{"type":"invalid_proof"}"#)),
             ("node2", server_error("not json")),
         ]);
         let proof_err = ProofError::from(err);
-        assert!(proof_err.unanimous_request_error().is_none());
+        assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));
     }
 
     #[test]
-    fn unanimous_request_error_all_other() {
+    fn all_other_errors_become_round1() {
         let err = not_enough_responses(vec![
             ("node1", server_error("not json")),
             ("node2", server_error("also not json")),
         ]);
         let proof_err = ProofError::from(err);
-        assert!(proof_err.unanimous_request_error().is_none());
-    }
-
-    #[test]
-    fn unanimous_request_error_non_round1_variant() {
-        let proof_err = ProofError::OprfInvariantError(taceo_oprf::client::Error::InvalidDLogProof);
-        assert!(proof_err.unanimous_request_error().is_none());
+        assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));
     }
 }
 
