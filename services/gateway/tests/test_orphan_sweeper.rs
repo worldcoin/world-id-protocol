@@ -11,8 +11,8 @@ use redis::{AsyncCommands, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_core::api_types::{GatewayRequestKind, GatewayRequestState, GatewayStatusResponse};
 use world_id_gateway::{
-    GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker, defaults, now_unix_secs,
-    spawn_gateway_for_tests, sweep_once,
+    BatchPolicyConfig, GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker, defaults,
+    now_unix_secs, request_tracker::BacklogScope, spawn_gateway_for_tests, sweep_once,
 };
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
@@ -27,12 +27,100 @@ async fn setup_redis(redis_url: &str) -> ConnectionManager {
     client.get_connection_manager().await.unwrap()
 }
 
-async fn flush_redis(redis: &mut ConnectionManager) {
-    let _: () = redis::cmd("FLUSHDB").query_async(redis).await.unwrap();
+async fn flush_redis_preserving_lock(redis: &mut ConnectionManager) {
+    let script = redis::Script::new(
+        r#"
+        local keys = redis.call('KEYS', '*')
+        for _, key in ipairs(keys) do
+            if key ~= KEYS[1] then
+                redis.call('DEL', key)
+            end
+        end
+        return 1
+        "#,
+    );
+    let _: i64 = script
+        .key(TEST_DB_LOCK_KEY)
+        .invoke_async(redis)
+        .await
+        .unwrap();
 }
 
 fn redis_url() -> String {
     std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
+}
+
+fn redis_url_with_db(base: &str, db: u8) -> String {
+    let mut url = reqwest::Url::parse(base).expect("invalid REDIS_URL");
+    url.set_path(&format!("/{db}"));
+    url.to_string()
+}
+
+const TEST_DB_LOCK_KEY: &str = "gateway:test:orphan_sweeper:db_lock";
+const TEST_DB_LOCK_TTL_SECS: usize = 120;
+
+async fn acquire_isolated_redis_url(base: &str) -> (String, String) {
+    let token = uuid::Uuid::new_v4().to_string();
+    for db in 1..=15 {
+        let candidate = redis_url_with_db(base, db);
+        let Ok(client) = redis::Client::open(candidate.as_str()) else {
+            continue;
+        };
+        let Ok(mut conn) = client.get_connection_manager().await else {
+            continue;
+        };
+
+        let acquired: Option<String> = redis::cmd("SET")
+            .arg(TEST_DB_LOCK_KEY)
+            .arg(&token)
+            .arg("NX")
+            .arg("EX")
+            .arg(TEST_DB_LOCK_TTL_SECS)
+            .query_async(&mut conn)
+            .await
+            .unwrap_or(None);
+        if acquired.is_some() {
+            return (candidate, token);
+        }
+    }
+    panic!("no isolated Redis DB available for test");
+}
+
+async fn release_isolated_redis_lock(redis_url: &str, token: &str) {
+    let client = redis::Client::open(redis_url).expect("invalid redis url for release");
+    let mut conn = client
+        .get_connection_manager()
+        .await
+        .expect("failed to connect redis for release");
+    let script = redis::Script::new(
+        r#"
+        if redis.call('GET', KEYS[1]) == ARGV[1] then
+            return redis.call('DEL', KEYS[1])
+        end
+        return 0
+        "#,
+    );
+    let _: i64 = script
+        .key(TEST_DB_LOCK_KEY)
+        .arg(token)
+        .invoke_async(&mut conn)
+        .await
+        .unwrap_or(0);
+}
+
+async fn setup_isolated_redis_for_test() -> (String, String, ConnectionManager) {
+    let (url, lock_token) = acquire_isolated_redis_url(&redis_url()).await;
+    let mut redis = setup_redis(&url).await;
+    flush_redis_preserving_lock(&mut redis).await;
+    (url, lock_token, redis)
+}
+
+fn assert_age_in_range(actual: u64, expected_min: u64) {
+    let expected_max = expected_min + 5;
+    assert!(
+        actual >= expected_min && actual <= expected_max,
+        "age out of range: actual={actual}, expected_min={expected_min}, expected_max={expected_max}"
+    );
 }
 
 /// Insert a request record directly into Redis with a specific state and timestamp.
@@ -83,11 +171,8 @@ async fn is_in_pending_set(redis: &mut ConnectionManager, id: &str) -> bool {
 /// transitioning to `Finalized` atomically removes it.
 #[tokio::test]
 async fn pending_set_lifecycle_finalized() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
-    let tracker = RequestTracker::new(url, None).await;
+    let (url, lock_token, _redis) = setup_isolated_redis_for_test().await;
+    let tracker = RequestTracker::new(url.clone(), None).await;
     let id = "test-pending-lifecycle-fin".to_string();
 
     tracker
@@ -115,16 +200,15 @@ async fn pending_set_lifecycle_finalized() {
         !pending.contains(&id),
         "finalized request should be removed from pending set"
     );
+
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that failing a request also removes it from the pending set.
 #[tokio::test]
 async fn pending_set_lifecycle_failed() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
-    let tracker = RequestTracker::new(url, None).await;
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
+    let tracker = RequestTracker::new(url.clone(), None).await;
     let id = "test-pending-lifecycle-fail".to_string();
 
     tracker
@@ -139,17 +223,15 @@ async fn pending_set_lifecycle_failed() {
         .await;
 
     assert!(!is_in_pending_set(&mut redis, &id).await);
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that `updated_at` is set on creation and bumped on status
 /// changes. This timestamp drives staleness calculations in the sweeper.
 #[tokio::test]
 async fn updated_at_written_and_updated() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
-    let tracker = RequestTracker::new(url, None).await;
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
+    let tracker = RequestTracker::new(url.clone(), None).await;
     let id = "test-updated-at".to_string();
     let before = now_unix_secs();
 
@@ -175,17 +257,15 @@ async fn updated_at_written_and_updated() {
 
     let record = read_record(&mut redis, &id).await.unwrap();
     assert!(record.updated_at > created_at);
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that `snapshot_batch` (MGET) returns records for existing keys
 /// and `None` for missing keys, preserving input order.
 #[tokio::test]
 async fn snapshot_batch_returns_records() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
-    let tracker = RequestTracker::new(url, None).await;
+    let (url, lock_token, _redis) = setup_isolated_redis_for_test().await;
+    let tracker = RequestTracker::new(url.clone(), None).await;
 
     tracker
         .new_request_with_id("batch-1".to_string(), GatewayRequestKind::CreateAccount)
@@ -212,6 +292,117 @@ async fn snapshot_batch_returns_records() {
     assert!(results[0].1.is_some());
     assert!(results[1].1.is_some());
     assert!(results[2].1.is_none());
+
+    release_isolated_redis_lock(&url, &lock_token).await;
+}
+
+/// Verifies queued backlog stats only consider `Queued` requests and use
+/// `updated_at` age for urgency calculations.
+#[tokio::test]
+async fn queued_backlog_stats_from_updated_at() {
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
+
+    let tracker = RequestTracker::new(url.clone(), None).await;
+    let now = now_unix_secs();
+
+    inject_request(
+        &mut redis,
+        "queued-10s",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Queued,
+        now - 10,
+    )
+    .await;
+    inject_request(
+        &mut redis,
+        "queued-20s",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Queued,
+        now - 20,
+    )
+    .await;
+    inject_request(
+        &mut redis,
+        "queued-30s",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Queued,
+        now - 30,
+    )
+    .await;
+    inject_request(
+        &mut redis,
+        "batching-40s",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Batching,
+        now - 40,
+    )
+    .await;
+
+    let stats = tracker.queued_backlog_stats().await.unwrap();
+    assert_eq!(stats.queued_count, 3);
+    assert_age_in_range(stats.oldest_age_secs, 30);
+
+    release_isolated_redis_lock(&url, &lock_token).await;
+}
+
+/// Verifies backlog urgency stats are isolated by batcher scope (`Create` vs `Ops`).
+#[tokio::test]
+async fn queued_backlog_stats_scoped_by_kind() {
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
+
+    let tracker = RequestTracker::new(url.clone(), None).await;
+    let now = now_unix_secs();
+
+    // create backlog
+    inject_request(
+        &mut redis,
+        "create-10s",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Queued,
+        now - 10,
+    )
+    .await;
+
+    // ops backlog
+    inject_request(
+        &mut redis,
+        "ops-update-40s",
+        GatewayRequestKind::UpdateAuthenticator,
+        GatewayRequestState::Queued,
+        now - 40,
+    )
+    .await;
+    inject_request(
+        &mut redis,
+        "ops-remove-20s",
+        GatewayRequestKind::RemoveAuthenticator,
+        GatewayRequestState::Queued,
+        now - 20,
+    )
+    .await;
+
+    let create_stats = tracker
+        .queued_backlog_stats_for_scope(BacklogScope::Create)
+        .await
+        .unwrap();
+    assert_eq!(create_stats.queued_count, 1);
+    assert_age_in_range(create_stats.oldest_age_secs, 10);
+
+    let ops_stats = tracker
+        .queued_backlog_stats_for_scope(BacklogScope::Ops)
+        .await
+        .unwrap();
+    assert_eq!(ops_stats.queued_count, 2);
+    assert_age_in_range(ops_stats.oldest_age_secs, 40);
+
+    let all_stats = tracker
+        .queued_backlog_stats_for_scope(BacklogScope::All)
+        .await
+        .unwrap();
+    assert_eq!(all_stats.queued_count, 3);
+    assert_age_in_range(all_stats.oldest_age_secs, 40);
+
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 // =========================================================================
@@ -222,10 +413,7 @@ async fn snapshot_batch_returns_records() {
 /// marked as `Failed` with an "orphaned" error and removed from the pending set.
 #[tokio::test]
 async fn sweep_stale_queued_request() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
     let tracker = RequestTracker::new(url.clone(), None).await;
     let five_min_ago = now_unix_secs() - 300;
 
@@ -254,16 +442,14 @@ async fn sweep_stale_queued_request() {
         other => panic!("expected Failed, got {other:?}"),
     }
     assert!(!is_in_pending_set(&mut redis, "stale-queued").await);
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that a recently-created `Queued` request is left alone by the
 /// sweeper. Ensures the sweeper only acts on stale requests.
 #[tokio::test]
 async fn sweep_fresh_queued_untouched() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
     let tracker = RequestTracker::new(url.clone(), None).await;
 
     inject_request(
@@ -286,16 +472,14 @@ async fn sweep_fresh_queued_untouched() {
     let record = read_record(&mut redis, "fresh-queued").await.unwrap();
     assert!(matches!(record.status, GatewayRequestState::Queued));
     assert!(is_in_pending_set(&mut redis, "fresh-queued").await);
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that a `Batching` request older than the queued threshold is
 /// marked as `Failed`. Batching and Queued share the same staleness logic.
 #[tokio::test]
 async fn sweep_stale_batching_request() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
     let tracker = RequestTracker::new(url.clone(), None).await;
     let five_min_ago = now_unix_secs() - 300;
 
@@ -319,16 +503,14 @@ async fn sweep_stale_batching_request() {
     let record = read_record(&mut redis, "stale-batching").await.unwrap();
     assert!(matches!(record.status, GatewayRequestState::Failed { .. }));
     assert!(!is_in_pending_set(&mut redis, "stale-batching").await);
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that a pending set entry with no corresponding request record
 /// in Redis is cleaned up (e.g. the record expired or was never written).
 #[tokio::test]
 async fn sweep_dangling_set_member() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
     let tracker = RequestTracker::new(url.clone(), None).await;
 
     inject_dangling_set_member(&mut redis, "dangling-id").await;
@@ -346,16 +528,14 @@ async fn sweep_dangling_set_member() {
         !is_in_pending_set(&mut redis, "dangling-id").await,
         "dangling set member should be removed"
     );
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that a `Finalized` request left in the pending set gets cleaned
 /// out without changing its status. A safety-net for inconsistent state.
 #[tokio::test]
 async fn sweep_already_terminal_in_set() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
     let tracker = RequestTracker::new(url.clone(), None).await;
 
     inject_request(
@@ -386,16 +566,14 @@ async fn sweep_already_terminal_in_set() {
         matches!(record.status, GatewayRequestState::Finalized { .. }),
         "status should remain unchanged"
     );
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that a `Submitted` request with no on-chain receipt that exceeds
 /// the submitted threshold is marked as `Failed`. Covers dropped transactions.
 #[tokio::test]
 async fn sweep_submitted_no_receipt_stale() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
     let tracker = RequestTracker::new(url.clone(), None).await;
     let five_min_ago = now_unix_secs() - 300;
 
@@ -430,16 +608,14 @@ async fn sweep_submitted_no_receipt_stale() {
         other => panic!("expected Failed, got {other:?}"),
     }
     assert!(!is_in_pending_set(&mut redis, "stale-submitted").await);
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// Verifies that a recently-submitted request without a receipt is left
 /// alone. The transaction may still be pending in the sequencer's mempool.
 #[tokio::test]
 async fn sweep_submitted_no_receipt_fresh() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
-
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
     let tracker = RequestTracker::new(url.clone(), None).await;
 
     inject_request(
@@ -468,6 +644,7 @@ async fn sweep_submitted_no_receipt_fresh() {
         "fresh submitted request should not be touched"
     );
     assert!(is_in_pending_set(&mut redis, "fresh-submitted").await);
+    release_isolated_redis_lock(&url, &lock_token).await;
 }
 
 /// End-to-end: submits a real transaction, then injects an orphaned request
@@ -475,9 +652,7 @@ async fn sweep_submitted_no_receipt_fresh() {
 /// actual on-chain receipt.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sweep_submitted_with_real_receipt() {
-    let url = redis_url();
-    let mut redis = setup_redis(&url).await;
-    flush_redis(&mut redis).await;
+    let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
 
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
@@ -495,7 +670,6 @@ async fn sweep_submitted_with_real_receipt() {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4200).into(),
@@ -506,6 +680,7 @@ async fn sweep_submitted_with_real_receipt() {
         sweeper_interval_secs: 9999, // don't auto-sweep during this test
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        batch_policy: BatchPolicyConfig::default(),
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -546,7 +721,7 @@ async fn sweep_submitted_with_real_receipt() {
     )
     .await;
 
-    let tracker = RequestTracker::new(url, None).await;
+    let tracker = RequestTracker::new(url.clone(), None).await;
     let provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url.parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
@@ -563,4 +738,5 @@ async fn sweep_submitted_with_real_receipt() {
     assert!(!is_in_pending_set(&mut redis, "orphan-with-receipt").await);
 
     let _ = gw.shutdown().await;
+    release_isolated_redis_lock(&url, &lock_token).await;
 }

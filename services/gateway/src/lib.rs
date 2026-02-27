@@ -1,5 +1,8 @@
 pub use crate::{
-    config::{BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig, defaults},
+    config::{
+        BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
+        defaults,
+    },
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
@@ -9,6 +12,7 @@ use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
+mod batch_policy;
 mod batcher;
 mod config;
 mod create_batcher;
@@ -74,6 +78,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         rate_limit,
         cfg.request_timeout_secs,
         sweeper_config,
+        cfg.batch_policy.clone(),
     )
     .await?;
 
@@ -144,6 +149,7 @@ pub async fn run() -> GatewayResult<()> {
         rate_limit,
         cfg.request_timeout_secs,
         sweeper_config,
+        cfg.batch_policy.clone(),
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

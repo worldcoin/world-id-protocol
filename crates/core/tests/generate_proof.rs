@@ -19,7 +19,9 @@ use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
-use world_id_gateway::{GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+};
 use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -88,7 +90,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
@@ -100,6 +101,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        batch_policy: BatchPolicyConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await

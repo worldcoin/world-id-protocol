@@ -7,7 +7,6 @@ use world_id_services_common::ProviderArgs;
 use crate::error::{GatewayError, GatewayResult};
 
 pub mod defaults {
-    pub const BATCH_MS: u64 = 1000;
     pub const MAX_CREATE_BATCH_SIZE: usize = 100;
     pub const MAX_OPS_BATCH_SIZE: usize = 10;
     pub const REQUEST_TIMEOUT_SECS: u64 = 10;
@@ -20,7 +19,6 @@ pub mod defaults {
 /// Batching configuration for transaction submission.
 #[derive(Clone, Debug)]
 pub struct BatcherConfig {
-    pub batch_ms: u64,
     pub max_create_batch_size: usize,
     pub max_ops_batch_size: usize,
 }
@@ -28,7 +26,6 @@ pub struct BatcherConfig {
 impl Default for BatcherConfig {
     fn default() -> Self {
         Self {
-            batch_ms: defaults::BATCH_MS,
             max_create_batch_size: defaults::MAX_CREATE_BATCH_SIZE,
             max_ops_batch_size: defaults::MAX_OPS_BATCH_SIZE,
         }
@@ -63,6 +60,47 @@ impl Default for OrphanSweeperConfig {
     }
 }
 
+/// Adaptive batching policy configuration.
+#[derive(Clone, Debug, clap::Args)]
+pub struct BatchPolicyConfig {
+    /// Enable adaptive policy-driven batch dispatch.
+    #[arg(long, env = "BATCH_POLICY_ENABLED", default_value = "false")]
+    pub enabled: bool,
+
+    /// Re-evaluation cadence for policy decisions, in milliseconds.
+    #[arg(long, env = "BATCH_REEVAL_MS", default_value = "1000")]
+    pub reeval_ms: u64,
+
+    /// Hard max wait for queued requests before forcing send, in seconds.
+    #[arg(long, env = "BATCH_MAX_WAIT_SECS", default_value = "30")]
+    pub max_wait_secs: u64,
+
+    /// EMA alpha for base fee smoothing in [0, 1].
+    #[arg(long, env = "BATCH_COST_EMA_ALPHA", default_value = "0.2")]
+    pub cost_ema_alpha: f64,
+
+    /// Cost pressure threshold: cost_score >= threshold is considered expensive.
+    #[arg(long, env = "BATCH_COST_HIGH_RATIO", default_value = "1.2")]
+    pub cost_high_ratio: f64,
+
+    /// Backlog size where urgency size pressure reaches 1.0.
+    #[arg(long, env = "BATCH_BACKLOG_HIGH_WATERMARK", default_value = "200")]
+    pub backlog_high_watermark: usize,
+}
+
+impl Default for BatchPolicyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            reeval_ms: 1_000,
+            max_wait_secs: 30,
+            cost_ema_alpha: 0.2,
+            cost_high_ratio: 1.2,
+            backlog_high_watermark: 200,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct GatewayConfig {
@@ -73,10 +111,6 @@ pub struct GatewayConfig {
     /// The HTTP RPC endpoint to submit transactions
     #[command(flatten)]
     pub provider: ProviderArgs,
-
-    /// Batch window in milliseconds
-    #[arg(long, env = "BATCH_MS", default_value_t = defaults::BATCH_MS)]
-    pub batch_ms: u64,
 
     /// Maximum batch size for create account requests
     #[arg(long, env = "MAX_CREATE_BATCH_SIZE", default_value_t = defaults::MAX_CREATE_BATCH_SIZE)]
@@ -118,6 +152,9 @@ pub struct GatewayConfig {
     #[arg(long, env = "ORPHAN_SWEEPER_INTERVAL_SECS", default_value_t = defaults::SWEEPER_INTERVAL_SECS)]
     pub sweeper_interval_secs: u64,
 
+    #[command(flatten)]
+    pub batch_policy: BatchPolicyConfig,
+
     /// Staleness threshold for Queued/Batching requests (seconds).
     #[arg(long, env = "STALE_QUEUED_THRESHOLD_SECS", default_value_t = defaults::STALE_QUEUED_THRESHOLD_SECS)]
     pub stale_queued_threshold_secs: u64,
@@ -148,12 +185,64 @@ impl GatewayConfig {
             );
         }
 
+        if !(0.0..=1.0).contains(&self.batch_policy.cost_ema_alpha) {
+            return Err(GatewayError::Config(
+                "BATCH_COST_EMA_ALPHA must be in the inclusive range [0, 1]".to_string(),
+            ));
+        }
+
+        if self.batch_policy.reeval_ms == 0 {
+            return Err(GatewayError::Config(
+                "BATCH_REEVAL_MS must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.batch_policy.max_wait_secs == 0 {
+            return Err(GatewayError::Config(
+                "BATCH_MAX_WAIT_SECS must be greater than 0".to_string(),
+            ));
+        }
+
+        let max_wait_ms = (self.batch_policy.max_wait_secs as u128) * 1000;
+        if (self.batch_policy.reeval_ms as u128) > max_wait_ms {
+            return Err(GatewayError::Config(
+                "BATCH_REEVAL_MS must be less than or equal to BATCH_MAX_WAIT_SECS * 1000"
+                    .to_string(),
+            ));
+        }
+
+        if !self.batch_policy.cost_high_ratio.is_finite() {
+            return Err(GatewayError::Config(
+                "BATCH_COST_HIGH_RATIO must be a finite number".to_string(),
+            ));
+        }
+
+        if self.batch_policy.cost_high_ratio <= 0.0 {
+            return Err(GatewayError::Config(
+                "BATCH_COST_HIGH_RATIO must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.batch_policy.backlog_high_watermark == 0 {
+            return Err(GatewayError::Config(
+                "BATCH_BACKLOG_HIGH_WATERMARK must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.batch_policy.enabled
+            && self.sweeper().stale_queued_threshold_secs <= self.batch_policy.max_wait_secs
+        {
+            return Err(GatewayError::Config(
+                "STALE_QUEUED_THRESHOLD_SECS must be greater than BATCH_MAX_WAIT_SECS when adaptive batching is enabled"
+                    .to_string(),
+            ));
+        }
+
         Ok(())
     }
 
     pub fn batcher(&self) -> BatcherConfig {
         BatcherConfig {
-            batch_ms: self.batch_ms,
             max_create_batch_size: self.max_create_batch_size,
             max_ops_batch_size: self.max_ops_batch_size,
         }
@@ -182,6 +271,8 @@ impl GatewayConfig {
 mod tests {
     use super::*;
     use clap::error::ErrorKind;
+    const TEST_PRIVATE_KEY: &str =
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
     const BASE_ARGS: &[&str] = &[
         "test",
@@ -200,6 +291,11 @@ mod tests {
             .copied()
             .collect();
         GatewayConfig::try_parse_from(args)
+    }
+
+    fn parse_valid_config() -> GatewayConfig {
+        parse_with_signer_args(&["--wallet-private-key", TEST_PRIVATE_KEY])
+            .expect("valid config should parse")
     }
 
     #[test]
@@ -255,5 +351,29 @@ mod tests {
     fn rate_limit_rejects_only_max_requests() {
         let result = parse_with_signer_args(&["--rate-limit-max-requests", "100"]);
         assert!(result.is_err(), "providing only max_requests should fail");
+    }
+
+    #[test]
+    fn test_reeval_ms_must_not_exceed_max_wait_ms() {
+        let mut config = parse_valid_config();
+        config.batch_policy.max_wait_secs = 30;
+        config.batch_policy.reeval_ms = 31_000;
+
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("BATCH_REEVAL_MS"));
+    }
+
+    #[test]
+    fn test_cost_high_ratio_must_be_finite() {
+        let mut config = parse_valid_config();
+        config.batch_policy.cost_high_ratio = f64::NAN;
+
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("BATCH_COST_HIGH_RATIO"));
+        assert!(err.contains("finite"));
     }
 }
