@@ -114,20 +114,14 @@ impl CreateBatcherRunner {
         let mut queue: VecDeque<TimedCreateReqEnvelope> = VecDeque::new();
         let mut next_eval = Instant::now() + reeval_interval;
         let mut rx_open = true;
-        let mut queue_backpressure_logged = false;
 
         while rx_open || !queue.is_empty() {
             if queue.len() >= self.local_queue_limit {
-                if !queue_backpressure_logged {
-                    tracing::warn!(
-                        queue_len = queue.len(),
-                        local_queue_limit = self.local_queue_limit,
-                        "create policy queue reached local capacity, pausing intake for backpressure"
-                    );
-                    queue_backpressure_logged = true;
-                }
-            } else {
-                queue_backpressure_logged = false;
+                tracing::warn!(
+                    queue_len = queue.len(),
+                    local_queue_limit = self.local_queue_limit,
+                    "create policy queue reached local capacity, pausing intake for backpressure"
+                );
             }
 
             if queue.is_empty() {
