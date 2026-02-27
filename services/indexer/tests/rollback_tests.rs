@@ -19,8 +19,9 @@ mod helpers;
 use alloy::primitives::{Address, U256};
 use helpers::{common::init_test_tracing, db_helpers::*, mock_blockchain::*};
 use world_id_indexer::{
-    db::WorldIdRegistryEventId, events_committer::EventsCommitter,
-    rollback_executor::RollbackExecutor,
+    db::{IsolationLevel, WorldIdRegistryEventId},
+    events_committer::EventsCommitter,
+    rollback_executor::rollback_to_event,
 };
 
 /// Test basic rollback: delete events after a specific point
@@ -61,8 +62,9 @@ async fn test_basic_rollback_deletes_events_after_point() {
         log_index: 1,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // Verify data after rollback
     assert_account_count(db.pool(), 2).await;
@@ -105,8 +107,9 @@ async fn test_rollback_within_same_block() {
         log_index: 1,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // Verify data after rollback
     assert_account_count(db.pool(), 2).await;
@@ -145,8 +148,9 @@ async fn test_rollback_to_genesis() {
         log_index: 0,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // Verify all data is removed
     assert_account_count(db.pool(), 0).await;
@@ -211,8 +215,9 @@ async fn test_rollback_with_account_updates() {
         log_index: 1,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // After rollback:
     // - Account 1 should EXIST with updated state (events at 100,0 and 101,0 are both kept)
@@ -274,8 +279,9 @@ async fn test_rollback_preserves_old_accounts() {
         log_index: 1,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // Verify accounts 1 and 2 are preserved, account 3 is removed
     assert_account_count(db.pool(), 2).await;
@@ -354,8 +360,9 @@ async fn test_rollback_with_mixed_event_types() {
         log_index: 1,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // Account should EXIST with state after authenticator insertion (at block 101)
     // Recovery event at block 102 should be removed
@@ -422,8 +429,9 @@ async fn test_rollback_to_current_state_no_op() {
         log_index: 1,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // Verify data unchanged
     assert_account_count(db.pool(), 1).await;
@@ -448,8 +456,9 @@ async fn test_rollback_empty_database() {
         log_index: 0,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // Verify database still empty
     assert_account_count(db.pool(), 0).await;
@@ -503,8 +512,9 @@ async fn test_rollback_identifies_affected_leaves() {
         log_index: 1,
     };
 
-    let mut executor = RollbackExecutor::new(db);
-    executor.rollback_to_event(rollback_point).await.unwrap();
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
 
     // Verify correct accounts remain
     assert_account_count(db.pool(), 3).await;
