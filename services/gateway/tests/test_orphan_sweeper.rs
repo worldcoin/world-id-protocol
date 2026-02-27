@@ -11,7 +11,7 @@ use redis::{AsyncCommands, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_core::api_types::{GatewayRequestKind, GatewayRequestState, GatewayStatusResponse};
 use world_id_gateway::{
-    GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker, now_unix_secs,
+    GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker, defaults, now_unix_secs,
     spawn_gateway_for_tests, sweep_once,
 };
 use world_id_services_common::{ProviderArgs, SignerArgs};
@@ -496,17 +496,16 @@ async fn sweep_submitted_with_real_receipt() {
             ..Default::default()
         },
         batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4200).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4200).into(),
         redis_url: url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: None,
         rate_limit_max_requests: None,
-        sweeper: OrphanSweeperConfig {
-            interval_secs: 9999, // don't auto-sweep during this test
-            ..Default::default()
-        },
+        sweeper_interval_secs: 9999, // don't auto-sweep during this test
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");

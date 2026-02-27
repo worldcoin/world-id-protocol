@@ -1,5 +1,5 @@
 pub use crate::{
-    config::{GatewayConfig, OrphanSweeperConfig, RateLimitConfig},
+    config::{BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig, defaults},
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
@@ -46,7 +46,9 @@ impl GatewayHandle {
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
-    let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
+    let batcher_config = cfg.batcher();
+    let rate_limit = cfg.rate_limit();
+    let sweeper_config = cfg.sweeper();
 
     // Each test gateway gets a unique Redis key prefix so that concurrent
     // tests (each backed by a separate Anvil chain) do not share nonce state.
@@ -67,13 +69,11 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     ));
     let app = build_app(
         registry,
-        cfg.batch_ms,
-        cfg.max_create_batch_size,
-        cfg.max_ops_batch_size,
+        batcher_config,
         cfg.redis_url,
-        rate_limit_config,
+        rate_limit,
         cfg.request_timeout_secs,
-        cfg.sweeper,
+        sweeper_config,
     )
     .await?;
 
@@ -110,7 +110,6 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env()?;
-    let rate_limit_config = cfg.rate_limit().map(|c| (c.window_secs, c.max_requests));
 
     // Use Redis-backed nonce manager so multiple replicas sharing the same
     // signer key never collide on nonces.  The existing REDIS_URL config
@@ -130,19 +129,21 @@ pub async fn run() -> GatewayResult<()> {
     let nonce_mgr = RedisNonceManager::new(redis_conn);
     tracing::info!("Redis-backed nonce manager initialised");
 
+    let batcher_config = cfg.batcher();
+    let rate_limit = cfg.rate_limit();
+    let sweeper_config = cfg.sweeper();
+
     let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
         registry,
-        cfg.batch_ms,
-        cfg.max_create_batch_size,
-        cfg.max_ops_batch_size,
+        batcher_config,
         cfg.redis_url,
-        rate_limit_config,
+        rate_limit,
         cfg.request_timeout_secs,
-        cfg.sweeper,
+        sweeper_config,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

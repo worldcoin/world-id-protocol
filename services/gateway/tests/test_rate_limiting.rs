@@ -11,7 +11,7 @@ use world_id_core::{
     api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest},
     world_id_registry::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData},
 };
-use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, spawn_gateway_for_tests};
+use world_id_gateway::{GatewayConfig, defaults, spawn_gateway_for_tests};
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -88,14 +88,16 @@ async fn test_rate_limit_basic() {
             ..Default::default()
         },
         batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4105).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4105).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
-        rate_limit_window_secs: Some(10), // 10 second window for testing
-        rate_limit_max_requests: Some(3), // Only 3 requests allowed
-        sweeper: OrphanSweeperConfig::default(),
+        rate_limit_window_secs: Some(10),
+        rate_limit_max_requests: Some(3),
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -295,14 +297,16 @@ async fn test_rate_limit_different_leaf_indexes() {
             ..Default::default()
         },
         batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4106).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4106).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
-        rate_limit_max_requests: Some(2), // Only 2 requests per leaf_index
-        sweeper: OrphanSweeperConfig::default(),
+        rate_limit_max_requests: Some(2),
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -451,14 +455,16 @@ async fn test_rate_limit_sliding_window() {
             ..Default::default()
         },
         batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4107).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4107).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
-        rate_limit_window_secs: Some(3), // 3 second window for faster testing
+        rate_limit_window_secs: Some(3),
         rate_limit_max_requests: Some(2),
-        sweeper: OrphanSweeperConfig::default(),
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -604,14 +610,16 @@ async fn test_rate_limit_multiple_endpoints() {
             ..Default::default()
         },
         batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4108).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4108).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
         rate_limit_max_requests: Some(3),
-        sweeper: OrphanSweeperConfig::default(),
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
