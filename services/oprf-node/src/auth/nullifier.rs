@@ -543,8 +543,10 @@ mod tests {
 
     #[test]
     fn nullifier_auth_error_display_is_valid_json_within_budget() {
-        use world_id_primitives::oprf::{MAX_CLOSE_REASON_BYTES, OprfAuthErrorResponse};
-        use world_id_primitives::rp::RpId;
+        use world_id_primitives::{
+            oprf::{MAX_CLOSE_REASON_BYTES, OprfAuthErrorResponse},
+            rp::RpId,
+        };
 
         let errors: Vec<NullifierOprfRequestAuthError> = vec![
             NullifierOprfRequestAuthError::TimeStampDifference,

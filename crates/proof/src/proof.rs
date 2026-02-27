@@ -118,16 +118,16 @@ impl From<taceo_oprf::client::Error> for ProofError {
                 let categorized = node_errors
                     .into_iter()
                     .map(|(url, node_err)| {
-                        let round1 =
-                            if let taceo_oprf::client::Error::ServerError(ref s) = node_err {
-                                let json = s.find(": ").map(|i| &s[i + 2..]).unwrap_or(s);
-                                match OprfAuthErrorResponse::from_json(json) {
-                                    Some(resp) => Round1Error::AuthError(resp),
-                                    None => Round1Error::Other(node_err),
-                                }
-                            } else {
-                                Round1Error::Other(node_err)
-                            };
+                        let round1 = if let taceo_oprf::client::Error::ServerError(ref s) = node_err
+                        {
+                            let json = s.find(": ").map(|i| &s[i + 2..]).unwrap_or(s);
+                            match OprfAuthErrorResponse::from_json(json) {
+                                Some(resp) => Round1Error::AuthError(resp),
+                                None => Round1Error::Other(node_err),
+                            }
+                        } else {
+                            Round1Error::Other(node_err)
+                        };
                         (url, round1)
                     })
                     .collect();
@@ -549,9 +549,7 @@ mod from_oprf_error_tests {
                     Round1Error::AuthError(resp) => {
                         assert_eq!(
                             *resp,
-                            OprfAuthErrorResponse::UnknownRp {
-                                rp_id: "42".into()
-                            }
+                            OprfAuthErrorResponse::UnknownRp { rp_id: "42".into() }
                         );
                     }
                     other => panic!("expected AuthError, got {other:?}"),

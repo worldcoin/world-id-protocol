@@ -17,8 +17,7 @@ use ark_bn254::Bn254;
 use axum::{http::StatusCode, response::IntoResponse};
 use circom_types::groth16::VerificationKey;
 use taceo_oprf::types::OprfKeyId;
-use world_id_primitives::TREE_DEPTH;
-use world_id_primitives::oprf::OprfAuthErrorResponse;
+use world_id_primitives::{TREE_DEPTH, oprf::OprfAuthErrorResponse};
 
 use crate::auth::merkle_watcher::{MerkleWatcher, MerkleWatcherError};
 

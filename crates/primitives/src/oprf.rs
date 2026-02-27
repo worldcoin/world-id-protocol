@@ -174,9 +174,7 @@ mod tests {
             },
             OprfAuthErrorResponse::InvalidSigner,
             OprfAuthErrorResponse::DuplicateSignature,
-            OprfAuthErrorResponse::UnknownRp {
-                rp_id: "42".into(),
-            },
+            OprfAuthErrorResponse::UnknownRp { rp_id: "42".into() },
             OprfAuthErrorResponse::RpInactive,
             OprfAuthErrorResponse::InvalidAction,
             OprfAuthErrorResponse::UnknownSchemaIssuer {
@@ -202,9 +200,7 @@ mod tests {
 
     #[test]
     fn data_variant_wire_format() {
-        let resp = OprfAuthErrorResponse::UnknownRp {
-            rp_id: "42".into(),
-        };
+        let resp = OprfAuthErrorResponse::UnknownRp { rp_id: "42".into() };
         assert_eq!(resp.to_json(), r#"{"code":"unknown_rp","rp_id":"42"}"#);
     }
 
