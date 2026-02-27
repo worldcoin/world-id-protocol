@@ -14,23 +14,87 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use uuid::Uuid;
-use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
+use world_id_primitives::oprf::{
+    CredentialBlindingFactorOprfRequestAuthV1, OprfRequestErrorResponse,
+};
 
-/// Errors returned by the [`CredentialBlindingFactorOprfReqAuthenticator`].
-#[derive(Debug, thiserror::Error)]
+/// Errors returned by the [`CredentialBlindingFactorOprfRequestAuthenticator`].
+#[derive(Debug)]
 pub(crate) enum CredentialBlindingFactorOprfRequestAuthError {
     /// An error returned from the CredentialSchemaIssuerRegistry watcher service.
-    #[error(transparent)]
-    SchemaIssuerRegistryWatcherError(#[from] SchemaIssuerRegistryWatcherError),
-    /// The provided action is not valid (must be 0 for now, might change in the future)
-    #[error("invalid action")]
+    SchemaIssuerRegistryWatcherError(SchemaIssuerRegistryWatcherError),
+    /// The provided action is not valid (must be 0 for now, might change in the future).
     InvalidAction,
-    /// Common OPRF request auth error
-    #[error(transparent)]
-    Common(#[from] crate::auth::OprfRequestAuthError),
-    /// Internal server error
-    #[error(transparent)]
-    InternalServerError(#[from] eyre::Report),
+    /// Common OPRF request auth error.
+    Common(crate::auth::OprfRequestAuthError),
+    /// Internal server error.
+    InternalServerError(eyre::Report),
+}
+
+impl From<SchemaIssuerRegistryWatcherError> for CredentialBlindingFactorOprfRequestAuthError {
+    fn from(err: SchemaIssuerRegistryWatcherError) -> Self {
+        Self::SchemaIssuerRegistryWatcherError(err)
+    }
+}
+
+impl From<crate::auth::OprfRequestAuthError> for CredentialBlindingFactorOprfRequestAuthError {
+    fn from(err: crate::auth::OprfRequestAuthError) -> Self {
+        Self::Common(err)
+    }
+}
+
+impl From<eyre::Report> for CredentialBlindingFactorOprfRequestAuthError {
+    fn from(err: eyre::Report) -> Self {
+        Self::InternalServerError(err)
+    }
+}
+
+impl CredentialBlindingFactorOprfRequestAuthError {
+    /// Lossy conversion to the compact wire-format error response.
+    ///
+    /// Internal details (e.g. alloy RPC errors, eyre chains) are
+    /// intentionally dropped — only a client-safe error code survives.
+    pub(crate) fn to_oprf_response(&self) -> OprfRequestErrorResponse {
+        match self {
+            Self::SchemaIssuerRegistryWatcherError(
+                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(id),
+            ) => OprfRequestErrorResponse::UnknownSchemaIssuer {
+                issuer_schema_id: format!("{id}"),
+            },
+            Self::SchemaIssuerRegistryWatcherError(
+                SchemaIssuerRegistryWatcherError::AlloyError(_),
+            ) => OprfRequestErrorResponse::ServiceUnavailable,
+            Self::InvalidAction => OprfRequestErrorResponse::InvalidAction,
+            Self::Common(err) => err.to_oprf_response(),
+            Self::InternalServerError(_) => {
+                let error_id = Uuid::new_v4();
+                tracing::error!("{error_id} - {:?}", self);
+                OprfRequestErrorResponse::InternalServerError {
+                    error_id: error_id.to_string(),
+                }
+            }
+        }
+    }
+}
+
+/// `taceo-oprf-service` calls `.to_string()` on auth errors to build the
+/// WebSocket close frame reason, so `Display` must emit the structured JSON
+/// that clients parse back into [`OprfRequestErrorResponse`].
+impl std::fmt::Display for CredentialBlindingFactorOprfRequestAuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.to_oprf_response().to_json())
+    }
+}
+
+impl std::error::Error for CredentialBlindingFactorOprfRequestAuthError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::SchemaIssuerRegistryWatcherError(e) => Some(e),
+            Self::Common(e) => Some(e),
+            Self::InternalServerError(e) => Some(e.as_ref()),
+            _ => None,
+        }
+    }
 }
 
 impl IntoResponse for CredentialBlindingFactorOprfRequestAuthError {
@@ -365,5 +429,44 @@ mod tests {
             ) if id == setup.setup.issuer_schema_id
         ));
         Ok(())
+    }
+
+    #[test]
+    fn credential_auth_error_display_is_valid_json_within_budget() {
+        use world_id_primitives::oprf::{MAX_CLOSE_REASON_BYTES, OprfRequestErrorResponse};
+
+        let errors: Vec<CredentialBlindingFactorOprfRequestAuthError> = vec![
+            CredentialBlindingFactorOprfRequestAuthError::InvalidAction,
+            CredentialBlindingFactorOprfRequestAuthError::SchemaIssuerRegistryWatcherError(
+                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(u64::MAX),
+            ),
+            CredentialBlindingFactorOprfRequestAuthError::SchemaIssuerRegistryWatcherError(
+                SchemaIssuerRegistryWatcherError::AlloyError(
+                    alloy::contract::Error::UnknownFunction("test".to_string()),
+                ),
+            ),
+            CredentialBlindingFactorOprfRequestAuthError::Common(
+                OprfRequestAuthError::InvalidProof,
+            ),
+            CredentialBlindingFactorOprfRequestAuthError::Common(
+                OprfRequestAuthError::InvalidMerkleRoot,
+            ),
+            CredentialBlindingFactorOprfRequestAuthError::InternalServerError(eyre::eyre!(
+                "something broke"
+            )),
+        ];
+
+        for err in errors {
+            let display = format!("{err}");
+            let parsed: OprfRequestErrorResponse =
+                serde_json::from_str(&display).unwrap_or_else(|e| {
+                    panic!("Display for {err:?} is not valid JSON: {display} ({e})")
+                });
+            assert!(
+                display.len() <= MAX_CLOSE_REASON_BYTES,
+                "{parsed:?} Display is {} bytes, exceeds {MAX_CLOSE_REASON_BYTES}: {display}",
+                display.len()
+            );
+        }
     }
 }
