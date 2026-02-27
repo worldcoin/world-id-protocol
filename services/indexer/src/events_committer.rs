@@ -52,7 +52,11 @@ impl<'a> EventsCommitter<'a> {
             self.buffered_events.last().expect("just pushed").details
         {
             let root_recorded = root_recorded.clone();
-            let block_number = self.buffered_events.last().expect("just pushed").block_number;
+            let block_number = self
+                .buffered_events
+                .last()
+                .expect("just pushed")
+                .block_number;
             self.commit_events(&root_recorded, block_number).await?;
             return Ok(true);
         }

@@ -12,8 +12,7 @@ mod helpers;
 use alloy::primitives::{Address, U256};
 use helpers::{db_helpers::*, mock_blockchain::*};
 use world_id_indexer::{
-    db::WorldIdRegistryEventId,
-    events_committer::EventsCommitter,
+    db::WorldIdRegistryEventId, events_committer::EventsCommitter,
     rollback_executor::rollback_to_last_valid_root,
 };
 
@@ -68,7 +67,13 @@ async fn test_all_invalid_roots_returns_none() {
     let mut committer = EventsCommitter::new(db);
 
     committer
-        .handle_event(mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(1)))
+        .handle_event(mock_account_created_event(
+            100,
+            0,
+            1,
+            Address::ZERO,
+            U256::from(1),
+        ))
         .await
         .unwrap();
     committer
@@ -88,7 +93,10 @@ async fn test_all_invalid_roots_returns_none() {
         .await
         .expect("should not error");
 
-    assert!(result.is_none(), "expected None — no roots are valid on-chain");
+    assert!(
+        result.is_none(),
+        "expected None — no roots are valid on-chain"
+    );
 
     // Nothing should have been deleted.
     assert_account_count(db.pool(), 1).await;
@@ -134,17 +142,34 @@ async fn test_rolls_back_to_last_valid_root() {
     // Batch 1: insert a real root that the chain knows.
     let mut committer = EventsCommitter::new(db);
     committer
-        .handle_event(mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(1)))
+        .handle_event(mock_account_created_event(
+            100,
+            0,
+            1,
+            Address::ZERO,
+            U256::from(1),
+        ))
         .await
         .unwrap();
     committer
-        .handle_event(mock_root_recorded_event(100, 1, valid_root, U256::from(100)))
+        .handle_event(mock_root_recorded_event(
+            100,
+            1,
+            valid_root,
+            U256::from(100),
+        ))
         .await
         .unwrap();
 
     // Batch 2: insert an account with a fabricated root (simulates a reorged block).
     committer
-        .handle_event(mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(2)))
+        .handle_event(mock_account_created_event(
+            101,
+            0,
+            2,
+            Address::ZERO,
+            U256::from(2),
+        ))
         .await
         .unwrap();
     committer
@@ -209,11 +234,22 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
 
     let mut committer = EventsCommitter::new(db);
     committer
-        .handle_event(mock_account_created_event(200, 0, 1, Address::ZERO, U256::from(1)))
+        .handle_event(mock_account_created_event(
+            200,
+            0,
+            1,
+            Address::ZERO,
+            U256::from(1),
+        ))
         .await
         .unwrap();
     committer
-        .handle_event(mock_root_recorded_event(200, 1, valid_root, U256::from(200)))
+        .handle_event(mock_root_recorded_event(
+            200,
+            1,
+            valid_root,
+            U256::from(200),
+        ))
         .await
         .unwrap();
 

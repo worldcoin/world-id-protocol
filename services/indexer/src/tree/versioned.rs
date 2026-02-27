@@ -82,16 +82,16 @@ impl VersionedTreeState {
     ) -> TreeResult<()> {
         let old_value = self.inner.tree.get_leaf(leaf_index).await;
 
-        self.inner
-            .tree
-            .set_leaf_at_index(leaf_index, value)
-            .await?;
+        self.inner.tree.set_leaf_at_index(leaf_index, value).await?;
 
         let mut history = self.inner.history.write().await;
         history
             .entry(leaf_index)
             .or_default()
-            .push_back(LeafVersion { event_id, old_value });
+            .push_back(LeafVersion {
+                event_id,
+                old_value,
+            });
 
         Ok(())
     }
@@ -110,10 +110,7 @@ impl VersionedTreeState {
         for (leaf_index, log) in history.iter_mut() {
             // Find and discard all versions strictly after target, restoring
             // the leaf to what it was before each such version was applied.
-            while log
-                .back()
-                .is_some_and(|v| v.event_id > target)
-            {
+            while log.back().is_some_and(|v| v.event_id > target) {
                 let version = log.pop_back().expect("checked above");
                 self.inner
                     .tree
@@ -488,10 +485,7 @@ mod tests {
 
         let val_a = U256::from(1u64);
         let val_b = U256::from(2u64);
-        let simulated = v
-            .simulate_root(&[(0, val_a), (7, val_b)])
-            .await
-            .unwrap();
+        let simulated = v.simulate_root(&[(0, val_a), (7, val_b)]).await.unwrap();
 
         v.set_leaf_at_index(0, val_a, event_id(1)).await.unwrap();
         v.set_leaf_at_index(7, val_b, event_id(2)).await.unwrap();

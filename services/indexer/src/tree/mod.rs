@@ -82,9 +82,7 @@ impl TreeApplier for VersionedTreeState {
 /// Extract `(leaf_index, commitment)` from a `RegistryEvent`.
 ///
 /// Returns `None` for `RootRecorded` events which carry no leaf data.
-pub fn extract_leaf_commitment(
-    event: &crate::blockchain::RegistryEvent,
-) -> Option<(u64, U256)> {
+pub fn extract_leaf_commitment(event: &crate::blockchain::RegistryEvent) -> Option<(u64, U256)> {
     use crate::blockchain::RegistryEvent;
 
     match event {
