@@ -6,7 +6,8 @@ mod world_id_registry_events;
 
 pub use accounts::Accounts;
 pub use world_id_registry_events::{
-    WorldIdRegistryEvent, WorldIdRegistryEventId, WorldIdRegistryEventType, WorldIdRegistryEvents,
+    BlockWithConflictingHashes, WorldIdRegistryEvent, WorldIdRegistryEventId,
+    WorldIdRegistryEventType, WorldIdRegistryEvents,
 };
 
 pub type DBResult<T> = Result<T, DBError>;
@@ -23,8 +24,8 @@ pub enum DBError {
     MissingEventField { field: String },
     #[error("invalid value for field '{field}' in event data: {reason}")]
     InvalidEventField { field: String, reason: String },
-    #[error("blockchain reorg detected: {0}")]
-    ReorgDetected(String),
+    #[error("blockchain reorg detected at block {block_number}: {reason}")]
+    ReorgDetected { block_number: u64, reason: String },
     #[error("contract call failed: {0}")]
     ContractCall(String),
 }

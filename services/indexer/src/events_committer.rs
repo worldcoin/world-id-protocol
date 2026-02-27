@@ -1,12 +1,19 @@
+use alloy::providers::DynProvider;
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+
 use crate::{
-    blockchain::{BlockchainEvent, RegistryEvent},
+    blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
     db::{DB, DBResult, IsolationLevel},
+    error::IndexerResult,
     events_processor::EventsProcessor,
+    tree::{VersionedTreeState, apply_event_to_tree},
 };
 
 pub struct EventsCommitter<'a> {
     db: &'a DB,
     buffered_events: Vec<BlockchainEvent<RegistryEvent>>,
+    versioned_tree: Option<VersionedTreeState>,
+    registry: Option<WorldIdRegistryInstance<DynProvider>>,
 }
 
 impl<'a> EventsCommitter<'a> {
@@ -14,36 +21,94 @@ impl<'a> EventsCommitter<'a> {
         Self {
             db,
             buffered_events: vec![],
+            versioned_tree: None,
+            registry: None,
         }
     }
+
+    pub fn with_versioned_tree(
+        mut self,
+        tree: VersionedTreeState,
+        registry: WorldIdRegistryInstance<DynProvider>,
+    ) -> Self {
+        self.versioned_tree = Some(tree);
+        self.registry = Some(registry);
+        self
+    }
+
     /// Handle a single event: buffer it, and commit when a RootRecorded event
     /// is seen. Returns `true` when a DB commit happened (batch flushed).
-    pub async fn handle_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DBResult<bool> {
-        let is_root = matches!(event.details, RegistryEvent::RootRecorded(_));
-        self.buffer_event(event)?;
+    pub async fn handle_event(
+        &mut self,
+        event: BlockchainEvent<RegistryEvent>,
+    ) -> IndexerResult<bool> {
+        if let Some(tree) = &self.versioned_tree {
+            apply_event_to_tree(tree, &event).await?;
+        }
 
-        if is_root {
-            self.commit_events().await?;
+        self.buffer_event(event);
+
+        if let RegistryEvent::RootRecorded(ref root_recorded) =
+            self.buffered_events.last().expect("just pushed").details
+        {
+            let root_recorded = root_recorded.clone();
+            let block_number = self.buffered_events.last().expect("just pushed").block_number;
+            self.commit_events(&root_recorded, block_number).await?;
             return Ok(true);
         }
 
         Ok(false)
     }
 
-    fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) -> DBResult<()> {
+    fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) {
         tracing::info!(?event, "buffering event");
         self.buffered_events.push(event);
+    }
+
+    async fn commit_events(
+        &mut self,
+        root_recorded: &RootRecordedEvent,
+        block_number: u64,
+    ) -> IndexerResult<()> {
+        tracing::info!("committing events to DB");
+
+        // Check root validity on-chain before touching the DB.
+        if let Some(registry) = &self.registry {
+            let root = root_recorded.root;
+            let valid = registry
+                .isValidRoot(root)
+                .call()
+                .await
+                .map_err(|e| crate::db::DBError::ContractCall(e.to_string()))?;
+
+            if !valid {
+                return Err(crate::db::DBError::ReorgDetected {
+                    block_number,
+                    reason: format!(
+                        "root 0x{:x} from block {} is not valid on-chain",
+                        root, block_number
+                    ),
+                }
+                .into());
+            }
+
+            tracing::info!(
+                root = %format!("0x{:x}", root),
+                block_number,
+                "root validated on-chain"
+            );
+        }
+
+        self.commit_to_db().await?;
+
         Ok(())
     }
 
-    async fn commit_events(&mut self) -> DBResult<()> {
-        tracing::info!("committing events to DB");
-
-        let mut transaction = self.db.transaction(IsolationLevel::Serializable).await?;
+    async fn commit_to_db(&mut self) -> DBResult<()> {
+        let mut tx = self.db.transaction(IsolationLevel::Serializable).await?;
 
         for event in self.buffered_events.iter() {
-            // First, store the full event in world_id_registry_events with idempotency check
-            let db_event = transaction
+            let db_event = tx
                 .world_id_registry_events()
                 .await?
                 .get_event((event.block_number, event.log_index))
@@ -51,20 +116,28 @@ impl<'a> EventsCommitter<'a> {
 
             if let Some(db_event) = db_event {
                 if db_event.block_hash != event.block_hash {
-                    return Err(crate::db::DBError::ReorgDetected(format!(
-                        "Event at block {} log_index {} exists with different block_hash (db: {}, event: {})",
-                        event.block_number, event.log_index, db_event.block_hash, event.block_hash,
-                    )));
+                    return Err(crate::db::DBError::ReorgDetected {
+                        block_number: event.block_number,
+                        reason: format!(
+                            "Event at block {} log_index {} exists with different block_hash (db: {}, event: {})",
+                            event.block_number,
+                            event.log_index,
+                            db_event.block_hash,
+                            event.block_hash,
+                        ),
+                    });
                 }
 
                 if db_event.tx_hash != event.tx_hash {
-                    return Err(crate::db::DBError::ReorgDetected(format!(
-                        "Event at block {} log_index {} exists with different tx_hash (db: {}, event: {})",
-                        event.block_number, event.log_index, db_event.tx_hash, event.tx_hash,
-                    )));
+                    return Err(crate::db::DBError::ReorgDetected {
+                        block_number: event.block_number,
+                        reason: format!(
+                            "Event at block {} log_index {} exists with different tx_hash (db: {}, event: {})",
+                            event.block_number, event.log_index, db_event.tx_hash, event.tx_hash,
+                        ),
+                    });
                 }
 
-                // Event already processed with matching tx_hash - skip it (idempotent)
                 tracing::info!(
                     block_number = event.block_number,
                     log_index = event.log_index,
@@ -72,19 +145,32 @@ impl<'a> EventsCommitter<'a> {
                 );
                 continue;
             } else {
-                // Event doesn't exist - insert it
-                transaction
-                    .world_id_registry_events()
+                tx.world_id_registry_events()
                     .await?
                     .insert_event(event)
                     .await?;
             }
 
-            // Apply the event to update account state
-            EventsProcessor::process_event(&mut transaction, event).await?;
+            EventsProcessor::process_event(&mut tx, event).await?;
         }
 
-        transaction.commit().await?;
+        let blocks = tx
+            .world_id_registry_events()
+            .await?
+            .get_blocks_with_conflicting_hashes()
+            .await?;
+
+        if !blocks.is_empty() {
+            return Err(crate::db::DBError::ReorgDetected {
+                block_number: blocks[0].block_number,
+                reason: format!(
+                    "After processing events detected blocks with mismatch on block hashes: {:?}",
+                    blocks,
+                ),
+            });
+        }
+
+        tx.commit().await?;
 
         self.buffered_events.clear();
 
