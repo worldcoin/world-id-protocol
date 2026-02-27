@@ -25,6 +25,8 @@ pub enum DBError {
     InvalidEventField { field: String, reason: String },
     #[error("blockchain reorg detected: {0}")]
     ReorgDetected(String),
+    #[error("contract call failed: {0}")]
+    ContractCall(String),
 }
 
 // Helper macros for cleaner error construction
