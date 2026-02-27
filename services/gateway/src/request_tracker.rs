@@ -7,6 +7,7 @@ use utoipa::ToSchema;
 use world_id_core::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
 use crate::{
+    batch_policy::BacklogUrgencyStats,
     config::RateLimitConfig,
     error::{GatewayErrorResponse, GatewayResult},
 };

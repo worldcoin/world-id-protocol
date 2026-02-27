@@ -13,7 +13,9 @@ use world_id_core::{
     Authenticator, AuthenticatorError,
     api_types::{GatewayRequestState, GatewayStatusResponse},
 };
-use world_id_gateway::{GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+};
 use world_id_primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::{TestAnvil, WorldIDRegistry},

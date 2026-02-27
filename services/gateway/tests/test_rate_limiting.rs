@@ -11,7 +11,7 @@ use world_id_core::{
     api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest},
     world_id_registry::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData},
 };
-use world_id_gateway::{GatewayConfig, defaults, spawn_gateway_for_tests};
+use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway_for_tests};
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 

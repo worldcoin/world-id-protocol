@@ -233,7 +233,7 @@ impl GatewayConfig {
         }
 
         if self.batch_policy.enabled
-            && self.sweeper.stale_queued_threshold_secs <= self.batch_policy.max_wait_secs
+            && self.sweeper().stale_queued_threshold_secs <= self.batch_policy.max_wait_secs
         {
             return Err(GatewayError::Config(
                 "STALE_QUEUED_THRESHOLD_SECS must be greater than BATCH_MAX_WAIT_SECS when adaptive batching is enabled"
@@ -246,7 +246,7 @@ impl GatewayConfig {
 
     pub fn batcher(&self) -> BatcherConfig {
         BatcherConfig {
-            batch_ms: self.batch_ms,
+            batch_ms: self.batch_policy.reeval_ms,
             max_create_batch_size: self.max_create_batch_size,
             max_ops_batch_size: self.max_ops_batch_size,
         }
@@ -357,6 +357,7 @@ mod tests {
         assert!(result.is_err(), "providing only max_requests should fail");
     }
 
+    #[test]
     fn test_reeval_ms_must_not_exceed_max_wait_ms() {
         let mut config = parse_valid_config();
         config.batch_policy.max_wait_secs = 30;

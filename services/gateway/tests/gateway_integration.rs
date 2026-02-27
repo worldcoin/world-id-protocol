@@ -16,7 +16,9 @@ use world_id_core::{
         sign_remove_authenticator, sign_update_authenticator,
     },
 };
-use world_id_gateway::{GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+};
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 

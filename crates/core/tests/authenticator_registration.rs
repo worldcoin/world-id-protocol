@@ -5,7 +5,9 @@ use std::sync::Arc;
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
-use world_id_gateway::{GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+};
 use world_id_primitives::Config;
 use world_id_test_utils::anvil::TestAnvil;
 

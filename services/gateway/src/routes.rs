@@ -4,7 +4,7 @@ use crate::{
     AppState,
     batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
     batcher::BatcherHandle,
-    config::{BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
+    config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::{GatewayErrorBody, GatewayResult},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
