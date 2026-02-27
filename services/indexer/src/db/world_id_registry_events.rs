@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Event identifier for World ID Registry events
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct WorldIdRegistryEventId {
     pub block_number: u64,
     pub log_index: u64,
@@ -129,6 +129,23 @@ pub fn serialize_event_data(event: &RegistryEvent) -> serde_json::Value {
             "timestamp": format!("{}", ev.timestamp),
         }),
     }
+}
+
+/// Deserialize event data from JSON back to RootRecordedEvent
+pub fn deserialize_root_recorded(event_data: &serde_json::Value) -> DBResult<RootRecordedEvent> {
+    let root = event_data["root"]
+        .as_str()
+        .ok_or_else(|| missing_field!("root"))?
+        .parse()
+        .map_err(|_| invalid_field!("root", "failed to parse U256"))?;
+
+    let timestamp = event_data["timestamp"]
+        .as_str()
+        .ok_or_else(|| missing_field!("timestamp"))?
+        .parse()
+        .map_err(|_| invalid_field!("timestamp", "failed to parse U256"))?;
+
+    Ok(RootRecordedEvent { root, timestamp })
 }
 
 /// Deserialize event data from JSON back to RegistryEvent
@@ -355,25 +372,17 @@ pub fn deserialize_registry_event(
                 new_offchain_signer_commitment,
             }))
         }
-        WorldIdRegistryEventType::RootRecorded => {
-            let root = event_data["root"]
-                .as_str()
-                .ok_or_else(|| missing_field!("root"))?
-                .parse()
-                .map_err(|_| invalid_field!("root", "failed to parse U256"))?;
-
-            let timestamp = event_data["timestamp"]
-                .as_str()
-                .ok_or_else(|| missing_field!("timestamp"))?
-                .parse()
-                .map_err(|_| invalid_field!("timestamp", "failed to parse U256"))?;
-
-            Ok(RegistryEvent::RootRecorded(RootRecordedEvent {
-                root,
-                timestamp,
-            }))
-        }
+        WorldIdRegistryEventType::RootRecorded => Ok(RegistryEvent::RootRecorded(
+            deserialize_root_recorded(event_data)?,
+        )),
     }
+}
+
+/// A block number with all distinct block hashes observed for it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockWithConflictingHashes {
+    pub block_number: u64,
+    pub block_hashes: Vec<U256>,
 }
 
 pub struct WorldIdRegistryEvents<'a, E>
@@ -532,6 +541,103 @@ where
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Get RootRecorded events in descending order (newest first) strictly before the given cursor.
+    pub async fn get_root_recorded_events_desc_before(
+        self,
+        before: WorldIdRegistryEventId,
+        limit: u64,
+    ) -> DBResult<Vec<BlockchainEvent<RootRecordedEvent>>> {
+        let rows = sqlx::query(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    block_hash,
+                    tx_hash,
+                    event_type,
+                    leaf_index,
+                    event_data
+                FROM world_id_registry_events
+                WHERE event_type = 'root_recorded'
+                  AND (
+                      block_number < $1
+                      OR (block_number = $1 AND log_index < $2)
+                  )
+                ORDER BY
+                    block_number DESC,
+                    log_index DESC
+                LIMIT $3
+            "#,
+        )
+        .bind(before.block_number as i64)
+        .bind(before.log_index as i64)
+        .bind(limit as i64)
+        .fetch_all(self.executor)
+        .await?;
+
+        rows.iter()
+            .map(|row| Self::map_root_recorded_event(row))
+            .collect()
+    }
+
+    /// Find blocks where multiple distinct block_hashes have been recorded,
+    /// restricted to the given set of block numbers.
+    pub async fn get_blocks_with_conflicting_hashes(
+        self,
+        block_numbers: &[i64],
+    ) -> DBResult<Vec<BlockWithConflictingHashes>> {
+        if block_numbers.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let rows = sqlx::query(
+            r#"
+                SELECT block_number, block_hash
+                FROM world_id_registry_events
+                WHERE block_number IN (
+                    SELECT block_number
+                    FROM world_id_registry_events
+                    WHERE block_number = ANY($1)
+                    GROUP BY block_number
+                    HAVING COUNT(DISTINCT block_hash) > 1
+                )
+                GROUP BY block_number, block_hash
+                ORDER BY block_number ASC
+            "#,
+        )
+        .bind(block_numbers)
+        .fetch_all(self.executor)
+        .await?;
+
+        let mut result: Vec<BlockWithConflictingHashes> = Vec::new();
+        for row in &rows {
+            let block_number = row.get::<i64, _>("block_number") as u64;
+            let block_hash = row.get::<U256, _>("block_hash");
+            if let Some(entry) = result.last_mut().filter(|e| e.block_number == block_number) {
+                entry.block_hashes.push(block_hash);
+            } else {
+                result.push(BlockWithConflictingHashes {
+                    block_number,
+                    block_hashes: vec![block_hash],
+                });
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn map_root_recorded_event(row: &PgRow) -> DBResult<BlockchainEvent<RootRecordedEvent>> {
+        let event = Self::map_event(row)?;
+        let details = deserialize_root_recorded(&event.event_data)?;
+        Ok(BlockchainEvent {
+            block_number: event.id.block_number,
+            block_hash: event.block_hash,
+            tx_hash: event.tx_hash,
+            log_index: event.id.log_index,
+            details,
+        })
     }
 
     fn map_event(row: &PgRow) -> DBResult<WorldIdRegistryEvent> {

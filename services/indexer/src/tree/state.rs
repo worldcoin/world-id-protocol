@@ -83,6 +83,11 @@ impl TreeState {
         self.read().await.root()
     }
 
+    /// Get the value of a single leaf.
+    pub async fn get_leaf(&self, leaf_index: usize) -> U256 {
+        self.read().await.get_leaf(leaf_index)
+    }
+
     /// Atomically read leaf value, inclusion proof, and root under a single
     /// read lock to guarantee consistency.
     pub async fn leaf_proof_and_root(

@@ -39,7 +39,10 @@ impl AppState {
 #[derive(Debug)]
 pub enum RunMode {
     /// Only run the indexer (sync chain data and write to DB)
-    IndexerOnly { indexer_config: IndexerConfig },
+    IndexerOnly {
+        indexer_config: IndexerConfig,
+        tree_cache: TreeCacheConfig,
+    },
     /// Only serve HTTP endpoint (requires pre-populated DB)
     HttpOnly { http_config: HttpConfig },
     /// Run both indexer and HTTP server (default)
@@ -56,6 +59,7 @@ impl RunMode {
         match str.to_lowercase().as_str() {
             "indexer" | "indexer-only" => Ok(Self::IndexerOnly {
                 indexer_config: IndexerConfig::from_env(),
+                tree_cache: TreeCacheConfig::from_env()?,
             }),
             "http" | "http-only" => Ok(Self::HttpOnly {
                 http_config: HttpConfig::from_env()?,
@@ -376,6 +380,7 @@ mod tests {
 
         set_env("RUN_MODE", "indexer");
         set_env("START_BLOCK", "100");
+        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
         let mode = RunMode::from_env().expect("Should load RunMode from env.");
         assert!(matches!(mode, RunMode::IndexerOnly { .. }));

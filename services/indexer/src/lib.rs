@@ -5,6 +5,7 @@ use crate::{
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
+    rollback_executor::rollback_to_last_valid_root,
 };
 use alloy::{primitives::Address, providers::DynProvider};
 use futures_util::{Stream, StreamExt};
@@ -129,8 +130,14 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     let http_provider = cfg.provider.http().await?;
 
     match cfg.run_mode {
-        RunMode::IndexerOnly { indexer_config } => {
-            tracing::info!("Running in INDEXER-ONLY mode (no in-memory tree)");
+        RunMode::IndexerOnly {
+            indexer_config,
+            tree_cache,
+        } => {
+            tracing::info!("Running in INDEXER-ONLY mode");
+            let start_time = std::time::Instant::now();
+            let tree_state = unsafe { initialize_tree_with_config(&tree_cache, &db).await? };
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
 
             run_indexer_only(
                 db,
@@ -138,6 +145,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
                 &cfg.ws_rpc_url,
                 cfg.registry_address,
                 indexer_config,
+                tree_state,
             )
             .await
         }
@@ -185,6 +193,7 @@ async fn run_indexer_only(
     ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
+    tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
     process_registry_events(
         http_provider,
@@ -192,7 +201,7 @@ async fn run_indexer_only(
         registry_address,
         indexer_cfg,
         &db,
-        None,
+        &tree_state,
     )
     .await?;
 
@@ -365,7 +374,7 @@ async unsafe fn run_both(
             registry_address,
             indexer_cfg,
             &db,
-            Some(&tree_state),
+            &tree_state,
         ) => {
             result?;
             Ok(())
@@ -382,32 +391,10 @@ async unsafe fn run_both(
 }
 
 pub async fn handle_registry_event<'a>(
-    db: &DB,
     events_committer: &mut EventsCommitter<'a>,
     event: &BlockchainEvent<RegistryEvent>,
-    tree_state: Option<&tree::TreeState>,
 ) -> IndexerResult<()> {
-    let committed = events_committer.handle_event(event.clone()).await?;
-
-    // After a DB commit, sync the in-memory tree from DB
-    if let Some(tree_state) = tree_state
-        && committed
-    {
-        tree::cached_tree::sync_from_db(db, tree_state).await?;
-
-        // Validate that the tree root matches a known root in the DB
-        let root = tree_state.root().await;
-        if !db.world_id_registry_events().root_exists(&root).await? {
-            return Err(tree::TreeError::RootMismatch {
-                actual: format!("0x{:x}", root),
-                expected: "any known root in world_id_registry_events".to_string(),
-            }
-            .into());
-        }
-
-        tracing::info!(root = %format!("0x{:x}", root), "tree synced and root validated");
-    }
-
+    events_committer.handle_event(event.clone()).await?;
     Ok(())
 }
 
@@ -441,7 +428,7 @@ pub async fn process_registry_events(
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     db: &DB,
-    tree_state: Option<&tree::TreeState>,
+    tree_state: &tree::TreeState,
 ) -> IndexerResult<()> {
     // We re-create the blockchain connection (including backfill and websocket) when the stream
     // returns an error or the websocket connection is dropped.
@@ -465,13 +452,49 @@ pub async fn process_registry_events(
 
         let mut stream = blockchain.backfill_and_stream_events(from, indexer_cfg.batch_size);
 
-        let mut events_committer = EventsCommitter::new(db);
+        let versioned_tree = tree::VersionedTreeState::new(tree_state.clone(), 1000);
+        let mut events_committer = EventsCommitter::new(db)
+            .with_versioned_tree(versioned_tree.clone(), Some(blockchain.world_id_registry()));
 
         while let Some(event) = stream.next().await {
             match event {
-                Ok(event) => {
-                    handle_registry_event(db, &mut events_committer, &event, tree_state).await?;
-                }
+                Ok(event) => match handle_registry_event(&mut events_committer, &event).await {
+                    Ok(()) => {}
+                    Err(IndexerError::ReorgDetected {
+                        block_number,
+                        reason,
+                    }) => {
+                        tracing::warn!(
+                            block_number,
+                            reason,
+                            "Reorg detected during event commit, rolling back"
+                        );
+                        match rollback_to_last_valid_root(
+                            db,
+                            &blockchain.world_id_registry(),
+                            &versioned_tree,
+                        )
+                        .await
+                        {
+                            Ok(Some(target)) => {
+                                tracing::info!(?target, "rolled back successfully");
+                                return Err(IndexerError::ReorgDetected {
+                                    block_number: target.block_number,
+                                    reason: "rolled back to last valid root, restart required"
+                                        .to_string(),
+                                });
+                            }
+                            Ok(None) => {
+                                return Err(IndexerError::ReorgDetected {
+                                    block_number,
+                                    reason: "no valid root found during rollback".to_string(),
+                                });
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Err(e) => return Err(e),
+                },
                 Err(e) => {
                     tracing::error!(?e, "blockchain event stream error");
                     break;
