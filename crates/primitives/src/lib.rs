@@ -237,6 +237,22 @@ impl From<u128> for FieldElement {
     }
 }
 
+impl TryFrom<FieldElement> for u64 {
+    type Error = PrimitiveError;
+    fn try_from(value: FieldElement) -> Result<Self, Self::Error> {
+        let u256 = <U256 as From<Fq>>::from(value.0);
+        u256.try_into().map_err(|_| PrimitiveError::OutOfBounds)
+    }
+}
+
+impl TryFrom<FieldElement> for usize {
+    type Error = PrimitiveError;
+    fn try_from(value: FieldElement) -> Result<Self, Self::Error> {
+        let u256 = <U256 as From<Fq>>::from(value.0);
+        u256.try_into().map_err(|_| PrimitiveError::OutOfBounds)
+    }
+}
+
 impl Serialize for FieldElement {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

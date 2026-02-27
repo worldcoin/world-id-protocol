@@ -16,7 +16,7 @@ use world_id_primitives::{
 
 use crate::{
     AuthenticatorProofInput,
-    proof::{OPRF_PROOF_DS, ProofError},
+    proof::{OPRF_PROOF_DS, ProofError, errors},
 };
 
 /// Credential blinding factor computed using OPRF Nodes.
@@ -87,6 +87,7 @@ impl OprfCredentialBlindingFactor {
             action: *action,
             nonce: *nonce,
         };
+        let _ = errors::check_query_input_validity(&query_proof_input)?;
 
         tracing::debug!("generating query proof");
         let (proof, public_inputs) = query_material.generate_proof(&query_proof_input, &mut rng)?;
