@@ -373,22 +373,7 @@ pub fn deserialize_registry_event(
             }))
         }
         WorldIdRegistryEventType::RootRecorded => {
-            let root = event_data["root"]
-                .as_str()
-                .ok_or_else(|| missing_field!("root"))?
-                .parse()
-                .map_err(|_| invalid_field!("root", "failed to parse U256"))?;
-
-            let timestamp = event_data["timestamp"]
-                .as_str()
-                .ok_or_else(|| missing_field!("timestamp"))?
-                .parse()
-                .map_err(|_| invalid_field!("timestamp", "failed to parse U256"))?;
-
-            Ok(RegistryEvent::RootRecorded(RootRecordedEvent {
-                root,
-                timestamp,
-            }))
+            Ok(RegistryEvent::RootRecorded(deserialize_root_recorded(event_data)?))
         }
     }
 }
