@@ -372,9 +372,9 @@ pub fn deserialize_registry_event(
                 new_offchain_signer_commitment,
             }))
         }
-        WorldIdRegistryEventType::RootRecorded => {
-            Ok(RegistryEvent::RootRecorded(deserialize_root_recorded(event_data)?))
-        }
+        WorldIdRegistryEventType::RootRecorded => Ok(RegistryEvent::RootRecorded(
+            deserialize_root_recorded(event_data)?,
+        )),
     }
 }
 

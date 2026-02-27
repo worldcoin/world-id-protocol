@@ -495,11 +495,11 @@ async fn test_handle_registry_event_root_mismatch() {
     };
 
     // Process the create event (just buffers, no commit)
-    let result = handle_registry_event(db, &mut committer, &create_event, Some(&tree_state)).await;
+    let result = handle_registry_event(db, &mut committer, &create_event, &tree_state).await;
     assert!(result.is_ok());
 
     // Process the root event — triggers commit + sync + root check
-    let result = handle_registry_event(db, &mut committer, &root_event, Some(&tree_state)).await;
+    let result = handle_registry_event(db, &mut committer, &root_event, &tree_state).await;
     assert!(
         result.is_err(),
         "should fail because tree root doesn't match any DB root"
@@ -554,10 +554,10 @@ async fn test_handle_registry_event_root_match() {
         }),
     };
 
-    let result = handle_registry_event(db, &mut committer, &create_event, Some(&tree_state)).await;
+    let result = handle_registry_event(db, &mut committer, &create_event, &tree_state).await;
     assert!(result.is_ok());
 
-    let result = handle_registry_event(db, &mut committer, &root_event, Some(&tree_state)).await;
+    let result = handle_registry_event(db, &mut committer, &root_event, &tree_state).await;
     assert!(
         result.is_ok(),
         "should succeed because tree root matches a known DB root, got: {:?}",
