@@ -14,9 +14,10 @@
 use ark_bn254::Bn254;
 use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
-use std::{io::Read, path::Path};
+use std::{collections::HashMap, io::Read, path::Path};
 use world_id_primitives::{
     Credential, FieldElement, RequestItem, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
+    oprf::OprfAuthErrorResponse,
 };
 
 pub use groth16_material::circom::{
@@ -75,12 +76,30 @@ pub struct EmbeddedCircuitFiles {
 static CIRCUIT_FILES: std::sync::OnceLock<Result<EmbeddedCircuitFiles, String>> =
     std::sync::OnceLock::new();
 
+/// Per-node error from OPRF round 1 (`init_sessions`).
+#[derive(Debug)]
+pub enum Round1Error {
+    /// Structured auth rejection parsed from the WebSocket close frame JSON.
+    AuthError(OprfAuthErrorResponse),
+    /// Anything else: connectivity, protocol mismatch, unparseable close reason, etc.
+    Other(taceo_oprf::client::Error),
+}
+
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
-    /// Error originating from `oprf_client`.
+    /// Pre/post-round invariant violations (`NonUniqueServices`,
+    /// `InconsistentOprfPublicKeys`, `InvalidDLogProof`).
     #[error(transparent)]
-    OprfError(#[from] taceo_oprf::client::Error),
+    OprfInvariantError(taceo_oprf::client::Error),
+    /// Round 1 (`init_sessions`) failed to reach the required threshold.
+    /// Keys are OPRF node URLs; values are per-node categorized errors.
+    #[error("OPRF round 1 failed across {} node(s)", .0.len())]
+    OprfRound1Error(HashMap<String, Round1Error>),
+    /// Round 2 (`finish_sessions`) failure. Single bare error from
+    /// `try_join_all` — no per-node attribution is available.
+    #[error(transparent)]
+    OprfRound2Error(taceo_oprf::client::Error),
     /// Errors originating from proof inputs
     #[error(transparent)]
     ProofInputError(#[from] errors::ProofInputError),
@@ -90,6 +109,38 @@ pub enum ProofError {
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
+}
+
+impl From<taceo_oprf::client::Error> for ProofError {
+    fn from(err: taceo_oprf::client::Error) -> Self {
+        match err {
+            taceo_oprf::client::Error::NotEnoughOprfResponses(_, node_errors) => {
+                let categorized = node_errors
+                    .into_iter()
+                    .map(|(url, node_err)| {
+                        let round1 =
+                            if let taceo_oprf::client::Error::ServerError(ref s) = node_err {
+                                let json = s.find(": ").map(|i| &s[i + 2..]).unwrap_or(s);
+                                match OprfAuthErrorResponse::from_json(json) {
+                                    Some(resp) => Round1Error::AuthError(resp),
+                                    None => Round1Error::Other(node_err),
+                                }
+                            } else {
+                                Round1Error::Other(node_err)
+                            };
+                        (url, round1)
+                    })
+                    .collect();
+                ProofError::OprfRound1Error(categorized)
+            }
+            taceo_oprf::client::Error::NonUniqueServices
+            | taceo_oprf::client::Error::InvalidDLogProof
+            | taceo_oprf::client::Error::InconsistentOprfPublicKeys => {
+                ProofError::OprfInvariantError(err)
+            }
+            _ => ProofError::OprfRound2Error(err),
+        }
+    }
 }
 
 // ============================================================================
@@ -378,6 +429,155 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     }
 
     Ok((proof, public, nullifier))
+}
+
+#[cfg(test)]
+mod from_oprf_error_tests {
+    use super::*;
+
+    fn server_error(json: &str) -> taceo_oprf::client::Error {
+        taceo_oprf::client::Error::ServerError(format!("1008: {json}"))
+    }
+
+    fn not_enough_responses(
+        node_errors: Vec<(&str, taceo_oprf::client::Error)>,
+    ) -> taceo_oprf::client::Error {
+        let map: HashMap<String, taceo_oprf::client::Error> = node_errors
+            .into_iter()
+            .map(|(url, err)| (url.to_string(), err))
+            .collect();
+        taceo_oprf::client::Error::NotEnoughOprfResponses(3, map)
+    }
+
+    #[test]
+    fn unanimous_server_errors_become_round1_auth_errors() {
+        let json = r#"{"code":"invalid_proof"}"#;
+        let err = not_enough_responses(vec![
+            ("node1", server_error(json)),
+            ("node2", server_error(json)),
+        ]);
+        let proof_err = ProofError::from(err);
+        match proof_err {
+            ProofError::OprfRound1Error(map) => {
+                assert_eq!(map.len(), 2);
+                assert!(map.values().all(|r| matches!(
+                    r,
+                    Round1Error::AuthError(OprfAuthErrorResponse::InvalidProof)
+                )));
+            }
+            other => panic!("expected OprfRound1Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn disagreeing_server_errors_become_round1_mixed_auth_errors() {
+        let err = not_enough_responses(vec![
+            ("node1", server_error(r#"{"code":"invalid_proof"}"#)),
+            (
+                "node2",
+                server_error(r#"{"code":"unknown_rp","rp_id":"1"}"#),
+            ),
+        ]);
+        let proof_err = ProofError::from(err);
+        match proof_err {
+            ProofError::OprfRound1Error(map) => {
+                assert_eq!(map.len(), 2);
+                assert!(map.values().all(|r| matches!(r, Round1Error::AuthError(_))));
+            }
+            other => panic!("expected OprfRound1Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unparseable_server_errors_become_round1_other() {
+        let err = not_enough_responses(vec![
+            ("node1", server_error("not json")),
+            ("node2", server_error("also not json")),
+        ]);
+        let proof_err = ProofError::from(err);
+        match proof_err {
+            ProofError::OprfRound1Error(map) => {
+                assert_eq!(map.len(), 2);
+                assert!(map.values().all(|r| matches!(r, Round1Error::Other(_))));
+            }
+            other => panic!("expected OprfRound1Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mixed_parseable_and_unparseable_errors() {
+        let err = not_enough_responses(vec![
+            ("node1", server_error(r#"{"code":"invalid_proof"}"#)),
+            ("node2", server_error("not json")),
+            ("node3", server_error(r#"{"code":"invalid_proof"}"#)),
+        ]);
+        let proof_err = ProofError::from(err);
+        match proof_err {
+            ProofError::OprfRound1Error(map) => {
+                assert_eq!(map.len(), 3);
+                let auth_count = map
+                    .values()
+                    .filter(|r| matches!(r, Round1Error::AuthError(_)))
+                    .count();
+                let other_count = map
+                    .values()
+                    .filter(|r| matches!(r, Round1Error::Other(_)))
+                    .count();
+                assert_eq!(auth_count, 2);
+                assert_eq!(other_count, 1);
+            }
+            other => panic!("expected OprfRound1Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn invalid_dlog_proof_becomes_invariant_error() {
+        let err = taceo_oprf::client::Error::InvalidDLogProof;
+        let proof_err = ProofError::from(err);
+        assert!(matches!(proof_err, ProofError::OprfInvariantError(_)));
+    }
+
+    #[test]
+    fn server_error_with_data_preserved() {
+        let json = r#"{"code":"unknown_rp","rp_id":"42"}"#;
+        let err = not_enough_responses(vec![("node1", server_error(json))]);
+        let proof_err = ProofError::from(err);
+        match proof_err {
+            ProofError::OprfRound1Error(map) => {
+                let round1 = map.values().next().unwrap();
+                match round1 {
+                    Round1Error::AuthError(resp) => {
+                        assert_eq!(
+                            *resp,
+                            OprfAuthErrorResponse::UnknownRp {
+                                rp_id: "42".into()
+                            }
+                        );
+                    }
+                    other => panic!("expected AuthError, got {other:?}"),
+                }
+            }
+            other => panic!("expected OprfRound1Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn prefix_stripping_works_with_various_formats() {
+        let json = r#"{"code":"invalid_proof"}"#;
+        let err = not_enough_responses(vec![(
+            "node1",
+            taceo_oprf::client::Error::ServerError(format!("1008: {json}")),
+        )]);
+        let proof_err = ProofError::from(err);
+        assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));
+
+        let err = not_enough_responses(vec![(
+            "node1",
+            taceo_oprf::client::Error::ServerError(json.to_string()),
+        )]);
+        let proof_err = ProofError::from(err);
+        assert!(matches!(proof_err, ProofError::OprfRound1Error(_)));
+    }
 }
 
 #[cfg(all(test, feature = "embed-zkeys"))]
