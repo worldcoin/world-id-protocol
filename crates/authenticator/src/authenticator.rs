@@ -104,41 +104,48 @@ impl Authenticator {
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
-        let registry = config.rpc_url().map_or_else(
-            || None,
-            |rpc_url| {
+        #[cfg(not(target_arch = "wasm32"))]
+        let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
+            config.rpc_url().map(|rpc_url| {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(crate::registry::WorldIdRegistry::new(
+                Arc::new(crate::registry::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
-            },
-        );
+            });
+        #[cfg(target_arch = "wasm32")]
+        let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> = None;
 
         let http_client = reqwest::Client::new();
 
         let packed_account_data = Self::get_packed_account_data(
             signer.onchain_signer_address(),
-            registry.as_ref(),
+            registry.as_deref(),
             &config,
             &http_client,
         )
         .await?;
 
-        let mut root_store = rustls::RootCertStore::empty();
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let rustls_config = rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
-        let ws_connector = Connector::Rustls(Arc::new(rustls_config));
+        #[cfg(not(target_arch = "wasm32"))]
+        let ws_connector = {
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let rustls_config = rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+            Connector::Rustls(Arc::new(rustls_config))
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let ws_connector = Connector;
 
         Ok(Self {
             packed_account_data,
             signer,
             config,
-            registry: registry.map(Arc::new),
+            registry,
             http_client,
             ws_connector,
             query_material,
@@ -1344,6 +1351,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_signing_nonce_from_indexer() {
         let mut server = mockito::Server::new_async().await;
         let indexer_url = server.url();
@@ -1402,6 +1410,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_signing_nonce_from_indexer_error() {
         let mut server = mockito::Server::new_async().await;
         let indexer_url = server.url();
