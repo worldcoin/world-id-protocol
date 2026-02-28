@@ -244,6 +244,30 @@ pub mod hex_u32_opt {
     }
 }
 
+/// Serialize an `alloy_primitives::Signature` as a `0x`-prefixed hex string (65 bytes: `r || s || v`).
+pub mod hex_signature {
+    use alloy_primitives::Signature;
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+    use std::str::FromStr;
+
+    /// Serialize a `Signature` as a `0x`-prefixed hex string.
+    pub fn serialize<S>(sig: &Signature, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&sig.to_string())
+    }
+
+    /// Deserialize a `Signature` from a `0x`-prefixed hex string.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Signature, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Signature::from_str(&s).map_err(D::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,5 +340,28 @@ mod tests {
             parsed.values,
             vec![Some(U256::from(42)), None, Some(U256::from(42))]
         );
+    }
+
+    #[test]
+    fn test_hex_signature_roundtrip() {
+        use alloy_primitives::Signature;
+
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct S {
+            #[serde(with = "hex_signature")]
+            sig: Signature,
+        }
+
+        let sig = Signature::new(U256::from(1), U256::from(2), false);
+        let s = S { sig };
+
+        let json = serde_json::to_string(&s).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let hex_str = value["sig"].as_str().expect("signature should be a string");
+        assert!(hex_str.starts_with("0x"), "should be 0x-prefixed");
+        assert_eq!(hex_str.len(), 132, "0x + 130 hex chars (65 bytes)");
+
+        let parsed: S = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, s);
     }
 }

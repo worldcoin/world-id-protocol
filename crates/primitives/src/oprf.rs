@@ -45,6 +45,7 @@ pub struct NullifierOprfRequestAuthV1 {
     /// Expiration timestamp of the request (unix secs)
     pub expiration_timestamp: u64,
     /// The RP's signature on the request, see `compute_rp_signature_msg` for details.
+    #[serde(with = "crate::serde_utils::hex_signature")]
     pub signature: alloy_primitives::Signature,
     /// The `rp_id`
     pub rp_id: RpId,
