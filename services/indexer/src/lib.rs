@@ -1,18 +1,18 @@
 #![recursion_limit = "256"]
 
 use crate::{
-    blockchain::{Blockchain, BlockchainEvent, BlockchainResult, RegistryEvent},
+    blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
     rollback_executor::rollback_to_last_valid_root,
 };
 use alloy::{primitives::Address, providers::DynProvider};
-use futures_util::{Stream, StreamExt};
+use futures_util::StreamExt;
 use std::{
     backtrace::Backtrace,
     net::SocketAddr,
-    sync::{Arc, atomic::Ordering},
+    sync::Arc,
     time::Duration,
 };
 use tracing::instrument;
@@ -131,13 +131,10 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     let http_provider = cfg.provider.http().await?;
 
     match cfg.run_mode {
-        RunMode::IndexerOnly {
-            indexer_config,
-            tree_cache,
-        } => {
+        RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode");
             let start_time = std::time::Instant::now();
-            let tree_state = unsafe { initialize_tree_with_config(&tree_cache, &db).await? };
+            let tree_state = unsafe { initialize_tree_with_config(&cfg.tree_cache, &db).await? };
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
 
             run_indexer_only(
@@ -153,8 +150,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
         RunMode::HttpOnly { http_config } => {
             tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
             let start_time = std::time::Instant::now();
-            let tree_cache_cfg = http_config.tree_cache.clone();
-            let tree_state = unsafe { initialize_tree_with_config(&tree_cache_cfg, &db).await? };
+            let tree_state = unsafe { initialize_tree_with_config(&cfg.tree_cache, &db).await? };
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
 
             run_http_only(
@@ -171,17 +167,19 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             http_config,
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
+            let start_time = std::time::Instant::now();
+            let tree_state = unsafe { initialize_tree_with_config(&cfg.tree_cache, &db).await? };
+            tracing::info!("tree initialization took {:?}", start_time.elapsed());
 
-            unsafe {
-                run_both(
-                    db,
-                    http_provider,
-                    &cfg.ws_rpc_url,
-                    cfg.registry_address,
-                    indexer_config,
-                    http_config,
-                )
-            }
+            run_both(
+                db,
+                http_provider,
+                &cfg.ws_rpc_url,
+                cfg.registry_address,
+                indexer_config,
+                http_config,
+                tree_state,
+            )
             .await
         }
     }
@@ -276,20 +274,15 @@ async fn run_http_only(
 }
 
 /// Runs both the indexer and HTTP server in the same process, sharing the same DB and in-memory tree.
-///
-/// # Safety
-///
-/// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
-/// The caller must ensure that the cache file is not concurrently accessed or modified
-/// by other processes while the tree is using it.
 #[instrument(level = "info", skip_all)]
-async unsafe fn run_both(
+async fn run_both(
     db: DB,
     http_provider: DynProvider,
     ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
+    tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
     let tree_cache_cfg = &http_cfg.tree_cache;
     let batch_size = indexer_cfg.batch_size;
@@ -321,7 +314,7 @@ async unsafe fn run_both(
             backfill_up_to_block,
             "Phase 1: backfill complete, all historical events stored in DB"
         );
-    } // blockchain dropped, WS connection closed 
+    } // blockchain dropped, WS connection closed
 
     // --- Phase 2: Build tree from complete DB ---
     tracing::info!("Phase 2: building tree from DB");
@@ -341,7 +334,7 @@ async unsafe fn run_both(
     let request_timeout_secs = http_cfg.request_timeout_secs;
     let http_provider_clone = http_provider.clone();
     // Spawned tasks run for the lifetime of the process; they are not
-    // joined because the Phase 4 retry loop below never returns.
+    // joined because the event streaming loop below never returns.
     let http_handle = tokio::spawn(async move {
         start_http_server(
             http_provider_clone,
@@ -369,8 +362,7 @@ async unsafe fn run_both(
         None
     };
 
-    // --- Phase 4: Stream live events, updating tree after each batch ---
-    // Wait for the first task to complete — any failure is fatal.
+    // Stream live events; wait for the first task to complete — any failure is fatal.
     tokio::select! {
         result = process_registry_events(
             http_provider,
@@ -460,9 +452,9 @@ pub async fn process_registry_events(
 
         let mut stream = blockchain.backfill_and_stream_events(from, indexer_cfg.batch_size);
 
-        let versioned_tree = tree::VersionedTreeState::new(tree_state.clone(), 1000);
-        let mut events_committer = EventsCommitter::new(db)
-            .with_versioned_tree(versioned_tree.clone(), Some(blockchain.world_id_registry()));
+        let versioned_tree =
+            tree::VersionedTreeState::new(tree_state.clone(), indexer_cfg.tree_max_block_age);
+        let mut events_committer = EventsCommitter::new(db, versioned_tree.clone());
 
         while let Some(event) = stream.next().await {
             match event {

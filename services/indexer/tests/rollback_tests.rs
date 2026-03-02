@@ -31,7 +31,7 @@ async fn test_basic_rollback_deletes_events_after_point() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create a sequence of events across multiple blocks
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
@@ -83,7 +83,7 @@ async fn test_rollback_within_same_block() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create multiple events in the same block
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
@@ -128,7 +128,7 @@ async fn test_rollback_to_genesis() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create some events
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
@@ -164,7 +164,7 @@ async fn test_rollback_with_account_updates() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create account at block 100
     let event1 = mock_account_created_event_with_authenticators(
@@ -248,7 +248,7 @@ async fn test_rollback_preserves_old_accounts() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create account 1 at block 100
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
@@ -297,7 +297,7 @@ async fn test_rollback_with_mixed_event_types() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Block 100: Create account 1
     let event1 = mock_account_created_event_with_authenticators(
@@ -409,7 +409,7 @@ async fn test_rollback_to_current_state_no_op() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create account
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
@@ -472,7 +472,7 @@ async fn test_rollback_identifies_affected_leaves() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create 5 accounts across different blocks
     let events = vec![

@@ -70,7 +70,7 @@ impl VersionedTreeState {
         self.inner.tree.leaf_proof_and_root(leaf_index).await
     }
 
-    /// Set a leaf, recording the change in history.
+    /// Set a leaf, recording the change in history, and pruning stale entries.
     ///
     /// `event_id` is the `(block_number, log_index)` of the event that caused
     /// this change; it is used as the version key for pruning.
@@ -92,6 +92,9 @@ impl VersionedTreeState {
                 event_id,
                 old_value,
             });
+
+        drop(history);
+        self.prune(event_id.block_number).await;
 
         Ok(())
     }
@@ -127,7 +130,7 @@ impl VersionedTreeState {
 
     /// Discard all history entries whose `block_number` is older than
     /// `current_block - max_block_age`.
-    pub async fn prune(&self, current_block: u64) {
+    async fn prune(&self, current_block: u64) {
         let cutoff = current_block.saturating_sub(self.inner.max_block_age);
         let mut history = self.inner.history.write().await;
         history.retain(|_, log| {
@@ -156,9 +159,6 @@ impl VersionedTreeState {
             return Ok(self.root().await);
         }
 
-        // Build dirty-leaf map: leaf_index → new_value.
-        let dirty: HashMap<usize, U256> = changes.iter().copied().collect();
-
         let tree = self.inner.tree.read().await;
         let depth = tree.depth();
 
@@ -184,8 +184,9 @@ impl VersionedTreeState {
         // other nodes are read directly from the real tree via get_node().
         let mut cache: HashMap<(usize, usize), U256> = HashMap::new();
 
-        // Seed the cache with dirty leaves (level 0).
-        for (&leaf_index, &new_value) in &dirty {
+        // Seed the cache with changed leaves (level 0). Duplicate indices are
+        // processed in order so the last entry wins, matching collect() behaviour.
+        for &(leaf_index, new_value) in changes {
             cache.insert((0, leaf_index), new_value);
         }
 

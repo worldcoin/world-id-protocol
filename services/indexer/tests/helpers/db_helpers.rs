@@ -6,6 +6,7 @@ use uuid::Uuid;
 use world_id_indexer::{
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
     db::{DB, DBResult},
+    tree::{TreeState, VersionedTreeState},
 };
 
 /// RAII guard that ensures test database cleanup on drop
@@ -267,4 +268,16 @@ pub async fn assert_account_not_exists(pool: &PgPool, leaf_index: u64) {
         "Expected account with leaf_index {} to not exist",
         leaf_index
     );
+}
+
+/// Create a throw-away `VersionedTreeState` backed by a temp file.
+/// Depth 10 is sufficient for all tests (capacity 1024 leaves).
+pub fn make_versioned_tree() -> VersionedTreeState {
+    let path = {
+        let mut p = std::env::temp_dir();
+        p.push(format!("test_versioned_tree_{}.tmp", Uuid::new_v4()));
+        p
+    };
+    let state = unsafe { TreeState::new_empty(10, path).expect("failed to create tree") };
+    VersionedTreeState::new(state, 1000)
 }

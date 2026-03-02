@@ -1,6 +1,3 @@
-use alloy::providers::DynProvider;
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
-
 use crate::{
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
     db::{DB, IsolationLevel},
@@ -19,10 +16,9 @@ use crate::{
 ///    transaction is aborted and `ReorgDetected` is returned. A final post-write
 ///    check catches any cross-event conflicts within the same batch.
 ///
-/// 2. **No invalid roots at write time**: When a `registry` is configured, the
-///    root from each `RootRecorded` event is validated on-chain via `isValidRoot`
-///    *before* the DB transaction begins. A root that fails this check returns
-///    `ReorgDetected` without touching the DB.
+/// 2. **Root integrity on every commit**: After applying each batch to the tree,
+///    the computed root is compared against the `RootRecorded` event. A mismatch
+///    returns `ReorgDetected` and the DB transaction is not committed.
 ///
 /// 3. **Reorg suffix is contiguous**: Because commits are rejected the moment a
 ///    bad root or conflicting hash is detected, any invalid state that does reach
@@ -31,28 +27,16 @@ use crate::{
 pub struct EventsCommitter<'a> {
     db: &'a DB,
     buffered_events: Vec<BlockchainEvent<RegistryEvent>>,
-    versioned_tree: Option<VersionedTreeState>,
-    registry: Option<WorldIdRegistryInstance<DynProvider>>,
+    versioned_tree: VersionedTreeState,
 }
 
 impl<'a> EventsCommitter<'a> {
-    pub fn new(db: &'a DB) -> Self {
+    pub fn new(db: &'a DB, tree: VersionedTreeState) -> Self {
         Self {
             db,
             buffered_events: vec![],
-            versioned_tree: None,
-            registry: None,
+            versioned_tree: tree,
         }
-    }
-
-    pub fn with_versioned_tree(
-        mut self,
-        tree: VersionedTreeState,
-        registry: Option<WorldIdRegistryInstance<DynProvider>>,
-    ) -> Self {
-        self.versioned_tree = Some(tree);
-        self.registry = registry;
-        self
     }
 
     /// Handle a single event: buffer it, and commit when a RootRecorded event
@@ -66,15 +50,7 @@ impl<'a> EventsCommitter<'a> {
         if let RegistryEvent::RootRecorded(_) =
             self.buffered_events.last().expect("just pushed").details
         {
-            let block_number = self
-                .buffered_events
-                .last()
-                .expect("just pushed")
-                .block_number;
             self.commit_events().await?;
-            if let Some(tree) = &self.versioned_tree {
-                tree.prune(block_number).await;
-            }
             return Ok(true);
         }
 
@@ -160,31 +136,30 @@ impl<'a> EventsCommitter<'a> {
             });
         }
 
-        if let Some(tree) = &self.versioned_tree {
-            for event in self.buffered_events.iter() {
-                apply_event_to_tree(tree, event).await?;
-            }
+        let tree = &self.versioned_tree;
+        for event in self.buffered_events.iter() {
+            apply_event_to_tree(tree, event).await?;
+        }
 
-            if let Some(BlockchainEvent {
-                block_number,
-                details:
-                    RegistryEvent::RootRecorded(RootRecordedEvent {
-                        root: expected_root,
-                        ..
-                    }),
-                ..
-            }) = self.buffered_events.last()
-            {
-                let actual_root = tree.root().await;
-                if actual_root != *expected_root {
-                    return Err(IndexerError::ReorgDetected {
-                        block_number: *block_number,
-                        reason: format!(
-                            "tree root after applying batch (0x{:x}) does not match RootRecorded root (0x{:x})",
-                            actual_root, expected_root,
-                        ),
-                    });
-                }
+        if let Some(BlockchainEvent {
+            block_number,
+            details:
+                RegistryEvent::RootRecorded(RootRecordedEvent {
+                    root: expected_root,
+                    ..
+                }),
+            ..
+        }) = self.buffered_events.last()
+        {
+            let actual_root = tree.root().await;
+            if actual_root != *expected_root {
+                return Err(IndexerError::ReorgDetected {
+                    block_number: *block_number,
+                    reason: format!(
+                        "tree root after applying batch (0x{:x}) does not match RootRecorded root (0x{:x})",
+                        actual_root, expected_root,
+                    ),
+                });
             }
         }
 

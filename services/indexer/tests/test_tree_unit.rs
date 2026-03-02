@@ -468,7 +468,7 @@ async fn test_handle_registry_event_root_mismatch() {
 
     // Simulate a batch: AccountCreated event followed by RootRecorded.
     // The RootRecorded root is bogus — it won't match the tree root after sync.
-    let mut committer = EventsCommitter::new(db).with_versioned_tree(versioned_tree, None);
+    let mut committer = EventsCommitter::new(db, versioned_tree);
 
     let create_event = BlockchainEvent {
         block_number: 50,
@@ -529,7 +529,7 @@ async fn test_handle_registry_event_root_match() {
     cleanup(&tmp_path);
 
     let versioned_tree = VersionedTreeState::new(tree_state, 1000);
-    let mut committer = EventsCommitter::new(db).with_versioned_tree(versioned_tree, None);
+    let mut committer = EventsCommitter::new(db, versioned_tree);
 
     let create_event = BlockchainEvent {
         block_number: 50,

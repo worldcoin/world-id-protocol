@@ -76,7 +76,7 @@ async fn test_all_invalid_roots_returns_none() {
     let (_anvil, registry, test_db) = setup().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     committer
         .handle_event(mock_account_created_event(
@@ -167,7 +167,7 @@ async fn test_rolls_back_to_last_valid_root() {
     let valid_log_index = root_log.log_index.expect("missing log index");
 
     // Batch 1: insert a real root that the chain knows, using the actual on-chain block/log_index.
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
     committer
         .handle_event(mock_account_created_event(
             valid_block,
@@ -272,7 +272,7 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
     let valid_block = receipt.block_number.expect("missing block number");
     let valid_log_index = root_log.log_index.expect("missing log index");
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
     committer
         .handle_event(mock_account_created_event(
             valid_block,

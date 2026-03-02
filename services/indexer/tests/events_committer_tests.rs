@@ -10,7 +10,7 @@ async fn test_events_are_buffered_and_committed() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create AccountCreated event
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(123));
@@ -58,7 +58,7 @@ async fn test_event_idempotency() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create the same event twice
     let event = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(123));
@@ -73,7 +73,7 @@ async fn test_event_idempotency() {
     assert_eq!(count, 1);
 
     // Create new committer and process same event again (using clone)
-    let mut committer2 = EventsCommitter::new(db);
+    let mut committer2 = EventsCommitter::new(db, make_versioned_tree());
     committer2.handle_event(event).await.unwrap();
     committer2.handle_event(root_event).await.unwrap();
 
@@ -91,7 +91,7 @@ async fn test_account_update_modifies_existing_account() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
     let recovery_address = Address::ZERO;
@@ -159,7 +159,7 @@ async fn test_multiple_event_batches() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // First batch
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
@@ -189,7 +189,7 @@ async fn test_authenticator_inserted() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
     let create_event =
@@ -224,7 +224,7 @@ async fn test_authenticator_removed() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
     let create_event =
@@ -259,7 +259,7 @@ async fn test_account_recovered() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
     let create_event =
@@ -298,7 +298,7 @@ async fn test_transaction_rollback_on_error() {
         .await
         .unwrap();
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Try to create an account that already exists (duplicate), which should cause unique constraint error
     let duplicate_create_event = mock_account_created_event(
@@ -337,7 +337,7 @@ async fn test_buffer_cleared_after_commit() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // First batch
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
