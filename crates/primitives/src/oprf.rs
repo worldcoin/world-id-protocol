@@ -2,7 +2,6 @@ use ark_bn254::Bn254;
 use ark_serde_compat::babyjubjub;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 use crate::rp::RpId;
 
@@ -20,8 +19,9 @@ pub const MAX_CLOSE_REASON_BYTES: usize = 123;
 /// - `{"type":"invalid_proof"}`
 /// - `{"type":"unknown_rp","rp_id":"42"}`
 /// - `{"type":"internal_server_error","error_id":"<uuid>"}`
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, strum::Display)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum OprfRequestErrorResponse {
     /// The zero-knowledge proof failed verification.
     InvalidProof,
@@ -30,6 +30,7 @@ pub enum OprfRequestErrorResponse {
     /// The request timestamp is too far from the current time.
     TimestampTooLarge,
     /// The RP signature on the request could not be recovered.
+    #[strum(to_string = "invalid_signature: {detail}")]
     InvalidSignature {
         /// Human-readable description of the signature failure.
         detail: String,
@@ -39,6 +40,7 @@ pub enum OprfRequestErrorResponse {
     /// The same signature was already used in a previous request.
     DuplicateSignature,
     /// The specified RP ID does not exist in the registry.
+    #[strum(to_string = "unknown_rp: {rp_id}")]
     UnknownRp {
         /// The RP ID that was not found.
         rp_id: String,
@@ -48,6 +50,7 @@ pub enum OprfRequestErrorResponse {
     /// The provided action value is not valid.
     InvalidAction,
     /// The specified schema issuer ID does not exist in the registry.
+    #[strum(to_string = "unknown_schema_issuer: {issuer_schema_id}")]
     UnknownSchemaIssuer {
         /// The schema issuer ID that was not found.
         issuer_schema_id: String,
@@ -55,6 +58,7 @@ pub enum OprfRequestErrorResponse {
     /// A backend dependency (blockchain RPC, cache) is temporarily unavailable.
     ServiceUnavailable,
     /// An unexpected internal error occurred. Check server logs using the correlation ID.
+    #[strum(to_string = "internal_server_error: {error_id}")]
     InternalServerError {
         /// Correlation UUID for looking up details in server logs.
         error_id: String,
@@ -73,41 +77,14 @@ impl OprfRequestErrorResponse {
     }
 }
 
-impl fmt::Display for OprfRequestErrorResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidSignature { detail } => write!(f, "invalid_signature: {detail}"),
-            Self::UnknownRp { rp_id } => write!(f, "unknown_rp: {rp_id}"),
-            Self::UnknownSchemaIssuer { issuer_schema_id } => {
-                write!(f, "unknown_schema_issuer: {issuer_schema_id}")
-            }
-            Self::InternalServerError { error_id } => {
-                write!(f, "internal_server_error: {error_id}")
-            }
-            other => {
-                let json = serde_json::to_value(other).expect("always serializable");
-                f.write_str(json["type"].as_str().unwrap_or("unknown"))
-            }
-        }
-    }
-}
-
 /// A module identifier for OPRF evaluations.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, strum::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum OprfModule {
     /// Oprf module for generating nullifiers
     Nullifier,
     /// Oprf module for generating credential blinding factors
     CredentialBlindingFactor,
-}
-
-impl std::fmt::Display for OprfModule {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Nullifier => write!(f, "nullifier"),
-            Self::CredentialBlindingFactor => write!(f, "credential_blinding_factor"),
-        }
-    }
 }
 
 /// A request sent by a client for OPRF nullifier authentication.
