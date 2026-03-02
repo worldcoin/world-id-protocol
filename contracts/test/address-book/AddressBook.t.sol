@@ -101,10 +101,10 @@ contract AddressBookTest is Test {
     }
 
     function _epoch() internal pure returns (IAddressBook.EpochData memory) {
-        return IAddressBook.EpochData({rpId: RP_ID, action: ACTION});
+        return IAddressBook.EpochData({action: ACTION});
     }
 
-    function _proof(uint256 nullifier) internal view returns (IAddressBook.RegistrationProof memory) {
+    function _proof(uint256 nullifier) internal pure returns (IAddressBook.RegistrationProof memory) {
         uint256[5] memory zkProof;
         zkProof[0] = 1;
         zkProof[1] = 2;
@@ -114,8 +114,9 @@ contract AddressBookTest is Test {
 
         return IAddressBook.RegistrationProof({
             nullifier: nullifier,
+            rpId: RP_ID,
             nonce: 77,
-            expiresAtMin: uint64(block.timestamp + 1 days),
+            expiresAtMin: type(uint64).max,
             issuerSchemaId: 8,
             credentialGenesisIssuedAtMin: 0,
             zeroKnowledgeProof: zkProof
@@ -131,24 +132,6 @@ contract AddressBookTest is Test {
         verifier.setExpectedSignalHash(signalHash);
     }
 
-    function _accountRegistrationSignature(address account, uint32 targetPeriod, IAddressBook.EpochData memory epoch)
-        internal
-        view
-        returns (bytes memory)
-    {
-        uint256 signerPrivateKey;
-        if (account == user1) {
-            signerPrivateKey = USER1_PRIVATE_KEY;
-        } else if (account == user2) {
-            signerPrivateKey = USER2_PRIVATE_KEY;
-        } else {
-            revert("unknown-account");
-        }
-        bytes32 digest = addressBook.computeRegistrationDigest(account, targetPeriod, epoch);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, digest);
-        return abi.encodePacked(r, s, v);
-    }
-
     function testInitializeAndGetters() public view {
         assertEq(addressBook.getWorldIDVerifier(), address(verifier));
         assertEq(addressBook.getPeriodStartTimestamp(), 1_000_000);
@@ -161,7 +144,7 @@ contract AddressBookTest is Test {
         IAddressBook.EpochData memory epoch = _epoch();
         uint32 period = addressBook.getCurrentPeriod();
 
-        bytes32 expected = keccak256(abi.encode(period, RP_ID, ACTION));
+        bytes32 expected = bytes32(uint256(ACTION));
         assertEq(addressBook.computeEpochId(period, epoch), expected);
     }
 
@@ -186,7 +169,7 @@ contract AddressBookTest is Test {
         assertTrue(addressBook.isRegisteredForPeriod(period, epoch, user1));
     }
 
-    function testVerifyReturnsFalseAfterPeriodRollover() public {
+    function testVerifyRemainsTrueAfterPeriodRollover() public {
         uint32 period = addressBook.getCurrentPeriod();
         IAddressBook.EpochData memory epoch = _epoch();
 
@@ -196,7 +179,7 @@ contract AddressBookTest is Test {
 
         vm.warp(block.timestamp + PERIOD_LENGTH_SECONDS);
 
-        assertFalse(addressBook.verify(epoch, user1));
+        assertTrue(addressBook.verify(epoch, user1));
         assertTrue(addressBook.isRegisteredForPeriod(period, epoch, user1));
     }
 
@@ -209,7 +192,7 @@ contract AddressBookTest is Test {
         vm.prank(user1);
         addressBook.register(user1, nextPeriod, epoch, _proof(222));
 
-        assertFalse(addressBook.verify(epoch, user1));
+        assertTrue(addressBook.verify(epoch, user1));
 
         vm.warp(block.timestamp + PERIOD_LENGTH_SECONDS);
 
@@ -263,7 +246,26 @@ contract AddressBookTest is Test {
         addressBook.register(user1, farFuturePeriod, epoch, _proof(444));
 
         assertTrue(addressBook.isRegisteredForPeriod(farFuturePeriod, epoch, user1));
-        assertFalse(addressBook.verify(epoch, user1));
+        assertTrue(addressBook.verify(epoch, user1));
+    }
+
+    function testRegisterRevertsWhenExpiresBeforeTargetPeriodEnd() public {
+        uint32 currentPeriod = addressBook.getCurrentPeriod();
+        IAddressBook.EpochData memory epoch = _epoch();
+
+        uint256 epochPeriodEnd = uint256(addressBook.getPeriodStartTimestamp())
+            + (uint256(currentPeriod) + 1) * uint256(addressBook.getPeriodLengthSeconds());
+
+        IAddressBook.RegistrationProof memory proof = _proof(445);
+        proof.expiresAtMin = uint64(epochPeriodEnd - 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAddressBook.ExpirationBeforeEpochEnd.selector, proof.expiresAtMin, epochPeriodEnd
+            )
+        );
+        vm.prank(user1);
+        addressBook.register(user1, currentPeriod, epoch, proof);
     }
 
     function testCannotReuseNullifierInSameEpoch() public {
@@ -336,46 +338,15 @@ contract AddressBookTest is Test {
         addressBook.register(user2, period, epoch, _proof(889));
     }
 
-    function testRelayerRequiresAccountAuthorization() public {
-        uint32 period = addressBook.getCurrentPeriod();
-        IAddressBook.EpochData memory epoch = _epoch();
-
-        _expectVerifierInputs(period, user1);
-
-        vm.expectRevert(abi.encodeWithSelector(IAddressBook.InvalidAccountAuthorization.selector));
-        addressBook.register(user1, period, epoch, _proof(890));
-    }
-
-    function testRelayerCanRegisterWithValidAccountSignature() public {
-        uint32 period = addressBook.getCurrentPeriod();
-        IAddressBook.EpochData memory epoch = _epoch();
-
-        _expectVerifierInputs(period, user1);
-        bytes memory accountSignature = _accountRegistrationSignature(user1, period, epoch);
-
-        addressBook.registerWithSignature(user1, period, epoch, _proof(891), accountSignature);
-        assertTrue(addressBook.verify(epoch, user1));
-    }
-
-    function testRelayerWithWrongAccountSignatureReverts() public {
-        uint32 period = addressBook.getCurrentPeriod();
-        IAddressBook.EpochData memory epoch = _epoch();
-
-        bytes memory signatureFromUser1 = _accountRegistrationSignature(user1, period, epoch);
-
-        vm.expectRevert(abi.encodeWithSelector(IAddressBook.InvalidAccountAuthorization.selector));
-        addressBook.registerWithSignature(user2, period, epoch, _proof(893), signatureFromUser1);
-    }
-
-    function testCannotRegisterVictimWithAttackerProofWithoutVictimSignature() public {
+    function testThirdPartyCanRegisterAnotherAccount() public {
         uint32 period = addressBook.getCurrentPeriod();
         IAddressBook.EpochData memory epoch = _epoch();
 
         _expectVerifierInputs(period, user2);
 
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(IAddressBook.InvalidAccountAuthorization.selector));
         addressBook.register(user2, period, epoch, _proof(892));
+        assertTrue(addressBook.verify(epoch, user2));
     }
 
     function testVerifierRevertBubblesUp() public {

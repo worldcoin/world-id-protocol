@@ -61,10 +61,10 @@ contract AddressBookUpgradeTest is Test {
     }
 
     function _epoch() internal pure returns (IAddressBook.EpochData memory) {
-        return IAddressBook.EpochData({rpId: RP_ID, action: ACTION});
+        return IAddressBook.EpochData({action: ACTION});
     }
 
-    function _proof(uint256 nullifier) internal view returns (IAddressBook.RegistrationProof memory) {
+    function _proof(uint256 nullifier) internal pure returns (IAddressBook.RegistrationProof memory) {
         uint256[5] memory zkProof;
         zkProof[0] = 1;
         zkProof[1] = 2;
@@ -74,8 +74,9 @@ contract AddressBookUpgradeTest is Test {
 
         return IAddressBook.RegistrationProof({
             nullifier: nullifier,
+            rpId: RP_ID,
             nonce: 77,
-            expiresAtMin: uint64(block.timestamp + 1 days),
+            expiresAtMin: type(uint64).max,
             issuerSchemaId: 8,
             credentialGenesisIssuedAtMin: 0,
             zeroKnowledgeProof: zkProof

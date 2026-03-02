@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 /**
  * @title IAddressBook
  * @author World Contributors
- * @notice Soft-cache contract for period-scoped World ID verification results.
+ * @notice Soft-cache contract for action-scoped World ID verification results.
  */
 interface IAddressBook {
     ////////////////////////////////////////////////////////////
@@ -12,12 +12,10 @@ interface IAddressBook {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @notice Logical verification context (period excluded).
-     * @param rpId Registered RP identifier.
+     * @notice Logical verification context.
      * @param action RP-defined action field value used by World ID proofs.
      */
     struct EpochData {
-        uint64 rpId;
         uint256 action;
     }
 
@@ -26,6 +24,7 @@ interface IAddressBook {
      */
     struct RegistrationProof {
         uint256 nullifier;
+        uint64 rpId;
         uint256 nonce;
         uint64 expiresAtMin;
         uint64 issuerSchemaId;
@@ -41,8 +40,8 @@ interface IAddressBook {
     error PeriodNotStarted();
     error PeriodOutOfRange();
     error InvalidAccount();
-    error InvalidAccountAuthorization();
     error InvalidTargetPeriod(uint32 targetPeriod, uint32 currentPeriod);
+    error ExpirationBeforeEpochEnd(uint64 expiresAtMin, uint256 epochPeriodEnd);
     error NullifierAlreadyUsed(uint256 nullifier, bytes32 epochId);
     error AddressAlreadyRegistered(address account, bytes32 epochId);
 
@@ -51,12 +50,11 @@ interface IAddressBook {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @notice Emitted when an address is registered for a period/rp/action context.
+     * @notice Emitted when an address is registered for a period/action context.
      */
     event AddressRegistered(
         bytes32 indexed epochId,
         uint32 indexed period,
-        uint64 indexed rpId,
         uint256 action,
         address account,
         uint256 nullifier
@@ -78,21 +76,10 @@ interface IAddressBook {
 
     /**
      * @notice Registers an address for the given target period and context.
-     * @dev Caller must be the same as `account`.
+     * @dev Any caller may register any `account`.
      */
     function register(address account, uint32 targetPeriod, EpochData calldata epoch, RegistrationProof calldata proof)
         external;
-
-    /**
-     * @notice Relayed registration with account authorization signature.
-     */
-    function registerWithSignature(
-        address account,
-        uint32 targetPeriod,
-        EpochData calldata epoch,
-        RegistrationProof calldata proof,
-        bytes calldata accountSignature
-    ) external;
 
     /**
      * @notice Returns whether `account` is registered in the currently active period for this context.
@@ -113,12 +100,12 @@ interface IAddressBook {
     function getCurrentPeriod() external view returns (uint32);
 
     /**
-     * @notice Computes the epoch key for the given period and context.
+     * @notice Computes the epoch key for the given context.
      */
     function computeEpochId(uint32 period, EpochData calldata epoch) external pure returns (bytes32);
 
     /**
-     * @notice Computes the canonical signal string for period/context/account.
+     * @notice Computes the canonical signal string for `account`.
      */
     function computeSignal(uint32 period, EpochData calldata epoch, address account)
         external
@@ -126,17 +113,9 @@ interface IAddressBook {
         returns (string memory);
 
     /**
-     * @notice Computes the signal hash bound to period/context/account.
+     * @notice Computes the signal hash bound to `account`.
      */
     function computeSignalHash(uint32 period, EpochData calldata epoch, address account) external view returns (uint256);
-
-    /**
-     * @notice Computes EIP-712 digest that an account must sign for relayed registration.
-     */
-    function computeRegistrationDigest(address account, uint32 targetPeriod, EpochData calldata epoch)
-        external
-        view
-        returns (bytes32);
 
     /**
      * @notice Returns the WorldID verifier address.

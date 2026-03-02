@@ -5,17 +5,14 @@ import {WorldIDBase} from "../core/abstract/WorldIDBase.sol";
 import {IWorldIDVerifier} from "../core/interfaces/IWorldIDVerifier.sol";
 import {IAddressBook} from "./interfaces/IAddressBook.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 /**
  * @title AddressBook
  * @author World Contributors
- * @notice Period-scoped soft-cache for World ID proof verifications.
+ * @notice Action-scoped soft-cache for World ID proof verifications.
  * @dev Designed for proxy deployments (UUPS via WorldIDBase).
  */
 contract AddressBook is WorldIDBase, IAddressBook {
-    using Strings for uint256;
-
     ////////////////////////////////////////////////////////////
     //                        MEMBERS                         //
     ////////////////////////////////////////////////////////////
@@ -47,12 +44,6 @@ contract AddressBook is WorldIDBase, IAddressBook {
 
     string public constant EIP712_NAME = "AddressBook";
     string public constant EIP712_VERSION = "1.0";
-
-    bytes32 public constant REGISTER_AUTHORIZATION_TYPEHASH =
-        keccak256("RegisterAuthorization(address account,uint32 targetPeriod,uint64 rpId,uint256 action)");
-
-    /// @dev Prefix used to domain-separate the signal string.
-    string internal constant SIGNAL_DOMAIN_SEPARATOR = "world-id-address-book:v1";
 
     ////////////////////////////////////////////////////////////
     //                      CONSTRUCTOR                       //
@@ -103,20 +94,6 @@ contract AddressBook is WorldIDBase, IAddressBook {
         onlyInitialized
     {
         if (account == address(0)) revert InvalidAccount();
-        if (account != msg.sender) revert InvalidAccountAuthorization();
-        _register(account, targetPeriod, epoch, proof);
-    }
-
-    /// @inheritdoc IAddressBook
-    function registerWithSignature(
-        address account,
-        uint32 targetPeriod,
-        EpochData calldata epoch,
-        RegistrationProof calldata proof,
-        bytes calldata accountSignature
-    ) external virtual onlyProxy onlyInitialized {
-        if (account == address(0)) revert InvalidAccount();
-        _validateAccountAuthorization(account, targetPeriod, epoch, accountSignature);
         _register(account, targetPeriod, epoch, proof);
     }
 
@@ -129,13 +106,13 @@ contract AddressBook is WorldIDBase, IAddressBook {
         onlyInitialized
         returns (bool)
     {
-        uint32 currentPeriod = _getCurrentPeriod();
-        bytes32 epochId = _computeEpochId(currentPeriod, epoch.rpId, epoch.action);
+        _getCurrentPeriod();
+        bytes32 epochId = _computeEpochId(epoch.action);
         return _epochAddressRegistered[epochId][account];
     }
 
     /// @inheritdoc IAddressBook
-    function isRegisteredForPeriod(uint32 period, EpochData calldata epoch, address account)
+    function isRegisteredForPeriod(uint32, EpochData calldata epoch, address account)
         external
         view
         virtual
@@ -143,7 +120,7 @@ contract AddressBook is WorldIDBase, IAddressBook {
         onlyInitialized
         returns (bool)
     {
-        bytes32 epochId = _computeEpochId(period, epoch.rpId, epoch.action);
+        bytes32 epochId = _computeEpochId(epoch.action);
         return _epochAddressRegistered[epochId][account];
     }
 
@@ -153,12 +130,12 @@ contract AddressBook is WorldIDBase, IAddressBook {
     }
 
     /// @inheritdoc IAddressBook
-    function computeEpochId(uint32 period, EpochData calldata epoch) external pure virtual returns (bytes32) {
-        return _computeEpochId(period, epoch.rpId, epoch.action);
+    function computeEpochId(uint32, EpochData calldata epoch) external pure virtual returns (bytes32) {
+        return _computeEpochId(epoch.action);
     }
 
     /// @inheritdoc IAddressBook
-    function computeSignal(uint32 period, EpochData calldata epoch, address account)
+    function computeSignal(uint32, EpochData calldata, address account)
         external
         view
         virtual
@@ -166,12 +143,11 @@ contract AddressBook is WorldIDBase, IAddressBook {
         onlyInitialized
         returns (string memory)
     {
-        bytes32 epochId = _computeEpochId(period, epoch.rpId, epoch.action);
-        return _computeSignal(epochId, account);
+        return _computeSignal(account);
     }
 
     /// @inheritdoc IAddressBook
-    function computeSignalHash(uint32 period, EpochData calldata epoch, address account)
+    function computeSignalHash(uint32, EpochData calldata, address account)
         external
         view
         virtual
@@ -179,20 +155,7 @@ contract AddressBook is WorldIDBase, IAddressBook {
         onlyInitialized
         returns (uint256)
     {
-        bytes32 epochId = _computeEpochId(period, epoch.rpId, epoch.action);
-        return _computeSignalHash(epochId, account);
-    }
-
-    /// @inheritdoc IAddressBook
-    function computeRegistrationDigest(address account, uint32 targetPeriod, EpochData calldata epoch)
-        external
-        view
-        virtual
-        onlyProxy
-        onlyInitialized
-        returns (bytes32)
-    {
-        return _computeRegistrationDigest(account, targetPeriod, epoch.rpId, epoch.action);
+        return _computeSignalHash(account);
     }
 
     /// @inheritdoc IAddressBook
@@ -256,7 +219,13 @@ contract AddressBook is WorldIDBase, IAddressBook {
             }
         }
 
-        bytes32 epochId = _computeEpochId(targetPeriod, epoch.rpId, epoch.action);
+        uint256 epochPeriodEnd =
+            uint256(_periodStartTimestamp) + (uint256(targetPeriod) + 1) * uint256(_periodLengthSeconds);
+        if (uint256(proof.expiresAtMin) < epochPeriodEnd) {
+            revert ExpirationBeforeEpochEnd(proof.expiresAtMin, epochPeriodEnd);
+        }
+
+        bytes32 epochId = _computeEpochId(epoch.action);
 
         if (_epochNullifierUsed[epochId][proof.nullifier]) {
             revert NullifierAlreadyUsed(proof.nullifier, epochId);
@@ -266,12 +235,12 @@ contract AddressBook is WorldIDBase, IAddressBook {
             revert AddressAlreadyRegistered(account, epochId);
         }
 
-        uint256 signalHash = _computeSignalHash(epochId, account);
+        uint256 signalHash = _computeSignalHash(account);
 
         _worldIDVerifier.verify(
             proof.nullifier,
             epoch.action,
-            epoch.rpId,
+            proof.rpId,
             proof.nonce,
             signalHash,
             proof.expiresAtMin,
@@ -283,23 +252,7 @@ contract AddressBook is WorldIDBase, IAddressBook {
         _epochNullifierUsed[epochId][proof.nullifier] = true;
         _epochAddressRegistered[epochId][account] = true;
 
-        emit AddressRegistered(epochId, targetPeriod, epoch.rpId, epoch.action, account, proof.nullifier);
-    }
-
-    function _validateAccountAuthorization(
-        address account,
-        uint32 targetPeriod,
-        EpochData calldata epoch,
-        bytes calldata accountSignature
-    ) internal view virtual {
-        if (msg.sender == account) {
-            return;
-        }
-
-        bytes32 digest = _computeRegistrationDigest(account, targetPeriod, epoch.rpId, epoch.action);
-        if (!SignatureChecker.isValidSignatureNow(account, digest, accountSignature)) {
-            revert InvalidAccountAuthorization();
-        }
+        emit AddressRegistered(epochId, targetPeriod, epoch.action, account, proof.nullifier);
     }
 
     function _getCurrentPeriod() internal view virtual returns (uint32) {
@@ -311,38 +264,17 @@ contract AddressBook is WorldIDBase, IAddressBook {
         return uint32(period);
     }
 
-    function _computeEpochId(uint32 period, uint64 rpId, uint256 action) internal pure virtual returns (bytes32) {
-        return keccak256(abi.encode(period, rpId, action));
+    function _computeEpochId(uint256 action) internal pure virtual returns (bytes32) {
+        return bytes32(action);
     }
 
-    function _computeSignalHash(bytes32 epochId, address account) internal view virtual returns (uint256) {
+    function _computeSignalHash(address account) internal pure virtual returns (uint256) {
         // Match the authenticator pipeline, which hashes UTF-8 signal bytes.
-        string memory signal = _computeSignal(epochId, account);
+        string memory signal = _computeSignal(account);
         return uint256(keccak256(bytes(signal))) >> 8;
     }
 
-    function _computeSignal(bytes32 epochId, address account) internal view virtual returns (string memory) {
-        return string.concat(
-            SIGNAL_DOMAIN_SEPARATOR,
-            ":",
-            uint256(block.chainid).toString(),
-            ":",
-            Strings.toHexString(uint256(uint160(address(this))), 20),
-            ":",
-            Strings.toHexString(uint256(epochId), 32),
-            ":",
-            Strings.toHexString(uint256(uint160(account)), 20)
-        );
-    }
-
-    function _computeRegistrationDigest(address account, uint32 targetPeriod, uint64 rpId, uint256 action)
-        internal
-        view
-        virtual
-        returns (bytes32)
-    {
-        return _hashTypedDataV4(
-            keccak256(abi.encode(REGISTER_AUTHORIZATION_TYPEHASH, account, targetPeriod, rpId, action))
-        );
+    function _computeSignal(address account) internal pure virtual returns (string memory) {
+        return Strings.toHexString(uint256(uint160(account)), 20);
     }
 }
