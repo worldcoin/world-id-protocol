@@ -9,12 +9,7 @@ use crate::{
 };
 use alloy::{primitives::Address, providers::DynProvider};
 use futures_util::StreamExt;
-use std::{
-    backtrace::Backtrace,
-    net::SocketAddr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
 use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
@@ -418,6 +413,7 @@ async fn save_events(
 
     Ok(committed_batches)
 }
+
 
 /// Stream registry events from the blockchain and process them.
 /// Restart when websocket connection is dropped.

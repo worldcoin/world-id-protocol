@@ -13,7 +13,6 @@ use alloy::primitives::{Address, U256};
 use helpers::{db_helpers::*, mock_blockchain::*};
 use world_id_indexer::{
     db::WorldIdRegistryEventId,
-    events_committer::EventsCommitter,
     rollback_executor::rollback_to_last_valid_root,
     tree::{TreeState, VersionedTreeState},
 };
@@ -62,9 +61,14 @@ async fn test_empty_db_returns_none() {
     let (_anvil, registry, test_db) = setup().await;
     let db = &test_db.db;
 
-    let result = rollback_to_last_valid_root(db, registry.provider(), *registry.address(), &make_versioned_tree())
-        .await
-        .expect("rollback_to_last_valid_root should not error on empty DB");
+    let result = rollback_to_last_valid_root(
+        db,
+        registry.provider(),
+        *registry.address(),
+        &make_versioned_tree(),
+    )
+    .await
+    .expect("rollback_to_last_valid_root should not error on empty DB");
 
     assert!(result.is_none(), "expected None for empty DB");
 }
@@ -81,16 +85,25 @@ async fn test_all_invalid_roots_returns_none() {
     let account_event = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(1));
     let root_event = mock_root_recorded_event(100, 1, U256::from(0xdeadbeef_u64), U256::from(100));
 
-    insert_test_world_tree_event(db, &account_event).await.unwrap();
+    insert_test_world_tree_event(db, &account_event)
+        .await
+        .unwrap();
     insert_test_world_tree_event(db, &root_event).await.unwrap();
-    insert_test_account(db, 1, Address::ZERO, U256::from(1)).await.unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1))
+        .await
+        .unwrap();
 
     assert_account_count(db.pool(), 1).await;
     assert_root_count(db.pool(), 1).await;
 
-    let result = rollback_to_last_valid_root(db, registry.provider(), *registry.address(), &make_versioned_tree())
-        .await
-        .expect("should not error");
+    let result = rollback_to_last_valid_root(
+        db,
+        registry.provider(),
+        *registry.address(),
+        &make_versioned_tree(),
+    )
+    .await
+    .expect("should not error");
 
     assert!(
         result.is_none(),
@@ -160,24 +173,48 @@ async fn test_rolls_back_to_last_valid_root() {
         Address::ZERO,
         U256::from(1),
     );
-    let root_event1 = mock_root_recorded_event(valid_block, valid_log_index, valid_root, U256::from(100));
-    insert_test_world_tree_event(db, &account_event1).await.unwrap();
-    insert_test_world_tree_event(db, &root_event1).await.unwrap();
-    insert_test_account(db, 1, Address::ZERO, U256::from(1)).await.unwrap();
+    let root_event1 =
+        mock_root_recorded_event(valid_block, valid_log_index, valid_root, U256::from(100));
+    insert_test_world_tree_event(db, &account_event1)
+        .await
+        .unwrap();
+    insert_test_world_tree_event(db, &root_event1)
+        .await
+        .unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1))
+        .await
+        .unwrap();
 
     // Batch 2: insert a fabricated (invalid) root directly.
-    let account_event2 = mock_account_created_event(valid_block + 1, 0, 2, Address::ZERO, U256::from(2));
-    let root_event2 = mock_root_recorded_event(valid_block + 1, 1, U256::from(0xdeadbeef_u64), U256::from(101));
-    insert_test_world_tree_event(db, &account_event2).await.unwrap();
-    insert_test_world_tree_event(db, &root_event2).await.unwrap();
-    insert_test_account(db, 2, Address::ZERO, U256::from(2)).await.unwrap();
+    let account_event2 =
+        mock_account_created_event(valid_block + 1, 0, 2, Address::ZERO, U256::from(2));
+    let root_event2 = mock_root_recorded_event(
+        valid_block + 1,
+        1,
+        U256::from(0xdeadbeef_u64),
+        U256::from(101),
+    );
+    insert_test_world_tree_event(db, &account_event2)
+        .await
+        .unwrap();
+    insert_test_world_tree_event(db, &root_event2)
+        .await
+        .unwrap();
+    insert_test_account(db, 2, Address::ZERO, U256::from(2))
+        .await
+        .unwrap();
 
     assert_account_count(db.pool(), 2).await;
     assert_root_count(db.pool(), 2).await;
 
-    let result = rollback_to_last_valid_root(db, registry.provider(), *registry.address(), &make_versioned_tree())
-        .await
-        .expect("rollback_to_last_valid_root failed");
+    let result = rollback_to_last_valid_root(
+        db,
+        registry.provider(),
+        *registry.address(),
+        &make_versioned_tree(),
+    )
+    .await
+    .expect("rollback_to_last_valid_root failed");
 
     // Should have rolled back to the first batch's root event.
     assert!(result.is_some(), "expected a rollback target");
@@ -243,16 +280,26 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
         Address::ZERO,
         U256::from(1),
     );
-    let root_event = mock_root_recorded_event(valid_block, valid_log_index, valid_root, U256::from(200));
-    insert_test_world_tree_event(db, &account_event).await.unwrap();
+    let root_event =
+        mock_root_recorded_event(valid_block, valid_log_index, valid_root, U256::from(200));
+    insert_test_world_tree_event(db, &account_event)
+        .await
+        .unwrap();
     insert_test_world_tree_event(db, &root_event).await.unwrap();
-    insert_test_account(db, 1, Address::ZERO, U256::from(1)).await.unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1))
+        .await
+        .unwrap();
 
     assert_account_count(db.pool(), 1).await;
 
-    let result = rollback_to_last_valid_root(db, registry.provider(), *registry.address(), &make_versioned_tree())
-        .await
-        .expect("should not fail");
+    let result = rollback_to_last_valid_root(
+        db,
+        registry.provider(),
+        *registry.address(),
+        &make_versioned_tree(),
+    )
+    .await
+    .expect("should not fail");
 
     // Rolled back to the last (and only) root — data intact.
     assert!(result.is_some());

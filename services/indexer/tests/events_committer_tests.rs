@@ -62,7 +62,7 @@ async fn test_event_idempotency() {
     let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let event = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(123));
-    let root = compute_root_after_events(&[event.clone()]).await;
+    let root = compute_root_after_events(std::slice::from_ref(&event)).await;
     let root_event = mock_root_recorded_event(100, 1, root, U256::from(1000));
 
     // Process first event
@@ -165,7 +165,8 @@ async fn test_multiple_event_batches() {
 
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    let roots = compute_batch_roots(&[&[event1.clone()], &[event2.clone()]]).await;
+    let roots =
+        compute_batch_roots(&[std::slice::from_ref(&event1), std::slice::from_ref(&event2)]).await;
     let root1 = mock_root_recorded_event(100, 1, roots[0], U256::from(1000));
     let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
 
@@ -217,7 +218,12 @@ async fn test_authenticator_inserted() {
     );
 
     // Verify authenticator was inserted at index 0 (pubkey_id=0)
-    let account = db.accounts().get_account(leaf_index).await.unwrap().unwrap();
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(account.authenticator_pubkeys[0], Some(U256::from(200)));
     assert_eq!(account.offchain_signer_commitment, U256::from(300));
 }
@@ -258,7 +264,12 @@ async fn test_authenticator_removed() {
     );
 
     // Verify authenticator slot 0 was nulled out
-    let account = db.accounts().get_account(leaf_index).await.unwrap().unwrap();
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(account.authenticator_addresses[0], None);
     assert_eq!(account.authenticator_pubkeys[0], None);
     assert_eq!(account.offchain_signer_commitment, U256::from(300));
@@ -299,7 +310,12 @@ async fn test_account_recovered() {
     );
 
     // Verify account was recovered: single authenticator at slot 0 with new values
-    let account = db.accounts().get_account(leaf_index).await.unwrap().unwrap();
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(account.authenticator_addresses.len(), 1);
     assert_eq!(account.authenticator_addresses[0], Some(Address::ZERO));
     assert_eq!(account.authenticator_pubkeys[0], Some(U256::from(200)));
@@ -327,7 +343,7 @@ async fn test_transaction_rollback_on_error() {
         Address::from([1u8; 20]),
         U256::from(789),
     );
-    let root = compute_root_after_events(&[duplicate_create_event.clone()]).await;
+    let root = compute_root_after_events(std::slice::from_ref(&duplicate_create_event)).await;
     let root_event = mock_root_recorded_event(100, 1, root, U256::from(1000));
 
     committer
@@ -361,7 +377,8 @@ async fn test_buffer_cleared_after_commit() {
 
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    let roots = compute_batch_roots(&[&[event1.clone()], &[event2.clone()]]).await;
+    let roots =
+        compute_batch_roots(&[std::slice::from_ref(&event1), std::slice::from_ref(&event2)]).await;
     let root1 = mock_root_recorded_event(100, 1, roots[0], U256::from(1000));
     let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
 

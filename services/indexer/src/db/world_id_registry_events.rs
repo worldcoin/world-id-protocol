@@ -388,24 +388,26 @@ pub fn deserialize_registry_event(
     event_data: &serde_json::Value,
 ) -> DBResult<RegistryEvent> {
     match event_type {
-        WorldIdRegistryEventType::AccountCreated => {
-            Ok(RegistryEvent::AccountCreated(deserialize_account_created(leaf_index, event_data)?))
-        }
-        WorldIdRegistryEventType::AccountUpdated => {
-            Ok(RegistryEvent::AccountUpdated(deserialize_account_updated(leaf_index, event_data)?))
-        }
+        WorldIdRegistryEventType::AccountCreated => Ok(RegistryEvent::AccountCreated(
+            deserialize_account_created(leaf_index, event_data)?,
+        )),
+        WorldIdRegistryEventType::AccountUpdated => Ok(RegistryEvent::AccountUpdated(
+            deserialize_account_updated(leaf_index, event_data)?,
+        )),
         WorldIdRegistryEventType::AuthenticatorInserted => {
-            Ok(RegistryEvent::AuthenticatorInserted(deserialize_authenticator_inserted(leaf_index, event_data)?))
+            Ok(RegistryEvent::AuthenticatorInserted(
+                deserialize_authenticator_inserted(leaf_index, event_data)?,
+            ))
         }
-        WorldIdRegistryEventType::AuthenticatorRemoved => {
-            Ok(RegistryEvent::AuthenticatorRemoved(deserialize_authenticator_removed(leaf_index, event_data)?))
-        }
-        WorldIdRegistryEventType::AccountRecovered => {
-            Ok(RegistryEvent::AccountRecovered(deserialize_account_recovered(leaf_index, event_data)?))
-        }
-        WorldIdRegistryEventType::RootRecorded => {
-            Ok(RegistryEvent::RootRecorded(deserialize_root_recorded(event_data)?))
-        }
+        WorldIdRegistryEventType::AuthenticatorRemoved => Ok(RegistryEvent::AuthenticatorRemoved(
+            deserialize_authenticator_removed(leaf_index, event_data)?,
+        )),
+        WorldIdRegistryEventType::AccountRecovered => Ok(RegistryEvent::AccountRecovered(
+            deserialize_account_recovered(leaf_index, event_data)?,
+        )),
+        WorldIdRegistryEventType::RootRecorded => Ok(RegistryEvent::RootRecorded(
+            deserialize_root_recorded(event_data)?,
+        )),
     }
 }
 
