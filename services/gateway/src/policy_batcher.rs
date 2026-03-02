@@ -25,7 +25,7 @@ enum PolicyLoopEvent<T> {
 ///
 /// Implementors provide batcher-specific primitives (queue source, submit path,
 /// backlog scope, and no-backlog reconciliation), while this trait provides the
-/// common legacy/policy event loops.
+/// common policy event loop.
 pub(crate) trait PolicyBatchLoopRunner {
     type Envelope: Send + 'static;
 
@@ -53,50 +53,6 @@ pub(crate) trait PolicyBatchLoopRunner {
     /// This hook captures the intentional behavior difference:
     /// create clears queue and removes in-flight authenticators, while ops only clears queue.
     async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>);
-
-    /// Legacy batching loop: wait for first request, then fill until deadline or max batch size.
-    async fn run_legacy_loop(&mut self) {
-        let window = Duration::from_millis(self.batch_policy().reeval_ms);
-
-        loop {
-            let first = {
-                let rx = self.rx();
-                rx.recv().await
-            };
-            let Some(first) = first else {
-                tracing::info!("{} batcher channel closed", self.batch_type());
-                return;
-            };
-
-            let mut batch = vec![first];
-            let deadline = Instant::now() + window;
-
-            loop {
-                if batch.len() >= self.max_batch_size() {
-                    break;
-                }
-
-                let next_req = {
-                    let rx = self.rx();
-                    tokio::time::timeout_at(deadline, rx.recv()).await
-                };
-
-                match next_req {
-                    Ok(Some(req)) => batch.push(req),
-                    Ok(None) => {
-                        tracing::info!(
-                            "{} batcher channel closed while batching",
-                            self.batch_type()
-                        );
-                        break;
-                    }
-                    Err(_) => break, // Timeout expired
-                }
-            }
-
-            self.submit_batch(batch).await;
-        }
-    }
 
     /// Policy-driven batching loop with periodic re-evaluation and bounded local queueing.
     async fn run_policy_loop(&mut self) {

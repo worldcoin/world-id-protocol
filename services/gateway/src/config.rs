@@ -60,13 +60,9 @@ impl Default for OrphanSweeperConfig {
     }
 }
 
-/// Adaptive batching policy configuration.
+/// Policy-driven batching configuration.
 #[derive(Clone, Debug, clap::Args)]
 pub struct BatchPolicyConfig {
-    /// Enable adaptive policy-driven batch dispatch.
-    #[arg(long, env = "BATCH_POLICY_ENABLED", default_value = "false")]
-    pub enabled: bool,
-
     /// Re-evaluation cadence for policy decisions, in milliseconds.
     #[arg(long, env = "BATCH_REEVAL_MS", default_value = "1000")]
     pub reeval_ms: u64,
@@ -91,7 +87,6 @@ pub struct BatchPolicyConfig {
 impl Default for BatchPolicyConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
             reeval_ms: 1_000,
             max_wait_secs: 30,
             cost_ema_alpha: 0.2,
@@ -229,12 +224,9 @@ impl GatewayConfig {
             ));
         }
 
-        if self.batch_policy.enabled
-            && self.sweeper().stale_queued_threshold_secs <= self.batch_policy.max_wait_secs
-        {
+        if self.sweeper().stale_queued_threshold_secs <= self.batch_policy.max_wait_secs {
             return Err(GatewayError::Config(
-                "STALE_QUEUED_THRESHOLD_SECS must be greater than BATCH_MAX_WAIT_SECS when adaptive batching is enabled"
-                    .to_string(),
+                "STALE_QUEUED_THRESHOLD_SECS must be greater than BATCH_MAX_WAIT_SECS".to_string(),
             ));
         }
 
@@ -375,5 +367,17 @@ mod tests {
         let err = result.unwrap_err().to_string();
         assert!(err.contains("BATCH_COST_HIGH_RATIO"));
         assert!(err.contains("finite"));
+    }
+
+    #[test]
+    fn test_stale_queued_threshold_must_exceed_max_wait_secs() {
+        let mut config = parse_valid_config();
+        config.batch_policy.max_wait_secs = 30;
+        config.stale_queued_threshold_secs = 30;
+
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("STALE_QUEUED_THRESHOLD_SECS"));
     }
 }

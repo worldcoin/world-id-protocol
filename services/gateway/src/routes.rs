@@ -71,13 +71,11 @@ pub(crate) async fn build_app(
     let tracker = RequestTracker::new(redis_url, rate_limit).await;
     let base_fee_cache = BaseFeeCache::default();
 
-    if batch_policy_config.enabled {
-        spawn_base_fee_sampler(
-            registry.provider().clone(),
-            Duration::from_millis(batch_policy_config.reeval_ms),
-            base_fee_cache.clone(),
-        );
-    }
+    spawn_base_fee_sampler(
+        registry.provider().clone(),
+        Duration::from_millis(batch_policy_config.reeval_ms),
+        base_fee_cache.clone(),
+    );
 
     let (tx, rx) = mpsc::channel(CREATE_BATCHER_CHANNEL_CAPACITY);
     let batcher = CreateBatcherHandle { tx };

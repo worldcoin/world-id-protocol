@@ -65,11 +65,7 @@ impl CreateBatcherRunner {
     }
 
     pub async fn run(mut self) {
-        if self.batch_policy.enabled {
-            self.run_policy_loop().await;
-        } else {
-            self.run_legacy_loop().await;
-        }
+        self.run_policy_loop().await;
     }
 
     async fn drop_local_queue_and_inflight(

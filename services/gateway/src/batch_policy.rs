@@ -344,7 +344,6 @@ mod tests {
 
     fn cfg() -> BatchPolicyConfig {
         BatchPolicyConfig {
-            enabled: true,
             reeval_ms: 2_000,
             max_wait_secs: 30,
             cost_ema_alpha: 0.2,
