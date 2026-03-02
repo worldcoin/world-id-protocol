@@ -27,8 +27,9 @@ async fn test_events_are_buffered_and_committed() {
         U256::from(789),
     );
 
+    let root = compute_root_after_events(&[event1.clone(), event2.clone()]).await;
     // Create RootRecorded event (triggers commit)
-    let event3 = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let event3 = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     // Handle events
     committer.handle_event(event1).await.unwrap();
@@ -60,9 +61,9 @@ async fn test_event_idempotency() {
 
     let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
-    // Create the same event twice
     let event = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(123));
-    let root_event = mock_root_recorded_event(100, 1, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 1, root, U256::from(1000));
 
     // Process first event
     committer.handle_event(event.clone()).await.unwrap();
@@ -123,7 +124,8 @@ async fn test_account_update_modifies_existing_account() {
         initial_commitment,
         updated_commitment,
     );
-    let root_event = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[create_event.clone(), update_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     // Process events: create, update, then root (which triggers commit)
     // Account should NOT exist in DB until root event is processed
@@ -163,14 +165,18 @@ async fn test_multiple_event_batches() {
 
     // First batch
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let root1 = mock_root_recorded_event(100, 1, U256::from(500), U256::from(1000));
+    let root1_val = compute_root_after_events(&[event1.clone()]).await;
+    let root1 = mock_root_recorded_event(100, 1, root1_val, U256::from(1000));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
 
     // Second batch
     let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    let root2 = mock_root_recorded_event(101, 1, U256::from(600), U256::from(2000));
+    // Root after second batch must account for both leaves applied cumulatively to the same tree
+    let event1_again = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
+    let root2_val = compute_root_after_events(&[event1_again, event2.clone()]).await;
+    let root2 = mock_root_recorded_event(101, 1, root2_val, U256::from(2000));
 
     committer.handle_event(event2).await.unwrap();
     committer.handle_event(root2).await.unwrap();
@@ -204,7 +210,8 @@ async fn test_authenticator_inserted() {
         U256::from(100),
         U256::from(300),
     );
-    let root_event = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[create_event.clone(), insert_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     committer.handle_event(create_event).await.unwrap();
     committer.handle_event(insert_event).await.unwrap();
@@ -239,7 +246,8 @@ async fn test_authenticator_removed() {
         U256::from(100),
         U256::from(300),
     );
-    let root_event = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[create_event.clone(), remove_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     committer.handle_event(create_event).await.unwrap();
     committer.handle_event(remove_event).await.unwrap();
@@ -273,7 +281,8 @@ async fn test_account_recovered() {
         U256::from(100),
         U256::from(300),
     );
-    let root_event = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[create_event.clone(), recover_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     committer.handle_event(create_event).await.unwrap();
     committer.handle_event(recover_event).await.unwrap();
@@ -308,7 +317,8 @@ async fn test_transaction_rollback_on_error() {
         Address::from([1u8; 20]),
         U256::from(789),
     );
-    let root_event = mock_root_recorded_event(100, 1, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[duplicate_create_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 1, root, U256::from(1000));
 
     committer
         .handle_event(duplicate_create_event)
@@ -341,14 +351,18 @@ async fn test_buffer_cleared_after_commit() {
 
     // First batch
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let root1 = mock_root_recorded_event(100, 1, U256::from(500), U256::from(1000));
+    let root1_val = compute_root_after_events(&[event1.clone()]).await;
+    let root1 = mock_root_recorded_event(100, 1, root1_val, U256::from(1000));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
 
     // Second batch - buffer should be empty, so only this event should be committed
     let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    let root2 = mock_root_recorded_event(101, 1, U256::from(600), U256::from(2000));
+    // The committer's tree already has leaf 1 applied; compute root with both leaves
+    let event1_for_root = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
+    let root2_val = compute_root_after_events(&[event1_for_root, event2.clone()]).await;
+    let root2 = mock_root_recorded_event(101, 1, root2_val, U256::from(2000));
 
     committer.handle_event(event2).await.unwrap();
     committer.handle_event(root2).await.unwrap();

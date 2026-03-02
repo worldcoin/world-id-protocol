@@ -76,27 +76,14 @@ async fn test_all_invalid_roots_returns_none() {
     let (_anvil, registry, test_db) = setup().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    // Insert events directly to bypass root validation — we intentionally want
+    // a fabricated (on-chain-invalid) root in the DB to test the rollback logic.
+    let account_event = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(1));
+    let root_event = mock_root_recorded_event(100, 1, U256::from(0xdeadbeef_u64), U256::from(100));
 
-    committer
-        .handle_event(mock_account_created_event(
-            100,
-            0,
-            1,
-            Address::ZERO,
-            U256::from(1),
-        ))
-        .await
-        .unwrap();
-    committer
-        .handle_event(mock_root_recorded_event(
-            100,
-            1,
-            U256::from(0xdeadbeef_u64),
-            U256::from(100),
-        ))
-        .await
-        .unwrap();
+    insert_test_world_tree_event(db, &account_event).await.unwrap();
+    insert_test_world_tree_event(db, &root_event).await.unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1)).await.unwrap();
 
     assert_account_count(db.pool(), 1).await;
     assert_root_count(db.pool(), 1).await;
@@ -151,8 +138,6 @@ async fn test_rolls_back_to_last_valid_root() {
         .await
         .expect("currentRoot failed");
 
-    // The RootRecorded log for this tx is the last log in the receipt.
-    // log_index is global within the block.
     let root_log = receipt
         .inner
         .logs()
@@ -166,48 +151,26 @@ async fn test_rolls_back_to_last_valid_root() {
     let valid_block = receipt.block_number.expect("missing block number");
     let valid_log_index = root_log.log_index.expect("missing log index");
 
-    // Batch 1: insert a real root that the chain knows, using the actual on-chain block/log_index.
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
-    committer
-        .handle_event(mock_account_created_event(
-            valid_block,
-            valid_log_index.saturating_sub(1),
-            1,
-            Address::ZERO,
-            U256::from(1),
-        ))
-        .await
-        .unwrap();
-    committer
-        .handle_event(mock_root_recorded_event(
-            valid_block,
-            valid_log_index,
-            valid_root,
-            U256::from(100),
-        ))
-        .await
-        .unwrap();
+    // Batch 1: insert the valid root directly into DB (bypassing root validation since
+    // the local tree's account data differs from on-chain — we just need to test rollback logic).
+    let account_event1 = mock_account_created_event(
+        valid_block,
+        valid_log_index.saturating_sub(1),
+        1,
+        Address::ZERO,
+        U256::from(1),
+    );
+    let root_event1 = mock_root_recorded_event(valid_block, valid_log_index, valid_root, U256::from(100));
+    insert_test_world_tree_event(db, &account_event1).await.unwrap();
+    insert_test_world_tree_event(db, &root_event1).await.unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1)).await.unwrap();
 
-    // Batch 2: insert an account with a fabricated root at a fake block (simulates a reorged block).
-    committer
-        .handle_event(mock_account_created_event(
-            valid_block + 1,
-            0,
-            2,
-            Address::ZERO,
-            U256::from(2),
-        ))
-        .await
-        .unwrap();
-    committer
-        .handle_event(mock_root_recorded_event(
-            valid_block + 1,
-            1,
-            U256::from(0xdeadbeef_u64),
-            U256::from(101),
-        ))
-        .await
-        .unwrap();
+    // Batch 2: insert a fabricated (invalid) root directly.
+    let account_event2 = mock_account_created_event(valid_block + 1, 0, 2, Address::ZERO, U256::from(2));
+    let root_event2 = mock_root_recorded_event(valid_block + 1, 1, U256::from(0xdeadbeef_u64), U256::from(101));
+    insert_test_world_tree_event(db, &account_event2).await.unwrap();
+    insert_test_world_tree_event(db, &root_event2).await.unwrap();
+    insert_test_account(db, 2, Address::ZERO, U256::from(2)).await.unwrap();
 
     assert_account_count(db.pool(), 2).await;
     assert_root_count(db.pool(), 2).await;
@@ -272,26 +235,18 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
     let valid_block = receipt.block_number.expect("missing block number");
     let valid_log_index = root_log.log_index.expect("missing log index");
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
-    committer
-        .handle_event(mock_account_created_event(
-            valid_block,
-            valid_log_index.saturating_sub(1),
-            1,
-            Address::ZERO,
-            U256::from(1),
-        ))
-        .await
-        .unwrap();
-    committer
-        .handle_event(mock_root_recorded_event(
-            valid_block,
-            valid_log_index,
-            valid_root,
-            U256::from(200),
-        ))
-        .await
-        .unwrap();
+    // Insert the valid root directly into DB.
+    let account_event = mock_account_created_event(
+        valid_block,
+        valid_log_index.saturating_sub(1),
+        1,
+        Address::ZERO,
+        U256::from(1),
+    );
+    let root_event = mock_root_recorded_event(valid_block, valid_log_index, valid_root, U256::from(200));
+    insert_test_world_tree_event(db, &account_event).await.unwrap();
+    insert_test_world_tree_event(db, &root_event).await.unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1)).await.unwrap();
 
     assert_account_count(db.pool(), 1).await;
 
