@@ -21,6 +21,7 @@ mod metrics;
 pub mod nonce;
 mod ops_batcher;
 pub mod orphan_sweeper;
+mod policy_batcher;
 mod request;
 pub mod request_tracker;
 mod routes;

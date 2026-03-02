@@ -2,19 +2,18 @@
 //!
 //! This batcher collects operations and submits them via Multicall3.
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{collections::VecDeque, sync::Arc};
 
 use crate::{
     RequestTracker,
-    batch_policy::{
-        BacklogUrgencyStats, BaseFeeCache, BatchPolicyEngine, DecisionReason, record_policy_metrics,
-    },
+    batch_policy::BaseFeeCache,
     config::BatchPolicyConfig,
     error::parse_contract_error,
     metrics::{
         METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
         METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
     },
+    policy_batcher::{PolicyBatchLoopRunner, TimedEnvelope},
     request_tracker::BacklogScope,
 };
 use alloy::{
@@ -51,11 +50,6 @@ pub struct OpsEnvelope {
     pub calldata: Bytes,
 }
 
-struct TimedOpsEnvelope {
-    enqueued_at: Instant,
-    envelope: OpsEnvelope,
-}
-
 pub struct OpsBatcherRunner {
     rx: mpsc::Receiver<OpsEnvelope>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
@@ -89,148 +83,13 @@ impl OpsBatcherRunner {
 
     pub async fn run(mut self) {
         if self.batch_policy.enabled {
-            self.run_policy().await;
+            self.run_policy_loop().await;
         } else {
-            self.run_legacy().await;
+            self.run_legacy_loop().await;
         }
     }
 
-    async fn run_legacy(&mut self) {
-        let window = Duration::from_millis(self.batch_policy.reeval_ms);
-        loop {
-            let Some(first) = self.rx.recv().await else {
-                tracing::info!("ops batcher channel closed");
-                return;
-            };
-
-            let mut batch = vec![first];
-            let deadline = Instant::now() + window;
-
-            loop {
-                if batch.len() >= self.max_batch_size {
-                    break;
-                }
-                match tokio::time::timeout_at(deadline, self.rx.recv()).await {
-                    Ok(Some(req)) => batch.push(req),
-                    Ok(None) => {
-                        tracing::info!("ops batcher channel closed while batching");
-                        break;
-                    }
-                    Err(_) => break, // Timeout expired
-                }
-            }
-
-            self.submit_batch(batch).await;
-        }
-    }
-
-    async fn run_policy(&mut self) {
-        let mut policy_engine = BatchPolicyEngine::new(self.batch_policy.clone());
-        let reeval_interval = Duration::from_millis(self.batch_policy.reeval_ms);
-
-        let mut queue: VecDeque<TimedOpsEnvelope> = VecDeque::new();
-        let mut next_eval = Instant::now() + reeval_interval;
-        let mut rx_open = true;
-
-        while rx_open || !queue.is_empty() {
-            if queue.len() >= self.local_queue_limit {
-                tracing::warn!(
-                    queue_len = queue.len(),
-                    local_queue_limit = self.local_queue_limit,
-                    "ops policy queue reached local capacity, pausing intake for backpressure"
-                );
-            }
-
-            if queue.is_empty() {
-                if !rx_open {
-                    break;
-                }
-                match self.rx.recv().await {
-                    Some(first) => {
-                        queue.push_back(TimedOpsEnvelope {
-                            enqueued_at: Instant::now(),
-                            envelope: first,
-                        });
-                        next_eval = Instant::now() + reeval_interval;
-                    }
-                    None => {
-                        tracing::info!("ops batcher channel closed");
-                        rx_open = false;
-                    }
-                }
-                continue;
-            }
-
-            tokio::select! {
-                biased;
-                _ = tokio::time::sleep_until(next_eval) => {
-                    let cost_score = policy_engine.update_cost_score(self.base_fee_cache.latest());
-
-                    let fallback_age = queue
-                        .front()
-                        .map(|first| Instant::now().duration_since(first.enqueued_at).as_secs())
-                        .unwrap_or_default();
-
-                    let stats = match self
-                        .tracker
-                        .queued_backlog_stats_for_scope(BacklogScope::Ops)
-                        .await
-                    {
-                        Ok(stats) => stats,
-                        Err(err) => {
-                            tracing::warn!(error = %err, "failed to read queued backlog stats; using local fallback");
-                            BacklogUrgencyStats {
-                                queued_count: queue.len(),
-                                oldest_age_secs: fallback_age,
-                            }
-                        }
-                    };
-
-                    let decision = policy_engine.evaluate(stats, self.max_batch_size, cost_score);
-                    record_policy_metrics("ops", &decision);
-
-                    if !decision.should_send {
-                        if matches!(decision.reason, DecisionReason::NoBacklog) && !queue.is_empty()
-                        {
-                            let dropped = queue.len();
-                            tracing::warn!(
-                                dropped,
-                                "redis reports no queued backlog, dropping local ops queue entries to resync state"
-                            );
-                            queue.clear();
-                        }
-                        next_eval = Instant::now() + reeval_interval;
-                        continue;
-                    }
-
-                    let take_n = decision.target_batch_size.min(queue.len()).max(1);
-                    let batch: Vec<OpsEnvelope> = queue
-                        .drain(..take_n)
-                        .map(|timed| timed.envelope)
-                        .collect();
-                    self.submit_batch(batch).await;
-
-                    next_eval = Instant::now() + reeval_interval;
-                }
-                maybe_req = self.rx.recv(), if rx_open && queue.len() < self.local_queue_limit => {
-                    match maybe_req {
-                        Some(req) => {
-                            queue.push_back(TimedOpsEnvelope {
-                                enqueued_at: Instant::now(),
-                                envelope: req,
-                            });
-                        }
-                        None => {
-                            tracing::info!("ops batcher channel closed while policy batching");
-                            rx_open = false;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    async fn submit_batch(&self, batch: Vec<OpsEnvelope>) {
+    async fn submit_ops_batch(&self, batch: Vec<OpsEnvelope>) {
         if batch.is_empty() {
             return;
         }
@@ -310,5 +169,54 @@ impl OpsBatcherRunner {
                     .await;
             }
         }
+    }
+}
+
+impl PolicyBatchLoopRunner for OpsBatcherRunner {
+    type Envelope = OpsEnvelope;
+
+    fn batch_type(&self) -> &'static str {
+        "ops"
+    }
+
+    fn backlog_scope(&self) -> BacklogScope {
+        BacklogScope::Ops
+    }
+
+    fn max_batch_size(&self) -> usize {
+        self.max_batch_size
+    }
+
+    fn local_queue_limit(&self) -> usize {
+        self.local_queue_limit
+    }
+
+    fn batch_policy(&self) -> &BatchPolicyConfig {
+        &self.batch_policy
+    }
+
+    fn base_fee_cache(&self) -> &BaseFeeCache {
+        &self.base_fee_cache
+    }
+
+    fn tracker(&self) -> &RequestTracker {
+        &self.tracker
+    }
+
+    fn rx(&mut self) -> &mut mpsc::Receiver<Self::Envelope> {
+        &mut self.rx
+    }
+
+    async fn submit_batch(&self, batch: Vec<Self::Envelope>) {
+        self.submit_ops_batch(batch).await;
+    }
+
+    async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>) {
+        let dropped = queue.len();
+        tracing::warn!(
+            dropped,
+            "redis reports no queued backlog, dropping local ops queue entries to resync state"
+        );
+        queue.clear();
     }
 }

@@ -1,16 +1,15 @@
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{collections::VecDeque, sync::Arc};
 
 use crate::{
     RequestTracker,
-    batch_policy::{
-        BacklogUrgencyStats, BaseFeeCache, BatchPolicyEngine, DecisionReason, record_policy_metrics,
-    },
+    batch_policy::BaseFeeCache,
     config::BatchPolicyConfig,
     error::parse_contract_error,
     metrics::{
         METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
         METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
     },
+    policy_batcher::{PolicyBatchLoopRunner, TimedEnvelope},
     request_tracker::BacklogScope,
 };
 use alloy::{
@@ -32,11 +31,6 @@ pub struct CreateBatcherHandle {
 pub struct CreateReqEnvelope {
     pub id: String,
     pub req: CreateAccountRequest,
-}
-
-struct TimedCreateReqEnvelope {
-    enqueued_at: Instant,
-    envelope: CreateReqEnvelope,
 }
 
 pub struct CreateBatcherRunner {
@@ -72,152 +66,15 @@ impl CreateBatcherRunner {
 
     pub async fn run(mut self) {
         if self.batch_policy.enabled {
-            self.run_policy().await;
+            self.run_policy_loop().await;
         } else {
-            self.run_legacy().await;
-        }
-    }
-
-    async fn run_legacy(&mut self) {
-        let window = Duration::from_millis(self.batch_policy.reeval_ms);
-        loop {
-            let Some(first) = self.rx.recv().await else {
-                tracing::info!("create batcher channel closed");
-                return;
-            };
-
-            let mut batch = vec![first];
-            let deadline = Instant::now() + window;
-
-            loop {
-                if batch.len() >= self.max_batch_size {
-                    break;
-                }
-                match tokio::time::timeout_at(deadline, self.rx.recv()).await {
-                    Ok(Some(req)) => batch.push(req),
-                    Ok(None) => {
-                        tracing::info!("create batcher channel closed while batching");
-                        break;
-                    }
-                    Err(_) => break, // Timeout expired
-                }
-            }
-
-            self.submit_batch(batch).await;
-        }
-    }
-
-    async fn run_policy(&mut self) {
-        let mut policy_engine = BatchPolicyEngine::new(self.batch_policy.clone());
-        let reeval_interval = Duration::from_millis(self.batch_policy.reeval_ms);
-
-        let mut queue: VecDeque<TimedCreateReqEnvelope> = VecDeque::new();
-        let mut next_eval = Instant::now() + reeval_interval;
-        let mut rx_open = true;
-
-        while rx_open || !queue.is_empty() {
-            if queue.len() >= self.local_queue_limit {
-                tracing::warn!(
-                    queue_len = queue.len(),
-                    local_queue_limit = self.local_queue_limit,
-                    "create policy queue reached local capacity, pausing intake for backpressure"
-                );
-            }
-
-            if queue.is_empty() {
-                if !rx_open {
-                    break;
-                }
-                match self.rx.recv().await {
-                    Some(first) => {
-                        queue.push_back(TimedCreateReqEnvelope {
-                            enqueued_at: Instant::now(),
-                            envelope: first,
-                        });
-                        next_eval = Instant::now() + reeval_interval;
-                    }
-                    None => {
-                        tracing::info!("create batcher channel closed");
-                        rx_open = false;
-                    }
-                }
-                continue;
-            }
-
-            tokio::select! {
-                biased;
-                _ = tokio::time::sleep_until(next_eval) => {
-                    let cost_score = policy_engine.update_cost_score(self.base_fee_cache.latest());
-
-                    let fallback_age = queue
-                        .front()
-                        .map(|first| Instant::now().duration_since(first.enqueued_at).as_secs())
-                        .unwrap_or_default();
-
-                    let stats = match self
-                        .tracker
-                        .queued_backlog_stats_for_scope(BacklogScope::Create)
-                        .await
-                    {
-                        Ok(stats) => stats,
-                        Err(err) => {
-                            tracing::warn!(error = %err, "failed to read queued backlog stats; using local fallback");
-                            BacklogUrgencyStats {
-                                queued_count: queue.len(),
-                                oldest_age_secs: fallback_age,
-                            }
-                        }
-                    };
-
-                    let decision = policy_engine.evaluate(stats, self.max_batch_size, cost_score);
-                    record_policy_metrics("create", &decision);
-
-                    if !decision.should_send {
-                        if matches!(decision.reason, DecisionReason::NoBacklog) && !queue.is_empty()
-                        {
-                            let dropped = queue.len();
-                            let inflight_removed =
-                                self.drop_local_queue_and_inflight(&mut queue).await;
-                            tracing::warn!(
-                                dropped,
-                                inflight_removed,
-                                "redis reports no queued backlog, dropping local create queue entries to resync state"
-                            );
-                        }
-                        next_eval = Instant::now() + reeval_interval;
-                        continue;
-                    }
-
-                    let take_n = decision.target_batch_size.min(queue.len()).max(1);
-                    let batch: Vec<CreateReqEnvelope> = queue
-                        .drain(..take_n)
-                        .map(|timed| timed.envelope)
-                        .collect();
-                    self.submit_batch(batch).await;
-
-                    next_eval = Instant::now() + reeval_interval;
-                }
-                maybe_req = self.rx.recv(), if rx_open && queue.len() < self.local_queue_limit => {
-                    match maybe_req {
-                        Some(req) => {
-                            queue.push_back(TimedCreateReqEnvelope {
-                                enqueued_at: Instant::now(),
-                                envelope: req,
-                            });
-                        }
-                        None => {
-                            tracing::info!("create batcher channel closed while policy batching");
-                            rx_open = false;
-                        }
-                    }
-                }
-            }
+            self.run_legacy_loop().await;
         }
     }
 
     async fn drop_local_queue_and_inflight(
         &self,
-        queue: &mut VecDeque<TimedCreateReqEnvelope>,
+        queue: &mut VecDeque<TimedEnvelope<CreateReqEnvelope>>,
     ) -> usize {
         let mut inflight_addresses = Vec::new();
         for timed in queue.drain(..) {
@@ -231,7 +88,7 @@ impl CreateBatcherRunner {
         removed
     }
 
-    async fn submit_batch(&self, batch: Vec<CreateReqEnvelope>) {
+    async fn submit_create_batch(&self, batch: Vec<CreateReqEnvelope>) {
         if batch.is_empty() {
             return;
         }
@@ -325,5 +182,55 @@ impl CreateBatcherRunner {
                 self.tracker.remove_inflight(&all_addresses).await;
             }
         }
+    }
+}
+
+impl PolicyBatchLoopRunner for CreateBatcherRunner {
+    type Envelope = CreateReqEnvelope;
+
+    fn batch_type(&self) -> &'static str {
+        "create"
+    }
+
+    fn backlog_scope(&self) -> BacklogScope {
+        BacklogScope::Create
+    }
+
+    fn max_batch_size(&self) -> usize {
+        self.max_batch_size
+    }
+
+    fn local_queue_limit(&self) -> usize {
+        self.local_queue_limit
+    }
+
+    fn batch_policy(&self) -> &BatchPolicyConfig {
+        &self.batch_policy
+    }
+
+    fn base_fee_cache(&self) -> &BaseFeeCache {
+        &self.base_fee_cache
+    }
+
+    fn tracker(&self) -> &RequestTracker {
+        &self.tracker
+    }
+
+    fn rx(&mut self) -> &mut mpsc::Receiver<Self::Envelope> {
+        &mut self.rx
+    }
+
+    async fn submit_batch(&self, batch: Vec<Self::Envelope>) {
+        self.submit_create_batch(batch).await;
+    }
+
+    async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>) {
+        let dropped = queue.len();
+        let inflight_removed = self.drop_local_queue_and_inflight(queue).await;
+        tracing::warn!(
+            dropped,
+            inflight_removed,
+            "redis reports no queued backlog, dropping local create queue entries to resync state"
+        );
     }
 }
