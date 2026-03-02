@@ -516,7 +516,7 @@ async fn test_handle_registry_event_root_match() {
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    let _tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     // Build a temporary tree to compute the expected root after inserting leaf 1
     let tmp_path = temp_cache_path();
@@ -528,7 +528,8 @@ async fn test_handle_registry_event_root_match() {
     let expected_root = expected_tree.root().await;
     cleanup(&tmp_path);
 
-    let mut committer = EventsCommitter::new(db);
+    let versioned_tree = VersionedTreeState::new(tree_state, 1000);
+    let mut committer = EventsCommitter::new(db).with_versioned_tree(versioned_tree, None);
 
     let create_event = BlockchainEvent {
         block_number: 50,

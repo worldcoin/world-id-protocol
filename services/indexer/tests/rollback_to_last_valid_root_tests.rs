@@ -62,7 +62,7 @@ async fn test_empty_db_returns_none() {
     let (_anvil, registry, test_db) = setup().await;
     let db = &test_db.db;
 
-    let result = rollback_to_last_valid_root(db, &registry, &make_versioned_tree())
+    let result = rollback_to_last_valid_root(db, registry.provider(), *registry.address(), &make_versioned_tree())
         .await
         .expect("rollback_to_last_valid_root should not error on empty DB");
 
@@ -101,7 +101,7 @@ async fn test_all_invalid_roots_returns_none() {
     assert_account_count(db.pool(), 1).await;
     assert_root_count(db.pool(), 1).await;
 
-    let result = rollback_to_last_valid_root(db, &registry, &make_versioned_tree())
+    let result = rollback_to_last_valid_root(db, registry.provider(), *registry.address(), &make_versioned_tree())
         .await
         .expect("should not error");
 
@@ -131,7 +131,7 @@ async fn test_rolls_back_to_last_valid_root() {
             .wallet(alloy::network::EthereumWallet::from(deployer))
             .connect_http(anvil.endpoint().parse().unwrap()),
     );
-    onchain_registry
+    let receipt = onchain_registry
         .createAccount(
             helpers::common::RECOVERY_ADDRESS,
             vec![Address::from([1u8; 20])],
@@ -151,12 +151,27 @@ async fn test_rolls_back_to_last_valid_root() {
         .await
         .expect("currentRoot failed");
 
-    // Batch 1: insert a real root that the chain knows.
+    // The RootRecorded log for this tx is the last log in the receipt.
+    // log_index is global within the block.
+    let root_log = receipt
+        .inner
+        .logs()
+        .iter()
+        .rev()
+        .find(|l| {
+            use alloy::sol_types::SolEvent;
+            l.topics().first() == Some(&world_id_core::world_id_registry::WorldIdRegistry::RootRecorded::SIGNATURE_HASH)
+        })
+        .expect("RootRecorded log not in receipt");
+    let valid_block = receipt.block_number.expect("missing block number");
+    let valid_log_index = root_log.log_index.expect("missing log index");
+
+    // Batch 1: insert a real root that the chain knows, using the actual on-chain block/log_index.
     let mut committer = EventsCommitter::new(db);
     committer
         .handle_event(mock_account_created_event(
-            100,
-            0,
+            valid_block,
+            valid_log_index.saturating_sub(1),
             1,
             Address::ZERO,
             U256::from(1),
@@ -165,18 +180,18 @@ async fn test_rolls_back_to_last_valid_root() {
         .unwrap();
     committer
         .handle_event(mock_root_recorded_event(
-            100,
-            1,
+            valid_block,
+            valid_log_index,
             valid_root,
             U256::from(100),
         ))
         .await
         .unwrap();
 
-    // Batch 2: insert an account with a fabricated root (simulates a reorged block).
+    // Batch 2: insert an account with a fabricated root at a fake block (simulates a reorged block).
     committer
         .handle_event(mock_account_created_event(
-            101,
+            valid_block + 1,
             0,
             2,
             Address::ZERO,
@@ -186,7 +201,7 @@ async fn test_rolls_back_to_last_valid_root() {
         .unwrap();
     committer
         .handle_event(mock_root_recorded_event(
-            101,
+            valid_block + 1,
             1,
             U256::from(0xdeadbeef_u64),
             U256::from(101),
@@ -197,15 +212,15 @@ async fn test_rolls_back_to_last_valid_root() {
     assert_account_count(db.pool(), 2).await;
     assert_root_count(db.pool(), 2).await;
 
-    let result = rollback_to_last_valid_root(db, &registry, &make_versioned_tree())
+    let result = rollback_to_last_valid_root(db, registry.provider(), *registry.address(), &make_versioned_tree())
         .await
         .expect("rollback_to_last_valid_root failed");
 
     // Should have rolled back to the first batch's root event.
     assert!(result.is_some(), "expected a rollback target");
     let target = result.unwrap();
-    assert_eq!(target.block_number, 100);
-    assert_eq!(target.log_index, 1);
+    assert_eq!(target.block_number, valid_block);
+    assert_eq!(target.log_index, valid_log_index);
 
     // Second batch data should be gone.
     assert_account_count(db.pool(), 1).await;
@@ -228,7 +243,7 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
             .wallet(alloy::network::EthereumWallet::from(deployer))
             .connect_http(anvil.endpoint().parse().unwrap()),
     );
-    onchain_registry
+    let receipt = onchain_registry
         .createAccount(
             helpers::common::RECOVERY_ADDRESS,
             vec![Address::from([2u8; 20])],
@@ -244,11 +259,24 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
 
     let valid_root = onchain_registry.currentRoot().call().await.unwrap();
 
+    let root_log = receipt
+        .inner
+        .logs()
+        .iter()
+        .rev()
+        .find(|l| {
+            use alloy::sol_types::SolEvent;
+            l.topics().first() == Some(&world_id_core::world_id_registry::WorldIdRegistry::RootRecorded::SIGNATURE_HASH)
+        })
+        .expect("RootRecorded log not in receipt");
+    let valid_block = receipt.block_number.expect("missing block number");
+    let valid_log_index = root_log.log_index.expect("missing log index");
+
     let mut committer = EventsCommitter::new(db);
     committer
         .handle_event(mock_account_created_event(
-            200,
-            0,
+            valid_block,
+            valid_log_index.saturating_sub(1),
             1,
             Address::ZERO,
             U256::from(1),
@@ -257,8 +285,8 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
         .unwrap();
     committer
         .handle_event(mock_root_recorded_event(
-            200,
-            1,
+            valid_block,
+            valid_log_index,
             valid_root,
             U256::from(200),
         ))
@@ -267,7 +295,7 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
 
     assert_account_count(db.pool(), 1).await;
 
-    let result = rollback_to_last_valid_root(db, &registry, &make_versioned_tree())
+    let result = rollback_to_last_valid_root(db, registry.provider(), *registry.address(), &make_versioned_tree())
         .await
         .expect("should not fail");
 
@@ -277,8 +305,8 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
     assert_eq!(
         target,
         WorldIdRegistryEventId {
-            block_number: 200,
-            log_index: 1
+            block_number: valid_block,
+            log_index: valid_log_index,
         }
     );
 

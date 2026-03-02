@@ -481,7 +481,8 @@ pub async fn process_registry_events(
                         );
                         match rollback_to_last_valid_root(
                             db,
-                            &blockchain.world_id_registry(),
+                            &http_provider,
+                            registry_address,
                             &versioned_tree,
                         )
                         .await

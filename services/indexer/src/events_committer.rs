@@ -63,16 +63,15 @@ impl<'a> EventsCommitter<'a> {
     ) -> IndexerResult<bool> {
         self.buffer_event(event);
 
-        if let RegistryEvent::RootRecorded(ref root_recorded) =
+        if let RegistryEvent::RootRecorded(_) =
             self.buffered_events.last().expect("just pushed").details
         {
-            let root_recorded = root_recorded.clone();
             let block_number = self
                 .buffered_events
                 .last()
                 .expect("just pushed")
                 .block_number;
-            self.commit_events(&root_recorded, block_number).await?;
+            self.commit_events().await?;
             if let Some(tree) = &self.versioned_tree {
                 tree.prune(block_number).await;
             }
@@ -87,47 +86,8 @@ impl<'a> EventsCommitter<'a> {
         self.buffered_events.push(event);
     }
 
-    async fn commit_events(
-        &mut self,
-        root_recorded: &RootRecordedEvent,
-        block_number: u64,
-    ) -> IndexerResult<()> {
+    async fn commit_events(&mut self) -> IndexerResult<()> {
         tracing::info!("committing events to DB");
-
-        // Check root validity on-chain before touching the DB.
-        if let Some(registry) = &self.registry {
-            let root = root_recorded.root;
-            let valid = registry
-                .isValidRoot(root)
-                .call()
-                .await
-                .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
-
-            if !valid {
-                return Err(IndexerError::ReorgDetected {
-                    block_number,
-                    reason: format!(
-                        "root 0x{:x} from block {} is not valid on-chain",
-                        root, block_number
-                    ),
-                });
-            }
-
-            tracing::info!(
-                root = %format!("0x{:x}", root),
-                block_number,
-                "root validated on-chain"
-            );
-        }
-
-        self.commit_to_db().await?;
-
-        Ok(())
-    }
-
-    async fn commit_to_db(&mut self) -> IndexerResult<()> {
-        let batch_size = self.buffered_events.len();
-        let started = std::time::Instant::now();
 
         let mut tx = self.db.transaction(IsolationLevel::Serializable).await?;
 
@@ -200,11 +160,6 @@ impl<'a> EventsCommitter<'a> {
             });
         }
 
-        tx.commit().await?;
-
-        let latency_ms = started.elapsed().as_millis() as f64;
-        crate::metrics::record_commit(batch_size, latency_ms);
-
         if let Some(tree) = &self.versioned_tree {
             for event in self.buffered_events.iter() {
                 apply_event_to_tree(tree, event).await?;
@@ -232,6 +187,8 @@ impl<'a> EventsCommitter<'a> {
                 }
             }
         }
+
+        tx.commit().await?;
 
         self.buffered_events.clear();
 

@@ -1,5 +1,10 @@
-use alloy::providers::DynProvider;
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use alloy::{
+    primitives::Address,
+    providers::{DynProvider, Provider},
+    rpc::types::Filter,
+    sol_types::SolEvent,
+};
+use world_id_core::world_id_registry::WorldIdRegistry;
 
 use crate::{
     db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
@@ -8,18 +13,19 @@ use crate::{
     tree::VersionedTreeState,
 };
 
-/// Walk backwards through all `RootRecorded` events in the DB, calling
-/// `isValidRoot` on each, and roll back to the first one that is still valid
-/// on-chain.
+/// Walk backwards through all `RootRecorded` events in the DB and find the
+/// most recent one that still exists on-chain (its log is still present at the
+/// same block/log_index).
 ///
 /// Returns the event ID rolled back to, or `None` if no `RootRecorded` events
-/// exist or none are valid (in which case nothing is rolled back).
+/// exist or none are confirmed on-chain (in which case nothing is rolled back).
 pub async fn rollback_to_last_valid_root(
     db: &DB,
-    registry: &WorldIdRegistryInstance<DynProvider>,
+    provider: &DynProvider,
+    registry_address: Address,
     versioned_tree: &VersionedTreeState,
 ) -> IndexerResult<Option<WorldIdRegistryEventId>> {
-    let Some(target_id) = find_last_valid_root(db, registry).await? else {
+    let Some(target_id) = find_last_valid_root(db, provider, registry_address).await? else {
         tracing::warn!("no valid root found on-chain, nothing to roll back to");
         return Ok(None);
     };
@@ -35,7 +41,8 @@ pub async fn rollback_to_last_valid_root(
 
 async fn find_last_valid_root(
     db: &DB,
-    registry: &WorldIdRegistryInstance<DynProvider>,
+    provider: &DynProvider,
+    registry_address: Address,
 ) -> IndexerResult<Option<WorldIdRegistryEventId>> {
     const BATCH_SIZE: u64 = 100;
 
@@ -58,13 +65,22 @@ async fn find_last_valid_root(
         }
 
         for event in &batch {
-            let valid = registry
-                .isValidRoot(event.details.root)
-                .call()
+            let filter = Filter::new()
+                .address(registry_address)
+                .event_signature(WorldIdRegistry::RootRecorded::SIGNATURE_HASH)
+                .from_block(event.block_number)
+                .to_block(event.block_number);
+
+            let logs = provider
+                .get_logs(&filter)
                 .await
                 .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
 
-            if valid {
+            let exists = logs
+                .iter()
+                .any(|log| log.log_index == Some(event.log_index));
+
+            if exists {
                 return Ok(Some(WorldIdRegistryEventId {
                     block_number: event.block_number,
                     log_index: event.log_index,
@@ -73,8 +89,9 @@ async fn find_last_valid_root(
 
             tracing::info!(
                 block_number = event.block_number,
+                log_index = event.log_index,
                 root = %format!("0x{:x}", event.details.root),
-                "root is no longer valid on-chain, skipping"
+                "RootRecorded log not found on-chain at expected position, skipping"
             );
         }
 
