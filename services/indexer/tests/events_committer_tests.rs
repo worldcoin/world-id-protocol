@@ -163,24 +163,17 @@ async fn test_multiple_event_batches() {
 
     let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
-    // First batch
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let root1_val = compute_root_after_events(&[event1.clone()]).await;
-    let root1 = mock_root_recorded_event(100, 1, root1_val, U256::from(1000));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
+    let roots = compute_batch_roots(&[&[event1.clone()], &[event2.clone()]]).await;
+    let root1 = mock_root_recorded_event(100, 1, roots[0], U256::from(1000));
+    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
-
-    // Second batch
-    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    // Root is cumulative: committer's tree already has leaf 1; compute both batches together.
-    let roots = compute_batch_roots(&[&[event1.clone()], &[event2.clone()]]).await;
-    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
-
     committer.handle_event(event2).await.unwrap();
     committer.handle_event(root2).await.unwrap();
 
-    // Verify both accounts were created
     let count = count_accounts(db.pool()).await.unwrap();
     assert_eq!(count, 2, "Both batches should be committed");
 
@@ -366,20 +359,14 @@ async fn test_buffer_cleared_after_commit() {
 
     let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
-    // First batch
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let root1_val = compute_root_after_events(&[event1.clone()]).await;
-    let root1 = mock_root_recorded_event(100, 1, root1_val, U256::from(1000));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
+    let roots = compute_batch_roots(&[&[event1.clone()], &[event2.clone()]]).await;
+    let root1 = mock_root_recorded_event(100, 1, roots[0], U256::from(1000));
+    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
-
-    // Second batch - buffer should be empty, so only this event should be committed
-    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    // Root is cumulative: committer's tree already has leaf 1; compute both batches together.
-    let roots = compute_batch_roots(&[&[event1.clone()], &[event2.clone()]]).await;
-    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
-
     committer.handle_event(event2).await.unwrap();
     committer.handle_event(root2).await.unwrap();
 

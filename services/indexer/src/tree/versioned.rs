@@ -202,22 +202,22 @@ impl VersionedTreeState {
                 .collect();
 
             for parent_offset in dirty_parents {
-                let left_offset = parent_offset * 2;
-                let right_offset = left_offset + 1;
+                let childs_left = parent_offset * 2;
+                let childs_right = childs_left + 1;
 
                 // `get_node` uses depth-from-root convention:
                 //   depth_from_root = depth - level_from_leaves
                 let node_depth_from_root = depth - level;
 
                 let left = cache
-                    .get(&(level, left_offset))
+                    .get(&(level, childs_left))
                     .copied()
-                    .unwrap_or_else(|| tree.get_node(node_depth_from_root, left_offset));
+                    .unwrap_or_else(|| tree.get_node(node_depth_from_root, childs_left));
 
                 let right = cache
-                    .get(&(level, right_offset))
+                    .get(&(level, childs_right))
                     .copied()
-                    .unwrap_or_else(|| tree.get_node(node_depth_from_root, right_offset));
+                    .unwrap_or_else(|| tree.get_node(node_depth_from_root, childs_right));
 
                 let parent = PoseidonHasher::hash_node(&left, &right);
                 cache.insert((level + 1, parent_offset), parent);

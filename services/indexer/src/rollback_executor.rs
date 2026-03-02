@@ -7,6 +7,7 @@ use alloy::{
 use world_id_core::world_id_registry::WorldIdRegistry;
 
 use crate::{
+    blockchain::RegistryEvent,
     db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
@@ -76,9 +77,18 @@ async fn find_last_valid_root(
                 .await
                 .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
 
-            let exists = logs
-                .iter()
-                .any(|log| log.log_index == Some(event.log_index));
+            let exists = logs.iter().any(|log| {
+                if log.log_index != Some(event.log_index) {
+                    return false;
+                }
+                match RegistryEvent::decode(log) {
+                    Ok(decoded) => match &decoded.details {
+                        RegistryEvent::RootRecorded(root_ev) => root_ev.root == event.details.root,
+                        _ => false,
+                    },
+                    Err(_) => false,
+                }
+            });
 
             if exists {
                 return Ok(Some(WorldIdRegistryEventId {
