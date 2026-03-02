@@ -49,7 +49,7 @@ pub mod oprf;
 
 /// Contains the session nullifier type for session proof responses.
 pub mod nullifier;
-pub use nullifier::SessionNullifier;
+pub use nullifier::{Nullifier, SessionNullifier};
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;

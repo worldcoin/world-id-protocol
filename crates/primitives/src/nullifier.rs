@@ -1,4 +1,4 @@
-use std::{ops::Deref, str::FromStr};
+use std::{fmt::Display, ops::Deref, str::FromStr};
 
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
@@ -21,8 +21,7 @@ impl Nullifier {
     const ENCODING_LENGTH: usize = 64;
 
     /// Initializes a new [`Nullifier`] from a [`FieldElement`]
-    #[expect(clippy::missing_const_for_fn)]
-    pub fn new(nullifier: FieldElement) -> Self {
+    pub const fn new(nullifier: FieldElement) -> Self {
         Self { inner: nullifier }
     }
 
@@ -132,6 +131,12 @@ impl<'de> Deserialize<'de> for Nullifier {
     }
 }
 
+impl Display for Nullifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_canonical_string().fmt(f)
+    }
+}
+
 impl From<Nullifier> for FieldElement {
     fn from(value: Nullifier) -> Self {
         value.inner
@@ -141,6 +146,12 @@ impl From<Nullifier> for FieldElement {
 impl From<FieldElement> for Nullifier {
     fn from(value: FieldElement) -> Self {
         Self { inner: value }
+    }
+}
+
+impl From<Nullifier> for U256 {
+    fn from(value: Nullifier) -> Self {
+        value.as_number()
     }
 }
 
@@ -314,8 +325,11 @@ mod nullifier_tests {
     fn canonical_string_roundtrip() {
         let nullifier = nil(42);
         let canonical = nullifier.to_canonical_string();
-        let recovered = Nullifier::from_canonical_string(canonical).unwrap();
+        let recovered = Nullifier::from_canonical_string(canonical.clone()).unwrap();
         assert_eq!(nullifier, recovered);
+
+        let to_string_representation = nullifier.to_string();
+        assert_eq!(to_string_representation, canonical);
     }
 
     #[test]

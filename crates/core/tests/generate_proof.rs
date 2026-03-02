@@ -336,8 +336,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let nullifier = authenticator
         .generate_nullifier(&proof_request, inclusion_proof, key_set)
         .await?;
-    let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
-    assert_ne!(raw_nullifier, FieldElement::ZERO);
+    assert_ne!(nullifier.nullifier, FieldElement::ZERO);
 
     // Generate session_id_r_seed for proof generation
     let session_id_r_seed = FieldElement::random(&mut rng); // Normally the authenticator would provide this from cache or (in the future) OPRF Nodes
@@ -355,7 +354,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )?;
     info!("generated uniqueness proof");
 
-    assert_eq!(response_item.nullifier, Some(raw_nullifier));
+    assert_eq!(response_item.nullifier, Some(nullifier.nullifier));
 
     // verify proof with verifier contract
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =

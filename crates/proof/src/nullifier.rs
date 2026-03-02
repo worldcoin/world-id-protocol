@@ -11,6 +11,7 @@ use taceo_oprf::{
 use world_id_primitives::{
     FieldElement, ProofRequest, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
+    nullifier::Nullifier,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
 };
 
@@ -24,8 +25,12 @@ use crate::{
 pub struct OprfNullifier {
     /// The raw inputs to the Query Proof circuit
     pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
-    /// The result of the distributed OPRF protocol, including the final nullifier.
+    /// The result of the distributed OPRF protocol.
     pub verifiable_oprf_output: VerifiableOprfOutput,
+    /// The final nullifier value to be used in a Proof.
+    ///
+    /// This is equal to [`VerifiableOprfOutput::output`] and is already unblinded.
+    pub nullifier: Nullifier,
 }
 
 impl OprfNullifier {
@@ -118,9 +123,12 @@ impl OprfNullifier {
         )
         .await?;
 
+        let nullifier: Nullifier = FieldElement::from(verifiable_oprf_output.output).into();
+
         Ok(Self {
             query_proof_input,
             verifiable_oprf_output,
+            nullifier,
         })
     }
 }
