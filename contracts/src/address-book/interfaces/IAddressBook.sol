@@ -53,11 +53,7 @@ interface IAddressBook {
      * @notice Emitted when an address is registered for a period/action context.
      */
     event AddressRegistered(
-        bytes32 indexed epochId,
-        uint32 indexed period,
-        uint256 action,
-        address account,
-        uint256 nullifier
+        bytes32 indexed epochId, uint32 indexed period, uint256 action, address account, uint256 nullifier
     );
 
     /**

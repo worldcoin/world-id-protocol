@@ -253,16 +253,14 @@ contract AddressBookTest is Test {
         uint32 currentPeriod = addressBook.getCurrentPeriod();
         IAddressBook.EpochData memory epoch = _epoch();
 
-        uint256 epochPeriodEnd = uint256(addressBook.getPeriodStartTimestamp())
-            + (uint256(currentPeriod) + 1) * uint256(addressBook.getPeriodLengthSeconds());
+        uint256 epochPeriodEnd = uint256(addressBook.getPeriodStartTimestamp()) + (uint256(currentPeriod) + 1)
+            * uint256(addressBook.getPeriodLengthSeconds());
 
         IAddressBook.RegistrationProof memory proof = _proof(445);
         proof.expiresAtMin = uint64(epochPeriodEnd - 1);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAddressBook.ExpirationBeforeEpochEnd.selector, proof.expiresAtMin, epochPeriodEnd
-            )
+            abi.encodeWithSelector(IAddressBook.ExpirationBeforeEpochEnd.selector, proof.expiresAtMin, epochPeriodEnd)
         );
         vm.prank(user1);
         addressBook.register(user1, currentPeriod, epoch, proof);
