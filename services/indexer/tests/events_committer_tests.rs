@@ -173,10 +173,9 @@ async fn test_multiple_event_batches() {
 
     // Second batch
     let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    // Root after second batch must account for both leaves applied cumulatively to the same tree
-    let event1_again = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let root2_val = compute_root_after_events(&[event1_again, event2.clone()]).await;
-    let root2 = mock_root_recorded_event(101, 1, root2_val, U256::from(2000));
+    // Root is cumulative: committer's tree already has leaf 1; compute both batches together.
+    let roots = compute_batch_roots(&[&[event1.clone()], &[event2.clone()]]).await;
+    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
 
     committer.handle_event(event2).await.unwrap();
     committer.handle_event(root2).await.unwrap();
@@ -223,6 +222,11 @@ async fn test_authenticator_inserted() {
         event_count, 2,
         "AccountCreated and AuthenticatorInserted should be recorded"
     );
+
+    // Verify authenticator was inserted at index 0 (pubkey_id=0)
+    let account = db.accounts().get_account(leaf_index).await.unwrap().unwrap();
+    assert_eq!(account.authenticator_pubkeys[0], Some(U256::from(200)));
+    assert_eq!(account.offchain_signer_commitment, U256::from(300));
 }
 
 /// Test AuthenticatorRemoved event
@@ -259,6 +263,12 @@ async fn test_authenticator_removed() {
         event_count, 2,
         "AccountCreated and AuthenticatorRemoved should be recorded"
     );
+
+    // Verify authenticator slot 0 was nulled out
+    let account = db.accounts().get_account(leaf_index).await.unwrap().unwrap();
+    assert_eq!(account.authenticator_addresses[0], None);
+    assert_eq!(account.authenticator_pubkeys[0], None);
+    assert_eq!(account.offchain_signer_commitment, U256::from(300));
 }
 
 /// Test AccountRecovered event
@@ -294,6 +304,13 @@ async fn test_account_recovered() {
         event_count, 2,
         "AccountCreated and AccountRecovered should be recorded"
     );
+
+    // Verify account was recovered: single authenticator at slot 0 with new values
+    let account = db.accounts().get_account(leaf_index).await.unwrap().unwrap();
+    assert_eq!(account.authenticator_addresses.len(), 1);
+    assert_eq!(account.authenticator_addresses[0], Some(Address::ZERO));
+    assert_eq!(account.authenticator_pubkeys[0], Some(U256::from(200)));
+    assert_eq!(account.offchain_signer_commitment, U256::from(300));
 }
 
 /// Test that transaction rollback works on error
@@ -359,10 +376,9 @@ async fn test_buffer_cleared_after_commit() {
 
     // Second batch - buffer should be empty, so only this event should be committed
     let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    // The committer's tree already has leaf 1 applied; compute root with both leaves
-    let event1_for_root = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let root2_val = compute_root_after_events(&[event1_for_root, event2.clone()]).await;
-    let root2 = mock_root_recorded_event(101, 1, root2_val, U256::from(2000));
+    // Root is cumulative: committer's tree already has leaf 1; compute both batches together.
+    let roots = compute_batch_roots(&[&[event1.clone()], &[event2.clone()]]).await;
+    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
 
     committer.handle_event(event2).await.unwrap();
     committer.handle_event(root2).await.unwrap();
