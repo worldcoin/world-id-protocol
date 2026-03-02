@@ -8,14 +8,7 @@ use alloy::{
     providers::{DynProvider, Provider},
 };
 
-use crate::{
-    config::BatchPolicyConfig,
-    metrics::{
-        METRICS_BATCH_POLICY_COST_SCORE, METRICS_BATCH_POLICY_DEFER,
-        METRICS_BATCH_POLICY_FORCE_SEND, METRICS_BATCH_POLICY_TARGET_SIZE,
-        METRICS_BATCH_POLICY_URGENCY_SCORE,
-    },
-};
+use crate::{config::BatchPolicyConfig, metrics};
 
 /// Aggregated queued backlog pressure from Redis.
 #[derive(Debug, Clone, Copy, Default)]
@@ -272,24 +265,19 @@ impl BatchPolicyEngine {
 
 /// Emits policy metrics for a decision.
 pub fn record_policy_metrics(batch_type: &'static str, decision: &PolicyDecision) {
-    ::metrics::histogram!(METRICS_BATCH_POLICY_COST_SCORE, "type" => batch_type)
-        .record(decision.cost_score);
-    ::metrics::histogram!(METRICS_BATCH_POLICY_URGENCY_SCORE, "type" => batch_type)
-        .record(decision.urgency_score);
-    ::metrics::histogram!(METRICS_BATCH_POLICY_TARGET_SIZE, "type" => batch_type)
-        .record(decision.target_batch_size as f64);
+    metrics::record_policy_scores(
+        batch_type,
+        decision.cost_score,
+        decision.urgency_score,
+        decision.target_batch_size,
+    );
 
     if decision.force_send {
-        ::metrics::counter!(METRICS_BATCH_POLICY_FORCE_SEND, "type" => batch_type).increment(1);
+        metrics::increment_policy_force_send(batch_type);
     }
 
     if !decision.should_send {
-        ::metrics::counter!(
-            METRICS_BATCH_POLICY_DEFER,
-            "type" => batch_type,
-            "reason" => decision.reason.as_str()
-        )
-        .increment(1);
+        metrics::increment_policy_defer(batch_type, decision.reason.as_str());
     }
 }
 
