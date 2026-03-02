@@ -302,7 +302,12 @@ impl From<(FieldElement, FieldElement)> for SessionNullifier {
 }
 
 #[cfg(test)]
-mod tests {
+mod nullifier_tests {
+    use super::*;
+}
+
+#[cfg(test)]
+mod session_nullifier_tests {
     use super::*;
 
     fn test_field_element(value: u64) -> FieldElement {
